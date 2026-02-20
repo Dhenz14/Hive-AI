@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}💎 The Gold Vein Map{% endblock %}
+
+{% block extra_css %}
+<style>
+    .filters-bar {
+        display: flex;
+        gap: 1rem;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        margin-bottom: 1.5rem;
+    }
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+    .filter-group label {
+        font-size: 0.8rem;
+        color: #b87333;
+        text-transform: uppercase;
+        font-family: 'MedievalSharp', cursive;
+        letter-spacing: 0.5px;
+    }
+    .filter-group select,
+    .filter-group input[type="text"],
+    .filter-group input[type="number"] {
+        padding: 0.5rem 0.8rem;
+        background: #1a1008;
+        border: 2px solid #5c3a1e;
+        border-radius: 4px;
+        color: #d4b896;
+        font-family: 'Crimson Text', serif;
+        font-size: 0.9rem;
+        outline: none;
+        width: auto;
+        min-width: 160px;
+    }
+    .filter-group select:focus,
+    .filter-group input:focus {
+        border-color: #cd7f32;
+        box-shadow: 0 0 8px rgba(205,127,50,0.3);
+    }
+    .filter-group select option {
+        background: #1a1008;
+        color: #d4b896;
+    }
+    .confidence-bar {
+        display: inline-block;
+        height: 8px;
+        border-radius: 4px;
+        margin-right: 0.5rem;
+        vertical-align: middle;
+    }
+    .confidence-high { background: linear-gradient(90deg, #6b8e23, #98d946); }
+    .confidence-mid { background: linear-gradient(90deg, #b8860b, #ffd700); }
+    .confidence-low { background: linear-gradient(90deg, #8b2500, #cd5c5c); }
+    .source-link {
+        font-size: 0.75rem;
+        color: #6b5a3e;
+        word-break: break-all;
+    }
+    .source-link a {
+        color: #8b7355;
+    }
+    .source-link a:hover {
+        color: #cd7f32;
+    }
+    .triple-row:hover {
+        background: rgba(205, 127, 50, 0.05);
+    }
+    .subject-cell {
+        color: #ffd700;
+        font-weight: 600;
+    }
+    .predicate-cell {
+        color: #cd7f32;
+        font-style: italic;
+    }
+    .object-cell {
+        color: #b87333;
+    }
+    .results-info {
+        font-size: 0.85rem;
+        color: #8b7355;
+        margin-bottom: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>💎 The Gold Vein Map</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">{{ stats.total }}</div>
+        <div class="label">Knowledge Triples</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.unique_subjects }}</div>
+        <div class="label">Unique Entities</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.unique_predicates }}</div>
+        <div class="label">Relationship Types</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ '%.0f' % (stats.avg_confidence * 100) }}%</div>
+        <div class="label">Average Confidence</div>
+    </div>
+</div>
+
+<div class="card">
+    <form method="get" action="/graph">
+        <div class="filters-bar">
+            <div class="filter-group">
+                <label>Research Job</label>
+                <select name="job_id" onchange="this.form.submit()">
+                    <option value="">All Jobs</option>
+                    {% for job in jobs %}
+                    <option value="{{ job.id }}" {% if current_job_id == job.id %}selected{% endif %}>
+                        #{{ job.id }} — {{ job.topic[:40] }} ({{ job.triple_count }} triples)
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Search</label>
+                <input type="text" name="search" value="{{ current_search }}" placeholder="Filter by subject, predicate, or object...">
+            </div>
+            <div class="filter-group">
+                <label>Min Confidence</label>
+                <select name="min_conf" onchange="this.form.submit()">
+                    <option value="0" {% if current_min_conf == 0 %}selected{% endif %}>All</option>
+                    <option value="0.5" {% if current_min_conf == 0.5 %}selected{% endif %}>≥ 50%</option>
+                    <option value="0.7" {% if current_min_conf == 0.7 %}selected{% endif %}>≥ 70%</option>
+                    <option value="0.8" {% if current_min_conf == 0.8 %}selected{% endif %}>≥ 80%</option>
+                    <option value="0.9" {% if current_min_conf == 0.9 %}selected{% endif %}>≥ 90%</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>&nbsp;</label>
+                <button type="submit" class="btn btn-primary">⛏ Dig</button>
+            </div>
+            {% if current_search or current_job_id or current_min_conf > 0 %}
+            <div class="filter-group">
+                <label>&nbsp;</label>
+                <a href="/graph" class="btn btn-danger">✕ Clear</a>
+            </div>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    {% if triples %}
+    <p class="results-info">
+        Showing {{ triples|length }} knowledge triples, sorted by confidence
+        {% if current_job_id %} for job #{{ current_job_id }}{% endif %}
+        {% if current_search %} matching "{{ current_search }}"{% endif %}
+    </p>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Relationship</th>
+                    <th>Object</th>
+                    <th>Confidence</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for t in triples %}
+                <tr class="triple-row">
+                    <td class="subject-cell">{{ t.subject }}</td>
+                    <td class="predicate-cell">{{ t.predicate }}</td>
+                    <td class="object-cell">{{ t.obj }}</td>
+                    <td style="white-space: nowrap;">
+                        {% set conf = (t.confidence * 100)|int if t.confidence else 0 %}
+                        {% if conf >= 80 %}
+                        <span class="confidence-bar confidence-high" style="width: {{ conf * 0.6 }}px;"></span>
+                        {% elif conf >= 50 %}
+                        <span class="confidence-bar confidence-mid" style="width: {{ conf * 0.6 }}px;"></span>
+                        {% else %}
+                        <span class="confidence-bar confidence-low" style="width: {{ [conf * 0.6, 8]|max }}px;"></span>
+                        {% endif %}
+                        {{ conf }}%
+                    </td>
+                    <td class="source-link">
+                        {% if t.source_url %}
+                        <a href="{{ t.source_url }}" target="_blank" rel="noopener">{{ t.source_url[:50] }}{% if t.source_url|length > 50 %}...{% endif %}</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="empty">No gold veins mapped yet{% if current_search or current_job_id %} for these filters{% endif %}. Launch a mining expedition to start charting the depths!</p>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}Review: {{ book.title }}{% endblock %}
+
+{% block content %}
+<h1>{{ book.title }}</h1>
+
+<div class="card">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="number">{{ book.word_count }}</div>
+            <div class="label">📜 Runes</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ book.source_count }}</div>
+            <div class="label">⛏ Mines</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ book.triple_count }}</div>
+            <div class="label">💎 Nuggets</div>
+        </div>
+        <div class="stat-card">
+            <div class="number" style="font-size: 1rem; word-break: break-all;">{{ book.content_hash[:16] }}...</div>
+            <div class="label">⚙ Content Hash</div>
+        </div>
+    </div>
+
+    {% if book.quality_score is not none %}
+    <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(205,127,50,0.3);">
+        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.8rem;">
+            <span style="font-size: 1.1rem; font-weight: bold;">Quality Score</span>
+            {% set score_pct = (book.quality_score * 100)|int %}
+            {% if book.quality_score >= 0.7 %}
+            <span style="background: #22c55e; color: #000; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.95rem;">{{ score_pct }}%</span>
+            {% elif book.quality_score >= 0.4 %}
+            <span style="background: #eab308; color: #000; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.95rem;">{{ score_pct }}%</span>
+            {% else %}
+            <span style="background: #ef4444; color: #fff; padding: 0.3rem 0.8rem; border-radius: 12px; font-weight: bold; font-size: 0.95rem;">{{ score_pct }}%</span>
+            {% endif %}
+            {% if book.needs_rewrite %}
+            <span style="background: #ef4444; color: #fff; padding: 0.2rem 0.6rem; border-radius: 8px; font-size: 0.8rem;">Needs Rewrite</span>
+            {% endif %}
+        </div>
+        {% if book.quality_details %}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem;">
+            {% set criteria = [
+                ("Section Coverage", book.quality_details.get("section_coverage", 0)),
+                ("Word Count", book.quality_details.get("word_count_density", 0)),
+                ("Source Diversity", book.quality_details.get("source_diversity", 0)),
+                ("Fact Density", book.quality_details.get("fact_density", 0)),
+                ("Structure", book.quality_details.get("structure_quality", 0))
+            ] %}
+            {% for name, value in criteria %}
+            <div style="font-size: 0.85rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
+                    <span>{{ name }}</span>
+                    <span style="color: #cd7f32;">{{ (value * 100)|int }}%</span>
+                </div>
+                <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
+                    {% if value >= 0.7 %}
+                    <div style="width: {{ (value * 100)|int }}%; height: 100%; background: #22c55e; border-radius: 4px;"></div>
+                    {% elif value >= 0.4 %}
+                    <div style="width: {{ (value * 100)|int }}%; height: 100%; background: #eab308; border-radius: 4px;"></div>
+                    {% else %}
+                    <div style="width: {{ (value * 100)|int }}%; height: 100%; background: #ef4444; border-radius: 4px;"></div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div style="display: flex; gap: 1rem; align-items: center;">
+        <span class="status-badge status-{{ book.status }}" style="font-size: 1rem; padding: 0.4rem 1rem;">{{ book.status }}</span>
+        {% if book.status == 'draft' %}
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="text" id="author-input" placeholder="Hive username (e.g., youraccount)" style="width: 250px;">
+            <button class="btn btn-success" onclick="publishBook()">Inscribe on the Blockchain</button>
+        </div>
+        {% elif book.hive_permlink %}
+        <a href="https://hive.blog/@{{ book.hive_author }}/{{ book.hive_permlink }}" target="_blank" class="btn btn-primary">View on Hive</a>
+        {% endif %}
+    </div>
+    <div id="publish-feedback" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+</div>
+
+<div class="card">
+    <h2>📜 Tome Contents</h2>
+    <div id="book-content" style="line-height: 1.8; font-size: 0.95rem;">
+        {{ book.content | replace('\n', '<br>') | safe }}
+    </div>
+</div>
+
+{% if book.source_urls %}
+<div class="card">
+    <h2>⛏ Mines Explored ({{ book.source_urls|length }})</h2>
+    <ul style="list-style: none; padding: 0;">
+        {% for url in book.source_urls %}
+        <li style="padding: 0.3rem 0;">
+            <a href="{{ url }}" target="_blank" style="color: #cd7f32;">{{ url[:80] }}{% if url|length > 80 %}...{% endif %}</a>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function publishBook() {
+    const author = document.getElementById('author-input').value.trim();
+    const feedback = document.getElementById('publish-feedback');
+
+    if (!author) {
+        feedback.textContent = 'Please enter your Hive username.';
+        feedback.style.color = '#ef4444';
+        return;
+    }
+
+    feedback.textContent = 'Preparing inscription...';
+    feedback.style.color = '#cd7f32';
+
+    try {
+        const resp = await fetch('/api/books/{{ book.id }}/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ author }),
+        });
+        const data = await resp.json();
+
+        if (resp.ok) {
+            feedback.innerHTML = `
+                <p style="color: #ffd700; margin-bottom: 0.5rem;">Inscription prepared! ${data.parts} part(s).</p>
+                <p>Permlink: <code>${data.permlink}</code></p>
+                <p style="color: #b87333; margin-top: 0.5rem;">Use Hive Keychain to sign and broadcast the transaction.</p>
+            `;
+
+            if (window.hive_keychain) {
+                const ops = data.operations;
+                feedback.innerHTML += '<p style="color: #cd7f32;">Keychain detected. Broadcasting...</p>';
+                window.hive_keychain.requestBroadcast(
+                    author, ops, 'posting',
+                    (response) => {
+                        if (response.success) {
+                            feedback.innerHTML = '<p style="color: #ffd700; font-size: 1.2rem;">⛏ Inscribed on the Blockchain!</p>';
+                            setTimeout(() => window.location.reload(), 2000);
+                        } else {
+                            feedback.innerHTML += `<p style="color: #ef4444;">Keychain error: ${response.message}</p>`;
+                        }
+                    }
+                );
+            }
+        } else {
+            feedback.textContent = data.error || 'Failed to prepare inscription';
+            feedback.style.color = '#ef4444';
+        }
+    } catch (err) {
+        feedback.textContent = 'A cave-in blocked the signal. Please try again.';
+        feedback.style.color = '#ef4444';
+    }
+}
+</script>
+{% endblock %}

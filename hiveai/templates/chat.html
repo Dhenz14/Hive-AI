@@ -1,0 +1,960 @@
+{% extends "base.html" %}
+{% block title %}HiveAI - The Gnome's Library{% endblock %}
+
+{% block extra_css %}
+<style>
+    .chat-layout {
+        display: flex;
+        gap: 1rem;
+        height: calc(100vh - 140px);
+    }
+    .chat-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+    .knowledge-sidebar {
+        width: 260px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    .knowledge-panel {
+        background: linear-gradient(135deg, #2d1b0e 0%, #1a1008 100%);
+        border: 1px solid #5c3a1e;
+        border-radius: 4px;
+        padding: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4), inset 0 1px 0 rgba(205,127,50,0.1);
+        position: relative;
+        overflow-y: auto;
+        max-height: calc(100vh - 260px);
+    }
+    .knowledge-panel::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #b8860b, transparent);
+    }
+    .knowledge-panel h3 {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 1rem;
+        color: #c9a030;
+        margin-bottom: 0.8rem;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    .knowledge-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .knowledge-list li {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.82rem;
+        color: #b87333;
+        border-bottom: 1px solid #3d2b1a;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+    .knowledge-list li:last-child {
+        border-bottom: none;
+    }
+    .knowledge-list li::before {
+        content: '📜';
+        font-size: 0.75rem;
+    }
+    .knowledge-empty {
+        color: #6b5a3e;
+        font-size: 0.82rem;
+        font-style: italic;
+        padding: 0.5rem 0;
+    }
+    .stats-bar {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+    .stats-bar .stat-item {
+        background: linear-gradient(145deg, #3d2b1a 0%, #2d1b0e 100%);
+        border: 2px solid #b8860b;
+        border-radius: 6px;
+        padding: 0.6rem 1.2rem;
+        text-align: center;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,215,0,0.1);
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+    .stats-bar .stat-number {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #ffd700;
+        animation: goldShimmer 3s ease-in-out infinite;
+    }
+    .stats-bar .stat-label {
+        font-size: 0.78rem;
+        color: #b87333;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .knowledge-status {
+        background: linear-gradient(135deg, #2d1b0e 0%, #1a1008 100%);
+        border: 1px solid #5c3a1e;
+        border-radius: 4px;
+        padding: 0.6rem 1rem;
+        font-size: 0.82rem;
+        color: #b87333;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .knowledge-status .count {
+        color: #ffd700;
+        font-family: 'MedievalSharp', cursive;
+        font-size: 1rem;
+    }
+    .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        background: linear-gradient(135deg, #1a1008 0%, #0d0a06 100%);
+        border: 1px solid #5c3a1e;
+        border-radius: 4px 4px 0 0;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);
+    }
+    .chat-messages::-webkit-scrollbar {
+        width: 8px;
+    }
+    .chat-messages::-webkit-scrollbar-track {
+        background: #1a1008;
+    }
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: #5c3a1e;
+        border-radius: 4px;
+    }
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: #b8860b;
+    }
+    .message {
+        max-width: 75%;
+        padding: 0.8rem 1rem;
+        border-radius: 6px;
+        position: relative;
+        line-height: 1.6;
+    }
+    .message-user {
+        align-self: flex-end;
+        background: linear-gradient(135deg, #3d2b1a 0%, #2d1b0e 100%);
+        border: 1px solid #cd7f32;
+        color: #d4b896;
+        border-radius: 6px 6px 0 6px;
+    }
+    .message-ai {
+        align-self: flex-start;
+        background: linear-gradient(135deg, #2d1b0e 0%, #1a1008 100%);
+        border: 1px solid #b8860b;
+        border-left: 3px solid #ffd700;
+        color: #d4b896;
+        border-radius: 6px 6px 6px 0;
+    }
+    .message-sender {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 0.78rem;
+        margin-bottom: 0.3rem;
+        font-weight: 600;
+    }
+    .message-user .message-sender {
+        color: #cd7f32;
+        text-align: right;
+    }
+    .message-ai .message-sender {
+        color: #ffd700;
+    }
+    .message-content p {
+        margin: 0.3rem 0;
+    }
+    .message-content h1,
+    .message-content h2,
+    .message-content h3,
+    .message-content h4 {
+        font-family: 'MedievalSharp', cursive;
+        color: #c9a030;
+        margin: 0.6rem 0 0.3rem 0;
+    }
+    .message-content h1 { font-size: 1.3rem; }
+    .message-content h2 { font-size: 1.15rem; }
+    .message-content h3 { font-size: 1.05rem; }
+    .message-content h4 { font-size: 0.95rem; }
+    .message-content strong {
+        color: #ffd700;
+    }
+    .message-content em {
+        color: #cd7f32;
+    }
+    .message-content code {
+        background: #0d0a06;
+        border: 1px solid #3d2b1a;
+        padding: 0.1rem 0.4rem;
+        border-radius: 3px;
+        font-family: monospace;
+        font-size: 0.88rem;
+        color: #98d946;
+    }
+    .message-content pre {
+        background: #0d0a06;
+        border: 1px solid #3d2b1a;
+        padding: 0.8rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        margin: 0.5rem 0;
+    }
+    .message-content pre code {
+        border: none;
+        padding: 0;
+        background: none;
+    }
+    .message-content ul,
+    .message-content ol {
+        margin: 0.4rem 0;
+        padding-left: 1.5rem;
+    }
+    .message-content li {
+        margin: 0.2rem 0;
+    }
+    .message-content a {
+        color: #cd7f32;
+        text-decoration: underline;
+    }
+    .message-content a:hover {
+        color: #ffd700;
+    }
+    .message-sources {
+        margin-top: 0.6rem;
+        padding-top: 0.5rem;
+        border-top: 1px solid #3d2b1a;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+    .message-sources a {
+        font-size: 0.72rem;
+        color: #8b7355;
+        background: #1a1008;
+        padding: 0.15rem 0.5rem;
+        border-radius: 3px;
+        border: 1px solid #3d2b1a;
+        text-decoration: none;
+        transition: all 0.2s;
+    }
+    .message-sources a:hover {
+        color: #ffd700;
+        border-color: #b8860b;
+    }
+    .chat-input-area {
+        display: flex;
+        gap: 0.5rem;
+        padding: 0.8rem;
+        background: linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%);
+        border: 1px solid #5c3a1e;
+        border-top: 2px solid #b8860b;
+        border-radius: 0 0 4px 4px;
+    }
+    .chat-input-area input[type="text"] {
+        flex: 1;
+        border: 2px solid #5c3a1e;
+        background: #1a1008;
+    }
+    .chat-welcome {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #6b5a3e;
+    }
+    .chat-welcome h2 {
+        font-family: 'MedievalSharp', cursive;
+        color: #c9a030;
+        font-size: 1.5rem;
+        margin-bottom: 0.5rem;
+    }
+    .chat-welcome p {
+        font-size: 0.95rem;
+        color: #8b7355;
+        max-width: 500px;
+        margin: 0 auto;
+        line-height: 1.6;
+    }
+    .notification {
+        padding: 0.6rem 1rem;
+        border-radius: 4px;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        animation: fadeInSlide 0.3s ease-out;
+    }
+    @keyframes fadeInSlide {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .notification-learning {
+        background: linear-gradient(135deg, #3d2b1a 0%, #2d1b0e 100%);
+        border: 1px solid #cd7f32;
+        color: #cd7f32;
+    }
+    .notification-success {
+        background: linear-gradient(135deg, #2d3a1e 0%, #1a2510 100%);
+        border: 1px solid #6b8e23;
+        color: #98d946;
+    }
+    .notification .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid #3d2b1a;
+        border-top: 2px solid #cd7f32;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    .typing-indicator {
+        align-self: flex-start;
+        padding: 0.8rem 1rem;
+        background: linear-gradient(135deg, #2d1b0e 0%, #1a1008 100%);
+        border: 1px solid #b8860b;
+        border-left: 3px solid #ffd700;
+        border-radius: 6px 6px 6px 0;
+        display: flex;
+        gap: 0.3rem;
+        align-items: center;
+    }
+    .typing-indicator span {
+        width: 6px;
+        height: 6px;
+        background: #b8860b;
+        border-radius: 50%;
+        animation: typingBounce 1.4s infinite;
+    }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes typingBounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+        30% { transform: translateY(-6px); opacity: 1; }
+    }
+    .gnome-progress {
+        align-self: flex-start;
+        width: 85%;
+        background: linear-gradient(135deg, #2d1b0e 0%, #1a1008 100%);
+        border: 1px solid #b8860b;
+        border-left: 3px solid #ffd700;
+        border-radius: 6px 6px 6px 0;
+        padding: 1rem 1.2rem;
+        animation: fadeInSlide 0.4s ease-out;
+    }
+    .gnome-progress-header {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.8rem;
+    }
+    .gnome-progress-header .gp-title {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 1rem;
+        color: #ffd700;
+    }
+    .gnome-progress-header .gp-timer {
+        margin-left: auto;
+        font-family: 'MedievalSharp', cursive;
+        font-size: 0.9rem;
+        color: #cd7f32;
+    }
+    .gnome-progress-bar-track {
+        width: 100%;
+        height: 18px;
+        background: #0d0a06;
+        border: 1px solid #5c3a1e;
+        border-radius: 9px;
+        overflow: hidden;
+        margin-bottom: 0.8rem;
+        position: relative;
+    }
+    .gnome-progress-bar-fill {
+        height: 100%;
+        border-radius: 9px;
+        background: linear-gradient(90deg, #b8860b, #ffd700, #daa520);
+        background-size: 200% 100%;
+        animation: barShimmer 2s linear infinite;
+        transition: width 0.8s cubic-bezier(.4,0,.2,1);
+        position: relative;
+    }
+    .gnome-progress-bar-fill::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+        animation: barGlint 2s ease-in-out infinite;
+    }
+    @keyframes barShimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    @keyframes barGlint {
+        0%, 100% { opacity: 0; }
+        50% { opacity: 1; }
+    }
+    .gnome-progress-stage {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.6rem;
+        min-height: 2rem;
+    }
+    .gnome-progress-emoji {
+        font-size: 1.5rem;
+        display: inline-block;
+    }
+    .gp-emoji-swing {
+        animation: pickaxeSwing 0.6s ease-in-out infinite alternate;
+        transform-origin: bottom right;
+    }
+    .gp-emoji-bounce {
+        animation: emojiBounce 0.8s ease-in-out infinite;
+    }
+    .gp-emoji-pulse {
+        animation: emojiPulse 1s ease-in-out infinite;
+    }
+    .gp-emoji-spin {
+        animation: emojiSpin 2s linear infinite;
+    }
+    .gp-emoji-write {
+        animation: emojiWrite 0.5s ease-in-out infinite alternate;
+    }
+    @keyframes pickaxeSwing {
+        0% { transform: rotate(-15deg); }
+        100% { transform: rotate(15deg); }
+    }
+    @keyframes emojiBounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+    }
+    @keyframes emojiPulse {
+        0%, 100% { transform: scale(1); opacity: 1; }
+        50% { transform: scale(1.25); opacity: 0.8; }
+    }
+    @keyframes emojiSpin {
+        to { transform: rotate(360deg); }
+    }
+    @keyframes emojiWrite {
+        0% { transform: translateX(0) rotate(0deg); }
+        100% { transform: translateX(3px) rotate(5deg); }
+    }
+    .gnome-progress-desc {
+        font-size: 0.9rem;
+        color: #d4b896;
+        font-style: italic;
+        animation: descFadeIn 0.4s ease-out;
+    }
+    @keyframes descFadeIn {
+        from { opacity: 0; transform: translateX(-8px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    .gnome-progress-steps {
+        display: flex;
+        justify-content: space-between;
+        gap: 2px;
+        margin-top: 0.4rem;
+    }
+    .gp-step {
+        flex: 1;
+        height: 4px;
+        border-radius: 2px;
+        background: #3d2b1a;
+        transition: background 0.5s ease;
+    }
+    .gp-step.active {
+        background: #ffd700;
+        animation: stepGlow 1.5s ease-in-out infinite;
+    }
+    .gp-step.done {
+        background: #b8860b;
+    }
+    @keyframes stepGlow {
+        0%, 100% { box-shadow: 0 0 3px rgba(255,215,0,0.3); }
+        50% { box-shadow: 0 0 8px rgba(255,215,0,0.7); }
+    }
+    .gnome-progress-miner {
+        text-align: center;
+        font-size: 1.8rem;
+        margin-top: 0.4rem;
+        line-height: 1;
+    }
+    .gnome-progress-miner .gp-gnome {
+        display: inline-block;
+        animation: gnomeWalk 0.6s steps(2) infinite;
+    }
+    @keyframes gnomeWalk {
+        0% { transform: translateX(-2px); }
+        50% { transform: translateX(2px); }
+        100% { transform: translateX(-2px); }
+    }
+    .gnome-progress.gp-complete {
+        border-color: #6b8e23;
+        border-left-color: #98d946;
+    }
+    .gnome-progress.gp-complete .gnome-progress-bar-fill {
+        background: linear-gradient(90deg, #6b8e23, #98d946, #6b8e23);
+        animation: none;
+    }
+    .gnome-progress.gp-complete .gnome-progress-desc {
+        color: #98d946;
+    }
+    .gnome-progress.gp-error {
+        border-color: #8b0000;
+        border-left-color: #ff4444;
+    }
+    .gnome-progress.gp-error .gnome-progress-bar-fill {
+        background: linear-gradient(90deg, #8b0000, #ff4444, #8b0000);
+        animation: none;
+    }
+    .gnome-progress.gp-error .gnome-progress-desc {
+        color: #ff6666;
+    }
+    @media (max-width: 768px) {
+        .gnome-progress {
+            width: 95%;
+            padding: 0.8rem;
+        }
+    }
+    @media (max-width: 768px) {
+        .chat-layout {
+            flex-direction: column;
+            height: auto;
+        }
+        .knowledge-sidebar {
+            width: 100%;
+            flex-direction: row;
+            overflow-x: auto;
+        }
+        .knowledge-panel {
+            max-height: 150px;
+            min-width: 200px;
+        }
+        .chat-main {
+            height: calc(100vh - 300px);
+        }
+        .message {
+            max-width: 90%;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>📚 The Gnome's Library</h1>
+
+<div class="stats-bar">
+    <div class="stat-item">
+        <div class="stat-number">{{ book_count }}</div>
+        <div class="stat-label">📜 Golden Books</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-number">{{ topic_list|length }}</div>
+        <div class="stat-label">💎 Topics Covered</div>
+    </div>
+    <div class="stat-item">
+        <div class="stat-number">{{ books|sum(attribute='word_count') }}</div>
+        <div class="stat-label">✍ Runes Inscribed</div>
+    </div>
+</div>
+
+<div class="chat-layout">
+    <div class="chat-main">
+        <div class="knowledge-status">
+            <span>📖</span>
+            <span>The Keeper has access to <span class="count">{{ book_count }}</span> Golden {{ 'Book' if book_count == 1 else 'Books' }} of knowledge</span>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+            <div class="chat-welcome">
+                <h2>🏔 Ask the Keeper of Tomes</h2>
+                <p>The ancient gnome librarian awaits your questions. Ask about any topic — if the answer lies within the Golden Books, the Keeper shall reveal it. If not, gnomes will be dispatched to learn!</p>
+            </div>
+        </div>
+        <div id="notifications"></div>
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Ask the Keeper of Tomes..." autocomplete="off">
+            <button class="btn btn-primary" id="send-btn">⚒ Send</button>
+        </div>
+    </div>
+
+    <div class="knowledge-sidebar">
+        <div class="knowledge-panel">
+            <h3>📜 Tome Archive</h3>
+            {% if books %}
+            <ul class="knowledge-list">
+                {% for book in books %}
+                <li>{{ book.title }} <span style="color: #6b5a3e; font-size: 0.72rem;">({{ book.word_count }} runes)</span></li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="knowledge-empty">No tomes in the archive yet. The gnomes have not completed any expeditions.</p>
+            {% endif %}
+        </div>
+        <div class="knowledge-panel">
+            <h3>💎 Known Topics</h3>
+            {% if topic_list %}
+            <ul class="knowledge-list">
+                {% for topic in topic_list %}
+                <li style="font-size: 0.78rem;">{{ topic }}</li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="knowledge-empty">No topics discovered yet. Start a conversation to begin learning!</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const messagesEl = document.getElementById('chat-messages');
+    const inputEl = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const notificationsEl = document.getElementById('notifications');
+    const conversationHistory = [];
+    let isSending = false;
+
+    function renderMarkdown(text) {
+        let html = text;
+        html = html.replace(/```([\s\S]*?)```/g, function(m, code) {
+            return '<pre><code>' + code.replace(/</g, '&lt;').replace(/>/g, '&gt;').trim() + '</code></pre>';
+        });
+        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        const lines = html.split('\n');
+        const result = [];
+        let inList = false;
+        let listType = '';
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i];
+            if (line.match(/^<pre>/)) {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                let block = line;
+                while (i < lines.length - 1 && !lines[i].match(/<\/pre>/)) {
+                    i++;
+                    block += '\n' + lines[i];
+                }
+                result.push(block);
+                continue;
+            }
+            line = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            line = line.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            line = line.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            const h4 = line.match(/^####\s+(.+)/);
+            const h3 = line.match(/^###\s+(.+)/);
+            const h2 = line.match(/^##\s+(.+)/);
+            const h1 = line.match(/^#\s+(.+)/);
+            const ul = line.match(/^[\-\*]\s+(.+)/);
+            const ol = line.match(/^\d+\.\s+(.+)/);
+            if (h4) {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                result.push('<h4>' + h4[1] + '</h4>');
+            } else if (h3) {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                result.push('<h3>' + h3[1] + '</h3>');
+            } else if (h2) {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                result.push('<h2>' + h2[1] + '</h2>');
+            } else if (h1) {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                result.push('<h1>' + h1[1] + '</h1>');
+            } else if (ul) {
+                if (!inList || listType !== 'ul') {
+                    if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
+                    result.push('<ul>');
+                    inList = true;
+                    listType = 'ul';
+                }
+                result.push('<li>' + ul[1] + '</li>');
+            } else if (ol) {
+                if (!inList || listType !== 'ol') {
+                    if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
+                    result.push('<ol>');
+                    inList = true;
+                    listType = 'ol';
+                }
+                result.push('<li>' + ol[1] + '</li>');
+            } else {
+                if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
+                if (line.trim() === '') {
+                    result.push('');
+                } else {
+                    result.push('<p>' + line + '</p>');
+                }
+            }
+        }
+        if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
+        return result.join('\n');
+    }
+
+    function scrollToBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function removeWelcome() {
+        const welcome = messagesEl.querySelector('.chat-welcome');
+        if (welcome) welcome.remove();
+    }
+
+    function addMessage(role, content, sources) {
+        removeWelcome();
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message ' + (role === 'user' ? 'message-user' : 'message-ai');
+        const senderDiv = document.createElement('div');
+        senderDiv.className = 'message-sender';
+        senderDiv.textContent = role === 'user' ? '⛏ You' : '📚 Keeper of Tomes';
+        msgDiv.appendChild(senderDiv);
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        if (role === 'user') {
+            contentDiv.textContent = content;
+        } else {
+            contentDiv.innerHTML = renderMarkdown(content);
+        }
+        msgDiv.appendChild(contentDiv);
+        if (sources && sources.length > 0) {
+            const sourcesDiv = document.createElement('div');
+            sourcesDiv.className = 'message-sources';
+            sources.forEach(function(src) {
+                const a = document.createElement('a');
+                a.href = src;
+                a.target = '_blank';
+                a.rel = 'noopener';
+                a.textContent = '📖 ' + (src.length > 40 ? src.substring(0, 40) + '...' : src);
+                sourcesDiv.appendChild(a);
+            });
+            msgDiv.appendChild(sourcesDiv);
+        }
+        messagesEl.appendChild(msgDiv);
+        scrollToBottom();
+    }
+
+    function showTyping() {
+        const el = document.createElement('div');
+        el.className = 'typing-indicator';
+        el.id = 'typing-indicator';
+        el.innerHTML = '<span></span><span></span><span></span>';
+        messagesEl.appendChild(el);
+        scrollToBottom();
+    }
+
+    function hideTyping() {
+        const el = document.getElementById('typing-indicator');
+        if (el) el.remove();
+    }
+
+    function showNotification(type, text) {
+        const el = document.createElement('div');
+        el.className = 'notification notification-' + type;
+        if (type === 'learning') {
+            el.innerHTML = '<div class="spinner"></div><span>' + text + '</span>';
+        } else {
+            el.innerHTML = '<span>✨</span><span>' + text + '</span>';
+        }
+        notificationsEl.appendChild(el);
+        if (type === 'success') {
+            setTimeout(function() { el.remove(); }, 8000);
+        }
+        return el;
+    }
+
+    const STAGE_CONFIG = {
+        queued:          { pct: 5,   desc: 'Gnomes assembling at the mine entrance...',                emoji: '🏔️', anim: 'gp-emoji-bounce', time: 180 },
+        generating_urls: { pct: 15,  desc: 'Scouts mapping the knowledge caverns...',                  emoji: '🗺️', anim: 'gp-emoji-pulse',  time: 150 },
+        crawling:        { pct: 35,  desc: 'Miners extracting raw knowledge ore...',                   emoji: '⛏️', anim: 'gp-emoji-swing',  time: 120 },
+        chunking:        { pct: 50,  desc: 'Gnomes sorting and refining ore chunks...',                emoji: '💎', anim: 'gp-emoji-bounce', time: 80  },
+        reasoning:       { pct: 70,  desc: 'Alchemists transmuting knowledge into golden triples...',  emoji: '🧪', anim: 'gp-emoji-spin',   time: 60  },
+        writing:         { pct: 90,  desc: 'Master scribe composing the Golden Book...',               emoji: '✍️', anim: 'gp-emoji-write',  time: 30  },
+        review:          { pct: 100, desc: 'The tome is complete! Knowledge acquired!',                emoji: '📖', anim: 'gp-emoji-pulse',  time: 0   },
+        published:       { pct: 100, desc: 'The Golden Book has been inscribed!',                      emoji: '📜', anim: 'gp-emoji-pulse',  time: 0   },
+        error:           { pct: 100, desc: 'The expedition encountered trouble...',                    emoji: '💀', anim: 'gp-emoji-bounce', time: 0   }
+    };
+    const STAGE_ORDER = ['queued','generating_urls','crawling','chunking','reasoning','writing','review'];
+
+    function createProgressPanel(topic) {
+        removeWelcome();
+        const panel = document.createElement('div');
+        panel.className = 'gnome-progress';
+        panel.innerHTML =
+            '<div class="gnome-progress-header">' +
+                '<span class="gp-title">⛏️ Gnome Expedition: "' + topic + '"</span>' +
+                '<span class="gp-timer" id="gp-timer">⏳ ~3:00</span>' +
+            '</div>' +
+            '<div class="gnome-progress-bar-track">' +
+                '<div class="gnome-progress-bar-fill" id="gp-bar" style="width:5%"></div>' +
+            '</div>' +
+            '<div class="gnome-progress-stage">' +
+                '<span class="gnome-progress-emoji gp-emoji-bounce" id="gp-emoji">🏔️</span>' +
+                '<span class="gnome-progress-desc" id="gp-desc">Gnomes assembling at the mine entrance...</span>' +
+            '</div>' +
+            '<div class="gnome-progress-steps" id="gp-steps">' +
+                STAGE_ORDER.map(function() { return '<div class="gp-step"></div>'; }).join('') +
+            '</div>' +
+            '<div class="gnome-progress-miner"><span class="gp-gnome">🧙‍♂️</span> <span class="gp-emoji-swing" style="font-size:1.2rem;">⛏️</span></div>';
+        messagesEl.appendChild(panel);
+        scrollToBottom();
+        return panel;
+    }
+
+    function updateProgressPanel(panel, status) {
+        const cfg = STAGE_CONFIG[status] || STAGE_CONFIG.queued;
+        const bar = panel.querySelector('#gp-bar');
+        const emoji = panel.querySelector('#gp-emoji');
+        const desc = panel.querySelector('#gp-desc');
+        const steps = panel.querySelectorAll('.gp-step');
+        if (bar) bar.style.width = cfg.pct + '%';
+        if (emoji) {
+            emoji.textContent = cfg.emoji;
+            emoji.className = 'gnome-progress-emoji ' + cfg.anim;
+        }
+        if (desc) {
+            desc.style.animation = 'none';
+            void desc.offsetHeight;
+            desc.style.animation = '';
+            desc.textContent = cfg.desc;
+        }
+        const idx = STAGE_ORDER.indexOf(status);
+        steps.forEach(function(s, i) {
+            s.className = 'gp-step' + (i < idx ? ' done' : (i === idx ? ' active' : ''));
+        });
+        if (status === 'review' || status === 'published') {
+            steps.forEach(function(s) { s.className = 'gp-step done'; });
+        }
+    }
+
+    function formatTime(seconds) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    function pollJob(jobId, topic, originalMessage) {
+        const panel = createProgressPanel(topic);
+        let countdown = 180;
+        let lastStage = 'queued';
+
+        const timerInterval = setInterval(function() {
+            if (countdown > 0) countdown--;
+            const timerEl = panel.querySelector('#gp-timer');
+            if (timerEl) timerEl.textContent = '⏳ ~' + formatTime(countdown);
+        }, 1000);
+
+        const pollInterval = setInterval(async function() {
+            try {
+                const resp = await fetch('/api/jobs/' + jobId);
+                if (!resp.ok) return;
+                const data = await resp.json();
+                const status = data.status;
+
+                if (status !== lastStage) {
+                    lastStage = status;
+                    updateProgressPanel(panel, status);
+                    const cfg = STAGE_CONFIG[status];
+                    if (cfg && cfg.time > 0) countdown = cfg.time;
+                }
+
+                if (status === 'published' || status === 'review' || status === 'error') {
+                    clearInterval(pollInterval);
+                    clearInterval(timerInterval);
+                    const timerEl = panel.querySelector('#gp-timer');
+                    if (timerEl) timerEl.textContent = status === 'error' ? '❌' : '✅ Done!';
+
+                    if (status === 'error') {
+                        panel.classList.add('gp-error');
+                        setTimeout(function() { panel.remove(); }, 5000);
+                        showNotification('success', 'The gnomes encountered trouble learning about "' + topic + '". Try asking again!');
+                    } else {
+                        panel.classList.add('gp-complete');
+                        setTimeout(function() {
+                            panel.remove();
+                            sendMessage(originalMessage);
+                        }, 2000);
+                    }
+                }
+            } catch (e) {
+                clearInterval(pollInterval);
+                clearInterval(timerInterval);
+                panel.remove();
+            }
+        }, 3000);
+    }
+
+    async function sendMessage(text) {
+        if (!text || isSending) return;
+        isSending = true;
+        sendBtn.disabled = true;
+        inputEl.disabled = true;
+        addMessage('user', text);
+        conversationHistory.push({ role: 'user', content: text });
+        showTyping();
+        try {
+            const resp = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text, history: conversationHistory })
+            });
+            hideTyping();
+            if (!resp.ok) {
+                addMessage('assistant', 'The tome could not be read. The library echoes with silence... (Error ' + resp.status + ')');
+                conversationHistory.push({ role: 'assistant', content: 'Error occurred.' });
+            } else {
+                const data = await resp.json();
+                addMessage('assistant', data.reply, data.sources);
+                conversationHistory.push({ role: 'assistant', content: data.reply });
+                if (data.learning && data.learning.active && data.learning.job_id) {
+                    pollJob(data.learning.job_id, data.learning.topic, text);
+                }
+            }
+        } catch (e) {
+            hideTyping();
+            addMessage('assistant', 'A cave-in has disrupted the library tunnels. Please try again.');
+            conversationHistory.push({ role: 'assistant', content: 'Connection error.' });
+        }
+        isSending = false;
+        sendBtn.disabled = false;
+        inputEl.disabled = false;
+        inputEl.focus();
+    }
+
+    sendBtn.addEventListener('click', function() {
+        const text = inputEl.value.trim();
+        if (text) {
+            inputEl.value = '';
+            sendMessage(text);
+        }
+    });
+
+    inputEl.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            const text = inputEl.value.trim();
+            if (text) {
+                inputEl.value = '';
+                sendMessage(text);
+            }
+        }
+    });
+
+    inputEl.focus();
+})();
+</script>
+{% endblock %}

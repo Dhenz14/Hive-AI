@@ -1,0 +1,112 @@
+# HiveAI Knowledge Refinery — Cursor Rules
+
+## Project Overview
+AI-powered research system that discovers URLs, crawls pages, extracts knowledge triples via LLM reasoning, builds a knowledge graph, generates prose "Golden Books", and publishes to Hive blockchain. Includes an AI chat interface ("Ask the Keeper") with multi-hop semantic RAG.
+
+## Tech Stack
+- Python 3.11, Flask, SQLAlchemy
+- Dual database: PostgreSQL (with pgvector) or SQLite (with numpy vector search)
+- LLM: Ollama (local, preferred) or OpenRouter (cloud)
+- Embeddings: BGE-M3 via sentence-transformers
+- Web crawling: crawl4ai (Playwright-based)
+- Structured output: instructor + Pydantic
+- Blockchain: beem (Hive)
+
+## Project Structure
+```
+hiveai/
+├── app.py                    # Flask app, routes, API endpoints
+├── config.py                 # All configuration from environment variables
+├── models.py                 # SQLAlchemy models (dual PostgreSQL/SQLite)
+├── vectorstore.py            # Vector search (pgvector or numpy fallback)
+├── chat.py                   # "Ask the Keeper" RAG chat system
+├── hardware.py               # Hardware auto-detection and performance profiles
+├── lego_rebuild.py           # Database rebuild/migration utilities
+├── llm/
+│   ├── client.py             # LLM client (Ollama/OpenRouter, reason/fast tiers)
+│   └── prompts.py            # All LLM prompt templates
+├── pipeline/
+│   ├── orchestrator.py       # Main pipeline coordinator
+│   ├── queue_worker.py       # Background job queue worker
+│   ├── url_discovery.py      # Multi-source URL discovery
+│   ├── crawler.py            # Async web crawling with fallback
+│   ├── cleaner.py            # Semantic chunking and deduplication
+│   ├── reasoner.py           # Triple extraction via LLM (core value step)
+│   ├── writer.py             # Golden Book generation (outline→write→review→rewrite)
+│   ├── publisher.py          # Hive blockchain publishing
+│   ├── communities.py        # Louvain community detection
+│   ├── entity_resolver.py    # Entity resolution and merging
+│   ├── contradiction.py      # Contradiction detection
+│   ├── authority.py          # Source authority scoring
+│   ├── scorer.py             # Quality scoring
+│   ├── compressor.py         # Knowledge compression
+│   ├── graph_merger.py       # Graph merge operations
+│   ├── hive_ping.py          # Hive node health checking
+│   └── reembed.py            # Re-embedding migration tool
+├── storage/
+│   └── graph_store.py        # Persistent knowledge graph (NetworkX)
+├── templates/                # Jinja2 HTML templates
+│   ├── base.html
+│   ├── dashboard.html
+│   ├── chat.html
+│   ├── graph_explorer.html
+│   ├── book_review.html
+│   └── job_detail.html
+└── static/                   # CSS, JS, images
+```
+
+## Architecture Patterns
+
+### Two-Tier LLM System
+- `reason(prompt)` — Reasoning model (qwen3:14b default). Used for knowledge extraction, book writing.
+- `fast(prompt)` — Fast model (qwen3:8b default). Used for outlines, reviews, summaries.
+- `reason_structured(prompt, model)` — Structured output with Pydantic validation via reasoning model.
+- `fast_structured(prompt, model)` — Structured output via fast model.
+- EXTRACTION_QUALITY config controls whether extraction uses reason or fast.
+
+### Database Duality
+- All models in `models.py` support both PostgreSQL and SQLite.
+- Use `DB_BACKEND` check for backend-specific code (e.g., pgvector vs numpy).
+- Vector columns use `Vector(1024)` for PostgreSQL, `Text` (JSON-serialized) for SQLite.
+- Always use SQLAlchemy ORM, never raw SQL.
+
+### Pipeline Flow
+URL Discovery → Mass Crawl → Chunk & Clean → Triple Extraction → Knowledge Graph → Golden Book → Publish
+
+### Configuration
+- All config lives in `config.py`, sourced from environment variables.
+- `.env` file for local development, environment variables for production.
+- Hardware auto-detection sets performance profiles (low/medium/high).
+
+## Coding Conventions
+- Use existing imports and patterns from neighboring files.
+- Logger per module: `logger = logging.getLogger(__name__)`
+- Error handling: catch specific exceptions, log with context, continue gracefully.
+- Database sessions: use `get_session()` context manager from `models.py`.
+- LLM calls: always use `reason()`, `fast()`, or structured variants from `llm/client.py`.
+- JSON parsing from LLM: use `parse_json_response()` helper from `llm/client.py`.
+- Pydantic models for structured LLM output via `instructor`.
+- Type hints on function signatures.
+- No comments unless explaining non-obvious logic.
+
+## Key Design Decisions
+- Extraction quality is the core value — reasoning model handles triple extraction by default.
+- Sweet spot: qwen3:14b + qwen3:8b on 32GB RAM. Diminishing returns above this.
+- Local-first: SQLite + Ollama works with zero cloud dependencies.
+- Embedding cache (LRU) for repeated queries to minimize model calls.
+- Crawl caching to avoid re-fetching pages within a session.
+- Batched database writes for performance.
+
+## Testing Locally
+1. Install Ollama and pull models: `ollama pull qwen3:14b && ollama pull qwen3:8b`
+2. Copy `.env.example` to `.env`
+3. Run: `python -m hiveai.app`
+4. Open: http://localhost:5000
+
+## Do NOT
+- Add mock data or placeholder content.
+- Create new files when existing ones can be extended.
+- Use raw SQL — always use SQLAlchemy ORM.
+- Hardcode API keys or secrets anywhere.
+- Add unnecessary comments or docstrings.
+- Change the database schema without updating both PostgreSQL and SQLite paths.

@@ -1,0 +1,29 @@
+{
+  "productName": "HiveAI Knowledge Refinery",
+  "version": "0.1.0",
+  "identifier": "ai.hiveai.refinery",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HiveAI Knowledge Refinery",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ]
+  }
+}

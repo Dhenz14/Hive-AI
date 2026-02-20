@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% block title %}HiveAI - The Gnome's Refinery{% endblock %}
+
+{% block content %}
+<h1>⛏ The Gnome's Refinery</h1>
+
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="number">{{ stats.total_jobs }}</div>
+        <div class="label">⚒ Expeditions</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.active_jobs }}</div>
+        <div class="label">⛏ Mining</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.total_pages }}</div>
+        <div class="label">🪨 Ore Collected</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.total_triples }}</div>
+        <div class="label">💎 Gold Nuggets</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.total_books }}</div>
+        <div class="label">📜 Tomes</div>
+    </div>
+    <div class="stat-card">
+        <div class="number">{{ stats.published_books }}</div>
+        <div class="label">🏆 Treasures Shared</div>
+    </div>
+</div>
+
+<div class="card">
+    <h2>⛏ New Mining Expedition</h2>
+    <p style="color: #b87333; margin-bottom: 1rem;">Send yer gnomes into the deep mines! They'll scout the Hive tunnels, dig through the web, and forge a refined Tome of pure knowledge gold.</p>
+    <form id="new-job-form" style="display: flex; gap: 1rem;">
+        <input type="text" id="topic-input" placeholder="e.g., Mithril smelting techniques, Ancient dwarven rune patterns, Enchanted ore refining 2026..." style="flex: 1;">
+        <button type="submit" class="btn btn-primary">Begin Expedition!</button>
+    </form>
+    <div id="form-feedback" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+</div>
+
+<div class="card" id="queue-section">
+    <h2>&#9881; Queue Control</h2>
+    <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+            <span id="queue-status-text" style="color: #b87333;">Loading queue status...</span>
+        </div>
+        <button id="queue-toggle-btn" class="btn btn-primary" onclick="toggleQueue()" style="min-width: 120px;">Loading...</button>
+    </div>
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;">
+        <div class="stat-card" style="flex: 1; min-width: 120px;">
+            <div class="number" id="queue-count">-</div>
+            <div class="label">Queued</div>
+        </div>
+        <div class="stat-card" style="flex: 1; min-width: 120px;">
+            <div class="number" id="queue-running">-</div>
+            <div class="label">Running</div>
+        </div>
+        <div class="stat-card" style="flex: 1; min-width: 120px;">
+            <div class="number" id="queue-worker">-</div>
+            <div class="label">Worker</div>
+        </div>
+    </div>
+    <div id="running-job-info" style="display: none; padding: 0.5rem; background: rgba(205,127,50,0.1); border-radius: 8px; margin-bottom: 1rem;">
+        <span style="color: #cd7f32;">Currently processing: </span>
+        <a id="running-job-link" href="#" style="color: #ffd700;"></a>
+        <span id="running-job-stage" style="color: #b87333; margin-left: 0.5rem;"></span>
+        <button class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; margin-left: 0.5rem; background: #ef4444;" id="cancel-running-btn">Cancel</button>
+    </div>
+</div>
+
+<div class="card">
+    <h2>&#128230; Batch Mining Expeditions</h2>
+    <p style="color: #b87333; margin-bottom: 0.5rem;">Enter multiple topics (one per line) to queue them all at once.</p>
+    <textarea id="batch-topics" rows="4" placeholder="Topic 1&#10;Topic 2&#10;Topic 3" style="width: 100%; margin-bottom: 0.5rem;"></textarea>
+    <button class="btn btn-primary" onclick="submitBatch()">Queue All Expeditions</button>
+    <div id="batch-feedback" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+</div>
+
+{% if books %}
+<div class="card">
+    <h2>📜 Tomes Ready for Inspection</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Runes</th>
+                <th>Mines</th>
+                <th>Nuggets</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for book in books %}
+            <tr>
+                <td><a href="/book/{{ book.id }}">{{ book.title }}</a></td>
+                <td>{{ book.word_count }}</td>
+                <td>{{ book.source_count }}</td>
+                <td>{{ book.triple_count }}</td>
+                <td><a href="/book/{{ book.id }}" class="btn btn-success" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Inspect</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <h2>⚒ Recent Expeditions</h2>
+    {% if jobs %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Quest</th>
+                <th>Status</th>
+                <th>Ore</th>
+                <th>Nuggets</th>
+                <th>Embarked</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td><a href="/job/{{ job.id }}">#{{ job.id }}</a></td>
+                <td><a href="/job/{{ job.id }}">{{ job.topic[:60] }}{% if job.topic|length > 60 %}...{% endif %}</a></td>
+                <td><span class="status-badge status-{{ job.status }}">{{ job.status }}</span></td>
+                <td>{{ job.crawl_count }}</td>
+                <td>{{ job.triple_count }}</td>
+                <td>{{ job.created_at.strftime('%b %d, %H:%M') if job.created_at else '-' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">The mines are quiet... Start a new expedition above to unearth knowledge gold!</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('new-job-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('topic-input');
+    const feedback = document.getElementById('form-feedback');
+    const topic = input.value.trim();
+
+    if (!topic) {
+        feedback.textContent = 'Please enter a topic.';
+        feedback.style.color = '#ef4444';
+        return;
+    }
+
+    feedback.textContent = 'Dispatching gnomes to the mines...';
+    feedback.style.color = '#cd7f32';
+
+    try {
+        const resp = await fetch('/api/jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topic }),
+        });
+        const data = await resp.json();
+
+        if (resp.ok) {
+            feedback.textContent = `Expedition #${data.id} queued! Redirecting...`;
+            feedback.style.color = '#ffd700';
+            setTimeout(() => window.location.href = `/job/${data.id}`, 1000);
+        } else {
+            feedback.textContent = data.error || 'Failed to create expedition';
+            feedback.style.color = '#ef4444';
+        }
+    } catch (err) {
+        feedback.textContent = 'A cave-in blocked the signal. Please try again.';
+        feedback.style.color = '#ef4444';
+    }
+});
+
+let _queuePaused = false;
+let _runningJobId = null;
+
+async function refreshQueueStatus() {
+    try {
+        const resp = await fetch('/api/queue/status');
+        const data = await resp.json();
+        _queuePaused = data.paused;
+
+        const statusText = document.getElementById('queue-status-text');
+        const toggleBtn = document.getElementById('queue-toggle-btn');
+        const queueCount = document.getElementById('queue-count');
+        const queueRunning = document.getElementById('queue-running');
+        const queueWorker = document.getElementById('queue-worker');
+        const runningInfo = document.getElementById('running-job-info');
+
+        statusText.textContent = data.paused ? 'Queue is PAUSED' : 'Queue is ACTIVE';
+        statusText.style.color = data.paused ? '#ef4444' : '#22c55e';
+        toggleBtn.textContent = data.paused ? 'Resume Queue' : 'Pause Queue';
+        toggleBtn.style.background = data.paused ? '#22c55e' : '#ef4444';
+
+        queueCount.textContent = data.queued_count;
+        queueRunning.textContent = data.running_job ? '1' : '0';
+        queueWorker.textContent = data.worker_alive ? 'Alive' : 'Down';
+        queueWorker.style.color = data.worker_alive ? '#22c55e' : '#ef4444';
+
+        if (data.running_job) {
+            _runningJobId = data.running_job.id;
+            runningInfo.style.display = 'block';
+            document.getElementById('running-job-link').textContent = `#${data.running_job.id} - ${data.running_job.topic}`;
+            document.getElementById('running-job-link').href = `/job/${data.running_job.id}`;
+            document.getElementById('running-job-stage').textContent = `(${data.running_job.status})`;
+        } else {
+            _runningJobId = null;
+            runningInfo.style.display = 'none';
+        }
+    } catch (err) {
+        document.getElementById('queue-status-text').textContent = 'Could not fetch queue status';
+    }
+}
+
+async function toggleQueue() {
+    const endpoint = _queuePaused ? '/api/queue/resume' : '/api/queue/pause';
+    await fetch(endpoint, { method: 'POST' });
+    refreshQueueStatus();
+}
+
+document.getElementById('cancel-running-btn').addEventListener('click', async () => {
+    if (!_runningJobId) return;
+    const resp = await fetch(`/api/jobs/${_runningJobId}/cancel`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.status) {
+        document.getElementById('cancel-running-btn').textContent = 'Cancelling...';
+    }
+    setTimeout(refreshQueueStatus, 2000);
+});
+
+async function submitBatch() {
+    const textarea = document.getElementById('batch-topics');
+    const feedback = document.getElementById('batch-feedback');
+    const lines = textarea.value.split('\n').map(l => l.trim()).filter(l => l);
+
+    if (!lines.length) {
+        feedback.textContent = 'Enter at least one topic.';
+        feedback.style.color = '#ef4444';
+        return;
+    }
+
+    feedback.textContent = 'Queueing expeditions...';
+    feedback.style.color = '#cd7f32';
+
+    try {
+        const resp = await fetch('/api/jobs/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ topics: lines }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            feedback.textContent = `${data.count} expeditions queued! Refreshing...`;
+            feedback.style.color = '#ffd700';
+            textarea.value = '';
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            feedback.textContent = data.error || 'Failed to queue batch';
+            feedback.style.color = '#ef4444';
+        }
+    } catch (err) {
+        feedback.textContent = 'Failed to submit batch.';
+        feedback.style.color = '#ef4444';
+    }
+}
+
+refreshQueueStatus();
+setInterval(refreshQueueStatus, 5000);
+</script>
+{% endblock %}

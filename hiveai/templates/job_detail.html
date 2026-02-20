@@ -1,0 +1,296 @@
+{% extends "base.html" %}
+{% block title %}Expedition #{{ job.id }} - {{ job.topic }}{% endblock %}
+
+{% block content %}
+<h1>⛏ Expedition #{{ job.id }}: {{ job.topic }}</h1>
+
+<div class="card">
+    <h2>⚙ Status</h2>
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+        <span class="status-badge status-{{ job.status }}" style="font-size: 1rem; padding: 0.4rem 1rem;">{{ job.status }}</span>
+        {% if job.error_message %}
+        <span style="color: #fca5a5;">{{ job.error_message }}</span>
+        {% endif %}
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="number">{{ job.hive_ping_count }}</div>
+            <div class="label">🐝 Hive Posts Found</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ job.crawl_count }}</div>
+            <div class="label">🪨 Ore Mined</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ job.chunk_count }}</div>
+            <div class="label">⚒ Ore Chunks</div>
+        </div>
+        <div class="stat-card">
+            <div class="number">{{ job.triple_count }}</div>
+            <div class="label">💎 Gold Nuggets</div>
+        </div>
+    </div>
+
+    {% if book %}
+    <a href="/book/{{ book.id }}" class="btn btn-success">📜 Review Forged Tome</a>
+    {% endif %}
+</div>
+
+<div class="pipeline-steps" style="margin-bottom: 2rem;">
+    <h2>⚙ Refining Pipeline</h2>
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem;">
+        {% set steps = ['queued', 'generating_urls', 'crawling', 'crawled', 'chunking', 'chunked', 'reasoning', 'reasoned', 'writing', 'review', 'published'] %}
+        {% set step_labels = {'queued': 'Queued', 'generating_urls': 'Map Sources', 'crawling': 'Mining', 'crawled': 'Ore Ready', 'chunking': 'Crushing Ore', 'chunked': 'Ore Crushed', 'reasoning': 'Smelting', 'reasoned': 'Smelted', 'writing': 'Forging', 'review': 'Pure Gold', 'published': 'Treasured'} %}
+        {% set current_found = [false] %}
+        {% for step in steps %}
+        <div style="padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; font-family: 'MedievalSharp', cursive; letter-spacing: 0.5px; border: 2px solid;
+            {% if job.status == step %}
+                background: linear-gradient(180deg, #4a3520 0%, #3d2b1a 100%); color: #ffd700; border-color: #ffd700;
+                animation: activeGlow 2s ease-in-out infinite;
+            {% elif not current_found[0] and (step in steps[:steps.index(job.status) + 1] if job.status in steps else false) %}
+                background: linear-gradient(180deg, #3d3510 0%, #2d2510 100%); color: #c9a030; border-color: #b8860b;
+            {% else %}
+                background: #1a1008; color: #5c3a1e; border-color: #3d2b1a;
+            {% endif %}
+        ">{{ step_labels.get(step, step) }}</div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card" id="stream-panel">
+    <h2>🔥 Refining Stream</h2>
+    <p id="stream-stage" style="color: #cd7f32; font-style: italic; margin-bottom: 1rem;"></p>
+
+    <div id="stream-indicator" style="display: none; margin-bottom: 0.8rem;">
+        <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ffd700; animation: activeGlow 1.5s ease-in-out infinite; margin-right: 0.5rem; vertical-align: middle;"></span>
+        <span style="color: #b87333; font-size: 0.85rem; font-family: 'MedievalSharp', cursive;">Refining in progress...</span>
+    </div>
+
+    <div class="stream-tabs" style="display: flex; gap: 0; margin-bottom: 0; border-bottom: 2px solid #5c3a1e;">
+        <button class="stream-tab active" data-tab="sources" onclick="switchStreamTab('sources')" style="padding: 0.6rem 1.2rem; background: linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%); border: 2px solid #5c3a1e; border-bottom: none; border-radius: 4px 4px 0 0; color: #8b7355; font-family: 'MedievalSharp', cursive; font-size: 0.9rem; cursor: pointer; margin-right: 2px; transition: all 0.2s;">⛏ Sources</button>
+        <button class="stream-tab" data-tab="ore" onclick="switchStreamTab('ore')" style="padding: 0.6rem 1.2rem; background: linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%); border: 2px solid #5c3a1e; border-bottom: none; border-radius: 4px 4px 0 0; color: #8b7355; font-family: 'MedievalSharp', cursive; font-size: 0.9rem; cursor: pointer; margin-right: 2px; transition: all 0.2s;">🪨 Raw Ore</button>
+        <button class="stream-tab" data-tab="nuggets" onclick="switchStreamTab('nuggets')" style="padding: 0.6rem 1.2rem; background: linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%); border: 2px solid #5c3a1e; border-bottom: none; border-radius: 4px 4px 0 0; color: #8b7355; font-family: 'MedievalSharp', cursive; font-size: 0.9rem; cursor: pointer; margin-right: 2px; transition: all 0.2s;">💎 Gold Nuggets</button>
+        <button class="stream-tab" data-tab="tome" onclick="switchStreamTab('tome')" style="padding: 0.6rem 1.2rem; background: linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%); border: 2px solid #5c3a1e; border-bottom: none; border-radius: 4px 4px 0 0; color: #8b7355; font-family: 'MedievalSharp', cursive; font-size: 0.9rem; cursor: pointer; transition: all 0.2s;">📜 Golden Tome</button>
+    </div>
+
+    <div id="stream-content" style="background: linear-gradient(180deg, #1a1008 0%, #0d0a06 100%); border: 2px solid #5c3a1e; border-top: none; border-radius: 0 0 4px 4px; padding: 1.5rem; min-height: 200px; max-height: 500px; overflow-y: auto; position: relative; box-shadow: inset 0 4px 12px rgba(0,0,0,0.5);">
+        <div id="stream-pane-sources" class="stream-pane">
+            <p class="empty">No sources mined yet. The expedition has not begun crawling...</p>
+        </div>
+        <div id="stream-pane-ore" class="stream-pane" style="display: none;">
+            <p class="empty">No ore chunks yet. Waiting for the crushing phase...</p>
+        </div>
+        <div id="stream-pane-nuggets" class="stream-pane" style="display: none;">
+            <p class="empty">No gold nuggets yet. The smelter awaits raw ore...</p>
+        </div>
+        <div id="stream-pane-tome" class="stream-pane" style="display: none;">
+            <p class="empty">The Golden Tome has not yet been forged...</p>
+        </div>
+    </div>
+</div>
+
+{% if not pages and not triples and book %}
+<div class="card">
+    <p style="color: #b87333; text-align: center; padding: 1rem;">Intermediate data (ore, chunks, nuggets) has been refined away. Only the Golden Tome remains.</p>
+</div>
+{% endif %}
+
+{% if pages %}
+<div class="card">
+    <h2>⛏ Mined Ore Samples ({{ pages|length }})</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Vein Location</th>
+                <th>Source</th>
+                <th>Ore Hash</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for page in pages[:30] %}
+            <tr>
+                <td>{{ (page.title or 'Untitled')[:50] }}</td>
+                <td><a href="{{ page.url }}" target="_blank">{{ page.url[:60] }}...</a></td>
+                <td>{{ 'Hive' if page.from_hive else 'Web' }}</td>
+                <td style="font-family: monospace; font-size: 0.8rem;">{{ page.content_hash[:12] if page.content_hash else '-' }}...</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if triples %}
+<div class="card">
+    <h2>💎 Extracted Gold Nuggets ({{ triples|length }}{% if triples|length >= 100 %}+{% endif %})</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Ore</th>
+                <th>Vein</th>
+                <th>Deposit</th>
+                <th>Purity</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in triples %}
+            <tr>
+                <td>{{ t.subject[:40] }}</td>
+                <td style="color: #c9a030;">{{ t.predicate[:30] }}</td>
+                <td>{{ t.obj[:40] }}</td>
+                <td>{{ '%.0f' % (t.confidence * 100) }}%</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentStreamTab = 'sources';
+
+function switchStreamTab(tab) {
+    currentStreamTab = tab;
+    document.querySelectorAll('.stream-pane').forEach(p => p.style.display = 'none');
+    document.getElementById('stream-pane-' + tab).style.display = 'block';
+    document.querySelectorAll('.stream-tab').forEach(t => {
+        t.classList.remove('active');
+        if (t.dataset.tab === tab) t.classList.add('active');
+    });
+    updateTabStyles();
+}
+
+function updateTabStyles() {
+    document.querySelectorAll('.stream-tab').forEach(t => {
+        if (t.classList.contains('active')) {
+            t.style.color = '#ffd700';
+            t.style.borderColor = '#b8860b';
+            t.style.background = 'linear-gradient(180deg, #4a3520 0%, #2d1b0e 100%)';
+        } else if (t.classList.contains('available')) {
+            t.style.color = '#c9a030';
+            t.style.borderColor = '#5c3a1e';
+            t.style.background = 'linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%)';
+        } else {
+            t.style.color = '#8b7355';
+            t.style.borderColor = '#5c3a1e';
+            t.style.background = 'linear-gradient(180deg, #3d2b1a 0%, #2d1b0e 100%)';
+        }
+    });
+}
+
+function renderSources(sources) {
+    if (!sources || sources.length === 0) return '<p class="empty">No sources mined yet. The expedition has not begun crawling...</p>';
+    let html = '<div style="font-size: 0.9rem;">';
+    sources.forEach((s, i) => {
+        html += '<div style="padding: 0.5rem 0; border-bottom: 1px solid #3d2b1a;">';
+        html += '<span style="color: #8b6914; font-family: MedievalSharp, cursive; margin-right: 0.5rem;">' + (i+1) + '.</span>';
+        html += '<a href="' + s.url + '" target="_blank" style="color: #cd7f32; text-decoration: none;">' + s.title + '</a>';
+        html += '<div style="color: #6b5a3e; font-size: 0.8rem; margin-left: 1.5rem; word-break: break-all;">' + s.url + '</div>';
+        html += '</div>';
+    });
+    html += '</div>';
+    return html;
+}
+
+function renderOre(chunks_preview) {
+    if (!chunks_preview) return '<p class="empty">No ore chunks yet. Waiting for the crushing phase...</p>';
+    let parts = chunks_preview.split('\n\n---\n\n');
+    let html = '';
+    parts.forEach((chunk, i) => {
+        html += '<div style="background: #1a1208; border: 1px solid #3d2b1a; border-left: 3px solid #8b6914; padding: 1rem; margin-bottom: 0.8rem; border-radius: 0 4px 4px 0; font-size: 0.9rem; line-height: 1.6; color: #d4b896;">';
+        html += '<div style="color: #8b6914; font-family: MedievalSharp, cursive; font-size: 0.8rem; margin-bottom: 0.5rem;">Chunk #' + (i+1) + '</div>';
+        html += chunk.replace(/\n/g, '<br>');
+        html += '</div>';
+    });
+    return html;
+}
+
+function renderNuggets(triples, facts_count) {
+    if (!triples || triples.length === 0) return '<p class="empty">No gold nuggets yet. The smelter awaits raw ore...</p>';
+    let html = '<div style="color: #b87333; font-size: 0.85rem; margin-bottom: 0.8rem; font-family: MedievalSharp, cursive;">' + facts_count + ' nuggets extracted (showing top ' + triples.length + ')</div>';
+    html += '<div style="display: grid; gap: 0.5rem;">';
+    triples.forEach(t => {
+        let pct = Math.round(t.confidence * 100);
+        html += '<div style="background: #1a1208; border: 1px solid #3d2b1a; padding: 0.8rem; border-radius: 4px; display: flex; align-items: center; gap: 0.8rem; font-size: 0.85rem;">';
+        html += '<span style="color: #ffd700; font-weight: 600; min-width: 0; flex: 1;">' + t.subject + '</span>';
+        html += '<span style="color: #cd7f32; font-family: MedievalSharp, cursive; white-space: nowrap;">— ' + t.predicate + ' →</span>';
+        html += '<span style="color: #d4b896; min-width: 0; flex: 1;">' + t.object + '</span>';
+        html += '<span style="color: #8b6914; font-size: 0.75rem; white-space: nowrap; font-weight: 600;">' + pct + '%</span>';
+        html += '</div>';
+    });
+    html += '</div>';
+    return html;
+}
+
+function renderTome(book) {
+    if (!book) return '<p class="empty">The Golden Tome has not yet been forged...</p>';
+    let html = '<div style="text-align: center; margin-bottom: 1.5rem;">';
+    html += '<h3 style="font-family: MedievalSharp, cursive; color: #ffd700; font-size: 1.3rem; text-shadow: 0 0 8px rgba(255,215,0,0.3);">📜 ' + book.title + '</h3>';
+    html += '<div style="color: #8b6914; font-size: 0.8rem;">' + book.word_count + ' words · ' + book.source_count + ' sources</div>';
+    html += '</div>';
+    html += '<div style="background: linear-gradient(180deg, #2d2010 0%, #1a1208 100%); border: 1px solid #5c3a1e; border-radius: 4px; padding: 1.5rem; line-height: 1.8; color: #d4b896; font-size: 0.95rem; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">';
+    html += book.content;
+    html += '</div>';
+    return html;
+}
+
+function markTabAvailable(tab) {
+    document.querySelectorAll('.stream-tab').forEach(t => {
+        if (t.dataset.tab === tab && !t.classList.contains('active')) {
+            t.classList.add('available');
+        }
+    });
+}
+
+async function updateStream() {
+    try {
+        const resp = await fetch('/api/jobs/{{ job.id }}/stream');
+        const d = await resp.json();
+
+        document.getElementById('stream-stage').textContent = d.stage;
+
+        const running = !['review', 'published', 'error'].includes(d.status);
+        document.getElementById('stream-indicator').style.display = running ? 'block' : 'none';
+
+        if (d.sources && d.sources.length > 0) {
+            document.getElementById('stream-pane-sources').innerHTML = renderSources(d.sources);
+            markTabAvailable('sources');
+        }
+        if (d.chunks_preview) {
+            document.getElementById('stream-pane-ore').innerHTML = renderOre(d.chunks_preview);
+            markTabAvailable('ore');
+        }
+        if (d.triples && d.triples.length > 0) {
+            document.getElementById('stream-pane-nuggets').innerHTML = renderNuggets(d.triples, d.facts_count);
+            markTabAvailable('nuggets');
+        }
+        if (d.golden_book) {
+            document.getElementById('stream-pane-tome').innerHTML = renderTome(d.golden_book);
+            markTabAvailable('tome');
+        }
+
+        updateTabStyles();
+    } catch (e) {}
+}
+
+updateStream();
+
+{% if job.status not in ['review', 'published', 'error'] %}
+setInterval(async () => {
+    try {
+        const resp = await fetch('/api/jobs/{{ job.id }}');
+        const data = await resp.json();
+        if (data.status !== '{{ job.status }}') {
+            window.location.reload();
+        }
+    } catch (e) {}
+}, 5000);
+
+setInterval(updateStream, 5000);
+{% endif %}
+</script>
+{% endblock %}

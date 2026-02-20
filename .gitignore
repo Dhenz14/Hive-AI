@@ -1,0 +1,75 @@
+# Replit internal files
+.replit
+replit.nix
+replit.md
+.replit.nix
+.breakpoints
+.upm/
+.cache/
+.local/
+.config/
+attached_assets/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pythonlibs/
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+uv.lock
+
+# Environment / Secrets (NEVER commit)
+.env
+.env.local
+.env.production
+
+# SQLite databases (local data — do not commit)
+*.db
+*.sqlite
+*.sqlite3
+
+# Embedding model cache (downloaded on first run)
+models/
+sentence-transformers/
+torch_cache/
+
+# Knowledge graph cache
+hiveai/data/
+
+# Node.js (ArcHive deployment scripts only)
+node_modules/
+package-lock.json
+
+# System files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# Test files
+*.test.js
+*.test.cjs
+*.spec.js
+coverage/
+.pytest_cache/
+htmlcov/
+
+# Desktop app build artifacts
+desktop/dist/
+desktop/build/
+desktop/src-tauri/target/
+desktop/node_modules/
+
+# Cursor
+.cursorignore
