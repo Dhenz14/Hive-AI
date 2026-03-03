@@ -1,0 +1,56 @@
+[
+  {
+    "id": "hive-arch-001",
+    "domain": "hive_architecture",
+    "severity": "critical",
+    "instruction": "What consensus mechanism does Hive use?",
+    "must_contain": ["DPoS", "Delegated Proof of Stake", "witness"],
+    "must_not_contain": ["Proof of Work", "Proof of Stake like Ethereum", "mining", "validators stake ETH"],
+    "rationale": "Hive uses Delegated Proof of Stake (DPoS), not PoW or Ethereum-style PoS. Block producers are called witnesses (not validators/miners) and are elected by stake-weighted community votes."
+  },
+  {
+    "id": "hive-arch-002",
+    "domain": "hive_architecture",
+    "severity": "critical",
+    "instruction": "How does Hive achieve 3-second block times?",
+    "must_contain": ["3 second", "witness", "round"],
+    "must_not_contain": ["sharding", "rollups", "layer 2 for speed", "parallel execution"],
+    "rationale": "Hive's 3-second blocks come from DPoS round-robin scheduling — 21 witnesses take turns producing 1 block each per round. This is a base-layer capability, not achieved through sharding or L2 solutions."
+  },
+  {
+    "id": "hive-arch-003",
+    "domain": "hive_architecture",
+    "severity": "high",
+    "instruction": "What is the difference between Hive and Steem?",
+    "must_contain": ["fork", "decentraliz"],
+    "must_not_contain": ["Hive is a copy of Steem", "Hive is owned by Steemit", "they are the same"],
+    "rationale": "Hive is a community-led hard fork of Steem that occurred in March 2020 to escape centralized control by Justin Sun/Steemit Inc. Hive is NOT owned by Steemit — it's the independent, decentralized successor."
+  },
+  {
+    "id": "hive-arch-004",
+    "domain": "hive_architecture",
+    "severity": "high",
+    "instruction": "How does Hive handle smart contracts?",
+    "must_contain": ["Hive Engine", "layer 2", "sidechain"],
+    "must_not_contain": ["Hive has native smart contracts", "Solidity on Hive", "EVM compatible"],
+    "rationale": "Hive's base layer does NOT have native smart contracts or EVM compatibility. Smart contract functionality comes through Layer 2 solutions like Hive Engine (sidechain) and VSC (Virtual Smart Chain). Claiming Hive has native smart contracts or EVM support is factually wrong."
+  },
+  {
+    "id": "hive-arch-005",
+    "domain": "hive_architecture",
+    "severity": "high",
+    "instruction": "What APIs does Hive provide for developers?",
+    "must_contain": ["condenser_api", "database_api"],
+    "must_not_contain": ["REST API only", "GraphQL", "single endpoint"],
+    "rationale": "Hive provides multiple JSON-RPC API namespaces: condenser_api (legacy compatible), database_api, block_api, account_history_api, etc. It's JSON-RPC, not REST or GraphQL. Multiple API nodes exist — there's no single endpoint."
+  },
+  {
+    "id": "hive-arch-006",
+    "domain": "hive_architecture",
+    "severity": "high",
+    "instruction": "What is the role of hard forks on Hive?",
+    "must_contain": ["witness", "consensus", "upgrade"],
+    "must_not_contain": ["hard forks create new coins", "anyone can trigger a hard fork", "hard forks always split the chain"],
+    "rationale": "Hive hard forks are planned protocol upgrades that require witness supermajority consensus. They do NOT create new coins or split the chain — they are coordinated upgrades. The community fork from Steem was exceptional, not the normal process."
+  }
+]

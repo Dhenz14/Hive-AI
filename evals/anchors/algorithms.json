@@ -1,0 +1,65 @@
+[
+  {
+    "id": "algo-sort-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "What is the time complexity of quicksort and when does it perform poorly?",
+    "must_contain": ["O(n log n)", "worst case", "O(n²)", "pivot"],
+    "must_not_contain": ["quicksort is always O(n log n)", "quicksort is the fastest sort", "worst case doesn't happen in practice"],
+    "rationale": "Quicksort averages O(n log n) but degrades to O(n²) with bad pivots (already sorted input + first-element pivot). The worst case IS practical — it's triggered by common inputs. Merge sort guarantees O(n log n). Saying quicksort is always O(n log n) is wrong."
+  },
+  {
+    "id": "algo-hash-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "What is the time complexity of hash table operations?",
+    "must_contain": ["O(1)", "average", "collision", "worst"],
+    "must_not_contain": ["hash tables are always O(1)", "collisions don't happen", "hash tables are always better than trees"],
+    "rationale": "Hash table lookup is O(1) AVERAGE case but O(n) worst case with hash collisions. Saying always O(1) ignores pathological inputs and hash collision attacks. Balanced BSTs guarantee O(log n) worst case, which is better when worst-case matters."
+  },
+  {
+    "id": "algo-bigo-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "What is the difference between O(n) and O(n log n)?",
+    "must_contain": ["logarithm", "growth", "scale"],
+    "must_not_contain": ["O(n log n) is basically O(n)", "the difference doesn't matter", "log n is constant"],
+    "rationale": "O(n log n) grows faster than O(n) — at n=1M, the log factor is ~20x. Treating log n as constant is a dangerous simplification that breaks at scale. The difference absolutely matters for large datasets."
+  },
+  {
+    "id": "algo-recur-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "What are the risks of recursive algorithms and how do you mitigate them?",
+    "must_contain": ["stack overflow", "base case", "iterative"],
+    "must_not_contain": ["recursion is always bad", "recursion is always better", "stack overflow can't happen in modern systems"],
+    "rationale": "Recursion risks stack overflow with deep call stacks (Python default limit: 1000). Every recursive function needs a base case. Mitigation: tail-call optimization (not in Python), iterative conversion, or explicit stack. Stack overflow absolutely can happen — Python's limit is low."
+  },
+  {
+    "id": "algo-dp-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "When should you use dynamic programming vs greedy algorithms?",
+    "must_contain": ["optimal substructure", "overlapping subproblem"],
+    "must_not_contain": ["greedy always works when DP works", "DP is always better", "just use DP for everything"],
+    "rationale": "DP requires optimal substructure AND overlapping subproblems. Greedy requires optimal substructure AND greedy choice property. Greedy doesn't always produce optimal solutions (knapsack 0/1 vs fractional). DP guarantees optimality but uses more memory/time."
+  },
+  {
+    "id": "algo-graph-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "When should you use BFS vs DFS for graph traversal?",
+    "must_contain": ["BFS", "DFS", "shortest path", "queue", "stack"],
+    "must_not_contain": ["BFS and DFS give the same result", "always use BFS", "DFS finds shortest paths"],
+    "rationale": "BFS finds shortest paths in unweighted graphs (level-by-level, uses queue). DFS explores deeply first (uses stack/recursion), good for cycle detection, topological sort, connected components. DFS does NOT find shortest paths. They are NOT interchangeable."
+  },
+  {
+    "id": "algo-binary-001",
+    "domain": "algorithms",
+    "severity": "high",
+    "instruction": "What are the prerequisites for binary search?",
+    "must_contain": ["sorted", "O(log n)"],
+    "must_not_contain": ["binary search works on any array", "binary search works on linked lists efficiently", "no prerequisites needed"],
+    "rationale": "Binary search REQUIRES a sorted collection with O(1) random access. Using it on unsorted data gives wrong results. Using it on linked lists gives O(n log n) — worse than linear scan. These prerequisites are non-negotiable."
+  }
+]

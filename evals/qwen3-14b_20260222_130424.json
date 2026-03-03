@@ -1,0 +1,1905 @@
+{
+  "model": "qwen3:14b",
+  "timestamp": "2026-02-22T13:04:24.633684",
+  "total_challenges": 100,
+  "errors": 0,
+  "scored": 100,
+  "overall_score": 0.741,
+  "dimension_scores": {
+    "code_validity": 0.889,
+    "test_passing": 0.707,
+    "concept_coverage": 0.92,
+    "explanation": 0.325
+  },
+  "by_category": {
+    "algorithms": {
+      "score": 0.788,
+      "count": 15,
+      "test_pass_rate": 0.867,
+      "tests_total": 15
+    },
+    "database": {
+      "score": 0.609,
+      "count": 7,
+      "test_pass_rate": 1.0,
+      "tests_total": 1
+    },
+    "design_patterns": {
+      "score": 0.655,
+      "count": 10,
+      "test_pass_rate": 0.222,
+      "tests_total": 9
+    },
+    "devops": {
+      "score": 0.656,
+      "count": 6,
+      "test_pass_rate": 0.0,
+      "tests_total": 1
+    },
+    "javascript": {
+      "score": 0.526,
+      "count": 8,
+      "test_pass_rate": 0.0,
+      "tests_total": 0
+    },
+    "python": {
+      "score": 0.809,
+      "count": 20,
+      "test_pass_rate": 0.875,
+      "tests_total": 16
+    },
+    "security": {
+      "score": 0.758,
+      "count": 6,
+      "test_pass_rate": 0.5,
+      "tests_total": 4
+    },
+    "systems": {
+      "score": 0.809,
+      "count": 10,
+      "test_pass_rate": 0.714,
+      "tests_total": 7
+    },
+    "testing": {
+      "score": 0.8,
+      "count": 8,
+      "test_pass_rate": 0.5,
+      "tests_total": 2
+    },
+    "web": {
+      "score": 0.81,
+      "count": 10,
+      "test_pass_rate": 0.333,
+      "tests_total": 3
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "score": 0.734,
+      "count": 9
+    },
+    "2": {
+      "score": 0.717,
+      "count": 26
+    },
+    "3": {
+      "score": 0.731,
+      "count": 36
+    },
+    "4": {
+      "score": 0.742,
+      "count": 18
+    },
+    "5": {
+      "score": 0.836,
+      "count": 11
+    }
+  },
+  "timing": {
+    "total_seconds": 1567.4,
+    "avg_ms_per_challenge": 15272,
+    "total_tokens": 77663
+  },
+  "challenges": [
+    {
+      "id": "py-comp-001",
+      "category": "python",
+      "topic": "list_comprehensions",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.03,
+        "overall": 0.806
+      },
+      "has_test_code": true,
+      "duration_ms": 4632,
+      "tokens_eval": 145,
+      "response_preview": "Sure! Here's a Python function called `even_squares` that uses a list comprehension to return a new list containing the squares of only the even numbers from the input list:\n\n```python\ndef even_squares(numbers):\n    return [num ** 2 for num in numbers if num % 2 == 0]\n```\n\n### Example usage:\n\n```pyt",
+      "error": null
+    },
+    {
+      "id": "py-str-002",
+      "category": "python",
+      "topic": "string_formatting",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.03,
+        "overall": 0.806
+      },
+      "has_test_code": true,
+      "duration_ms": 4211,
+      "tokens_eval": 116,
+      "response_preview": "Sure! Here's a Python function called `format_greeting` that takes a `name` (string) and `age` (integer) and returns a formatted greeting using an f-string:\n\n```python\ndef format_greeting(name: str, age: int) -> str:\n    return f\"Hello, {name}! You are {age} years old.\"\n```\n\n### Example usage:\n```py",
+      "error": null
+    },
+    {
+      "id": "py-dict-003",
+      "category": "python",
+      "topic": "dictionaries",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.11,
+        "overall": 0.822
+      },
+      "has_test_code": true,
+      "duration_ms": 14649,
+      "tokens_eval": 163,
+      "response_preview": "Here's a Python function called `word_count` that takes a string and returns a dictionary mapping each word (lowercased) to its count, splitting on whitespace:\n\n```python\ndef word_count(text):\n    words = text.lower().split()\n    counts = {}\n    for word in words:\n        counts[word] = counts.get(w",
+      "error": null
+    },
+    {
+      "id": "py-gen-004",
+      "category": "python",
+      "topic": "generators",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.23,
+        "overall": 0.846
+      },
+      "has_test_code": true,
+      "duration_ms": 6682,
+      "tokens_eval": 270,
+      "response_preview": "Here's a Python generator function called `fibonacci` that yields Fibonacci numbers indefinitely, and an example of how to get the first `N` numbers using `itertools.islice`.\n\n### ✅ Generator Function\n\n```python\nimport itertools\n\ndef fibonacci():\n    a, b = 0, 1\n    while True:\n        yield a\n     ",
+      "error": null
+    },
+    {
+      "id": "py-dec-005",
+      "category": "python",
+      "topic": "decorators",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.13,
+        "overall": 0.826
+      },
+      "has_test_code": true,
+      "duration_ms": 5839,
+      "tokens_eval": 216,
+      "response_preview": "Here's a Python decorator called `timer` that measures and prints the execution time of any function it wraps. It uses `functools.wraps` to preserve the original function's metadata:\n\n```python\nimport time\nfrom functools import wraps\n\ndef timer(func):\n    @wraps(func)\n    def wrapper(*args, **kwargs",
+      "error": null
+    },
+    {
+      "id": "py-ctx-006",
+      "category": "python",
+      "topic": "context_managers",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.26,
+        "overall": 0.852
+      },
+      "has_test_code": true,
+      "duration_ms": 7053,
+      "tokens_eval": 291,
+      "response_preview": "Here's a Python context manager class called `TempDirectory` that creates a temporary directory when entering the context, returns its path, and deletes the directory (and all its contents) when exiting the context:\n\n```python\nimport os\nimport shutil\nimport tempfile\n\nclass TempDirectory:\n    def __e",
+      "error": null
+    },
+    {
+      "id": "py-async-007",
+      "category": "python",
+      "topic": "asyncio",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.29,
+        "overall": 0.858
+      },
+      "has_test_code": true,
+      "duration_ms": 9162,
+      "tokens_eval": 418,
+      "response_preview": "Here's an `async` Python function called `fetch_all` that takes a list of URLs and a coroutine factory `fetch(url)`, and runs all fetches concurrently using `asyncio.gather`. It includes proper error handling so that if one fetch fails, it returns `None` for that URL instead of crashing:\n\n```python\n",
+      "error": null
+    },
+    {
+      "id": "py-meta-008",
+      "category": "python",
+      "topic": "metaclasses",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.36,
+        "overall": 0.872
+      },
+      "has_test_code": true,
+      "duration_ms": 8345,
+      "tokens_eval": 370,
+      "response_preview": "Here's a Python metaclass called `SingletonMeta` that ensures any class using it can only have one instance. It uses `threading.Lock` to ensure thread safety:\n\n```python\nimport threading\n\nclass SingletonMeta(type):\n    _instances = {}\n    _lock = threading.Lock()  # This ensures thread safety\n\n    d",
+      "error": null
+    },
+    {
+      "id": "py-desc-009",
+      "category": "python",
+      "topic": "descriptors",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.26,
+        "overall": 0.852
+      },
+      "has_test_code": true,
+      "duration_ms": 10620,
+      "tokens_eval": 508,
+      "response_preview": "Here's a Python descriptor class called `ValidatedField` that enforces type checking and optional range validation on class attributes:\n\n```python\nclass ValidatedField:\n    def __init__(self, expected_type, min_val=None, max_val=None):\n        self.expected_type = expected_type\n        self.min_val ",
+      "error": null
+    },
+    {
+      "id": "py-proto-010",
+      "category": "python",
+      "topic": "protocol_classes",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.824
+      },
+      "has_test_code": false,
+      "duration_ms": 14420,
+      "tokens_eval": 733,
+      "response_preview": "Python's `Protocol` classes from the `typing` module are used to define **structural subtyping** (also known as **duck typing**). This means that a class conforms to a protocol if it has the required attributes and methods, **regardless of whether it explicitly inherits from the protocol**.\n\n---\n\n##",
+      "error": null
+    },
+    {
+      "id": "py-slot-011",
+      "category": "python",
+      "topic": "slots",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.833,
+        "explanation": 0.29,
+        "overall": 0.555
+      },
+      "has_test_code": true,
+      "duration_ms": 12891,
+      "tokens_eval": 641,
+      "response_preview": "Here's a Python class called `Point` that uses `__slots__` for memory optimization. It includes attributes `x`, `y`, and `z` (all floats), and a method `distance_to` that calculates the Euclidean distance to another `Point`.\n\n---\n\n### ✅ Python Class with `__slots__`\n\n```python\nclass Point:\n    __slo",
+      "error": null
+    },
+    {
+      "id": "py-abc-012",
+      "category": "python",
+      "topic": "abstract_base_classes",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.27,
+        "overall": 0.821
+      },
+      "has_test_code": true,
+      "duration_ms": 8968,
+      "tokens_eval": 406,
+      "response_preview": "Here's a Python implementation of an abstract base class `Shape` with two concrete subclasses `Circle` and `Rectangle`. The `Shape` class is abstract and cannot be instantiated directly, and it defines abstract methods `area()` and `perimeter()`.\n\n```python\nfrom abc import ABC, abstractmethod\nimport",
+      "error": null
+    },
+    {
+      "id": "py-enum-013",
+      "category": "python",
+      "topic": "enums",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.18,
+        "overall": 0.836
+      },
+      "has_test_code": true,
+      "duration_ms": 8605,
+      "tokens_eval": 388,
+      "response_preview": "Here's a Python `Enum` called `HttpStatus` with the specified members and a method `is_error` that returns `True` if the status code is 400 or higher. I also include usage examples.\n\n```python\nfrom enum import Enum\n\nclass HttpStatus(Enum):\n    OK = 200\n    NOT_FOUND = 404\n    INTERNAL_ERROR = 500\n  ",
+      "error": null
+    },
+    {
+      "id": "py-dataclass-014",
+      "category": "python",
+      "topic": "dataclasses",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.8,
+        "explanation": 0.3,
+        "overall": 0.82
+      },
+      "has_test_code": true,
+      "duration_ms": 7059,
+      "tokens_eval": 290,
+      "response_preview": "Here's a complete example of a **frozen dataclass** called `Config` with the specified fields and method, along with a demonstration that attempting to modify an instance raises an error:\n\n```python\nfrom dataclasses import dataclass, field\n\n@dataclass(frozen=True)\nclass Config:\n    host: str = field",
+      "error": null
+    },
+    {
+      "id": "py-weakref-015",
+      "category": "python",
+      "topic": "weakref",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.515,
+        "overall": 0.903
+      },
+      "has_test_code": false,
+      "duration_ms": 15500,
+      "tokens_eval": 798,
+      "response_preview": "### 🔍 Understanding Python `weakref` and Circular References\n\n#### 📌 What are Weak References?\n\nIn Python, **weak references** allow you to reference an object without increasing its **reference count**. This means that the object can be **garbage collected** even if there is a reference to it, as l",
+      "error": null
+    },
+    {
+      "id": "py-import-016",
+      "category": "python",
+      "topic": "import_system",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.889,
+        "explanation": 0.5,
+        "overall": 0.864
+      },
+      "has_test_code": false,
+      "duration_ms": 26904,
+      "tokens_eval": 1483,
+      "response_preview": "Python's import system is a powerful and flexible mechanism that allows modules and packages to be loaded and used in a program. Understanding how it works is essential for writing clean, maintainable, and efficient Python code. Below is an in-depth explanation of key aspects of Python's import syst",
+      "error": null
+    },
+    {
+      "id": "py-mp-017",
+      "category": "python",
+      "topic": "multiprocessing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.2,
+        "overall": 0.54
+      },
+      "has_test_code": true,
+      "duration_ms": 7804,
+      "tokens_eval": 340,
+      "response_preview": "Here's a Python function called `parallel_map` that uses `multiprocessing.Pool` to apply a function to a list of items in parallel. It includes proper cleanup with `pool.close()` and `pool.join()`:\n\n```python\nimport multiprocessing\n\ndef parallel_map(func, items, num_workers=None):\n    \"\"\"\n    Applie",
+      "error": null
+    },
+    {
+      "id": "py-typing-018",
+      "category": "python",
+      "topic": "type_hints",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.3,
+        "overall": 0.827
+      },
+      "has_test_code": true,
+      "duration_ms": 9835,
+      "tokens_eval": 448,
+      "response_preview": "Here's a complete implementation in Python that includes:\n\n1. A generic function `first_or_default` using `TypeVar` for proper type hints.\n2. A `TypedDict` called `UserProfile` with required and optional fields.\n\n```python\nfrom typing import TypeVar, Generic, List, TypedDict, Optional\n\n# Define a Ty",
+      "error": null
+    },
+    {
+      "id": "py-path-019",
+      "category": "python",
+      "topic": "pathlib",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.6,
+        "explanation": 0.13,
+        "overall": 0.746
+      },
+      "has_test_code": true,
+      "duration_ms": 5621,
+      "tokens_eval": 206,
+      "response_preview": "Here's a function called `find_python_files` that uses `pathlib.Path` to find and return a sorted list of `.py` file names in a given directory:\n\n```python\nfrom pathlib import Path\n\ndef find_python_files(directory_path):\n    # Create a Path object for the given directory\n    directory = Path(directo",
+      "error": null
+    },
+    {
+      "id": "py-gc-020",
+      "category": "python",
+      "topic": "memory_management",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.56,
+        "overall": 0.912
+      },
+      "has_test_code": false,
+      "duration_ms": 27281,
+      "tokens_eval": 1503,
+      "response_preview": "Python's memory management is a combination of **reference counting**, **generational garbage collection (GC)**, and **manual memory management** via the `gc` module. It also includes **pitfalls** like the `__del__` method and tools like `tracemalloc` for **memory profiling**. Below is an in-depth e",
+      "error": null
+    },
+    {
+      "id": "algo-bs-001",
+      "category": "algorithms",
+      "topic": "binary_search",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.22,
+        "overall": 0.844
+      },
+      "has_test_code": true,
+      "duration_ms": 6614,
+      "tokens_eval": 266,
+      "response_preview": "Here's an implementation of the `binary_search` function using the **iterative approach** with `low` and `high` pointers:\n\n```python\ndef binary_search(sorted_list, target):\n    low = 0\n    high = len(sorted_list) - 1\n\n    while low <= high:\n        mid = (low + high) // 2\n        if sorted_list[mid]",
+      "error": null
+    },
+    {
+      "id": "algo-sort-002",
+      "category": "algorithms",
+      "topic": "sorting",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.571,
+        "explanation": 0.2,
+        "overall": 0.754
+      },
+      "has_test_code": true,
+      "duration_ms": 7972,
+      "tokens_eval": 349,
+      "response_preview": "Here's an implementation of the `merge_sort` function in Python that sorts a list of integers in ascending order using the divide-and-conquer approach. It uses a helper `merge` function and returns a new sorted list without modifying the original list in-place.\n\n```python\ndef merge_sort(arr):\n    if",
+      "error": null
+    },
+    {
+      "id": "algo-dp-003",
+      "category": "algorithms",
+      "topic": "dynamic_programming",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.29,
+        "overall": 0.825
+      },
+      "has_test_code": true,
+      "duration_ms": 17070,
+      "tokens_eval": 898,
+      "response_preview": "Here's a complete implementation in Python for both `lcs_length` and `lcs_string` functions using **dynamic programming** with a **2D table**:\n\n---\n\n### ✅ **Function 1: `lcs_length(s1, s2)`**\nReturns the **length** of the longest common subsequence (LCS) between two strings `s1` and `s2`.\n\n### ✅ **F",
+      "error": null
+    },
+    {
+      "id": "algo-graph-004",
+      "category": "algorithms",
+      "topic": "graph_bfs",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 8485,
+      "tokens_eval": 378,
+      "response_preview": "Here's an implementation of the `shortest_path` function using **Breadth-First Search (BFS)** to find the shortest path in an **unweighted graph** represented as an **adjacency list**:\n\n```python\nfrom collections import deque\n\ndef shortest_path(graph, start, end):\n    if start == end:\n        return",
+      "error": null
+    },
+    {
+      "id": "algo-heap-005",
+      "category": "algorithms",
+      "topic": "heap",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.625,
+        "explanation": 0.23,
+        "overall": 0.771
+      },
+      "has_test_code": true,
+      "duration_ms": 13027,
+      "tokens_eval": 651,
+      "response_preview": "Here's a complete implementation of a `MinHeap` class using a list as the underlying storage, without using the `heapq` module. The class includes the required methods: `push(val)`, `pop()`, `peek()`, and a `size` property.\n\n```python\nclass MinHeap:\n    def __init__(self):\n        self._heap = []\n\n ",
+      "error": null
+    },
+    {
+      "id": "algo-trie-006",
+      "category": "algorithms",
+      "topic": "trie",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.29,
+        "overall": 0.829
+      },
+      "has_test_code": true,
+      "duration_ms": 14470,
+      "tokens_eval": 739,
+      "response_preview": "Here's a complete implementation of a **Trie** data structure in Python, with the following methods:\n\n- `insert(word)`: Inserts a word into the Trie.\n- `search(word) -> bool`: Checks if a word exists in the Trie (exact match).\n- `starts_with(prefix) -> bool`: Checks if any word in the Trie starts wi",
+      "error": null
+    },
+    {
+      "id": "algo-uf-007",
+      "category": "algorithms",
+      "topic": "union_find",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.59
+      },
+      "has_test_code": true,
+      "duration_ms": 11763,
+      "tokens_eval": 576,
+      "response_preview": "Here's an implementation of the **Union-Find (Disjoint Set Union)** data structure with **path compression** and **union by rank**, along with the required methods and a `components` property that returns the number of disjoint sets:\n\n```python\nclass UnionFind:\n    def __init__(self, elements):\n    ",
+      "error": null
+    },
+    {
+      "id": "algo-slide-008",
+      "category": "algorithms",
+      "topic": "sliding_window",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.667,
+        "explanation": 0.27,
+        "overall": 0.787
+      },
+      "has_test_code": true,
+      "duration_ms": 9095,
+      "tokens_eval": 413,
+      "response_preview": "Here are the implementations for both functions you requested:\n\n---\n\n### 1. `max_sum_subarray` – Maximum Sum of a Contiguous Subarray of Size `k`\n\n```python\ndef max_sum_subarray(arr, k):\n    if not arr or k <= 0 or k > len(arr):\n        return 0\n\n    current_sum = sum(arr[:k])\n    max_sum = current_",
+      "error": null
+    },
+    {
+      "id": "algo-topo-009",
+      "category": "algorithms",
+      "topic": "topological_sort",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.32,
+        "overall": 0.864
+      },
+      "has_test_code": true,
+      "duration_ms": 11248,
+      "tokens_eval": 549,
+      "response_preview": "Here's an implementation of the `topological_sort` function using **Kahn's algorithm**, which is a **BFS-based** approach that uses **in-degree counting** to detect cycles and generate a valid topological ordering.\n\n```python\nfrom collections import deque\n\ndef topological_sort(graph):\n    \"\"\"\n    Pe",
+      "error": null
+    },
+    {
+      "id": "algo-dijkstra-010",
+      "category": "algorithms",
+      "topic": "dijkstra",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.26,
+        "overall": 0.852
+      },
+      "has_test_code": true,
+      "duration_ms": 10612,
+      "tokens_eval": 507,
+      "response_preview": "Here's an implementation of **Dijkstra's shortest path algorithm** in Python. The function `dijkstra` takes a weighted graph (represented as a dictionary), a start node, and returns a dictionary of the shortest distances from the start node to all reachable nodes.\n\n```python\nimport heapq\n\ndef dijkst",
+      "error": null
+    },
+    {
+      "id": "algo-bt-011",
+      "category": "algorithms",
+      "topic": "backtracking",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.667,
+        "explanation": 0.23,
+        "overall": 0.779
+      },
+      "has_test_code": true,
+      "duration_ms": 7493,
+      "tokens_eval": 321,
+      "response_preview": "Here's a Python function called `solve_n_queens` that returns all distinct solutions to the N-Queens puzzle as lists of column positions:\n\n```python\ndef solve_n_queens(n):\n    def is_safe(col, row, queens):\n        for r, c in enumerate(queens):\n            if c == col:  # Same column\n              ",
+      "error": null
+    },
+    {
+      "id": "algo-seg-012",
+      "category": "algorithms",
+      "topic": "segment_tree",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.875,
+        "explanation": 0.32,
+        "overall": 0.839
+      },
+      "has_test_code": true,
+      "duration_ms": 13891,
+      "tokens_eval": 706,
+      "response_preview": "Here's a Python implementation of a **Segment Tree** class that supports:\n\n- **`build(arr)`** – builds the segment tree from an array.\n- **`update(index, value)`** – updates the value at a specific index.\n- **`query(left, right)`** – returns the sum of the subarray from `left` to `right` (inclusive)",
+      "error": null
+    },
+    {
+      "id": "algo-bit-013",
+      "category": "algorithms",
+      "topic": "bit_manipulation",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.714,
+        "explanation": 0.25,
+        "overall": 0.793
+      },
+      "has_test_code": true,
+      "duration_ms": 10808,
+      "tokens_eval": 519,
+      "response_preview": "Here are the implementations of the three bit manipulation functions you requested:\n\n---\n\n### 1. `count_set_bits(n)`  \nReturns the number of 1-bits in the binary representation of `n`.\n\n```python\ndef count_set_bits(n):\n    return bin(n).count('1')\n```\n\n**Example:**\n```python\nprint(count_set_bits(5))",
+      "error": null
+    },
+    {
+      "id": "algo-astar-014",
+      "category": "algorithms",
+      "topic": "a_star",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.875,
+        "explanation": 0.32,
+        "overall": 0.839
+      },
+      "has_test_code": true,
+      "duration_ms": 11803,
+      "tokens_eval": 579,
+      "response_preview": "Here's an implementation of the **A\\*** pathfinding algorithm for a 2D grid using **Manhattan distance** as the heuristic:\n\n```python\nfrom heapq import heappush, heappop\n\ndef astar(grid, start, goal):\n    rows, cols = len(grid), len(grid[0])\n    if start == goal:\n        return [start]\n\n    # Direct",
+      "error": null
+    },
+    {
+      "id": "algo-bloom-015",
+      "category": "algorithms",
+      "topic": "bloom_filter",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.34,
+        "overall": 0.598
+      },
+      "has_test_code": true,
+      "duration_ms": 23735,
+      "tokens_eval": 1298,
+      "response_preview": "Here's an implementation of a **BloomFilter** class in Python, along with an explanation of its **probabilistic nature** and when to use it **vs a set**.\n\n---\n\n## ✅ **BloomFilter Class Implementation**\n\n```python\nimport hashlib\nimport math\n\nclass BloomFilter:\n    def __init__(self, size=1000000, fal",
+      "error": null
+    },
+    {
+      "id": "pat-single-001",
+      "category": "design_patterns",
+      "topic": "singleton",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 9106,
+      "tokens_eval": 418,
+      "response_preview": "Sure! Here's how you can implement the **Singleton pattern** in Python using a **decorator** called `singleton`. This decorator ensures that only **one instance** of the decorated class is ever created.\n\n### ✅ Implementation of the `singleton` Decorator\n\n```python\ndef singleton(cls):\n    \"\"\"Decorato",
+      "error": null
+    },
+    {
+      "id": "pat-factory-002",
+      "category": "design_patterns",
+      "topic": "factory",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.21,
+        "overall": 0.572
+      },
+      "has_test_code": true,
+      "duration_ms": 11731,
+      "tokens_eval": 576,
+      "response_preview": "Here's an implementation of the **Factory Pattern** in Python. It defines a `ShapeFactory` class with a static method `create()` that returns instances of `Circle`, `Rectangle`, or `Triangle` based on the `shape_type` argument. Each shape has an `area()` method, and a `ValueError` is raised for unkn",
+      "error": null
+    },
+    {
+      "id": "pat-observer-003",
+      "category": "design_patterns",
+      "topic": "observer",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.841
+      },
+      "has_test_code": true,
+      "duration_ms": 13429,
+      "tokens_eval": 671,
+      "response_preview": "Here's a complete implementation of the **Observer pattern** using a class called `EventEmitter`. This class supports the methods `on`, `off`, and `emit`. Then, we'll show a practical example using a **stock price tracker**.\n\n---\n\n### ✅ `EventEmitter` Class Implementation\n\n```python\nclass EventEmitt",
+      "error": null
+    },
+    {
+      "id": "pat-strategy-004",
+      "category": "design_patterns",
+      "topic": "strategy",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.63
+      },
+      "has_test_code": true,
+      "duration_ms": 16389,
+      "tokens_eval": 858,
+      "response_preview": "Here's an implementation of the **Strategy Pattern** for a **text compressor** in Python. The implementation includes:\n\n- A `Compressor` class that uses a strategy.\n- A `CompressionStrategy` interface (abstract base class).\n- Two concrete strategies: `RunLengthEncoding` and `NullCompressor`.\n\n---\n\n#",
+      "error": null
+    },
+    {
+      "id": "pat-command-005",
+      "category": "design_patterns",
+      "topic": "command",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.571
+      },
+      "has_test_code": true,
+      "duration_ms": 16783,
+      "tokens_eval": 883,
+      "response_preview": "Here's a complete implementation of the **Command Pattern** for an **undo/redo system** using the `CommandHistory` class, along with `AddTextCommand` and `DeleteTextCommand` that modify a `Document`.\n\n---\n\n### ✅ **Overview**\n\n- **Document**: A simple class that holds text.\n- **Command**: An abstract",
+      "error": null
+    },
+    {
+      "id": "pat-di-006",
+      "category": "design_patterns",
+      "topic": "dependency_injection",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.375,
+        "overall": 0.605
+      },
+      "has_test_code": true,
+      "duration_ms": 13449,
+      "tokens_eval": 677,
+      "response_preview": "### ✅ What is Dependency Injection (DI)?\n\n**Dependency Injection** is a design pattern that allows you to **decouple** the creation of objects from their usage. Instead of a class creating its own dependencies, they are **injected** from the outside — typically via a **container** or **framework**.\n",
+      "error": null
+    },
+    {
+      "id": "pat-state-007",
+      "category": "design_patterns",
+      "topic": "state_machine",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.8,
+        "explanation": 0.3,
+        "overall": 0.55
+      },
+      "has_test_code": true,
+      "duration_ms": 10371,
+      "tokens_eval": 496,
+      "response_preview": "Here's a Python implementation of a `TrafficLight` class using a **finite state machine**. It supports transitions between **Red**, **Yellow**, and **Green** states, each with a `color` property and a `wait_time` property.\n\n```python\nclass State:\n    def __init__(self, color, wait_time):\n        sel",
+      "error": null
+    },
+    {
+      "id": "pat-builder-008",
+      "category": "design_patterns",
+      "topic": "builder",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.857,
+        "explanation": 0.2,
+        "overall": 0.541
+      },
+      "has_test_code": true,
+      "duration_ms": 11053,
+      "tokens_eval": 538,
+      "response_preview": "Here's an implementation of the **Builder pattern** for constructing SQL `SELECT` queries using a `QueryBuilder` class in Python. The class supports chainable methods and returns the final SQL string via the `build()` method.\n\n```python\nclass QueryBuilder:\n    def __init__(self):\n        self.column",
+      "error": null
+    },
+    {
+      "id": "pat-adapter-009",
+      "category": "design_patterns",
+      "topic": "adapter",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.833,
+        "explanation": 0.27,
+        "overall": 0.551
+      },
+      "has_test_code": true,
+      "duration_ms": 8414,
+      "tokens_eval": 374,
+      "response_preview": "Sure! Here's how you can implement the **Adapter pattern** in Python to wrap the legacy `OldPaymentGateway` class and expose a modern `PaymentAdapter` that uses the `pay(amount_dollars)` interface.\n\n---\n\n### ✅ **Legacy Class (OldPaymentGateway)**\n\n```python\nclass OldPaymentGateway:\n    def make_paym",
+      "error": null
+    },
+    {
+      "id": "pat-visitor-010",
+      "category": "design_patterns",
+      "topic": "visitor",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.375,
+        "overall": 0.829
+      },
+      "has_test_code": false,
+      "duration_ms": 17323,
+      "tokens_eval": 913,
+      "response_preview": "Here's a complete implementation of the **Visitor pattern** for an **Abstract Syntax Tree (AST)** in Python. We define three node types: `NumberNode`, `BinaryOpNode`, and `UnaryOpNode`. Then, we implement two visitors:\n\n1. `PrintVisitor` — returns a string representation of the expression.\n2. `EvalV",
+      "error": null
+    },
+    {
+      "id": "sys-pool-001",
+      "category": "systems",
+      "topic": "connection_pool",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.606
+      },
+      "has_test_code": true,
+      "duration_ms": 13046,
+      "tokens_eval": 657,
+      "response_preview": "Here's a thread-safe implementation of a `ConnectionPool` class using `threading.Semaphore` for concurrency control. This class provides the required methods:\n\n- `get_connection()`: Acquires a connection from the pool. If the pool is exhausted, it blocks until a connection is available.\n- `release_c",
+      "error": null
+    },
+    {
+      "id": "sys-rate-002",
+      "category": "systems",
+      "topic": "rate_limiter",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.32,
+        "overall": 0.864
+      },
+      "has_test_code": true,
+      "duration_ms": 12280,
+      "tokens_eval": 602,
+      "response_preview": "Here's a Python implementation of a `RateLimiter` class using the **token bucket** algorithm. This class allows you to control the rate of requests with a specified **rate** (tokens per second) and **capacity** (maximum number of tokens that can be stored in the bucket).\n\n```python\nimport time\n\nclas",
+      "error": null
+    },
+    {
+      "id": "sys-lru-003",
+      "category": "systems",
+      "topic": "lru_cache",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.29,
+        "overall": 0.858
+      },
+      "has_test_code": true,
+      "duration_ms": 15722,
+      "tokens_eval": 815,
+      "response_preview": "Here's a complete implementation of an **LRU Cache** from scratch using a **doubly linked list** and a **hash map**, with **O(1)** time complexity for both `get` and `put` operations. This implementation does **not** use `OrderedDict`.\n\n---\n\n### ✅ Key Concepts Used:\n- **Hash Map (Dictionary)**: For ",
+      "error": null
+    },
+    {
+      "id": "sys-circuit-004",
+      "category": "systems",
+      "topic": "circuit_breaker",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.29,
+        "overall": 0.588
+      },
+      "has_test_code": true,
+      "duration_ms": 15646,
+      "tokens_eval": 808,
+      "response_preview": "Here's a Python implementation of the **Circuit Breaker pattern**, encapsulated in a class called `CircuitBreaker`. This class manages the three states: **CLOSED**, **OPEN**, and ****HALF_OPEN**. It also allows you to configure the **failure_threshold**, **recovery_timeout**, and **success_threshold",
+      "error": null
+    },
+    {
+      "id": "sys-retry-005",
+      "category": "systems",
+      "topic": "retry_backoff",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 9705,
+      "tokens_eval": 452,
+      "response_preview": "Here's a Python decorator called `retry` that retries a function on exception using **exponential backoff**, with configurable parameters:\n\n```python\nimport time\nimport logging\n\n# Set up basic logging\nlogging.basicConfig(level=logging.INFO)\nlogger = logging.getLogger(__name__)\n\ndef retry(max_retries",
+      "error": null
+    },
+    {
+      "id": "sys-pubsub-006",
+      "category": "systems",
+      "topic": "pub_sub",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.3,
+        "overall": 0.831
+      },
+      "has_test_code": true,
+      "duration_ms": 12801,
+      "tokens_eval": 630,
+      "response_preview": "Here's a thread-safe implementation of a `MessageBroker` class in Python. It supports:\n\n- **Subscribing** to a topic with a callback.\n- **Unsubscribing** from a topic.\n- **Publishing** messages to a topic.\n- **Thread-safe** operations using `threading.Lock`.\n- **Non-blocking** delivery by invoking c",
+      "error": null
+    },
+    {
+      "id": "sys-scheduler-007",
+      "category": "systems",
+      "topic": "task_scheduler",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.87
+      },
+      "has_test_code": true,
+      "duration_ms": 11621,
+      "tokens_eval": 562,
+      "response_preview": "Here's an implementation of a `TaskScheduler` class that uses a **min-heap** (priority queue) to manage tasks based on their **priority**. Lower numbers mean **higher priority**.\n\n### Features:\n- `add_task(priority, task_fn)`: Adds a task to the scheduler.\n- `run_next()`: Runs the **next highest pri",
+      "error": null
+    },
+    {
+      "id": "sys-async-pool-008",
+      "category": "systems",
+      "topic": "async_worker_pool",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.27,
+        "overall": 0.854
+      },
+      "has_test_code": false,
+      "duration_ms": 10927,
+      "tokens_eval": 525,
+      "response_preview": "Here's an implementation of an `AsyncWorkerPool` class using `asyncio` and `asyncio.Semaphore` to control the number of concurrent tasks:\n\n```python\nimport asyncio\nfrom collections import deque\n\nclass AsyncWorkerPool:\n    def __init__(self, max_workers: int = 5):\n        self.max_workers = max_worke",
+      "error": null
+    },
+    {
+      "id": "sys-hash-009",
+      "category": "systems",
+      "topic": "consistent_hashing",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.43,
+        "overall": 0.886
+      },
+      "has_test_code": false,
+      "duration_ms": 19351,
+      "tokens_eval": 1036,
+      "response_preview": "Here's a Python implementation of a **Consistent Hashing** class with **virtual nodes (replicas)**, along with an explanation of how it minimizes key redistribution when nodes are added or removed.\n\n---\n\n## ✅ `ConsistentHash` Class Implementation\n\n```python\nimport bisect\nimport hashlib\n\nclass Consis",
+      "error": null
+    },
+    {
+      "id": "sys-2pc-010",
+      "category": "systems",
+      "topic": "two_phase_commit",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.37,
+        "overall": 0.874
+      },
+      "has_test_code": false,
+      "duration_ms": 21265,
+      "tokens_eval": 1149,
+      "response_preview": "The **Two-Phase Commit (2PC)** protocol is a distributed algorithm used to coordinate all the participants of a transaction to ensure that either all of them commit or all of them abort. It is a fundamental protocol in distributed systems for maintaining consistency across multiple nodes.\n\n---\n\n## 🔍",
+      "error": null
+    },
+    {
+      "id": "web-rest-001",
+      "category": "web",
+      "topic": "rest_api",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.876
+      },
+      "has_test_code": false,
+      "duration_ms": 19840,
+      "tokens_eval": 1065,
+      "response_preview": "Here's a complete design for a **RESTful API** for a **Todo List Application**, including:\n\n- **Endpoints with HTTP methods and paths**\n- **Request and response formats**\n- **Status codes**\n- **Flask route handlers** using an **in-memory list**\n\n---\n\n## 🔧 RESTful API Design\n\n### ✅ Endpoints\n\n| HTTP ",
+      "error": null
+    },
+    {
+      "id": "web-jwt-002",
+      "category": "web",
+      "topic": "jwt",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.345,
+        "overall": 0.869
+      },
+      "has_test_code": true,
+      "duration_ms": 20299,
+      "tokens_eval": 1091,
+      "response_preview": "Sure! Below is a manual implementation of JWT (JSON Web Token) authentication using **base64** and **HMAC-SHA256** without using the `PyJWT` library. This includes two functions:\n\n1. `create_token(payload, secret, expires_in=3600)` — creates a JWT token.\n2. `verify_token(token, secret)` — verifies a",
+      "error": null
+    },
+    {
+      "id": "web-sql-003",
+      "category": "web",
+      "topic": "sql_injection",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.315,
+        "overall": 0.817
+      },
+      "has_test_code": false,
+      "duration_ms": 14148,
+      "tokens_eval": 724,
+      "response_preview": "### 🔍 What is SQL Injection?\n\n**SQL Injection** is a **security vulnerability** that occurs when an attacker is able to inject malicious SQL code into a query string, typically through user input. This can allow the attacker to manipulate the logic of the query, leading to unauthorized access, data ",
+      "error": null
+    },
+    {
+      "id": "web-pagination-004",
+      "category": "web",
+      "topic": "pagination",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 0.833,
+        "explanation": 0.35,
+        "overall": 0.597
+      },
+      "has_test_code": true,
+      "duration_ms": 15745,
+      "tokens_eval": 817,
+      "response_preview": "Here's a Python function called `paginate` that implements **cursor-based pagination**. It takes a **sorted list of items** (each being a dictionary with an `'id'` field), a **cursor** (the ID of the last seen item, or `None`), and a `page_size`, and returns a dictionary with the next set of items, ",
+      "error": null
+    },
+    {
+      "id": "web-ws-005",
+      "category": "web",
+      "topic": "websocket",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 25734,
+      "tokens_eval": 1413,
+      "response_preview": "### WebSocket Protocol Overview\n\nWebSocket is a **full-duplex communication protocol** over a single TCP connection. It enables **real-time, bidirectional communication** between a client and a server. It's commonly used in chat applications, live updates, gaming, and more.\n\n---\n\n## 🔌 WebSocket Hand",
+      "error": null
+    },
+    {
+      "id": "web-cache-006",
+      "category": "web",
+      "topic": "caching_strategies",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.606
+      },
+      "has_test_code": true,
+      "duration_ms": 14268,
+      "tokens_eval": 731,
+      "response_preview": "The **Cache-aside (Lazy Loading)** pattern is a common caching strategy where the cache is not updated automatically. Instead, when a cache miss occurs, the data is fetched from the source (e.g., a database), and then stored in the cache. This approach is **lazy** because it only loads data when it'",
+      "error": null
+    },
+    {
+      "id": "web-idempotent-007",
+      "category": "web",
+      "topic": "idempotent_api",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.425,
+        "overall": 0.839
+      },
+      "has_test_code": false,
+      "duration_ms": 17204,
+      "tokens_eval": 908,
+      "response_preview": "### ✅ What is **Idempotency** in API Design?\n\n**Idempotency** refers to the property of an operation that can be applied multiple times without changing the result beyond the initial application. In the context of APIs, an **idempotent** operation ensures that:\n\n- Making the same request multiple ti",
+      "error": null
+    },
+    {
+      "id": "web-graphql-008",
+      "category": "web",
+      "topic": "graphql",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.875,
+        "explanation": 0.5,
+        "overall": 0.86
+      },
+      "has_test_code": false,
+      "duration_ms": 34612,
+      "tokens_eval": 1937,
+      "response_preview": "GraphQL and REST are two different approaches to designing APIs, each with its own strengths and use cases. Let's compare them and then dive into specific concepts like the **N+1 problem**, **query complexity**, **schema-first design**, and when to use each. Finally, we'll walk through a **simple Gr",
+      "error": null
+    },
+    {
+      "id": "web-oauth-009",
+      "category": "web",
+      "topic": "oauth2",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.395,
+        "overall": 0.879
+      },
+      "has_test_code": false,
+      "duration_ms": 27640,
+      "tokens_eval": 1525,
+      "response_preview": "### **OAuth2 Authorization Code Flow: Step-by-Step Explanation**\n\nOAuth2 Authorization Code flow is the most secure and widely used flow for web applications. It involves the following steps:\n\n---\n\n### **1. User Initiates Authorization Request**\n- The **Client App** (e.g., a web app) redirects the *",
+      "error": null
+    },
+    {
+      "id": "web-rate-010",
+      "category": "web",
+      "topic": "rate_limiting",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.37,
+        "overall": 0.874
+      },
+      "has_test_code": false,
+      "duration_ms": 12220,
+      "tokens_eval": 594,
+      "response_preview": "Here's a Flask middleware implementation using a **sliding window** rate limiting decorator called `rate_limit`. This decorator limits the number of requests per **IP address** based on the number of allowed requests (`max_requests`) and the time window in seconds (`window_seconds`). When the limit ",
+      "error": null
+    },
+    {
+      "id": "test-fix-001",
+      "category": "testing",
+      "topic": "pytest_fixtures",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.667,
+        "explanation": 0.295,
+        "overall": 0.752
+      },
+      "has_test_code": false,
+      "duration_ms": 12532,
+      "tokens_eval": 622,
+      "response_preview": "Here's a complete example of how to write **pytest fixtures** and **test functions** for a simple `BankAccount` class. This includes:\n\n- A `BankAccount` class with `deposit`, `withdraw`, and `balance` methods/properties.\n- Fixtures for `empty_account` and `funded_account`.\n- At least 4 test function",
+      "error": null
+    },
+    {
+      "id": "test-mock-002",
+      "category": "testing",
+      "topic": "mocking",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.24,
+        "overall": 0.848
+      },
+      "has_test_code": false,
+      "duration_ms": 14959,
+      "tokens_eval": 769,
+      "response_preview": "Here's a complete example that demonstrates how to write a function that calls an external API and how to test it using `unittest.mock` with `patching`, `return_value`, `side_effect` for errors, and `assert_called_with`.\n\n---\n\n### ✅ Function: `get_user_info(user_id)`\n\n```python\nimport requests\n\ndef ",
+      "error": null
+    },
+    {
+      "id": "test-prop-003",
+      "category": "testing",
+      "topic": "property_testing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.833,
+        "explanation": 0.42,
+        "overall": 0.831
+      },
+      "has_test_code": false,
+      "duration_ms": 16769,
+      "tokens_eval": 876,
+      "response_preview": "### **Property-Based Testing Explained**\n\n**Property-Based Testing (PBT)** is a testing methodology where you define **properties** that your code should satisfy, rather than writing specific test cases. These properties are general rules that your code must always obey, regardless of the input.\n\nIn",
+      "error": null
+    },
+    {
+      "id": "test-tdd-004",
+      "category": "testing",
+      "topic": "tdd",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.833,
+        "explanation": 0.29,
+        "overall": 0.555
+      },
+      "has_test_code": true,
+      "duration_ms": 18678,
+      "tokens_eval": 996,
+      "response_preview": "Sure! Let's walk through a complete **Test-Driven Development (TDD)** cycle for building a `Stack` class in Python. We'll follow the **Red-Green-Refactor** cycle:\n\n---\n\n## 🔴 **Red: Write the Tests First (Failing Tests)**\n\nWe'll use Python's `unittest` framework to write our tests.\n\n```python\nimport ",
+      "error": null
+    },
+    {
+      "id": "test-param-005",
+      "category": "testing",
+      "topic": "parametrize",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.225,
+        "overall": 0.845
+      },
+      "has_test_code": true,
+      "duration_ms": 9967,
+      "tokens_eval": 469,
+      "response_preview": "Here's a Python function `is_palindrome(s)` that checks whether a string is a palindrome, ignoring case and non-alphanumeric characters. Then, I'll provide `pytest` parametrized tests using `@pytest.mark.parametrize`.\n\n---\n\n### ✅ Function: `is_palindrome(s)`\n\n```python\nimport re\n\ndef is_palindrome(s",
+      "error": null
+    },
+    {
+      "id": "test-snapshot-006",
+      "category": "testing",
+      "topic": "snapshot_testing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.824
+      },
+      "has_test_code": false,
+      "duration_ms": 15517,
+      "tokens_eval": 803,
+      "response_preview": "### What is Snapshot Testing?\n\n**Snapshot testing** is a type of **regression testing** used in software development, especially in UI and data-driven applications. It works by **capturing a \"snapshot\"** of the expected output of a system (like a rendered UI component or a data structure) and storin",
+      "error": null
+    },
+    {
+      "id": "test-async-007",
+      "category": "testing",
+      "topic": "testing_async",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.345,
+        "overall": 0.869
+      },
+      "has_test_code": false,
+      "duration_ms": 14585,
+      "tokens_eval": 749,
+      "response_preview": "To test **async Python code** with **pytest**, you can use the **pytest-asyncio** plugin, which allows you to run **asynchronous tests** and **fixtures**. Additionally, you can use **unittest.mock** (or **pytest-mock**) to **mock async HTTP calls**, such as those made by **aiohttp**.\n\nBelow is a com",
+      "error": null
+    },
+    {
+      "id": "test-doubles-008",
+      "category": "testing",
+      "topic": "test_doubles",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.39,
+        "overall": 0.878
+      },
+      "has_test_code": false,
+      "duration_ms": 34983,
+      "tokens_eval": 1962,
+      "response_preview": "When testing software, especially in complex systems like an **email notification service**, it's common to use **test doubles** to simulate the behavior of real objects. These test doubles help isolate the unit under test from external dependencies, making tests faster, more reliable, and easier to",
+      "error": null
+    },
+    {
+      "id": "db-window-001",
+      "category": "database",
+      "topic": "window_functions",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.29,
+        "overall": 0.335
+      },
+      "has_test_code": false,
+      "duration_ms": 10667,
+      "tokens_eval": 513,
+      "response_preview": "Here are SQL queries using **window functions** for the four tasks you mentioned, assuming you have an `employees` table with the following structure:\n\n```sql\nCREATE TABLE employees (\n    id INT PRIMARY KEY,\n    name VARCHAR(100),\n    department VARCHAR(50),\n    salary INT\n);\n```\n\n---\n\n### **1) Rank",
+      "error": null
+    },
+    {
+      "id": "db-normal-002",
+      "category": "database",
+      "topic": "normalization",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.53,
+        "overall": 0.474
+      },
+      "has_test_code": false,
+      "duration_ms": 27554,
+      "tokens_eval": 1525,
+      "response_preview": "Database **normalization** is the process of organizing data in a database to reduce redundancy and improve data integrity. It involves dividing large tables into smaller, well-structured tables and defining relationships between them. The goal is to ensure that each table contains only related data",
+      "error": null
+    },
+    {
+      "id": "db-lock-003",
+      "category": "database",
+      "topic": "locking",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.571,
+        "explanation": 0.34,
+        "overall": 0.731
+      },
+      "has_test_code": false,
+      "duration_ms": 14841,
+      "tokens_eval": 762,
+      "response_preview": "To implement **optimistic locking** in Python with SQLite, we can use a **version number** (or timestamp) associated with each record. When a record is updated, the version number is incremented. If the version number in the database doesn't match the one we read, it means another process has modifi",
+      "error": null
+    },
+    {
+      "id": "db-index-004",
+      "category": "database",
+      "topic": "index_optimization",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.46,
+        "overall": 0.508
+      },
+      "has_test_code": false,
+      "duration_ms": 25581,
+      "tokens_eval": 1403,
+      "response_preview": "Let's break down the concepts and then apply them to your specific query.\n\n---\n\n## 🔍 **Index Types Explained**\n\n### 1. **B-Tree Indexes**\n- **What it is**: A B-Tree (Balanced Tree) is a self-balancing tree data structure that keeps sorted data and allows searches, insertions, and deletions in logari",
+      "error": null
+    },
+    {
+      "id": "db-migration-005",
+      "category": "database",
+      "topic": "migrations",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.876
+      },
+      "has_test_code": false,
+      "duration_ms": 19672,
+      "tokens_eval": 1053,
+      "response_preview": "Database migration is a crucial part of evolving a database schema over time. There are several **migration patterns** that help manage this process safely and efficiently. Below is an explanation of the key migration patterns, followed by a simple `Migrator` class in Python that tracks applied migr",
+      "error": null
+    },
+    {
+      "id": "db-acid-006",
+      "category": "database",
+      "topic": "acid",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.445,
+        "overall": 0.457
+      },
+      "has_test_code": false,
+      "duration_ms": 24537,
+      "tokens_eval": 1343,
+      "response_preview": "### **ACID Properties with Examples of Violations**\n\nACID is an acronym that stands for **Atomicity**, **Consistency**, **Isolation**, and **Durability**. These are the four key properties that ensure reliable processing of database transactions.\n\n---\n\n### **1. Atomicity**\n\n**Definition**: A transac",
+      "error": null
+    },
+    {
+      "id": "db-sharding-007",
+      "category": "database",
+      "topic": "sharding",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": true,
+      "duration_ms": 19069,
+      "tokens_eval": 1018,
+      "response_preview": "### **Database Sharding Strategies**\n\nSharding is a technique used to horizontally partition a database into smaller, more manageable pieces called *shards*. Each shard contains a subset of the data and is stored on a different server or node. This improves scalability, performance, and fault tolera",
+      "error": null
+    },
+    {
+      "id": "js-closure-001",
+      "category": "javascript",
+      "topic": "closures",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.496
+      },
+      "has_test_code": false,
+      "duration_ms": 19802,
+      "tokens_eval": 1062,
+      "response_preview": "JavaScript **closures** are functions that have access to the **lexical scope** of the environment in which they were created, even after that environment has finished executing. This means that a function can \"remember\" the variables and parameters from its outer scope, even if those variables are ",
+      "error": null
+    },
+    {
+      "id": "js-promise-002",
+      "category": "javascript",
+      "topic": "promises",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.22,
+        "overall": 0.46
+      },
+      "has_test_code": false,
+      "duration_ms": 12854,
+      "tokens_eval": 644,
+      "response_preview": "Here's a complete breakdown of your request:\n\n---\n\n### ✅ **1. JavaScript Promise-based function `retry(fn, maxRetries)`**\n\nThis function will retry an asynchronous function up to `maxRetries` times. It will return a `Promise`.\n\n```javascript\nfunction retry(fn, maxRetries) {\n  return new Promise((res",
+      "error": null
+    },
+    {
+      "id": "js-eventloop-003",
+      "category": "javascript",
+      "topic": "event_loop",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.45,
+        "overall": 0.89
+      },
+      "has_test_code": false,
+      "duration_ms": 20059,
+      "tokens_eval": 1056,
+      "response_preview": "The **JavaScript event loop** is the mechanism that JavaScript uses to handle asynchronous operations and manage the execution of code in a non-blocking way. It ensures that the browser remains responsive even when performing long-running tasks.\n\n---\n\n## 🧠 **Key Components of the JavaScript Event Lo",
+      "error": null
+    },
+    {
+      "id": "js-proto-004",
+      "category": "javascript",
+      "topic": "prototype_chain",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.425,
+        "overall": 0.501
+      },
+      "has_test_code": false,
+      "duration_ms": 23173,
+      "tokens_eval": 1237,
+      "response_preview": "JavaScript uses a **prototype-based inheritance model**, which is different from classical inheritance found in languages like Java or C++. In JavaScript, objects inherit properties and methods from other objects through a **prototype chain**.\n\n---\n\n## 🔍 **Prototype Chain Overview**\n\nEvery object in",
+      "error": null
+    },
+    {
+      "id": "ts-generics-005",
+      "category": "javascript",
+      "topic": "typescript_generics",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.34,
+        "overall": 0.393
+      },
+      "has_test_code": false,
+      "duration_ms": 18216,
+      "tokens_eval": 947,
+      "response_preview": "Here's a comprehensive TypeScript example that demonstrates **advanced generics** including:\n\n1. A **generic `Result<T, E>` type** (similar to Rust's `Result`).\n2. A **generic `Repository<T>`** with CRUD methods.\n3. A **conditional type** `IsString<T>`.\n4. **Mapped types** to make all properties **o",
+      "error": null
+    },
+    {
+      "id": "ts-utility-006",
+      "category": "javascript",
+      "topic": "typescript_utility_types",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.486
+      },
+      "has_test_code": false,
+      "duration_ms": 24737,
+      "tokens_eval": 1328,
+      "response_preview": "TypeScript provides a set of **utility types** that help you manipulate and transform types in a concise and readable way. Below is an explanation and practical use case for each of the utility types you mentioned:\n\n---\n\n### 1. **`Partial<T>`**\n\n**Description**: Makes all properties in `T` **optiona",
+      "error": null
+    },
+    {
+      "id": "js-proxy-007",
+      "category": "javascript",
+      "topic": "proxy",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.34,
+        "overall": 0.484
+      },
+      "has_test_code": false,
+      "duration_ms": 18231,
+      "tokens_eval": 948,
+      "response_preview": "JavaScript's **Proxy** and **Reflect** APIs are powerful tools for **intercepting and customizing operations** on objects. They allow you to create **wrappers** around objects that can **intercept** operations like property access, assignment, and method calls.\n\n---\n\n## 🔍 Overview\n\n### ✅ `Proxy`\n- A",
+      "error": null
+    },
+    {
+      "id": "js-streams-008",
+      "category": "javascript",
+      "topic": "node_streams",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.496
+      },
+      "has_test_code": false,
+      "duration_ms": 19691,
+      "tokens_eval": 1035,
+      "response_preview": "Node.js streams are a powerful and efficient way to handle data in a non-blocking, asynchronous manner. They are especially useful when dealing with large files, network data, or any situation where you don't want to load the entire data into memory at once.\n\n---\n\n## 📌 Types of Streams\n\nNode.js has ",
+      "error": null
+    },
+    {
+      "id": "sec-hash-001",
+      "category": "security",
+      "topic": "password_hashing",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.38,
+        "overall": 0.83
+      },
+      "has_test_code": false,
+      "duration_ms": 14525,
+      "tokens_eval": 731,
+      "response_preview": "### Why You Should Never Store Plaintext Passwords\n\nStoring **plaintext passwords** is a **major security risk**. If a database is compromised, attackers can directly access user credentials and use them for identity theft, phishing, or other malicious activities. Even if the database is internal an",
+      "error": null
+    },
+    {
+      "id": "sec-hmac-002",
+      "category": "security",
+      "topic": "hmac",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.345,
+        "overall": 0.599
+      },
+      "has_test_code": true,
+      "duration_ms": 16135,
+      "tokens_eval": 828,
+      "response_preview": "### **What is HMAC and its Role in Message Authentication**\n\n**HMAC (Hash-based Message Authentication Code)** is a cryptographic mechanism used to verify both the **integrity** and **authenticity** of a message. It uses a **secret key** and a **cryptographic hash function** (like SHA-256) to genera",
+      "error": null
+    },
+    {
+      "id": "sec-xss-003",
+      "category": "security",
+      "topic": "xss_prevention",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.425,
+        "overall": 0.615
+      },
+      "has_test_code": true,
+      "duration_ms": 21861,
+      "tokens_eval": 1150,
+      "response_preview": "### **What is Cross-Site Scripting (XSS)?**\n\n**Cross-Site Scripting (XSS)** is a type of **web application vulnerability** that allows an attacker to inject **malicious scripts** into web pages viewed by other users. These scripts can be used to **steal sensitive data**, **perform actions on behalf ",
+      "error": null
+    },
+    {
+      "id": "sec-timing-004",
+      "category": "security",
+      "topic": "timing_attacks",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.8,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.365,
+        "overall": 0.777
+      },
+      "has_test_code": false,
+      "duration_ms": 22545,
+      "tokens_eval": 1182,
+      "response_preview": "### **Timing Attacks in String Comparisons**\n\nA **timing attack** is a type of side-channel attack that exploits the time taken by a program to perform operations, such as string comparisons. In particular, **string comparison functions** can be vulnerable if they **return early** when a mismatch is",
+      "error": null
+    },
+    {
+      "id": "sec-random-005",
+      "category": "security",
+      "topic": "secure_random",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.35,
+        "overall": 0.837
+      },
+      "has_test_code": true,
+      "duration_ms": 13786,
+      "tokens_eval": 673,
+      "response_preview": "`random.random()` is **not secure** for generating tokens or passwords because it uses a **pseudo-random number generator (PRNG)** that is **not cryptographically secure**. This means that:\n\n- The output can be **predicted** if an attacker can observe enough outputs.\n- The internal state of the gene",
+      "error": null
+    },
+    {
+      "id": "sec-csrf-006",
+      "category": "security",
+      "topic": "csrf",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.455,
+        "overall": 0.891
+      },
+      "has_test_code": true,
+      "duration_ms": 21365,
+      "tokens_eval": 1117,
+      "response_preview": "### **What is Cross-Site Request Forgery (CSRF)?**\n\n**Cross-Site Request Forgery (CSRF)** is a type of attack where an attacker tricks a victim into performing an action on a web application in which they are authenticated. The attack exploits the fact that the victim's browser automatically sends a",
+      "error": null
+    },
+    {
+      "id": "ops-docker-001",
+      "category": "devops",
+      "topic": "dockerfile",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.45,
+        "overall": 0.458
+      },
+      "has_test_code": false,
+      "duration_ms": 21421,
+      "tokens_eval": 1122,
+      "response_preview": "Here's a **multi-stage Dockerfile** for a **Python Flask application**, with **Stage 1** for installing dependencies and **Stage 2** for running the application. It includes best practices such as:\n\n- **Non-root user**\n- **Health check**\n- **`.dockerignore` best practices**\n- **Explanation of each d",
+      "error": null
+    },
+    {
+      "id": "ops-12factor-002",
+      "category": "devops",
+      "topic": "twelve_factor",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.833,
+        "explanation": 0.35,
+        "overall": 0.817
+      },
+      "has_test_code": false,
+      "duration_ms": 16483,
+      "tokens_eval": 837,
+      "response_preview": "The **12-Factor App** methodology is a set of guidelines for building software-as-a-service applications that are scalable, maintainable, and portable across different environments (development, staging, production, etc.). These principles help ensure that applications are built in a consistent and ",
+      "error": null
+    },
+    {
+      "id": "ops-logging-003",
+      "category": "devops",
+      "topic": "structured_logging",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.824
+      },
+      "has_test_code": false,
+      "duration_ms": 16430,
+      "tokens_eval": 840,
+      "response_preview": "Here's a complete example of how to implement **structured JSON logging** in Python using the `logging` module, along with **request ID tracing** using `contextvars`.\n\n---\n\n### ✅ Features Implemented:\n- JSON-formatted logs with the following fields:\n  - `timestamp`\n  - `level`\n  - `message`\n  - `log",
+      "error": null
+    },
+    {
+      "id": "ops-feature-004",
+      "category": "devops",
+      "topic": "feature_flags",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.571
+      },
+      "has_test_code": true,
+      "duration_ms": 17726,
+      "tokens_eval": 919,
+      "response_preview": "Here's a complete implementation of a **Feature Flags** system in Python using a `FeatureFlags` class. This class:\n\n- Loads flags from a JSON config file.\n- Supports **boolean** and **percentage-based** rollouts.\n- Evaluates flags **per-user** using **consistent hashing** (for consistent evaluation ",
+      "error": null
+    },
+    {
+      "id": "ops-deploy-005",
+      "category": "devops",
+      "topic": "deployment",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.38,
+        "overall": 0.83
+      },
+      "has_test_code": false,
+      "duration_ms": 20589,
+      "tokens_eval": 1087,
+      "response_preview": "### **Blue-Green and Canary Deployment Strategies**\n\nThese are two common **deployment strategies** used in **continuous delivery** and **DevOps** to minimize downtime and reduce risk during software updates.\n\n---\n\n## **1. Blue-Green Deployment**\n\n### **Architecture**\n- Two identical environments: *",
+      "error": null
+    },
+    {
+      "id": "ops-git-006",
+      "category": "devops",
+      "topic": "git_branching",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.34,
+        "overall": 0.436
+      },
+      "has_test_code": false,
+      "duration_ms": 21372,
+      "tokens_eval": 1130,
+      "response_preview": "Certainly! Below is a detailed comparison of **Trunk-Based Development (TBD)** and **GitFlow** branching strategies, covering **branch structure**, **merge strategy**, **release process**, and **team size suitability**. I've also included **ASCII diagrams** to illustrate the **branch timeline** for ",
+      "error": null
+    }
+  ]
+}

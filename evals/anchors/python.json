@@ -1,0 +1,92 @@
+[
+  {
+    "id": "py-mutarg-001",
+    "domain": "python",
+    "severity": "critical",
+    "instruction": "What happens when you use a mutable default argument in Python?",
+    "must_contain": ["shared", "mutable", "None"],
+    "must_not_contain": ["creates a new list each call", "default arguments are copied", "this is fine"],
+    "rationale": "Mutable default arguments (def f(x=[])) are shared across all calls — the list is created ONCE at function definition time, not per call. The fix is to use None as default and create the mutable inside the function body. This is Python's most famous gotcha."
+  },
+  {
+    "id": "py-gil-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "How does the GIL affect multithreading in Python?",
+    "must_contain": ["GIL", "Global Interpreter Lock", "one thread"],
+    "must_not_contain": ["threads run in true parallel for CPU work", "GIL doesn't exist anymore", "just use threads for everything"],
+    "rationale": "The GIL ensures only one thread executes Python bytecode at a time. Threads DO NOT provide CPU parallelism in CPython. For CPU-bound work, use multiprocessing or ProcessPoolExecutor. Threads are still useful for I/O-bound work where the GIL is released."
+  },
+  {
+    "id": "py-copy-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "What is the difference between shallow copy and deep copy in Python?",
+    "must_contain": ["shallow", "deep", "nested"],
+    "must_not_contain": ["assignment creates a copy", "= makes a deep copy", "shallow copy copies everything"],
+    "rationale": "Assignment (=) creates a reference, NOT a copy. Shallow copy (copy.copy, list.copy, [:]) copies the top level but shares nested objects. Deep copy (copy.deepcopy) recursively copies everything. Saying assignment creates a copy or shallow copy handles nesting is wrong."
+  },
+  {
+    "id": "py-iter-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "What is the difference between a generator and a list in Python?",
+    "must_contain": ["lazy", "memory", "yield"],
+    "must_not_contain": ["generators are faster than lists for everything", "generators can be indexed", "generators can be iterated multiple times"],
+    "rationale": "Generators are lazy (produce values on demand, O(1) memory) vs lists (eager, O(n) memory). Generators CANNOT be indexed, sliced, or re-iterated without recreating. They are NOT universally faster — they're better for large/infinite sequences."
+  },
+  {
+    "id": "py-scope-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "How does variable scoping work in Python?",
+    "must_contain": ["LEGB", "local", "global"],
+    "must_not_contain": ["Python uses block scoping", "if/for creates a new scope", "variables in loops are local to the loop"],
+    "rationale": "Python uses LEGB scoping (Local, Enclosing, Global, Built-in), NOT block scoping. Variables defined in if/for/while blocks are visible in the enclosing function scope. This differs from C/Java/JS(let) where blocks create scopes."
+  },
+  {
+    "id": "py-float-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "How do you compare floating point numbers in Python?",
+    "must_contain": ["tolerance", "epsilon", "math.isclose", "approximate"],
+    "must_not_contain": ["== works for floats", "floats are exact", "just compare with =="],
+    "rationale": "Floating point numbers have representation errors (0.1 + 0.2 != 0.3). Direct == comparison is unreliable. Use math.isclose() or an absolute/relative tolerance. For financial calculations, use decimal.Decimal."
+  },
+  {
+    "id": "py-except-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "What is wrong with using bare except clauses in Python?",
+    "must_contain": ["catch", "specific", "Exception"],
+    "must_not_contain": ["bare except is fine", "except: is best practice", "catch everything for safety"],
+    "rationale": "Bare `except:` catches SystemExit, KeyboardInterrupt, and GeneratorExit — preventing Ctrl+C, sys.exit(), and generator cleanup. At minimum use `except Exception:`. Better: catch specific exception types. Bare except hides bugs."
+  },
+  {
+    "id": "py-import-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "What is the difference between import and from...import in Python?",
+    "must_contain": ["namespace", "module"],
+    "must_not_contain": ["from import is always better", "import copies the module", "from import is faster"],
+    "rationale": "import creates a module reference in the current namespace. from...import binds specific names directly. Neither is universally better. from...import does NOT copy — it creates a binding to the same object. Circular imports behave differently with each style."
+  },
+  {
+    "id": "py-async-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "When should you use async/await vs threading in Python?",
+    "must_contain": ["I/O", "asyncio", "event loop"],
+    "must_not_contain": ["async is always faster", "async replaces threads entirely", "use async for CPU-bound work"],
+    "rationale": "async/await is for I/O-bound concurrency with many connections (web servers, API calls). It uses a single-threaded event loop — NOT suitable for CPU-bound work. Threading is simpler for few concurrent I/O tasks. Multiprocessing is for CPU parallelism."
+  },
+  {
+    "id": "py-class-001",
+    "domain": "python",
+    "severity": "high",
+    "instruction": "What is the difference between __str__ and __repr__ in Python?",
+    "must_contain": ["str", "repr", "user", "developer"],
+    "must_not_contain": ["they are the same", "__str__ is for debugging", "__repr__ should be human-readable"],
+    "rationale": "__repr__ is for developers (unambiguous, ideally eval()-able), __str__ is for end users (readable). If only one is defined, implement __repr__ — it's used as fallback for str(). They serve fundamentally different audiences."
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "rust-own-001",
+    "domain": "rust",
+    "severity": "critical",
+    "instruction": "How does ownership work in Rust?",
+    "must_contain": ["ownership", "move", "scope", "drop"],
+    "must_not_contain": ["garbage collector", "reference counting handles everything", "ownership is like Java"],
+    "rationale": "Rust's ownership system is unique: each value has exactly one owner, ownership transfers on assignment (move semantics), and values are dropped when the owner goes out of scope. This is NOT garbage collection — it's compile-time deterministic. Rc/Arc provide reference counting but are opt-in, not the default."
+  },
+  {
+    "id": "rust-borrow-001",
+    "domain": "rust",
+    "severity": "critical",
+    "instruction": "What are the borrowing rules in Rust?",
+    "must_contain": ["&", "mutable", "immutable", "one mutable OR"],
+    "must_not_contain": ["you can have multiple mutable references", "borrowing copies the data", "borrow checker runs at runtime"],
+    "rationale": "Rust enforces at COMPILE TIME: either one mutable reference (&mut T) OR any number of immutable references (&T), never both simultaneously. This prevents data races and aliasing bugs. The borrow checker is a compile-time analysis, NOT a runtime check."
+  },
+  {
+    "id": "rust-lifetime-001",
+    "domain": "rust",
+    "severity": "high",
+    "instruction": "What are lifetimes in Rust and when do you need explicit annotations?",
+    "must_contain": ["lifetime", "'", "elision", "reference"],
+    "must_not_contain": ["lifetimes are like garbage collection", "always annotate lifetimes", "lifetimes exist at runtime"],
+    "rationale": "Lifetimes are compile-time annotations that tell the borrow checker how long references are valid. Most cases use lifetime elision (compiler infers). Explicit annotations needed when: multiple input references, returning references, struct fields holding references. Lifetimes have ZERO runtime cost."
+  },
+  {
+    "id": "rust-result-001",
+    "domain": "rust",
+    "severity": "critical",
+    "instruction": "How does error handling work in Rust with Result and Option?",
+    "must_contain": ["Result", "Option", "?", "Err"],
+    "must_not_contain": ["just use unwrap everywhere", "exceptions are preferred", "panic for error handling"],
+    "rationale": "Rust uses Result<T, E> for fallible operations and Option<T> for nullable values — NOT exceptions. The ? operator propagates errors. unwrap() panics on Err/None and should only be used when you can PROVE the value exists. panic! is for unrecoverable bugs, not normal error handling."
+  },
+  {
+    "id": "rust-trait-001",
+    "domain": "rust",
+    "severity": "high",
+    "instruction": "How do traits work in Rust and how do they differ from interfaces?",
+    "must_contain": ["trait", "impl", "default"],
+    "must_not_contain": ["traits are exactly like Java interfaces", "traits support inheritance", "you must implement all methods"],
+    "rationale": "Rust traits can have default method implementations, associated types, and const items — richer than Java interfaces. Rust has NO inheritance — composition via trait bounds replaces it. You can implement foreign traits for your types (orphan rule applies). impl Trait gives static dispatch, dyn Trait gives dynamic dispatch."
+  },
+  {
+    "id": "rust-send-sync-001",
+    "domain": "rust",
+    "severity": "critical",
+    "instruction": "What are Send and Sync in Rust and why do they matter for concurrency?",
+    "must_contain": ["Send", "Sync", "thread", "compile"],
+    "must_not_contain": ["Send and Sync are runtime checks", "all types are Send", "just use unsafe to bypass"],
+    "rationale": "Send means a type can be transferred to another thread. Sync means a type can be shared (referenced) across threads. These are marker traits checked at COMPILE TIME — Rust prevents data races before the program runs. Rc is NOT Send (use Arc instead). Raw pointers are not Send/Sync by default."
+  },
+  {
+    "id": "rust-unsafe-001",
+    "domain": "rust",
+    "severity": "critical",
+    "instruction": "When is unsafe Rust appropriate and what are the rules?",
+    "must_contain": ["unsafe", "invariant", "raw pointer"],
+    "must_not_contain": ["avoid unsafe completely", "unsafe disables the borrow checker", "unsafe means undefined behavior"],
+    "rationale": "unsafe unlocks 5 specific powers: dereference raw pointers, call unsafe functions, access mutable statics, implement unsafe traits, access union fields. It does NOT disable the borrow checker — ownership rules still apply. The programmer MUST uphold safety invariants. Unsafe is appropriate for FFI, performance-critical paths, and low-level abstractions."
+  },
+  {
+    "id": "rust-async-001",
+    "domain": "rust",
+    "severity": "high",
+    "instruction": "How does async/await work in Rust?",
+    "must_contain": ["async", "await", "Future", "runtime"],
+    "must_not_contain": ["Rust has a built-in async runtime", "async functions run automatically", "async is always faster"],
+    "rationale": "Rust async functions return a Future that does NOTHING until polled. You need an external runtime (Tokio, async-std) to drive futures. .await suspends the current future and yields to the executor. Async is zero-cost but requires careful handling of lifetimes, Send bounds, and Pin for self-referential futures."
+  }
+]

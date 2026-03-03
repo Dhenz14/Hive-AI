@@ -1,0 +1,1861 @@
+--- PAGE 2 ---
+Praise for Extreme Programming Explained, Second Edition
+“In this second edition of Extreme Programming Explained, Kent Beck orga-
+nizes and presents ﬁve years’ worth of experiences, growth, and change revolv-
+ing around XP. If you are seriously interested in understanding how you and
+your team can start down the path of improvement with XP, you must read
+this book.”
+—Francesco Cirillo,  Chief Executive Ofﬁcer, XPLabs S.R.L.
+“The ﬁrst edition of this book told us what XP was—it changed the way many
+of us think about software development. This second edition takes it farther
+and gives us a lot more of the ‘why’ of XP, the motivations and the principles
+behind the practices. This is great stuff. Armed with the ‘what’ and the ‘why,’
+we can now all set out to conﬁdently work on the ‘how’: how to run our
+projects better, and how to get agile techniques adopted in our organizations.”
+—Dave Thomas,  The Pragmatic Programmers LLC
+“This book is dynamite! It was revolutionary when it ﬁrst appeared a few years
+ago, and this new edition is equally profound. For those who insist on cook-
+book checklists, there’s an excellent chapter on ‘primary practices,’ but I urge
+you to begin by truly contemplating the meaning of the opening sentence in
+the ﬁrst chapter of Kent Beck’s book: ‘XP is about social change.’ You should
+do whatever it takes to ensure that every IT professional and every IT man-
+ager—all the way up to the CIO—has a copy of Extreme Programming
+Explained on his or her desk.”
+—Ed Yourdon, author and consultant
+“XP is a powerful set of concepts for simplifying the process of software
+design, development, and testing. It is about minimalism and incrementalism,
+which are especially useful principles when tackling complex problems that
+require a balance of creativity and discipline.”
+—Michael A. Cusumano, Professor, MIT Sloan School of Management, and
+author of The Business of Software
+“Extreme Programming Explained is the work of a talented and passionate
+craftsman. Kent Beck has brought together a compelling collection of ideas
+about programming and management that deserves your full attention. My
+only beef is that our profession has gotten to a point where such common-
+sense ideas are labeled ‘extreme.’ . . .”
+—Lou Mazzucchelli, Fellow, Cutter Business Technology Council
+--- PAGE 3 ---
+“If your organization is ready for a change in the way it develops software,
+there’s the slow incremental approach, ﬁxing things one by one, or the fast
+track, jumping feet ﬁrst into Extreme Programming. Do not be frightened by
+the name, it is not that extreme at all. It is mostly good old recipes and com-
+mon sense, nicely integrated together, getting rid of all the fat that has accu-
+mulated over the years.”
+—Philippe Kruchten, UBC, Vancouver, British Columbia
+“Sometimes revolutionaries get left behind as the movement they started takes
+on a life of its own. In this book, Kent Beck shows that he remains ahead of
+the curve, leading XP to its next level. Incorporating ﬁve years of feedback, this
+book takes a fresh look at what it takes to develop better software in less time
+and for less money. There are no silver bullets here, just a set of practical prin-
+ciples that, when used wisely, can lead to dramatic improvements in software
+development productivity.”
+—Mary Poppendieck, author of Lean Software Development: An Agile Toolkit
+“Kent Beck has revised his classic book based on ﬁve more years of applying and
+teaching XP. He shows how the path to XP is both easy and hard: It can be
+started with fewer practices, and yet it challenges teams to go farther than ever.”
+—William Wake, independent consultant
+“With new insights, wisdom from experience and clearer explanations of the
+art of Extreme Programming, this edition of Beck’s classic will help many real-
+ize the dream of outstanding software development.”
+—Joshua Kerievsky, author, Refactoring to Patterns, and Founder, Industrial
+Logic, Inc.
+“XP has changed the way our industry thinks about software development. Its
+brilliant simplicity, focused execution, and insistence on fact-based planning
+over speculation have set a new standard for software delivery.”
+—David Trowbridge, Architect, Microsoft Corporation
+--- PAGE 4 ---
+Extreme Programming
+Explained
+Second Edition
+--- PAGE 5 ---
+The XP Series
+Kent Beck, Series Advisor
+Extreme Programming, familiarly known as XP , is a discipline of the business
+of software development that focuses the whole team on common, reachable
+goals. Using the values and principles of XP , teams apply appropriate XP prac-
+tices in their own context. XP practices are chosen for their encouragement of
+human creativity and their acceptance of human frailty. XP teams produce
+quality software at a sustainable pace.
+One of the goals of XP is to bring accountability and transparency to software
+development, to run software development like any other business activity.
+Another goal is to achieve outstanding results—more effective and efficient
+development with far fewer defects than is currently expected. Finally, XP aims
+to achieve these goals by celebrating and serving the human needs of everyone
+touched by software development—sponsors, managers, testers, users, and
+programmers.
+The XP series exists to explore the myriad variations in applying XP . While XP
+began as a methodology addressing small teams working on internal projects,
+teams worldwide have used XP for shrink-wrap, embedded, and large-scale
+projects as well. The books in the series describe how XP applies in these and
+other situations, addressing both technical and social concerns.
+Change has come to software development. However, change can be seen as
+an opportunity, not a threat. With a plan for change, teams can harness this
+opportunity to their benefit. XP is one such plan for change.
+Titles in the Series
+Extreme Programming Applied: Playing to Win, Ken Auer and Roy Miller
+Extreme Programming Explained, Second Edition: Embrace Change, Kent Beck 
+with Cynthia Andres
+Extreme Programming Explored, William C. Wake
+Extreme Programming for Web Projects, Doug Wallace, Isobel Raggett, 
+and Joel Aufgang
+Extreme Programming Installed, Ron Jeffries, Ann Anderson, and Chet Hendrickson
+Planning Extreme Programming, Kent Beck and Martin Fowler
+Testing Extreme Programming, Lisa Crispin and Tip House
+For more information, check out the series Web site at www.awprofessional.com/series/XP
+--- PAGE 6 ---
+Extreme Programming
+Explained
+Second Edition
+Embrace Change
+Kent Beck
+with Cynthia Andres
+Boston
+--- PAGE 7 ---
+The author and publisher have taken care in the preparation of this book, but make no expressed or
+implied warranty of any kind and assume no responsibility for errors or omissions. No liability is
+assumed for incidental or consequential damages in connection with or arising out of the use of the
+information or programs contained herein.
+Publisher: John Wait
+Editor in Chief: Don O’Hagan 
+Acquisitions Editor: Paul Petralia
+Managing Editor: John Fuller
+Project Editors: Julie Nahil and Kim Arney Mulcahy
+Compositor: Kim Arney Mulcahy
+Manufacturing Buyer: Carol Melville
+The publisher offers excellent discounts on this book when ordered in quantity for bulk purchases or
+special sales, which may include electronic versions and/or custom covers and content particular to
+your business, training goals, marketing focus, and branding interests. For more information, please
+contact:
+U. S. Corporate and Government Sales
+(800) 382-3419
+corpsales@pearsontechgroup.com
+For sales outside the U. S., please contact:
+International Sales
+international@pearsoned.com
+Visit us on the Web: www.awprofessional.com
+Library of Congress Cataloging-in-Publication Data
+Beck, Kent.
+extreme programming explained: embrace change / Kent Beck with Cynthia Andres. — 2nd ed.
+p. cm.
+Includes bibliographical references and index.
+ISBN 0-321-27865-8 (alk. paper)
+1. Computer software—Development. 2. eXtreme programming. I. Title.
+QA76.76.D47B434 2004
+005.1—dc22
+2004057463
+Text copyright © 2005 Pearson Education, Inc.
+Inside cover art copyright © 2004 by Kent Beck
+All rights reserved. Printed in the United States of America. This publication is protected by copyright,
+and permission must be obtained from the publisher prior to any prohibited reproduction, storage in a
+retrieval system, or transmission in any form or by any means, electronic, mechanical, photocopying,
+recording, or likewise. For information regarding permissions, write to:
+Pearson Education, Inc.
+Rights and Contracts Department
+One Lake Street
+Upper Saddle River, NJ 07458
+Many of the designations used by manufacturers and sellers to distinguish their products are claimed as
+trademarks. Where those designations appear in this book and we were aware of a trademark claim, the
+designations have been printed in initial caps or all caps.
+ISBN 0-321-27865-8
+Text printed in the United States on recycled paper at Courier in Stoughton, Massachusetts.
+Text printed in the United States on recycled paper at Courier in Westford, Massachusetts.
+Tenth printing, January 2012
+--- PAGE 8 ---
+To Cindee
+Without you, this book would still be about programmers hiding in a
+corner. Without you, I would still be one of those programmers.
+--- PAGE 9 ---
+This page intentionally left blank 
+--- PAGE 10 ---
+Note To Programmers
+Even programmers can be whole people in the real world. XP is an
+opportunity to test yourself, to be yourself, to realize that maybe you’ve
+been ﬁne all along and just hanging with the wrong crowd.
+--- PAGE 11 ---
+This page intentionally left blank 
+--- PAGE 12 ---
+xi
+Contents
+Foreword to the Second Edition ......................................................... xv
+Foreword to the First Edition .......................................................... xvii
+Preface ........................................................................................... xxi
+Chapter 1 What is XP? ..................................................................1
+Section 1 Exploring XP ........................................................9
+Chapter 2 Learning to Drive ........................................................11
+Chapter 3 Values, Principles, and Practices ...................................13
+Chapter 4 Values .........................................................................17
+Communication ..................................................................18
+Simplicity ............................................................................18
+Feedback ............................................................................19
+Courage ..............................................................................20
+Respect ...............................................................................21
+Others ................................................................................21
+Chapter 5 Principles ....................................................................23
+Humanity ...........................................................................24
+Economics ..........................................................................25
+Mutual Beneﬁt ....................................................................26
+--- PAGE 13 ---
+xii Contents
+Self-Similarity ......................................................................27
+Improvement ......................................................................28
+Diversity .............................................................................29
+Reﬂection ...........................................................................29
+Flow ...................................................................................30
+Opportunity .......................................................................30
+Redundancy ........................................................................31
+Failure ................................................................................32
+Quality ...............................................................................32
+Baby Steps ..........................................................................33
+Accepted Responsibility ......................................................34
+Chapter 6 Practices .....................................................................35
+Chapter 7 Primary Practices ........................................................37
+Sit Together ........................................................................37
+Whole Team .......................................................................38
+Informative Workspace ........................................................39
+Energized Work ..................................................................41
+Pair Programming ...............................................................42
+Stories ................................................................................44
+Weekly Cycle ......................................................................46
+Quarterly Cycle ..................................................................47
+Slack ...................................................................................48
+Ten-Minute Build ...............................................................49
+Continuous Integration ......................................................49
+Test-First Programming ......................................................50
+Incremental Design .............................................................51
+Chapter 8 Getting Started ...........................................................55
+Chapter 9 Corollary Practices ......................................................61
+Real Customer Involvement ................................................61
+Incremental Deployment ....................................................62
+Team Continuity .................................................................63
+Shrinking Teams .................................................................64
+Root-Cause Analysis ...........................................................64
+Shared Code .......................................................................66
+Code and Tests ...................................................................66
+Single Code Base ................................................................67
+--- PAGE 14 ---
+Contents xiii
+Daily Deployment ...............................................................68
+Negotiated Scope Contract .................................................69
+Pay-Per-Use ........................................................................69
+Chapter 10 The Whole XP Team ..................................................73
+Testers ................................................................................74
+Interaction Designers ..........................................................75
+Architects ............................................................................75
+Project Managers ................................................................76
+Product Managers ...............................................................77
+Executives ...........................................................................78
+Technical Writers .................................................................80
+Users ..................................................................................81
+Programmers ......................................................................81
+Human Resources ...............................................................81
+Roles ..................................................................................82
+Chapter 11 The Theory of Constraints ..........................................85
+Chapter 12 Planning: Managing Scope ........................................91
+Chapter 13 Testing: Early, Often, and Automated ........................97
+Chapter 14 Designing: The Value of Time ...................................103
+Simplicity ..........................................................................109
+Chapter 15 Scaling XP ..............................................................111
+Number of People .............................................................111
+Investment ........................................................................113
+Size of Organization .........................................................113
+Time .................................................................................114
+Problem Complexity .........................................................115
+Solution Complexity .........................................................115
+Consequences of Failure ....................................................116
+Chapter 16 Interview ................................................................119
+Section 2 Philosophy of XP ............................................123
+Chapter 17 Creation Story .........................................................125
+Chapter 18 Taylorism and Software ............................................131
+--- PAGE 15 ---
+xiv Contents
+Chapter 19 Toyota Production System .........................................135
+Chapter 20 Applying XP ...........................................................139
+Choosing a Coach ............................................................143
+When You Shouldn’t Use XP ............................................144
+Chapter 21 Purity .....................................................................145
+Certiﬁcation and Accreditation ..........................................146
+Chapter 22 Offshore Development ..............................................149
+Chapter 23 The Timeless Way of Programming ...........................153
+Chapter 24 Community and XP ................................................157
+Chapter 25 Conclusion ..............................................................159
+Annotated Bibliography .................................................................161
+Index ............................................................................................175
+--- PAGE 16 ---
+xv
+Foreword to
+the Second Edition
+Wow—the second edition. I cannot believe that ﬁve years have already
+passed since the appearance of the ﬁrst edition. When Kent pinged me
+to write a foreword to the second edition I asked him for a manuscript
+version with change bars. What a silly request—the book is a full
+rewrite! In the second edition of XP Explained Kent revisits XP and
+applies the XP paradigm—stay aware, adapt, change—to XP itself. Kent
+has revisited, cleaned-up, and refactored every bit of XP Explained and
+integrated many new insights. The result is XP Explained even better
+explained!
+This is an excellent opportunity to reﬂect on how XP has inﬂuenced
+my own software development. Shortly after the ﬁrst edition of XP
+Explained I became involved in the Eclipse project and it is now
+absorbing all my software energy. Eclipse isn’t run under the pure XP
+ﬂag. We follow agile practices; however, the XP inﬂuences are easy to
+spot. The most obvious one is that we have encoded several XP prac-
+tices directly into our tool. Refactoring, unit testing, and immediate
+feedback as you code are now an integral part of our toolset. Moreover,
+since we are “eating our own dog food” we use these practices in our
+day-to-day development. Even more interesting are the XP inﬂuences
+one can spot in our development process. Eclipse is an open source
+project and one of our goals is to practice completely transparent devel-
+opment.  The rationale is simple; if you don’t know where the project is
+going you cannot help out or provide feedback. XP practices help us to
+achieve this goal.
+--- PAGE 17 ---
+xvi Foreword to the Second Edition
+Here is how we apply some of these practices:
+✧ Testing early, often and automated —To get a green check mark
+for our latest builds more than 21,000 unit tests have to pass. 
+✧ Incremental design—We invest in the design every day, but we have
+the additional constraint that we need to keep our APIs stable. 
+✧ Daily deployment —Components deploy their code at least once
+per day and develop on top of the deployed code to get immedi-
+ate feedback and to catch problems early. 
+✧ Customer involvement—We are lucky to have an active user com-
+munity that isn’t shy and provides us with continuous feedback.
+We listen and do our best to be responsive. 
+✧ Continuous integration—The latest code is built every night. The
+nightly builds provide us with insights about cross-component
+integration problems. Once per week we do an integration build
+where we ensure integrity across all components. 
+✧ Short development cycles —Our cycles are longer than the XP-sug-
+gested one week cycles, but the goals are the same. Each of our six
+week cycles ends in a milestone build which have become the
+heartbeat of our project. The goal of each milestone build is to
+show progress (which keeps us honest) and to deliver it with a
+high enough level of quality that our community can really use it
+and provide feedback (which keeps us even more honest). 
+✧ Incremental planning—After a release we develop an embryonic
+overall plan which we evolve throughout the release cycle. This
+plan is posted on our website early so that our user community
+can join the dialog. The exception is the milestones, which are
+ﬁxed in the ﬁrst planning iteration since they deﬁne the heartbeat
+of our project.
+Despite the fact that we have not adopted XP in its entirety, we are
+getting a lot out of the above XP practices. In particular, they help us to
+reduce our development stress! All these practices, underpinned by a
+strong team committed to shipping quality software on time, are our
+keys to hitting the projected milestones and ship dates with precision.
+--- PAGE 18 ---
+Foreword to the Second Edition xvii
+Kent is continuing to challenge my views on software development.
+While reading the book I’ve discovered several practices that I will add
+to my try-list. I suggest you do the same and accept the XP invitation
+to improve the way you develop software and to create outstanding
+software.
+Erich Gamma
+September 2004
+--- PAGE 19 ---
+This page intentionally left blank 
+--- PAGE 20 ---
+xix
+Foreword to
+the First Edition
+Extreme Programming (XP) nominates coding as the key activity
+throughout a software project. This can’t possibly work! 
+Time to reﬂect for a second about my own development work. I
+work in a just-in-time software culture with compressed release cycles
+spiced up with high technical risk. Having to make change your friend
+is a survival skill. Communication in and across often geographically
+separated teams is done with code. We read code to understand new or
+evolving subsystem APIs. The life cycle and behavior of complex objects
+is deﬁned in test cases, again in code. Problem reports come with test
+cases demonstrating the problem, once more in code. Finally, we con-
+tinuously improve existing code with refactoring. Obviously our devel-
+opment is code-centric, but we successfully deliver software in time, so
+this can work after all.
+It would be wrong to conclude that all that is needed to deliver soft-
+ware is daredevil programming. Delivering software is hard, and deliv-
+ering quality software in time is even harder. To make it work requires
+the disciplined use of additional best practices. This is where Kent starts
+in his thought-provoking book on XP.
+Kent was among the leaders at Tektronix to recognize the potential
+of man in the loop pair programming in Smalltalk for complex engineer-
+ing applications. Together with Ward Cunningham, he inspired much of
+the pattern movement that has had such an impact on my career. XP
+describes an approach to development that combines practices used by
+many successful developers that got buried under the massive literature
+--- PAGE 21 ---
+xx Foreword to the First Edition
+on software methods and process. Like patterns, XP builds on best prac-
+tices such as unit testing, pair programming, and refactoring. In XP
+these practices are combined so that they complement and often control
+each other. The focus is on the interplay of the different practices, which
+makes this book an important contribution. There is a single goal to
+deliver software with the right functionality and hitting dates. While
+OTI’s successful Just In Time Software process is not pure XP, it has
+many common threads.
+I’ve enjoyed my interaction with Kent and practicing XP episodes on
+a little thing called JUnit. His views and approaches always challenge
+the way I approach software development. There is no doubt that XP
+challenges some traditional big M approaches; this book will let you
+decide whether you want to embrace XP or not.
+Erich Gamma
+August 1999
+--- PAGE 22 ---
+xxi
+Preface
+The goal of Extreme Programming (XP) is outstanding software devel-
+opment. Software can be developed at lower cost, with fewer defects,
+with higher productivity, and with much higher return on investment.
+The same teams that are struggling today can achieve these results by
+careful attention to and reﬁnement of how they work, by pushing ordi-
+nary development practices to the extreme.
+There are better ways and worse ways to develop software. Good
+teams are more alike than they are different. No matter how good or
+bad your team you can always improve. I intend this book as a resource
+for you as you try to improve.
+This book is my personal take on what it is that good software devel-
+opment teams have in common. I’ve taken things I’ve done that have
+worked well and things I’ve seen done that worked well and distilled
+them to what I think is their purest, most “extreme” form. What I’m
+most struck with in this process is the limitations of my own imagina-
+tion in this effort. Practices that seemed impossibly extreme ﬁve years
+ago, when the ﬁrst edition of this book was published, are now com-
+mon. Five years from now the practices in this book will probably seem
+conservative.
+If I only talked about what good teams do I would be missing the
+point. There are legitimate differences between outstanding teams’
+actions based on the context in which they work. Looking below the
+surface, where their activities become ripples in the river hinting at
+--- PAGE 23 ---
+xxii Preface
+shapes below, there is an intellectual and intuitive substrate to software
+development excellence that I have also tried to distill and document.
+Critics of the ﬁrst edition have complained that it tries to force them
+to program in a certain way. Aside from the absurdity of me being able
+to control anyone else’s behavior, I’m embarrassed to say that was my
+intention. Relinquishing the illusion of control of other people’s behav-
+ior and acknowledging each individual’s responsibility for his or her
+own choices, in this edition I have tried to rephrase my message in a
+positive, inclusive way. I present proven practices you can add to your
+bag of tricks.
+✧ No matter the circumstance you can always improve.
+✧ You can always start improving with yourself.
+✧ You can always start improving today.
+Acknowledgments
+I would like to thank my most excellent group of reviewers, each of
+whom spent considerable time reading and commenting on the manu-
+script: Francesco Cirillo, Steve McConnell, Mike Cohn, David Ander-
+son, Joshua Kerievsky, Beth Andres-Beck, and Bill Wake. The Silicon
+Valley Patterns Group also provided valuable feedback on drafts: Chris
+Lopez, John Parello, Phil Goodwin, Dave Smith, Keith Ray, Russ
+Rufer, Mark Taylor, Sudarsan Piduri, Tracy Bialik, Jan Chong, Rituraj
+Kirti, Carlos Mc Evilly, Bill Venners, Wayne Vucenic, Raj Baskaran, Tim
+Huske, Patrick Manion, Jeffrey Miller, and Andrew Chase. Thanks to
+the production staff at Pearson: Julie Nahil, Kim Arney Mulcahy, and
+Michelle Vincenti. Paul Petralia, my editor, saw me through difﬁcult
+times with humor and understanding. He taught me lessons in the
+value of relationships. Erich Gamma, my pair programming partner,
+provided conversation and feedback. The owners and staff of Bluestone
+Bakery and Cafe kept the hot chocolate and broadband ﬂowing. Joëlle
+Andres-Beck edited copy and collected garbage. All of my children;
+Lincoln, Lindsey, Forrest, and Joëlle; spent many hours at Bluestone
+while we edited. Gunjan Doshi provided thought-provoking questions.
+Finally, I cannot possibly give sufﬁcient thanks to my wife, develop-
+mental editor, friend, and intellectual colleague Cynthia Andres.
+--- PAGE 24 ---
+1
+Chapter 1
+What is XP?
+Extreme Programming (XP) is about social change. It is about letting
+go of habits and patterns that were adaptive in the past, but now get in
+the way of us doing our best work. It is about giving up the defenses
+that protect us but interfere with our productivity. It may leave us feel-
+ing exposed. 
+It is about being open about what we are capable of doing and then
+doing it. And, allowing and expecting others to do the same. It is
+about getting past our adolescent surety that “I know better than
+everyone else and all I need is to be left alone to be the greatest.” It is
+about ﬁnding our adult place in the larger world, ﬁnding our place in
+the community including the realm of business/work. It is about the
+process of becoming more of our best selves and in the process our
+best as developers. And, it is about writing great code that is really
+good for business.
+Good relationships lead to good business. Productivity and conﬁ-
+dence are related to our human relationships in the workplace as well as
+to our coding or other work activities. You need both technique and
+good relationships to be successful. XP addresses both.
+Prepare for success. Don’t protect yourself from success by holding
+back. Do your best and then deal with the consequences. That’s
+extreme. You leave yourself exposed. For some people that is incredi-
+bly scary, for others it’s daily life. That is why there are such polarized
+reactions to XP.
+--- PAGE 25 ---
+2 Extreme Programming Explained: Embrace Change
+XP is a style of software development focusing on excellent applica-
+tion of programming techniques, clear communication, and teamwork
+which allows us to accomplish things we previously could not even
+imagine. XP includes:
+✧ A philosophy of software development based on the values of
+communication, feedback, simplicity, courage, and respect.
+✧ A body of practices proven useful in improving software develop-
+ment. The practices complement each other, amplifying their
+effects. They are chosen as expressions of the values.
+✧ A set of complementary principles, intellectual techniques for
+translating the values into practice, useful when there isn’t a prac-
+tice handy for your particular problem.
+✧ A community that shares these values and many of the same
+practices.
+XP is a path of improvement to excellence for people coming together
+to develop software. It is distinguished from other methodologies by:
+✧ Its short development cycles, resulting in early, concrete, and con-
+tinuing feedback.
+✧ Its incremental planning approach, which quickly comes up with an
+overall plan that is expected to evolve through the life of the project.
+✧ Its ability to ﬂexibly schedule the implementation of functionality,
+responding to changing business needs.
+✧ Its reliance on automated tests written by programmers, custom-
+ers, and testers to monitor the progress of development, to allow
+the system to evolve, and to catch defects early.
+✧ Its reliance on oral communication, tests, and source code to
+communicate system structure and intent.
+✧ Its reliance on an evolutionary design process that lasts as long as
+the system lasts.
+✧ Its reliance on the close collaboration of actively engaged individ-
+uals with ordinary talent.
+✧ Its reliance on practices that work with both the short-term instincts
+of the team members and the long-term interests of the project.
+--- PAGE 26 ---
+Chapter 1 What is XP? 3
+The ﬁrst edition of Extreme Programming Explained: Embrace
+Change had a deﬁnition of XP with the advantage of clarity: “XP is a
+lightweight methodology for small-to-medium-sized teams developing
+software in the face of vague or rapidly changing requirements.” While
+this statement was true about the origin and intent of XP, it doesn’t tell
+the whole story. In the ﬁve years since the publication of the ﬁrst edi-
+tion teams have pushed XP much further than the original deﬁnition.
+XP can be described this way:
+✧ XP is lightweight. In XP you only do what you need to do to cre-
+ate value for the customer. You can’t carry a lot of baggage and
+move fast. However, there is no freeze-dried software process.
+The body of technical knowledge necessary to be an outstanding
+team is large and growing.
+✧ XP is a methodology based on addressing constraints in software
+development. It does not address project portfolio management,
+ﬁnancial justiﬁcation of projects, operations, marketing, or sales.
+XP has implications in all of these areas, but does not address
+these practices directly. Methodology is often interpreted to mean
+“a set of rules to follow that guarantee success.” Methodologies
+don’t work like programs. People aren’t computers. Every team
+does XP differently with varying degrees of success.
+✧ XP can work with teams of any size. Five years ago, I did not want
+to claim too much. Others have since put XP to use in a wide
+range of projects and have had success with both large and small
+projects and teams. The values and principles behind XP are appli-
+cable at any scale. The practices need to be augmented and altered
+when many people are involved.
+✧ XP adapts to vague or rapidly changing requirements. XP is still
+good for this situation, which is fortunate because requirements
+need to change to adapt to rapid shifts in the modern business
+world. However, teams have also successfully used XP where
+requirements don’t seem volatile, like porting projects.
+XP is my attempt to reconcile humanity and productivity in my own
+practice of software development and to share that reconciliation. I had
+begun to notice that the more humanely I treated myself and others,
+--- PAGE 27 ---
+4 Extreme Programming Explained: Embrace Change
+the more productive we all became. The key to success lies not in self-
+mortiﬁcation but in acceptance that we are people in a person-to-per-
+son business.
+Technique also matters. We are technical people in a technical ﬁeld.
+There are better ways and worse ways of working. The pursuit of excel-
+lence in technique is critical in a social style of development. Technique
+supports trust relationships. If you can accurately estimate your work,
+deliver quality the ﬁrst time, and create rapid feedback loops; then you
+can be a trustworthy partner. XP demands that participants learn a high
+level of technique in service of the team’s goals.
+XP means giving up old habits of working for new ways tailored to
+today’s reality. The habits, attitudes, and values of our early years
+worked then; but may not be our best choices in the current world of
+team software development. Good, safe social interaction is as neces-
+sary to successful XP development as good technical skills.
+One example is the concept that vulnerability is safety. The old habit
+of holding something back in order to be safe doesn’t really work.
+Holding back that last 20% of effort doesn’t protect me. When my
+project fails, the fact that I didn’t give my all doesn’t actually make me
+feel better. It doesn’t protect me from a sense of failure that I couldn’t
+make the project work. If I do my very best writing a program and peo-
+ple don’t like it, I can still feel justly good about myself. This attitude
+allows me to feel safe no matter the circumstance. If how I feel is based
+on an accurate read on whether I did my best, I can feel good about
+myself by doing my best.
+XP teams play full out to win and accept responsibility for the conse-
+quences. When self-worth is not tied to the project, we are free to do
+our best work in any circumstance. In XP you don’t prepare for failure.
+Keeping a little distance in relationships, holding back effort either
+through underwork or overwork, putting off feedback for another
+round of responsibility diffusion: none of these behaviors have a place
+on an XP team.
+You may have enough time, money, or skills on your team or you may
+not; but it is always best to act as if there is going to be enough. This
+“mentality of sufﬁciency” is movingly documented by anthropologist
+Colin Turnbull in The Mountain People and The Forest People. He con-
+trasts two societies: a resource-starved tribe of lying, cheating backstab-
+bers and a resource-rich, cooperative, loving tribe. I often ask developers
+--- PAGE 28 ---
+Chapter 1 What is XP? 5
+in a dilemma, “How would you do it if you had enough time?” You can
+do your best work even when there are constraints. Fussing about the
+constraints distracts you from your goals. Your clear self does the best
+work no matter what the constraints are. 
+If you have six weeks to get a project done, the only thing you con-
+trol is your own behavior. Will you get six weeks’ worth of work done
+or less? You can’t control others’ expectations. You can tell them what
+you know about the project so their expectations have a chance of
+matching reality. My terror of deadlines vanished when I learned this
+lesson. It’s not my job to “manage” someone else’s expectations. It’s
+their job to manage their own expectations. It’s my job to do my best
+and to communicate clearly.
+XP is a software development discipline that addresses risk at all lev-
+els of the development process. XP is also productive, produces high-
+quality software, and is a lot of fun to execute. How does XP address
+the risks in the development process?
+✧ Schedule slips—XP calls for short release cycles, a few months at
+most, so the scope of any slip is limited. Within a release, XP uses
+one-week iterations of customer-requested features to create ﬁne-
+grained feedback about progress. Within an iteration, XP plans
+with short tasks, so the team can solve problems during the cycle.
+Finally, XP calls for implementing the highest priority features ﬁrst,
+so any features that slip past the release will be of lower value.
+✧ Project canceled—XP asks the business-oriented part of the team
+to choose the smallest release that makes the most business sense,
+so there is less to go wrong before deploying and the value of the
+software is greatest.
+✧ System goes sour—XP creates and maintains a comprehensive suite
+of automated tests, which are run and rerun after every change
+(many times a day) to ensure a quality baseline. XP always keeps
+the system in deployable condition. Problems are not allowed to
+accumulate.
+✧ Defect rate—XP tests from the perspective of both programmers
+writing tests function-by-function and customers writing tests
+program-feature-by-program-feature.
+✧ Business misunderstood—XP calls for business-oriented people to
+be ﬁrst-class members of the team. The speciﬁcation of the project
+--- PAGE 29 ---
+6 Extreme Programming Explained: Embrace Change
+is continuously reﬁned during development, so learning by the
+customer and the team can be reﬂected in the software.
+✧ Business changes—XP shortens the release cycle, so there is less
+change during the development of a single release. During a
+release, the customer is welcome to substitute new functionality
+for functionality not yet completed. The team doesn’t even notice
+if it is working on newly discovered functionality or features
+deﬁned years ago.
+✧ False feature rich—XP insists that only the highest priority tasks
+are addressed.
+✧ Staff turnover—XP asks programmers to accept responsibility for
+estimating and completing their own work, gives them feedback
+about the actual time taken so their estimates can improve, and
+respects those estimates. The rules for who can make and change
+estimates are clear. Thus, there is less chance for a programmer to
+get frustrated by being asked to do the obviously impossible. XP
+also encourages human contact among the team, reducing the
+loneliness that is often at the heart of job dissatisfaction. Finally,
+XP incorporates an explicit model of staff turnover. New team
+members are encouraged to gradually accept more and more
+responsibility, and are assisted along the way by each other and by
+existing programmers.
+XP assumes that you see yourself as part of a team, ideally one with
+clear goals and a plan of execution. XP assumes that you want to work
+together. XP assumes that change can be made inexpensive using this
+method. XP assumes that you want to grow, to improve your skills, and
+to improve your relationships. XP assumes you are willing to make
+changes to meet those goals.
+Now I’m ready to answer the question posed by this chapter: what
+is XP?
+✧ XP is giving up old, ineffective technical and social habits in favor
+of new ones that work.
+✧ XP is fully appreciating yourself for total effort today.
+✧ XP is striving to do better tomorrow.
+--- PAGE 30 ---
+Chapter 1 What is XP? 7
+✧ XP is evaluating yourself by your contribution to the team’s
+shared goals.
+✧ XP is asking to get some of your human needs met through soft-
+ware development.
+The rest of this book explores what to do to effect these changes and
+speculates about why they work, personally and economically. The
+book is divided into two sections. The ﬁrst is practical, describing a way
+of doing and thinking about software development that both assumes
+and satisﬁes human needs, including the need for relationships. The
+second section covers the philosophical and historical roots of XP and
+places XP in today’s context.
+There are as many ways of reading this book and applying XP as
+there are of getting into a cool pool on a hot day: one toe at a time,
+walking steadily down the steps, the cannonball, the racing dive. They
+all meet the goal of getting into the water. Your choice may be based
+on style, speed, efﬁciency, or fear. Only you can decide which is right
+for you. I hope that in reading and applying this book you will come to
+a deeper understanding of why you are involved in software develop-
+ment and how you can ﬁnd satisfaction from this work.
+--- PAGE 31 ---
+This page intentionally left blank 
+--- PAGE 32 ---
+175
+Index
+A
+Abundant living, 167
+Accepted responsibility, 4, 165
+Accomplishment, as human need, 24
+Accountability
+community and, 158
+executive role and, 78
+Accounting, for expense vs. invest-
+ment, 113
+Accreditation, XP, 146–147
+Action, reﬂection following, 30
+Adopting XP. See XP, applying
+Alexander, Christopher, 153–154
+Analysis, decision making, 172
+Andres-Beck, Beth, 104
+Anxiety, accompanying change, 57
+Application development. See Soft-
+ware development
+Architects, team roles, 75–76
+Architecture
+design and, 154–155
+ﬂuidity, 128
+tests and, 75–76
+Architecture, of buildings, 162, 163
+Artifacts, of development, 66–67
+Attitude, bibliographic references, 
+162–163
+Auditing, projects prior to release, 
+116
+Authority
+misalignment of authority and 
+responsibility, 141
+Automated builds, 49
+Automated tests, 100–101, 171
+awareness, of need for change, 
+56–57
+B
+Baby steps, 33, 53
+Belonging
+human needs, 24
+team approach and, 39
+Beta testing, 101
+Bibliography, 161–174
+attitudes, 162–163
+emergent processes, 163–164
+people, 165–168
+philosophy, 161–162
+programming, 171–174
+project management, 168–171
+systems, 164–165
+Big bang integration, 30, 87
+Big deployments, 63
+Biology, in 21st Century, 155
+--- PAGE 33 ---
+176 Index
+Boehm, Barry, 52
+Bottlenecks
+coach noticing, 143
+identifying, 47, 86–87
+Theory of Constraints and, 85–86
+Brand, Stewart, 104, 174
+Breaks, in work day, 41–42
+Budgets, 94–95
+Business
+business interests dominating 
+development, 154
+business interests sharing responsi-
+bility with programmers, 155
+paradigm shifts and, 166
+relationships, 1
+C
+Capability Maturity Model, 150
+Capital expenditures, 113
+Certiﬁcation, XP, 146–147
+Change
+accountability and, 158
+adapting to, 11
+awareness of need for, 56–57
+baby steps and, 33
+changing one thing at a time, 55
+costs of, 52
+deciding what to change ﬁrst, 56
+factors in rapid change, 142
+feedback and, 19
+opportunities for, 30–31
+people and, 155
+speed of, 56
+starting with yourself, 57
+strategies for, 168
+Chaos theory, 164
+Charts, in Informative Workspace, 
+41
+Chrysler Smalltalk project, 125–129
+estimation, 127–128
+incremental design, 127
+success of, 128–129
+team creation, 126–127
+trouble indicators, 126
+Clarity, bibliographic reference, 161
+Coach, selecting, 143–144
+Code
+code and tests, 66–67, 101–102
+communicating through, 171
+defect levels and, 98
+eliminating duplication of, 108
+future users, 26
+as key in software development, xix
+proﬁtability of, 173
+sharing responsibility for, 66
+single code base vs. multiple code 
+streams, 67–68
+team approach to, 17
+test-ﬁrst programming and, 50
+traceability of changes to, 116–117
+trust and, 51
+waste and, 137
+Code Complete (McConnell), 104
+Coe, Bob, 126
+Cohesion, of code, 50
+Collective ownership, 66. See also
+Responsibility
+Comics, 166
+Commitment, waste created by over-
+commitment, 48
+Communication
+between business and technical 
+people, 172
+courage and, 21
+credibility and, 48
+documentation and, 146
+drawings as, 174
+embracing as a value, 146
+feedback and, 20
+listening skills vs. talking skills, 157
+multi-site development and, 149
+nonviolent, 167
+--- PAGE 34 ---
+Index 177
+product managers encouraging, 78
+programming as form of, 173
+project managers responsibility for, 
+76–77
+simplicity and, 19
+as value guiding development, 18
+Community, XP, 157–160
+Computing, in 21st Century, 155
+Conﬂict
+community and, 158
+diversity and, 29
+Conquer-and-divide, 112
+Consensus, in project management, 
+170
+Constraints. See Theory of 
+Constraints
+Continuous improvement, 141–142
+Continuous integration
+collective ownership and, 66
+as primary practice, 49–50
+Contracts, ongoing negotiation of 
+scope, 69
+Contributing to Eclipse (Gamma),
+51
+Control
+fallacy of working longer to regain, 
+41
+illusion of being able to control 
+others, xxii
+of people, 166
+quality and, 32, 169
+scope as basis of, 33
+Cooperation, 18, 93
+Costs
+changes, 52
+code development, 173
+defects, 97
+ﬁnding defects early and, 99
+options pricing, 174
+project management and, 92
+redundancy, 31
+software development, 173
+variable in zero-sum model, 
+161–162
+Coupling, of code, 50–51
+Courage
+balancing with other values, 21
+executive role and, 78
+multi-site development and, 149
+as value guiding development, 20–21
+Credibility, 48
+Customers
+development artifacts of value to, 
+66–67
+driving system content, 12
+evolutionary delivery and, 169
+features controlled by, 128
+interaction designers working with, 
+75
+involvement of, xvi, 61–62
+technical writers and, 80
+Whole Team practice and, 39
+D
+Daily deployment, xvi, 68–69, 143
+Daily focus, of incremental design, 
+103
+Database design strategy, 107–108, 
+172
+DCI (Defect Cost Increase), 98–99
+Deadlines, business concerns domi-
+nating, 154
+Decision making
+analysis decisions, 172
+design decision, 172
+in difﬁcult situations, 165
+Defect Cost Increase (DCI), 98–99
+Defects, 119–121
+acceptable levels of, 97–98
+defect rate in Smalltalk project, 
+128
+incremental design and, 52
+--- PAGE 35 ---
+178 Index
+Defects, continued
+metrics for defects after 
+deployment, 79
+redundancy and, 31
+root cause analysis, 64–65
+tests for reducing rate of, 5
+values and, 14
+Deming, W. Edwards, 167
+Deployment
+daily, 68–69, 143
+incremental approach to, 62–63
+incremental design and, 109
+metrics for defects after, 79
+Design. See also Incremental design
+Alexander’s principles, 162
+common language for decision 
+making, 172
+database design strategy, 107–108, 
+172
+patterns and, 108, 173
+small scale, 171
+Developers. See Programmers
+Development. See Software 
+development
+Disney, 163
+Diversity principle, 29
+Documentation
+code and tests as basis of, 66
+communication and, 146
+“Rosetta Stone” document, 
+114–115
+technical publications, 80–81
+of tests, 26
+Uniﬁed Process document driven 
+basis, 169
+Double-checking, defect testing, 
+98–100
+Drawings. See Images
+Drawings, as communication 
+medium, 174
+DSDM (Dynamic Systems Develop-
+ment Method), 170
+Dynamic Systems Development 
+Method (DSDM), 170
+E
+Eclipse project, xv–xvi
+Economics
+principles in XP, 25
+quality and, 33
+Ego, thinking and, 165
+Emergent processes, bibliographic 
+references, 163–164
+Emotions, fear as barrier to perfor-
+mance, 167
+Employees. See Stafﬁng
+Energized work
+map of, 58
+as primary practice, 41–42
+Ernst, Michael, 51, 173
+Estimation
+beneﬁt of early estimation, 44–45
+creating believable estimates, 
+127–128
+planning and, 92, 93–94
+real time estimates, 168
+values and, 14
+Execution, separating from planning 
+in social engineering, 132
+Executive, as team role, 78–79
+Executive sponsorship
+crucial to success of XP, 90, 
+119–121
+ﬁnding, 140
+Expenses. See Costs
+Experience, design process and, 107
+“An Experimental Evaluation of 
+Continuous Testing During 
+Development” (Saff and Ernst), 
+51, 173
+--- PAGE 36 ---
+Index 179
+F
+Facilities. See Workspace
+Failure
+dealing with consequences of, 
+116–117
+learning from, 143
+as principle in XP, 32
+Features
+customer control of, 128
+tracking projects by, 169
+Feedback
+from continuous testing, 173
+Eclipse project and, xv
+ﬁnding defects and, 99
+measuring software projects, 169
+pay-per-use, 69–70
+reﬂection combined with doing, 
+30
+types of, 20
+as value guiding development, 
+19–20
+Flow
+principles in XP, 30
+team approach and, 73–74
+The Forest People (Turnbull), 4
+Fowler, Martin, 95, 126
+Fractals, 27
+G
+Gamma, Erich, 51
+Gannt, Henry, 131
+Gilbreth, Frank, 131
+Gilbreth, Lillian, 131
+Gladwell, Malcolm, 39
+Global software development, 151
+Goals
+executive role and, 78
+planning and, 91
+XP goals for software develop-
+ment, xxi
+Graphics. See Images
+Group dynamics, 143
+Growth, as human need, 24
+H
+Health, pair programming and, 43
+Hendrickson, Chet, 128
+High-cost base areas, compared with 
+low-cost base areas, 150
+Hiring, 81–82
+History, practice of, 167
+Hopelessness, overcoming, 163
+How Buildings Learn (Brand), 104
+Human resources, reviews and hir-
+ing, 81–82
+Humanity
+fear as barrier to performance, 167
+principle in XP, 24–25
+Sit Together practice and, 38
+workspace and, 40
+Hunt, Andy, 140
+Hygiene, 43
+I
+Illnesses. See Sicknesses
+Images
+communicating with drawings, 
+174
+communicating with graphs and 
+pictures, 174
+Improvement
+executive role and, 78
+noncontinuous nature of, 142
+principles in XP, 28
+Incremental deployment, 62–63, 
+169
+Incremental design, 103–110
+daily focus of, 103
+database design strategy, 107–108
+deciding when to design, 105–107
+--- PAGE 37 ---
+180 Index
+Incremental design, continued
+Eclipse project and, xvi
+improvement as focus of, 28
+investing in, 172
+Once and Only Once heuristic, 
+108
+as primary practice, 51–53
+simplicity of design, 109–110
+Smalltalk project, 127
+timing of design decisions, 109
+weakness of physical-based meta-
+phors for, 103–104
+Industrial engineering, 131
+Informative workplace, 39–41
+charts, 41
+human needs and, 40–41
+story cards, 40
+Insight, 41
+Integration, continuous integration 
+practice, 49–50
+Integrity, 159
+Interaction designers, as team role, 
+75
+Investments
+measuring investment-to-return, 
+79
+XP as expense or investment, 113
+Iterations
+feedback cycles and, 7, 94
+planning frequency of, 121
+removing constraints or limita-
+tions, 168
+story implementation and, 127
+J
+JAD (Joint Application Develop-
+ment), 171
+Jeffries, Ron, 126
+Jensen, Brad, 119–121
+Jobs, offshore development and, 
+150
+Joint Application Development 
+(JAD), 171
+Judgement, communication and, 
+168
+JUnit, xiv, 171, 173
+Just In Time Software process, 
+xiii–xiv
+L
+Leadership, 143
+Learning
+applying new skills, 141
+conﬂict and disagreement and, 158
+by example, 143
+from failures, 32, 143
+reﬂection as basis of, 30
+Life cycle models, 116
+Listening skill
+community and, 157
+listening to feedback, 80, 141
+planning and, 93
+Load tests, 101
+Low-cost base areas, compared with 
+high-cost base areas, 150
+M
+Maintenance
+applying XP to, 170
+project management and, 170
+Management
+executives, 78–79
+product managers, 78
+project managers, 76–77, 92, 
+113–114
+Scientiﬁc Management and, 131
+self-organizing systems as meta-
+phor for management, 164
+Manual testing, 101
+Manuals, 80–81. See also
+Documentation
+Margins, in software development, 
+165
+--- PAGE 38 ---
+Index 181
+Mathematics, programming as, 172
+McConnell, Steve, 104–105, 173
+Meetings, weekly cycles, 46
+Metaphors
+chosen by interaction designers, 75
+code names and, 26
+driving XP, 12
+physical-based impose limits on 
+software development, 104
+Scientiﬁc Management, 131
+self-organizing systems as meta-
+phor for management, 164
+thinking and, 162
+Uniﬁed Process emphasis on, 170
+Metrics
+awareness and, 56
+feedback and, 169
+graphing, 174
+for health of XP team, 79
+measuring progress with tests, 102
+for XP, 145
+Micro-optimization, 88
+Mistakes. See Failure
+Modernism, 161
+Money. See also Costs
+pay-per-use and, 69–70
+time value of, 25
+The Mountain People (Turnbull), 4
+Multi-site development, 149–152
+global software development, 151
+high-cost base areas compared 
+with low-cost base areas, 150
+practices and, 150
+principles and, 150
+reasons for, 149
+values and, 149
+Mutual beneﬁt, as principle in XP, 26
+N
+Names, coding style and, 26
+Negotiated scope contract, 69
+O
+Offshore development. See Multi-site
+development
+Ohno, Taiichi, 136, 174
+Once and Only Once, heuristic for 
+incremental design, 108
+Online communities, XP, 158
+Opportunity, as principle in XP, 
+30–31
+Option value, of systems and teams, 
+25
+Organizations
+reducing team sizes, 150
+reverting to old habits, 140
+scaling XP and, 113–114
+Overall throughput, vs. micro-opti-
+mization, 88
+Overproduction, as waste, 136
+Overwork, holding back effort 
+through, 6
+Ownership, collective, 66. See also
+Responsibility
+P
+Pain, as factor in quick change, 142
+Pair programming
+beneﬁts of, 42–43
+continuous integration and, 50
+personal space and, 43–44
+as primary practice, 42–43
+reasons for applying, 35
+teamwork and, 66
+technical collaboration and, 57
+XP building on, xiv
+Paradigms, 166
+Partitioning systems
+architect’s responsibility for, 76
+scaling XP and, 112
+Patterns
+design process and, 108, 173
+XP and, xiv
+--- PAGE 39 ---
+182 Index
+Pay-per-release, 70
+Pay-per-use, 69–70
+People
+bibliographic references, 165–168
+change and, 155
+communication between business 
+and technical people, 172
+as component of problems, 38
+scaling XP and, 111–112
+Perfection, 28
+Performance, fear as barrier to, 167
+Performance tuning, 93, 125
+Permaculture, 103, 162
+Personal space, 43–44
+Philosophy
+bibliographic references, 161–162
+of XP, 123
+Physical environment. See Workspace
+Planning, 91–95
+Chrysler Smalltalk project, 127
+deciding what to change ﬁrst, 56
+estimation and, 92, 93–95
+goals and, 91
+incremental, xvi
+project managers responsibility for, 
+77
+quarterly cycles and, 47–48
+scope as basis of, 92
+separating from execution in
+Taylorism, 132
+team cooperation in, 93
+technical details of, 168
+timescales and, 92–93
+weekly cycles and, 46–47
+Politics, of offshore development, 
+150
+Postmodernism, 161
+Practices
+based on values, 14
+compared with values, 14–15
+deﬁned, 13
+implementing primary before 
+corollary, 61
+ineffectiveness of dictating, 57
+learning by example, 143
+mapping, 58–59
+multi-site development and, 150
+overview of, 35–36
+social relationships and, 154
+win-win-win, 26
+Practices, corollary, 61–73
+code and tests, 66–67
+customer involvement, 61–62
+daily deployment, 68–69
+incremental deployment, 62–63
+negotiated scope contract, 69
+pay-per-use, 69–70
+root cause analysis, 64–66
+shared code, 66
+shrinking teams, 64
+single code base, 67–68
+team continuity, 63–64
+Practices, primary, 37–54
+continuous integration, 49–50
+energized work, 41–42
+incremental design, 51–53
+informative workplace, 39–41
+pair programming, 42–43
+quarterly cycles, 47–48
+sit together, 37–38
+slack, 48
+stories, 44–45
+ten-minute build, 49
+test-ﬁrst programming, 50–51
+weekly cycles, 46–47
+whole team approach, 38–39
+Predictability, as value, 22
+Principles, 23–36
+baby steps, 33
+deﬁned, 15
+diversity, 29
+economics, 25
+--- PAGE 40 ---
+Index 183
+failure, 32
+ﬂow, 30
+humanity, 24–25
+improvement, 28
+learning by example, 143
+multi-site development and, 150
+mutual beneﬁt, 26
+opportunity, 30–31
+overview of, 23
+quality, 32–33
+redundancy, 31–32
+reﬂection, 29–30
+responsibility, 34
+self-similarity, 27–28
+social relationships and, 154
+Priorities, 109
+aligning, 55–57
+business, 67
+economics of, 25
+funding, 129
+implementing highest priority ﬁrst, 
+7–8
+product managers and, 77
+Problems
+complexity in scaling XP, 115
+as opportunity for change, 30–31
+people-oriented solutions, 38
+resolving in ﬂow-based environ-
+ment, 30
+steps for working with big, 112
+Product development, 170
+Product managers, 77–78
+Productivity
+Energized Work principle and, 41
+Scientiﬁc Management and, 131
+TPS, 136
+Programmers
+global demand, 151
+sharing responsibility with business 
+interests, 155
+as team role, 81
+tests, 100
+working with sponsors and users, 
+154
+Programming
+art of writing, 166
+balancing human interests, 153–155
+bibliographic references, 171–174
+continuous integration practice, 
+49–50
+pair programming principle, 42–43
+for and by people, 168
+pragmatic programmers, 140
+short-cycle, 169
+social and technical networks, 164
+test-ﬁrst programming, 50–51, 
+141, 143
+Project management
+bibliographic references, 168–171
+Taylorist perspective, 170
+Project managers
+presenting information to organi-
+zations, 113–114
+story cards and, 95
+as team role, 76–77
+Projects
+cancellations, 5
+feedback and, 169
+tracking projects by features, 169
+trouble indicators, 126
+Pull, model of development, 87–88
+Push, model of development, 87–88
+Q
+Quality
+principles in XP, 32–33
+project management and, 92
+quality control in Deming’s model, 
+167
+social engineering and, 132–133
+variable in zero-sum model, 
+161–162
+--- PAGE 41 ---
+184 Index
+Quality-of-life, 22
+Quarterly cycles, 47–48, 114
+R
+Redundancy principle, 31–32
+Refactoring, xiv, xv, 172
+Reﬂection principle, 29–30
+Regression testing, 65
+Relationships
+business relationships, 1
+community, 157
+fostering strong, 154
+improving, 146
+mutual beneﬁt as basis of, 26
+relational skills of programmers, 
+81
+separating intimate relationships 
+from work setting, 43
+in societies of abundance and scar-
+city, 167
+undermined by misalignment of 
+authority and responsibility, 
+141
+Release cycle, reducing, 6
+Requirements
+gathering, 137
+misused terminology in develop-
+ment, 44
+Resources, in societies of abundance 
+and scarcity, 167
+Respect
+multi-site development and, 149
+in Ohno’s management approach, 
+174
+as value guiding development, 21
+Responsibility
+accepted, 4, 165
+vs. control by others, xxii
+misalignment undermines trust, 
+141
+as principle in XP, 34
+shared code and, 66
+sharing between programmers and 
+business interests, 155
+Revenue, measuring investment-to-
+return, 79
+Review, of human resources, 81–82
+Rewards, as control mechanism, 166
+Risk
+big deployments and, 63
+daily deployment and, 68
+economic, 26
+of error, 49
+of failure, leading to success, 32
+management, 73, 116, 169
+negotiated scope contract and, 69
+not asking others to take risks you 
+are not willing to take, 141
+partitioning and, 112
+silence as sound of risk piling up, 
+79
+XP addresses at all levels, 7
+Risk, in development process, 5–6
+Roles ﬂexibility, in XP programming, 
+82–83
+Root cause analysis, 64–66
+“Rosetta Stone” document, 114–115
+S
+Sabre Airline Solutions, 119–121
+Sadalage, Pramod, 107
+Safety
+human needs, 24
+Sit Together practice and, 38
+as value, 22
+Saff, David, 51
+Scaffolding, incremental deploy-
+ment, 63
+Scaling XP, 111–117
+consequences of failure, 116–117
+investments, 113
+organization size, 113–114
+--- PAGE 42 ---
+Index 185
+overview of, 111
+people, 111–112
+problem complexity and, 115
+solution complexity and, 115–116
+time, 114–115
+Schedules, slipping, 5
+Scientiﬁc Management, 131–132, 
+174
+Scope
+business concerns dominating, 154
+as control mechanism, 33
+ongoing negotiation of, 69
+planning as means of managing, 92
+variable in zero-sum model, 
+161–162
+Scope creep, 50
+Seasons, as organizational timescale, 
+47
+Security
+certiﬁable, 116–117
+as value, 22
+Self-organizing systems, 164
+Self-similarity principle, 27–28
+Sexuality, in work environment, 43
+Shape, self-similarity principle, 27
+Shared code, 66
+Shrinking teams, 64
+Sicknesses, 41
+Simplicity
+bibliographic reference, 161
+courage and, 21
+dealing with excess complexity, 
+115–116
+feedback and, 20
+incremental design, 109–110
+multi-site development and, 149
+as value guiding development, 
+18–19
+Single code base, 67–68, 150
+Sit together as a practice, 37–38, 145
+Skiing, 165
+Skills, learning and applying, 141
+Slack, as primary practice, 48
+Social change, 1
+Social engineering, 132–133
+Social relationships
+stratiﬁcation lacking in TPS, 136
+XP applied in context of, 139
+Software development
+advantages of XP for, 3–4
+community for, 157–160
+costs, 173
+cycles, xvi
+driving with stories, 169
+DSDM approach to rapid develop-
+ment, 170
+electrical engineering paradigm, 
+169
+global, 151
+goals of XP and, xxi
+limitations of Taylor’s model when 
+applied to, 132
+low-cost base areas vs. high-cost 
+base areas, 150
+margins in, 165
+overproduction, 136–137
+push model contrasted with pull 
+model, 87–88
+risk in, 5–6
+shortcomings of Taylorist 
+approach, 166
+team-driven process, 12
+Theory of Constraints and, 168
+utility vs. technical virtuosity, 154
+values guiding, 18
+Software engineering, 49
+Solution complexity, 115–116
+Sponsors
+executive sponsorship, 90, 
+119–121, 140
+working with developers and users, 
+154
+--- PAGE 43 ---
+186 Index
+Stafﬁng
+managing turnover, 6
+scaling, 112
+needs of good developers, 24
+worker responsibility in TPS, 
+135–136
+Static veriﬁcation, 101
+Stories
+breaking into tasks, 47
+deciding what to change ﬁrst, 56
+driving development from, 169
+interaction designers writing, 75
+planning and, 91, 93–95
+as primary practice, 44–45
+product managers writing, 77–78
+project completion time and, 127
+slack time and, 48
+weekly cycles and, 46
+Story cards
+example, 45
+in informative workplace, 40
+in planning process, 96
+presenting information to organi-
+zations, 113–114
+Stress tests, 101
+Subscription model, software mar-
+keting, 70
+Success
+as goal, 146
+XP and, 4
+Survival, problem solving and, 31
+Systems
+bibliographic references, 164–165
+self-organizing, 164
+T
+Talking skills, 157
+Tasks, breaking stories into, 47
+Taylor, Frederick, 131–133, 150, 
+165, 167, 170
+TDD (Test-Driven Development), 
+171
+Team. See also Whole team practice
+approach to coding style, 17
+balancing individual needs with 
+team needs, 24
+certiﬁcation and accreditation, 146
+common factors in good software 
+development teams, xxi–xxii
+communication as basis of cooper-
+ation, 18
+continuity, 63–64
+Disney’s, 163
+diversity, 29
+models, 66
+orientation in XP, 6
+reducing size (shrinking) of, 64
+respect as key value to working of, 
+21
+reverting to old habits, 140
+scaling XP and, 112
+sexuality complicating working of, 
+43
+sharing power, 155
+size thresholds, 39
+software development as team-
+driven process, 12
+things that can go wrong, 168
+undermined by misalignment of 
+authority and responsibility, 
+141
+Team continuity, 63–64
+Teamwork models, 66
+Technical aspects
+communication between business 
+and technical people, 172
+excellence in, 4
+technical ﬁxes must be comple-
+mented by people-oriented 
+solutions, 38
+--- PAGE 44 ---
+Index 187
+Technical collaboration, 57
+Technical employment, 150
+Technical publications, 80–81
+Technical writers, as team role, 
+80–81
+Technique, as basis of practices, 13
+Ten-minute build, as primary prac-
+tice, 49
+Test-Driven Development (TDD), 
+171
+Test-ﬁrst programming, 50–51, 141, 
+143, 171
+Testers, as team role, 74–75
+Tests, 97–102
+automating, 100–101
+code and test cycle, 66–67, 
+101–102
+DCI, 98–99
+defect rates, 5
+defect reduction, 97–98
+documenting, 26
+double-checking, 100
+early and often, xvi
+feedback from continuous testing, 
+173
+frequency of, 100
+JUnit, 171
+learning from failures, 32
+measuring progress with, 102
+regression testing, 65
+static veriﬁcation, 101
+system architecture, 75–76
+ten-minute build, 49
+test-ﬁrst programming, 50–51, 
+141, 143
+unit tests, 173
+weekly cycles and, 46, 74
+Theory of Constraints, 85–90
+bottlenecks and, 85–86
+identifying constraints, 86–87
+overall throughput vs. micro-
+optimization, 88
+push model of development con-
+trasted with pull model, 87–88
+software development and, 168
+statement of theory, 86
+understanding systems, 164
+XP shifting constraints to non-
+software development areas, 
+89–90
+Thinking
+ego and, 165
+linear vs. nonlinear, 174
+metaphors and, 162
+Thomas, Dave, 140
+ThoughtWorks, 107
+Throughput, 88, 164
+Time
+long-running projects and, 
+114–115
+planning and, 92–93
+project management and, 92
+quarterly cycles and, 47–48
+seasons and, 47
+time value of money, 25
+variable in zero-sum model, 
+161–162
+weekly cycles and, 46
+The Tipping Point (Gladwell), 39
+Toyota Production System (Ohno),
+137
+Toyota Production System (TPS), 
+135–138
+parallels to software development, 
+136–137
+production process, 136
+social stratiﬁcation lacking in, 136
+waste reduced, 135–136
+worker responsibility in, 135–136
+Tracking, projects by features, 169
+--- PAGE 45 ---
+188 Index
+Trust
+defects and, 97–98
+undermined by misalignment of 
+responsibility, 141
+Turnbull, Colin, 4
+U
+Underwork, holding back effort 
+through, 6
+Unit tests, xiv, xv, 173
+UP (Uniﬁed Process), 170
+User-interface design, 166
+Users. See also Customers
+as team role, 81
+technical writers and, 80
+Users, continued
+tests based on perspective of, 102
+working with developers and spon-
+sors, 154
+V
+Values, 17–22
+based on what really matters, 17
+change and, 56
+communication, 18
+compared with practices, 14–15
+courage, 20–21
+deﬁned, 14
+feedback, 19–20
+guiding development, 18
+improvement and, 142
+integrity and, 159
+learning by example, 143
+multi-site development and, 149
+not using XP when organization 
+values at odds with XP values, 
+144
+other important, 22
+respect, 21
+simplicity, 18–19
+W
+Wabi-Sabi, 161
+Waste
+customer involvement in reduc-
+ing, 61
+eliminating, 28
+overcommitment and, 48
+overproduction and, 136–137
+planning as necessary waste, 46–47
+redundancy and, 32
+Toyota success in eliminating, 
+135–136
+Waterfall process, 87, 146
+Weekly cycles, 46–47, 74
+Whole team practice, 73–83
+architects, 75–76
+customers, 61–62
+executives, 78–79
+failure to work together, 
+73–74
+human resources, 81–82
+interaction designers, 75
+overview of, 38–39
+product managers, 77–78
+programmers, 81
+project managers, 76–77
+role ﬂexibility and, 82–83
+technical writers, 80–81
+testers, 74–75
+users, 81
+Win-win-win practices, 26
+Work hours
+balancing with other human needs, 
+24
+energized work principle and, 41
+Workspace
+design of, 163–164
+informative workspace practice, 
+39–41
+sit together practice, 38
+--- PAGE 46 ---
+Index 189
+X
+XP, applying, 139–144
+coach selection, 143–144
+executive sponsorship, 119–121, 
+140
+improvements, 142
+learning and applying skills, 141
+organization reverting to old hab-
+its, ways of doing things, 140
+social relationships and, 139
+staring with yourself, 140–141
+when not to apply XP, 144
+XP, getting started, 55–59
+awareness of need for change, 
+56–57
+change starts with yourself, 57
+changing one thing at a time, 55
+deciding what to change ﬁrst, 56
+mapping practices and, 58–59
+XP, overview
+aspects of, 2
+beneﬁts of, 3
+business relationships and, 1
+certiﬁcation and accreditation, 
+146–147
+constraints shifted to non-
+software development areas, 
+89–90
+deﬁned, iv, 6–7
+distinguishing characteristics, 2
+metrics for, 145–146
+risk in development process and, 
+5–6
+social change and, 1
+success and, 4
+Z
+Zero-sum model, 161–162

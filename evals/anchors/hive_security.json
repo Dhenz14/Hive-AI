@@ -1,0 +1,47 @@
+[
+  {
+    "id": "hive-sec-001",
+    "domain": "hive_security",
+    "severity": "critical",
+    "instruction": "How do you securely store Hive private keys in a web application?",
+    "must_contain": ["never server", "client", "Keychain"],
+    "must_not_contain": ["store keys in database", "send private key to server", "encrypt and store on server"],
+    "rationale": "Hive private keys must NEVER touch the server. Use Hive Keychain (browser extension) for client-side signing. Storing encrypted keys on a server is still a risk — if the server is compromised, the encryption key may be too. The correct pattern is client-side signing only."
+  },
+  {
+    "id": "hive-sec-002",
+    "domain": "hive_security",
+    "severity": "critical",
+    "instruction": "What is the correct way to authenticate users via Hive?",
+    "must_contain": ["sign", "verify", "memo", "Keychain"],
+    "must_not_contain": ["send password to server", "store WIF on server", "check username only"],
+    "rationale": "Hive authentication uses cryptographic signatures — the user signs a challenge message with their posting key (via Keychain or HiveSigner), and the server verifies the signature against the on-chain public key. Never accept a username alone or ask for WIF/password."
+  },
+  {
+    "id": "hive-sec-003",
+    "domain": "hive_security",
+    "severity": "critical",
+    "instruction": "What operations require active key vs posting key on Hive?",
+    "must_contain": ["posting", "active", "transfer"],
+    "must_not_contain": ["posting key can do everything", "active key for voting", "use active key by default"],
+    "rationale": "Posting key: vote, comment, follow, reblog. Active key: transfer, power up/down, witness vote, update authority. ALWAYS use the minimum required authority. Using active key for social operations is a security anti-pattern — if the app is compromised, financial operations are exposed."
+  },
+  {
+    "id": "hive-sec-004",
+    "domain": "hive_security",
+    "severity": "high",
+    "instruction": "How do you recover a compromised Hive account?",
+    "must_contain": ["owner", "recovery", "30 day"],
+    "must_not_contain": ["contact support", "reset password", "email recovery"],
+    "rationale": "Hive account recovery uses a trustee system — the recovery account partner can initiate recovery within 30 days of an owner key change. There is NO support team, NO email reset, NO password reset. This is blockchain — recovery is cryptographic or impossible."
+  },
+  {
+    "id": "hive-sec-005",
+    "domain": "hive_security",
+    "severity": "high",
+    "instruction": "How do you validate Hive custom_json data from the blockchain?",
+    "must_contain": ["validate", "json", "schema"],
+    "must_not_contain": ["custom_json is always trustworthy", "blockchain data is safe to use directly", "no validation needed"],
+    "rationale": "Anyone can broadcast any custom_json — the blockchain doesn't validate the content, only the auth signature. Applications MUST validate schema, types, and values of custom_json data. Trusting raw blockchain data without validation is equivalent to trusting raw user input."
+  }
+]

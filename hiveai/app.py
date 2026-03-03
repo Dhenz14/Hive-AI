@@ -3,10 +3,10 @@ import re
 import json
 import logging
 import threading
-from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory
+from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from sqlalchemy import func
-from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, utcnow
-from hiveai.llm.client import reason, fast, embed_text, clean_llm_response
+from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, utcnow
+from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, clean_topic, trigger_auto_learn, get_compressed_knowledge
@@ -43,6 +43,13 @@ def archive_static(path):
 
 init_db()
 
+# Validate configuration on startup
+try:
+    from hiveai.config import validate_config
+    validate_config()
+except Exception as _cfg_err:
+    logging.getLogger(__name__).error(f"Config validation failed: {_cfg_err}")
+
 try:
     from hiveai.pipeline.reembed import check_embedding_model_match, get_stored_embedding_model
     from hiveai.config import EMBEDDING_MODEL_NAME
@@ -56,6 +63,27 @@ except Exception as _check_err:
     logging.getLogger(__name__).warning(f"Could not check embedding model match: {_check_err}")
 
 from hiveai.pipeline.queue_worker import start_worker
+
+# --- Warm embedding + dedup caches on startup ---
+# Loads the SentenceTransformer model and pre-populates the dedup
+# embedding cache from the training_pairs table. This eliminates
+# cold-start latency on the first /api/lora/distill call.
+try:
+    _warmup_logger = logging.getLogger(__name__)
+    # Warm embedding model (loads SentenceTransformer into RAM)
+    from hiveai.llm.client import embed_text as _warm_embed
+    _warm_embed("warmup")  # triggers lazy model load
+    _warmup_logger.info("Embedding model warmed up")
+
+    # Warm dedup cache (loads all training_pair embeddings into memory)
+    from hiveai.lora.dedup import _get_cached_embeddings
+    _warm_db = SessionLocal()
+    _embs, _quals = _get_cached_embeddings(_warm_db)
+    _warm_db.close()
+    _warmup_logger.info(f"Dedup cache warmed: {len(_embs)} embeddings preloaded")
+except Exception as _warmup_err:
+    logging.getLogger(__name__).warning(f"Cache warmup skipped: {_warmup_err}")
+
 start_worker()
 
 
@@ -124,6 +152,100 @@ _backfill_thread = threading.Thread(target=_background_backfill, daemon=True)
 _backfill_thread.start()
 
 
+@app.route("/health")
+def health_check():
+    """Detailed health check endpoint for monitoring and diagnostics."""
+    import time
+    import shutil
+    checks = {"status": "ok", "timestamp": time.time()}
+
+    # --- Database ---
+    try:
+        db = SessionLocal()
+        db.execute(sa_text("SELECT 1"))
+        checks["database"] = {
+            "status": "ok",
+            "training_pairs": db.query(TrainingPair).count(),
+            "lora_versions": db.query(LoraVersion).count(),
+            "golden_books": db.query(GoldenBook).count(),
+            "active_jobs": db.query(Job).filter(
+                Job.status.in_(["queued", "generating_urls", "crawling", "chunking", "reasoning", "writing"])
+            ).count(),
+        }
+        db.close()
+    except Exception as e:
+        checks["database"] = {"status": f"error: {e}"}
+        checks["status"] = "degraded"
+
+    # --- Ollama ---
+    try:
+        import requests as _req
+        from hiveai.config import OLLAMA_BASE_URL
+        r = _req.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+        if r.status_code == 200:
+            models = [m["name"] for m in r.json().get("models", [])]
+            checks["ollama"] = {"status": "ok", "models": models}
+        else:
+            checks["ollama"] = {"status": f"http {r.status_code}"}
+            checks["status"] = "degraded"
+    except Exception:
+        checks["ollama"] = {"status": "unavailable"}
+        checks["status"] = "degraded"
+
+    # --- llama-server ---
+    try:
+        import requests as _req
+        from hiveai.config import LLAMA_SERVER_BASE_URL, LLAMA_SERVER_MODEL
+        r = _req.get(f"{LLAMA_SERVER_BASE_URL}/health", timeout=3)
+        checks["llama_server"] = {
+            "status": "ok" if r.status_code == 200 else f"http {r.status_code}",
+            "model": LLAMA_SERVER_MODEL,
+        }
+    except Exception:
+        checks["llama_server"] = {"status": "unavailable"}
+
+    # --- Embedding model ---
+    try:
+        from hiveai.llm.client import _embedding_model
+        checks["embedding"] = {
+            "status": "loaded" if _embedding_model is not None else "not_loaded",
+            "model": str(getattr(_embedding_model, "model_name", "unknown")) if _embedding_model else None,
+        }
+    except Exception:
+        checks["embedding"] = {"status": "unknown"}
+
+    # --- Disk space ---
+    try:
+        usage = shutil.disk_usage(WORKSPACE)
+        free_gb = usage.free / (1024 ** 3)
+        checks["disk"] = {
+            "free_gb": round(free_gb, 1),
+            "total_gb": round(usage.total / (1024 ** 3), 1),
+            "warning": free_gb < 10,
+        }
+        if free_gb < 5:
+            checks["status"] = "degraded"
+    except Exception:
+        checks["disk"] = {"status": "unknown"}
+
+    # --- Config summary ---
+    from hiveai.config import (
+        HARDWARE_PROFILE, DB_BACKEND, LLM_BACKEND,
+        MIN_TRAINING_QUALITY, LORA_EXPORT_QUALITY, CHAT_VERIFY_CODE
+    )
+    checks["config"] = {
+        "hardware_profile": HARDWARE_PROFILE,
+        "db_backend": DB_BACKEND,
+        "llm_backend": LLM_BACKEND,
+        "min_training_quality": MIN_TRAINING_QUALITY,
+        "lora_export_quality": LORA_EXPORT_QUALITY,
+        "chat_verify_code": CHAT_VERIFY_CODE,
+    }
+
+    code = 200 if checks["status"] == "ok" else 503
+    return jsonify(checks), code
+
+
 @app.route("/")
 def dashboard():
     db = SessionLocal()
@@ -137,8 +259,46 @@ def dashboard():
             "published_books": db.query(GoldenBook).filter(GoldenBook.status == "published").count(),
             "total_triples": db.query(GraphTriple).count(),
             "total_pages": db.query(CrawledPage).count(),
+            "eligible_teachings": db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count(),
+            "lora_crystals": db.query(LoraVersion).count(),
         }
-        return render_template("dashboard.html", jobs=jobs, books=books, stats=stats)
+        # Merge cycle and MoLoRA stats
+        extra = {}
+        try:
+            from hiveai.lora.merge_cycle import load_merge_history
+            history = load_merge_history()
+            extra["merge_cycles"] = len(history)
+        except Exception:
+            pass
+        try:
+            from hiveai.config import MOLORA_ENABLED
+            if MOLORA_ENABLED:
+                from hiveai.lora.molora import get_available_domains
+                extra["molora_domains"] = get_available_domains()
+        except Exception:
+            pass
+
+        return render_template("dashboard.html", jobs=jobs, books=books, stats=stats, **extra)
+    finally:
+        db.close()
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Lightweight stats endpoint for dashboard polling (no heavy queries)."""
+    db = SessionLocal()
+    try:
+        stats = {
+            "total_jobs": db.query(Job).count(),
+            "active_jobs": db.query(Job).filter(Job.status.in_(["queued", "generating_urls", "crawling", "chunking", "reasoning", "writing"])).count(),
+            "total_books": db.query(GoldenBook).count(),
+            "published_books": db.query(GoldenBook).filter(GoldenBook.status == "published").count(),
+            "total_triples": db.query(GraphTriple).count(),
+            "total_pages": db.query(CrawledPage).count(),
+            "eligible_teachings": db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count(),
+            "lora_crystals": db.query(LoraVersion).count(),
+        }
+        return jsonify(stats)
     finally:
         db.close()
 
@@ -605,8 +765,30 @@ User's question: {message}
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
 
-        response = reason(prompt, max_tokens=4096)
+        response = smart_call(prompt, question=message,
+                             num_sections=len(top_sections), max_tokens=4096)
         response = clean_llm_response(response)
+
+        # Self-verify: run code blocks in sandbox before returning to user
+        verified_meta = None
+        try:
+            from hiveai.config import CHAT_VERIFY_CODE
+            if CHAT_VERIFY_CODE:
+                from hiveai.sandbox import verify_response_code
+                verification = verify_response_code(response, timeout=15)
+                if verification["total_blocks"] > 0:
+                    verified_meta = {
+                        "blocks": verification["total_blocks"],
+                        "passed": verification["passed"],
+                        "failed": verification["failed"],
+                    }
+                    if verification["failed"] > 0 and verification["passed"] == 0:
+                        response += (
+                            "\n\n> **Note:** Automated code verification detected potential issues. "
+                            "Please test the code carefully before using in production."
+                        )
+        except Exception as e:
+            logging.getLogger(__name__).debug(f"Code verification skipped: {e}")
 
         learning_info = {"active": False, "topic": None, "job_id": None}
 
@@ -643,14 +825,847 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             except Exception:
                 pass
 
-        return jsonify({
+        result = {
             "reply": response,
             "sources": source_books,
-            "learning": learning_info
-        })
+            "learning": learning_info,
+        }
+        if verified_meta:
+            result["verified"] = verified_meta
+
+        # MoLoRA domain info (if enabled)
+        try:
+            from hiveai.config import MOLORA_ENABLED
+            if MOLORA_ENABLED:
+                from hiveai.lora.molora import classify_domain
+                result["domain"] = classify_domain(message)
+        except Exception:
+            pass
+
+        return jsonify(result)
     finally:
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Streaming Chat API (SSE)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/chat/stream", methods=["POST"])
+def chat_stream():
+    """
+    Server-Sent Events streaming chat endpoint.
+
+    Phase 1 (sync): RAG search + context building (same as /api/chat)
+    Phase 2 (stream): Token-by-token Ollama response via SSE
+
+    SSE events:
+      event: sources   — book sources metadata (sent first)
+      data: {"token"}  — each streamed token
+      event: done      — {"full_response": "..."} for gap detection
+      event: error     — on failure
+    """
+    data = request.get_json()
+    message = (data.get("message") or "").strip()
+    history = data.get("history", [])
+
+    if not message:
+        return jsonify({"error": "Message is required"}), 400
+
+    def generate():
+        db = SessionLocal()
+        try:
+            books = db.query(GoldenBook).all()
+            topic_list = [
+                b.title.replace("Knowledge: ", "").strip()
+                for b in books if b.title
+            ]
+
+            if not books:
+                # No Golden Books yet — stream direct Ollama response without RAG
+                yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
+                conversation_context = build_conversation_context(history)
+                prompt = f"""You are HiveAI, a helpful coding knowledge assistant.
+{conversation_context}
+
+User's question: {message}
+
+Answer the question directly and helpfully. Note: The knowledge library is still being built, so this response comes from the base model without RAG context."""
+            else:
+                # Phase 1: RAG search (sync)
+                top_sections, source_books, all_books = search_knowledge_sections(message, db, history=history)
+
+                # Send sources first
+                yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
+
+                knowledge_context = ""
+                for section in top_sections:
+                    knowledge_context += f"\n\n--- From '{section['book_title']}' > {section['header']} ---\n{section['content'][:3000]}\n"
+
+                book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
+                compressed = get_compressed_knowledge(book_ids, db)
+                if compressed:
+                    knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+
+                conversation_context = build_conversation_context(history)
+
+                prompt = f"""{CHAT_SYSTEM_PROMPT}
+
+Your knowledge sections (from verified Golden Books):
+{knowledge_context}
+{conversation_context}
+
+User's question: {message}
+
+Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
+
+            # Phase 2: Stream tokens from Ollama
+            for chunk in stream_llm_call(prompt, system_prompt=CHAT_SYSTEM_PROMPT, max_tokens=4096):
+                if "error" in chunk:
+                    yield f"event: error\ndata: {json.dumps({'error': chunk['error']})}\n\n"
+                    return
+                if "token" in chunk:
+                    yield f"data: {json.dumps({'token': chunk['token']})}\n\n"
+                if chunk.get("done"):
+                    full = clean_llm_response(chunk.get("full_response", ""))
+                    # Self-verify code blocks before sending done event
+                    try:
+                        from hiveai.config import CHAT_VERIFY_CODE
+                        if CHAT_VERIFY_CODE:
+                            from hiveai.sandbox import verify_response_code
+                            verification = verify_response_code(full, timeout=15)
+                            if verification["total_blocks"] > 0:
+                                v_data = {
+                                    "blocks": verification["total_blocks"],
+                                    "passed": verification["passed"],
+                                    "failed": verification["failed"],
+                                }
+                                yield f"event: verification\ndata: {json.dumps(v_data)}\n\n"
+                    except Exception:
+                        pass
+
+                    # MoLoRA domain info
+                    try:
+                        from hiveai.config import MOLORA_ENABLED
+                        if MOLORA_ENABLED:
+                            from hiveai.lora.molora import classify_domain
+                            domain = classify_domain(message)
+                            if domain != "general":
+                                yield f"event: domain\ndata: {json.dumps({'domain': domain})}\n\n"
+                    except Exception:
+                        pass
+
+                    yield f"event: done\ndata: {json.dumps({'full_response': full})}\n\n"
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Stream chat error: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            db.close()
+
+    return Response(generate(), content_type="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# Chat Feedback API — corrections become training pairs
+# ---------------------------------------------------------------------------
+
+@app.route("/api/chat/feedback", methods=["POST"])
+def chat_feedback():
+    """
+    Record thumbs up/down on a chat response. Corrections auto-stage as training pairs.
+
+    Body (JSON):
+      user_message   str  -- the original user question
+      ai_response    str  -- the AI response being rated
+      rating         str  -- "up" or "down"
+      correction     str  -- (optional) corrected answer for "down" ratings
+    """
+    import hashlib
+    from hiveai.models import ChatFeedback
+
+    body = request.get_json(silent=True) or {}
+    user_message = (body.get("user_message") or "").strip()
+    ai_response = (body.get("ai_response") or "").strip()
+    rating = (body.get("rating") or "").strip().lower()
+    correction = (body.get("correction") or "").strip() or None
+
+    if not user_message or not ai_response or rating not in ("up", "down"):
+        return jsonify({"error": "user_message, ai_response, and rating (up/down) required"}), 400
+
+    msg_hash = hashlib.sha256(user_message.encode()).hexdigest()
+
+    db = SessionLocal()
+    try:
+        staged_pair_id = None
+        quality = None
+
+        if rating == "down" and correction:
+            # Score the correction and stage as training pair
+            try:
+                from hiveai.lora.distiller import _score_quality
+                quality = _score_quality(user_message, correction)
+                quality = min(quality + 0.10, 1.0)  # Human correction bonus
+
+                pair = TrainingPair(
+                    source="human_correction",
+                    topic="chat_feedback",
+                    instruction=user_message,
+                    response=correction,
+                    quality=quality,
+                    is_eligible=quality >= 0.55,
+                )
+                db.add(pair)
+                db.flush()
+                staged_pair_id = pair.id
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to stage correction pair: {e}")
+
+        elif rating == "up":
+            # High-quality AI responses can be staged as verified pairs
+            try:
+                from hiveai.lora.distiller import _score_quality
+                quality = _score_quality(user_message, ai_response)
+                if quality >= 0.75:
+                    pair = TrainingPair(
+                        source="human_verified",
+                        topic="chat_feedback",
+                        instruction=user_message,
+                        response=ai_response,
+                        quality=quality,
+                        is_eligible=True,
+                    )
+                    db.add(pair)
+                    db.flush()
+                    staged_pair_id = pair.id
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Failed to stage verified pair: {e}")
+
+        feedback = ChatFeedback(
+            message_hash=msg_hash,
+            user_message=user_message,
+            ai_response=ai_response,
+            rating=rating,
+            correction=correction,
+            staged_pair_id=staged_pair_id,
+        )
+        db.add(feedback)
+        db.commit()
+
+        result = {"ok": True, "rating": rating, "feedback_id": feedback.id}
+        if staged_pair_id:
+            result["staged_pair_id"] = staged_pair_id
+            result["quality"] = round(quality, 3) if quality else None
+        return jsonify(result)
+
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# LoRA pipeline API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/lora/distill", methods=["POST"])
+def lora_distill():
+    """
+    Trigger self-distillation: use Qwen3 to generate training pairs from prompts.
+
+    Body (JSON):
+      topics          list[str]  — coding topics to distill (optional, defaults to built-ins)
+      pairs_per_topic int        — pairs per topic (default 3, max 6)
+      builtin         bool       — if true, run over full built-in topic list
+      language        str        — "python" (default), "cpp", or "javascript"
+    """
+    db = SessionLocal()
+    try:
+        body = request.get_json(silent=True) or {}
+        topics = body.get("topics", [])
+        pairs_per_topic = min(int(body.get("pairs_per_topic", 3)), 6)
+        use_builtin = body.get("builtin", False)
+        language = body.get("language", "python").lower()
+        if language not in ("python", "cpp", "javascript"):
+            return jsonify({"error": f"Unsupported language '{language}'. Use: python, cpp, javascript"}), 400
+
+        from hiveai.lora.distiller import distill_batch, distill_builtin, distill_hive, distill_cpp
+
+        use_hive = body.get("hive", False)
+        use_cpp = body.get("cpp", False) or language == "cpp"
+
+        if use_cpp:
+            results = distill_cpp(pairs_per_topic=pairs_per_topic, db=db)
+        elif use_hive:
+            results = distill_hive(pairs_per_topic=pairs_per_topic, db=db)
+        elif use_builtin:
+            results = distill_builtin(pairs_per_topic=pairs_per_topic, db=db)
+        elif topics:
+            results = distill_batch(topics, pairs_per_topic=pairs_per_topic, db=db, language=language)
+        else:
+            return jsonify({"error": "Provide 'topics' list, set 'builtin': true, 'hive': true, or 'cpp': true"}), 400
+
+        eligible = sum(1 for r in results if r.get("is_eligible"))
+        return jsonify({
+            "generated": len(results),
+            "eligible": eligible,
+            "pairs": results[:10],  # preview first 10 in response
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/pairs", methods=["GET"])
+def lora_pairs():
+    """Return counts and recent training pairs from the staging table."""
+    db = SessionLocal()
+    try:
+        from hiveai.models import TrainingPair
+
+        total = db.query(TrainingPair).count()
+        eligible = db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count()
+        unused = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.lora_version.is_(None)
+        ).count()
+
+        # Recent 20 pairs preview
+        recent = db.query(TrainingPair).order_by(TrainingPair.created_at.desc()).limit(20).all()
+        preview = [
+            {
+                "id": p.id,
+                "source": p.source,
+                "topic": p.topic,
+                "instruction": p.instruction[:120] + "..." if len(p.instruction) > 120 else p.instruction,
+                "quality": round(p.quality, 3),
+                "is_eligible": p.is_eligible,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in recent
+        ]
+
+        return jsonify({
+            "total": total,
+            "eligible": eligible,
+            "unused_eligible": unused,
+            "ready_to_train": unused >= 500,
+            "recent": preview,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/export", methods=["POST"])
+def lora_export():
+    """
+    Export eligible training pairs to Alpaca JSONL for LoRA fine-tuning.
+
+    Body (JSON):
+      version         str    — version label (default "v1")
+      include_books   bool   — also derive pairs from golden books (default true)
+      min_quality     float  — minimum quality threshold (default 0.70)
+    """
+    db = SessionLocal()
+    try:
+        body = request.get_json(silent=True) or {}
+        version = body.get("version", "v1")
+        include_books = body.get("include_books", True)
+        from hiveai.config import MIN_TRAINING_QUALITY
+        min_quality = float(body.get("min_quality", MIN_TRAINING_QUALITY))
+
+        output_dir = os.path.join(WORKSPACE, "loras", "training_data")
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"coding_{version}.jsonl")
+
+        from hiveai.lora.exporter import export_training_pairs, derive_and_stage_from_books, export_with_sampling
+
+        use_smart = body.get("smart", False)
+        target_count = int(body.get("target_count", 500))
+
+        if include_books:
+            staged_from_books = derive_and_stage_from_books(db, min_quality=min_quality)
+        else:
+            staged_from_books = 0
+
+        if use_smart:
+            count = export_with_sampling(db, output_path, target_count=target_count, min_quality=min_quality)
+        else:
+            count = export_training_pairs(db, output_path, min_quality=min_quality)
+
+        return jsonify({
+            "exported": count,
+            "staged_from_books": staged_from_books,
+            "output_path": output_path,
+            "version": version,
+            "smart_sampling": use_smart,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/teach", methods=["POST"])
+def lora_teach():
+    """
+    Teach the model new knowledge from pasted text.
+    Creates a GoldenBook, distills training pairs, optionally triggers micro-training.
+
+    Body (JSON):
+      title       str   -- title/topic of the knowledge
+      content     str   -- full text content (markdown, code, plaintext)
+      auto_train  bool  -- if true and enough pairs, trigger micro-training
+    """
+    import hashlib
+
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()
+    content = (body.get("content") or "").strip()
+    auto_train = body.get("auto_train", False)
+
+    if not title or not content:
+        return jsonify({"error": "title and content required"}), 400
+    if len(content) < 100:
+        return jsonify({"error": "Content too short (minimum 100 characters)"}), 400
+
+    db = SessionLocal()
+    try:
+        # Create a teaching GoldenBook
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        book = GoldenBook(
+            job_id=0,  # no job — direct teaching
+            title=title,
+            content=content,
+            content_hash=content_hash,
+            word_count=len(content.split()),
+            status="teaching",
+        )
+        db.add(book)
+        db.commit()
+        db.refresh(book)
+
+        # Distill training pairs from the text
+        from hiveai.lora.distiller import distill_from_text
+        pairs = distill_from_text(content, title, db=db)
+
+        eligible = [p for p in pairs if p.get("is_eligible")]
+        micro_triggered = False
+
+        # Optionally trigger micro-training
+        if auto_train and len(eligible) >= 20:
+            try:
+                from hiveai.lora.trainer import MIN_PAIRS_MICRO
+                from hiveai.lora.exporter import export_training_pairs
+
+                # Export only unused eligible pairs
+                output_dir = os.path.join(WORKSPACE, "loras", "training_data")
+                os.makedirs(output_dir, exist_ok=True)
+                micro_path = os.path.join(output_dir, f"micro_{title[:30].replace(' ', '_')}.jsonl")
+                count = export_training_pairs(db, micro_path, min_quality=0.55)
+
+                if count >= MIN_PAIRS_MICRO:
+                    # Start micro-training in background thread
+                    def _micro_train():
+                        from hiveai.lora.trainer import train_lora
+                        from hiveai.models import SessionLocal as SL
+                        tdb = SL()
+                        try:
+                            adapter_dir = os.path.join(WORKSPACE, "loras", f"micro_{book.id}")
+                            train_lora(micro_path, adapter_dir, f"micro-{book.id}",
+                                       db=tdb, force_micro=True)
+                        except Exception as e:
+                            logging.getLogger(__name__).error(f"Micro-training failed: {e}")
+                        finally:
+                            tdb.close()
+
+                    threading.Thread(target=_micro_train, daemon=True).start()
+                    micro_triggered = True
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Auto micro-train failed: {e}")
+
+        return jsonify({
+            "book_id": book.id,
+            "pairs_generated": len(pairs),
+            "pairs_eligible": len(eligible),
+            "micro_training_triggered": micro_triggered,
+            "pairs_preview": [
+                {"instruction": p["instruction"][:120], "quality": p["quality"]}
+                for p in pairs[:5]
+            ],
+        })
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/versions", methods=["GET"])
+def lora_versions():
+    """Return all LoRA training runs and current pipeline status."""
+    db = SessionLocal()
+    try:
+        from hiveai.lora.trainer import get_training_status
+        status = get_training_status(db)
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Adapter Management API — multi-LoRA hot-swap via llama-server
+# ---------------------------------------------------------------------------
+
+@app.route("/api/lora/adapters", methods=["GET"])
+def lora_adapters_list():
+    """List currently loaded LoRA adapters on llama-server."""
+    from hiveai.lora.adapter_manager import get_loaded_adapters, get_server_status
+    status = get_server_status()
+    adapters = get_loaded_adapters() if status["online"] else []
+    return jsonify({"server": status, "adapters": adapters})
+
+
+@app.route("/api/lora/adapters", methods=["POST"])
+def lora_adapters_swap():
+    """
+    Hot-swap LoRA adapters on llama-server.
+
+    Body (JSON):
+      adapters  list  -- [{"path": "...", "scale": 1.0}] or [] for base model only
+    """
+    from hiveai.lora.adapter_manager import set_adapters
+    body = request.get_json(silent=True) or {}
+    adapters = body.get("adapters", [])
+    ok = set_adapters(adapters)
+    return jsonify({"success": ok, "active": adapters})
+
+
+# ---------------------------------------------------------------------------
+# Brain Export API — IPFS + Hive publishing
+# ---------------------------------------------------------------------------
+
+@app.route("/api/lora/export-brain", methods=["POST"])
+def lora_export_brain():
+    """
+    Export a trained adapter to IPFS.
+
+    Body (JSON):
+      version_id  int  -- ID of the LoraVersion to export
+    """
+    body = request.get_json(silent=True) or {}
+    version_id = body.get("version_id")
+    if not version_id:
+        return jsonify({"error": "version_id required"}), 400
+
+    db = SessionLocal()
+    try:
+        from hiveai.lora.brain_export import export_brain
+        result = export_brain(version_id, db)
+        return jsonify(result)
+    except ImportError as e:
+        return jsonify({"error": f"IPFS not available: {e}. Install ipfshttpclient and start IPFS daemon."}), 503
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/publish-brain", methods=["POST"])
+def lora_publish_brain():
+    """
+    Publish brain export metadata to Hive blockchain.
+
+    Body (JSON):
+      version_id  int  -- ID of the LoraVersion
+      author      str  -- Hive account to publish from
+    """
+    body = request.get_json(silent=True) or {}
+    version_id = body.get("version_id")
+    author = body.get("author")
+    if not version_id or not author:
+        return jsonify({"error": "version_id and author required"}), 400
+
+    db = SessionLocal()
+    try:
+        from hiveai.lora.brain_export import publish_brain_to_hive
+        result = publish_brain_to_hive(version_id, author, db)
+        return jsonify(result)
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/forge")
+def forge_mind():
+    """The Gnome's Mind Forge — LoRA training pipeline UI."""
+    db = SessionLocal()
+    try:
+        total_pairs = db.query(TrainingPair).count()
+        eligible_pairs = db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count()
+        unused_pairs = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.lora_version.is_(None)
+        ).count()
+        lora_count = db.query(LoraVersion).count()
+        versions = db.query(LoraVersion).order_by(LoraVersion.created_at.desc()).limit(10).all()
+        from hiveai.lora.trainer import MIN_PAIRS_MICRO, MIN_PAIRS_STANDARD
+        return render_template("forge.html",
+            total_pairs=total_pairs,
+            eligible_pairs=eligible_pairs,
+            unused_pairs=unused_pairs,
+            lora_count=lora_count,
+            versions=versions,
+            min_pairs_micro=MIN_PAIRS_MICRO,
+            min_pairs_standard=MIN_PAIRS_STANDARD,
+        )
+    finally:
+        db.close()
+
+
+@app.route("/api/lora/mining-status")
+def lora_mining_status():
+    """Live brain mining status — reads log tail + DB counts for the Forge UI."""
+    db = SessionLocal()
+    try:
+        total = db.query(TrainingPair).count()
+        eligible = db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count()
+
+        # Distinct topics mined
+        topics_mined = db.query(TrainingPair.topic).distinct().count()
+
+        # Per-topic counts
+        from sqlalchemy import func as sqla_func
+        topic_rows = db.query(
+            TrainingPair.topic,
+            sqla_func.count(TrainingPair.id),
+            sqla_func.max(TrainingPair.quality),
+        ).group_by(TrainingPair.topic).order_by(sqla_func.max(TrainingPair.created_at).desc()).limit(20).all()
+        recent_topics = [
+            {"topic": t, "pairs": c, "best_quality": round(q, 2) if q else 0}
+            for t, c, q in topic_rows
+        ]
+
+        # Read last 30 lines of brain_mine.log for live status
+        log_lines = []
+        log_path = os.path.join(WORKSPACE, "logs", "brain_mine.log")
+        try:
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+                log_lines = [l.rstrip() for l in all_lines[-30:]]
+        except FileNotFoundError:
+            log_lines = ["No brain_mine.log found — mining not started yet"]
+
+        # Parse current topic from log
+        current_topic = None
+        phase = None
+        for line in reversed(log_lines):
+            if "Mining:" in line and current_topic is None:
+                current_topic = line.split("Mining:")[-1].strip()
+            if "Deep mining:" in line and current_topic is None:
+                current_topic = line.split("Deep mining:")[-1].strip()
+                phase = "Phase 2 (deep review)"
+            if "FAST MODE" in line and phase is None:
+                phase = "Phase 1 (fast breadth)"
+            if "Phase 2" in line and "Review" in line and phase is None:
+                phase = "Phase 2 (deep review)"
+
+        return jsonify({
+            "total_pairs": total,
+            "eligible_pairs": eligible,
+            "topics_mined": topics_mined,
+            "total_topics": 187,
+            "current_topic": current_topic,
+            "phase": phase or "Unknown",
+            "recent_topics": recent_topics,
+            "log_tail": log_lines[-15:],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+logging.getLogger(__name__).info("LoRA pipeline routes registered: /api/lora/distill, /api/lora/pairs, /api/lora/export, /api/lora/versions, /api/lora/mining-status")
+
+
+# ---------------------------------------------------------------------------
+# Sandbox API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/sandbox/run", methods=["POST"])
+def sandbox_run():
+    """Execute Python code in a sandboxed subprocess."""
+    data = request.get_json()
+    code = (data.get("code") or "").strip()
+    timeout = min(max(int(data.get("timeout", 30)), 1), 60)
+
+    if not code:
+        return jsonify({"error": "code is required"}), 400
+
+    from hiveai.sandbox import execute_python
+    result = execute_python(code, timeout=timeout)
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Evaluation API
+# ---------------------------------------------------------------------------
+
+_eval_state = {"running": False, "results": None, "progress": None, "error": None}
+_eval_lock = threading.Lock()
+
+
+def _run_eval_background(model, category, limit):
+    """Background eval runner."""
+    import json as _json
+    from pathlib import Path
+
+    try:
+        # Import eval runner functions
+        sys_path_added = False
+        eval_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if eval_root not in __import__('sys').path:
+            __import__('sys').path.insert(0, eval_root)
+            sys_path_added = True
+
+        from scripts.run_eval import load_challenges, evaluate_challenge, generate_report, save_report
+        import time as _time
+
+        challenges = load_challenges()
+        if category:
+            challenges = [c for c in challenges if c["category"] == category]
+        if limit:
+            challenges = challenges[:limit]
+
+        with _eval_lock:
+            _eval_state["progress"] = {"total": len(challenges), "completed": 0, "current": None}
+
+        t_start = _time.time()
+        results = []
+        for i, challenge in enumerate(challenges):
+            with _eval_lock:
+                _eval_state["progress"]["current"] = challenge["id"]
+                _eval_state["progress"]["completed"] = i
+
+            result = evaluate_challenge(challenge, model)
+            results.append(result)
+
+        elapsed = _time.time() - t_start
+        report = generate_report(results, model, elapsed)
+        report_path = save_report(report)
+
+        with _eval_lock:
+            _eval_state["running"] = False
+            _eval_state["results"] = report
+            _eval_state["progress"]["completed"] = len(challenges)
+            _eval_state["progress"]["current"] = None
+            _eval_state["progress"]["report_path"] = str(report_path)
+
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Eval failed: {e}")
+        with _eval_lock:
+            _eval_state["running"] = False
+            _eval_state["error"] = str(e)
+
+
+@app.route("/api/eval/run", methods=["POST"])
+def eval_run():
+    """Trigger an evaluation run in a background thread."""
+    with _eval_lock:
+        if _eval_state["running"]:
+            return jsonify({"error": "Evaluation already running"}), 409
+
+    data = request.get_json() or {}
+    model = data.get("model")
+    if not model:
+        from hiveai.config import OLLAMA_MODEL_FAST
+        model = OLLAMA_MODEL_FAST
+
+    category = data.get("category")
+    limit = data.get("limit")
+
+    with _eval_lock:
+        _eval_state["running"] = True
+        _eval_state["results"] = None
+        _eval_state["error"] = None
+        _eval_state["progress"] = {"total": 0, "completed": 0, "current": None}
+
+    t = threading.Thread(target=_run_eval_background, args=(model, category, limit), daemon=True)
+    t.start()
+
+    return jsonify({"status": "started", "model": model, "category": category, "limit": limit})
+
+
+@app.route("/api/eval/status")
+def eval_status():
+    """Get current evaluation status."""
+    with _eval_lock:
+        return jsonify({
+            "running": _eval_state["running"],
+            "progress": _eval_state["progress"],
+            "error": _eval_state["error"],
+            "has_results": _eval_state["results"] is not None,
+        })
+
+
+@app.route("/api/eval/results")
+def eval_results():
+    """Get the latest evaluation results."""
+    with _eval_lock:
+        if _eval_state["results"]:
+            return jsonify(_eval_state["results"])
+    return jsonify({"error": "No results available"}), 404
+
+
+@app.route("/api/eval/reports")
+def eval_reports():
+    """List saved evaluation reports."""
+    evals_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "evals")
+    if not os.path.exists(evals_dir):
+        return jsonify([])
+
+    reports = []
+    for f in sorted(os.listdir(evals_dir), reverse=True):
+        if f.endswith(".json"):
+            fpath = os.path.join(evals_dir, f)
+            try:
+                import json as _json
+                with open(fpath, "r") as fp:
+                    data = _json.load(fp)
+                reports.append({
+                    "filename": f,
+                    "model": data.get("model"),
+                    "overall_score": data.get("overall_score"),
+                    "total_challenges": data.get("total_challenges"),
+                    "timestamp": data.get("timestamp"),
+                })
+            except Exception:
+                reports.append({"filename": f, "error": "Could not parse"})
+    return jsonify(reports)
+
+
+logging.getLogger(__name__).info("Sandbox + Eval routes registered: /api/sandbox/run, /api/eval/run, /api/eval/status, /api/eval/results, /api/eval/reports")
+
+
+@app.route("/eval")
+def eval_page():
+    """Evaluation dashboard — run evals, view results, compare models."""
+    return render_template("eval.html")
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    from hiveai.models import init_db
+    init_db()
+    port = int(os.environ.get("PORT", "5001"))
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug, use_reloader=False)

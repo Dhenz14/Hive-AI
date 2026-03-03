@@ -1,0 +1,89 @@
+{
+  "model": "qwen3:14b",
+  "timestamp": "2026-02-22T12:34:20.848614",
+  "total_challenges": 3,
+  "errors": 0,
+  "scored": 3,
+  "overall_score": 0.809,
+  "dimension_scores": {
+    "code_validity": 1.0,
+    "test_passing": 1.0,
+    "concept_coverage": 1.0,
+    "explanation": 0.047
+  },
+  "by_category": {
+    "python": {
+      "score": 0.809,
+      "count": 3,
+      "test_pass_rate": 1.0,
+      "tests_total": 3
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "score": 0.809,
+      "count": 3
+    }
+  },
+  "timing": {
+    "total_seconds": 13.9,
+    "avg_ms_per_challenge": 4593,
+    "total_tokens": 424
+  },
+  "challenges": [
+    {
+      "id": "py-comp-001",
+      "category": "python",
+      "topic": "list_comprehensions",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.03,
+        "overall": 0.806
+      },
+      "has_test_code": true,
+      "duration_ms": 4696,
+      "tokens_eval": 145,
+      "response_preview": "Sure! Here's a Python function called `even_squares` that uses a list comprehension to return a new list containing the squares of only the even numbers from the input list:\n\n```python\ndef even_squares(numbers):\n    return [num ** 2 for num in numbers if num % 2 == 0]\n```\n\n### Example usage:\n\n```pyt",
+      "error": null
+    },
+    {
+      "id": "py-str-002",
+      "category": "python",
+      "topic": "string_formatting",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.03,
+        "overall": 0.806
+      },
+      "has_test_code": true,
+      "duration_ms": 4107,
+      "tokens_eval": 116,
+      "response_preview": "Sure! Here's a Python function called `format_greeting` that takes a `name` (string) and `age` (integer) and returns a formatted greeting using an f-string:\n\n```python\ndef format_greeting(name: str, age: int) -> str:\n    return f\"Hello, {name}! You are {age} years old.\"\n```\n\n### Example usage:\n```py",
+      "error": null
+    },
+    {
+      "id": "py-dict-003",
+      "category": "python",
+      "topic": "dictionaries",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.08,
+        "overall": 0.816
+      },
+      "has_test_code": true,
+      "duration_ms": 4977,
+      "tokens_eval": 163,
+      "response_preview": "Here's a Python function called `word_count` that takes a string and returns a dictionary mapping each word (lowercased) to its count, splitting on whitespace:\n\n```python\ndef word_count(text):\n    words = text.lower().split()\n    counts = {}\n    for word in words:\n        counts[word] = counts.get(w",
+      "error": null
+    }
+  ]
+}

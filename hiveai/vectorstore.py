@@ -1,9 +1,26 @@
 import logging
+import re
 import numpy as np
 from sqlalchemy import text as sa_text
 from hiveai.config import DB_BACKEND
 
 logger = logging.getLogger(__name__)
+
+# Stop words for BM25 keyword scoring (common English words with no search signal)
+_BM25_STOP_WORDS = {
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "need", "dare", "ought",
+    "used", "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "as", "into", "through", "during", "before", "after", "above", "below",
+    "between", "out", "off", "over", "under", "again", "further", "then",
+    "once", "here", "there", "when", "where", "why", "how", "all", "each",
+    "every", "both", "few", "more", "most", "other", "some", "such", "no",
+    "not", "only", "own", "same", "so", "than", "too", "very", "just",
+    "because", "but", "and", "or", "if", "while", "this", "that", "these",
+    "those", "what", "which", "who", "whom", "it", "its", "i", "me", "my",
+    "we", "our", "you", "your", "he", "she", "they", "them", "his", "her",
+}
 
 
 def vector_search(db, query_embedding, limit=12, max_distance=0.8, book_id_filter=None):
@@ -108,9 +125,10 @@ def _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filt
                     "book_id": book.id,
                     "distance": dist,
                 })
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.debug(f"Skipping section {section.id}: {e}")
             continue
-    
+
     scored.sort(key=lambda x: x["distance"])
     return scored[:limit]
 
@@ -131,12 +149,126 @@ def _sqlite_vector_search_grouped(db, query_embedding, max_distance, min_count):
             dist = _cosine_distance(query_embedding, emb)
             if dist < max_distance:
                 book_matches[section.book_id] += 1
-        except Exception:
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.debug(f"Skipping section {section.id}: {e}")
             continue
-    
+
     results = []
     for book_id, count in book_matches.most_common():
         if count >= min_count:
             results.append({"book_id": book_id, "match_count": count})
-    
+
     return results
+
+
+# ---------------------------------------------------------------------------
+# Hybrid BM25 + Vector Search — fuses keyword matching with semantic similarity
+# for better recall on queries with rare named entities or exact terms.
+# ---------------------------------------------------------------------------
+
+def _bm25_score_section(query_terms: list[str], content: str, header: str = "") -> float:
+    """
+    Simple BM25-inspired keyword scoring for a section.
+    Not a full BM25 implementation (no IDF corpus stats) but captures
+    the core signal: term frequency with saturation.
+    """
+    if not query_terms or not content:
+        return 0.0
+
+    text = (header + " " + content).lower()
+    words = text.split()
+    doc_len = len(words)
+    if doc_len == 0:
+        return 0.0
+
+    # BM25 parameters (tuned for short knowledge sections)
+    k1 = 1.2  # term frequency saturation
+    b = 0.75  # length normalization
+    avg_dl = 200  # approximate average section length in words
+
+    score = 0.0
+    for term in query_terms:
+        tf = text.count(term)
+        if tf == 0:
+            continue
+        # BM25 term score with saturation
+        norm_tf = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc_len / avg_dl))
+        # Boost exact header matches (headers are more important)
+        if term in header.lower():
+            norm_tf *= 2.0
+        score += norm_tf
+
+    return score
+
+
+def hybrid_search(db, query: str, query_embedding, limit: int = 12,
+                  max_distance: float = 0.8, alpha: float = 0.6,
+                  book_id_filter=None) -> list[dict]:
+    """
+    Fuse vector similarity and keyword matching for better recall.
+
+    Args:
+        db: SQLAlchemy session
+        query: Raw query text (for keyword matching)
+        query_embedding: Pre-computed embedding vector
+        limit: Max results to return
+        max_distance: Max cosine distance for vector results
+        alpha: Weight for vector score (1-alpha = keyword weight).
+               Default 0.6 favors semantic but gives keywords meaningful weight.
+        book_id_filter: Optional list of book IDs to restrict search
+
+    Returns:
+        List of section dicts sorted by fused score, best first.
+    """
+    # Step 1: Get vector results (retrieve more than needed for fusion)
+    vec_results = vector_search(db, query_embedding, limit=limit * 2,
+                                max_distance=max_distance, book_id_filter=book_id_filter)
+
+    # Step 2: Extract query terms for BM25
+    query_terms = [
+        w.lower() for w in re.split(r'\W+', query)
+        if len(w) > 2 and w.lower() not in _BM25_STOP_WORDS
+    ]
+
+    if not query_terms:
+        # No useful keywords — fall back to pure vector search
+        return vec_results[:limit]
+
+    # Step 3: Score each vector result with BM25
+    # Normalize vector distances to 0-1 similarity scores
+    if vec_results:
+        max_dist = max(r["distance"] for r in vec_results) or 1.0
+        for r in vec_results:
+            r["vec_score"] = 1.0 - (r["distance"] / max(max_dist, 0.001))
+    else:
+        return []
+
+    # BM25 scores
+    bm25_scores = []
+    for r in vec_results:
+        bm25 = _bm25_score_section(query_terms, r.get("content", ""), r.get("header", ""))
+        bm25_scores.append(bm25)
+
+    # Normalize BM25 scores to 0-1
+    max_bm25 = max(bm25_scores) if bm25_scores else 1.0
+    if max_bm25 > 0:
+        for i, r in enumerate(vec_results):
+            r["bm25_score"] = bm25_scores[i] / max_bm25
+    else:
+        for r in vec_results:
+            r["bm25_score"] = 0.0
+
+    # Step 4: Fuse scores
+    for r in vec_results:
+        r["hybrid_score"] = alpha * r["vec_score"] + (1 - alpha) * r["bm25_score"]
+
+    # Step 5: Re-sort by fused score and return top results
+    vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
+
+    # Clean up intermediate scores from output
+    for r in vec_results:
+        r.pop("vec_score", None)
+        r.pop("bm25_score", None)
+        r.pop("hybrid_score", None)
+
+    return vec_results[:limit]

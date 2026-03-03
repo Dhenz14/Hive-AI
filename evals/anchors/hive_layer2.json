@@ -1,0 +1,47 @@
+[
+  {
+    "id": "hive-l2-001",
+    "domain": "hive_layer2",
+    "severity": "high",
+    "instruction": "What is Hive Engine and how does it work?",
+    "must_contain": ["sidechain", "token", "smart contract"],
+    "must_not_contain": ["Hive Engine is part of the Hive base layer", "Hive Engine uses DPoS consensus", "Hive Engine tokens are HIVE"],
+    "rationale": "Hive Engine is a SEPARATE sidechain, not part of the Hive base layer. It has its own consensus and token system. HE tokens are NOT HIVE — they're sidechain assets that can be deposited/withdrawn via the HE gateway."
+  },
+  {
+    "id": "hive-l2-002",
+    "domain": "hive_layer2",
+    "severity": "high",
+    "instruction": "How do you create a custom token on Hive?",
+    "must_contain": ["Hive Engine", "sidechain"],
+    "must_not_contain": ["native Hive token creation", "hard fork to create tokens", "ERC-20"],
+    "rationale": "Custom tokens on Hive are created through Hive Engine (layer 2), not on the base layer. There is no native token creation mechanism on Hive L1. Referencing ERC-20 conflates Hive with Ethereum."
+  },
+  {
+    "id": "hive-l2-003",
+    "domain": "hive_layer2",
+    "severity": "high",
+    "instruction": "What is VSC (Virtual Smart Chain) on Hive?",
+    "must_contain": ["smart contract", "layer 2"],
+    "must_not_contain": ["VSC is live on mainnet", "VSC replaces Hive Engine", "Solidity on Hive L1"],
+    "rationale": "VSC is a Layer 2 smart contract platform being built on Hive. As of 2026, it is still in development/testnet. It does NOT replace Hive Engine — they serve different purposes. It does NOT add smart contracts to Hive L1."
+  },
+  {
+    "id": "hive-l2-004",
+    "domain": "hive_layer2",
+    "severity": "high",
+    "instruction": "What are Hive communities and how do they work technically?",
+    "must_contain": ["community", "custom_json", "role"],
+    "must_not_contain": ["communities are smart contracts", "communities have their own blockchain", "communities are subreddits"],
+    "rationale": "Hive communities are on-chain structures managed via custom_json operations with role-based permissions (owner, admin, mod, member). They are NOT smart contracts or separate chains. Calling them subreddits oversimplifies the on-chain governance model."
+  },
+  {
+    "id": "hive-l2-005",
+    "domain": "hive_layer2",
+    "severity": "high",
+    "instruction": "How does HivePoA (Proof of Access) work for decentralized storage?",
+    "must_contain": ["storage", "Web of Trust", "CID"],
+    "must_not_contain": ["HivePoA is the same as IPFS", "HivePoA uses Filecoin", "HivePoA stores data on the Hive blockchain"],
+    "rationale": "HivePoA is a decentralized storage network that uses Web of Trust for node reputation and content-addressed storage (CIDs). It does NOT store data on the Hive blockchain itself. It's a separate P2P network, not IPFS or Filecoin — though it shares concepts with content-addressed systems."
+  }
+]

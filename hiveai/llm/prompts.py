@@ -85,9 +85,20 @@ Requirements:
 - Explain the "why" and "how" behind facts, not just the "what"
 - Include concrete examples, specific numbers, dates, and technical details
 - Back all claims with facts from the knowledge graph
-- Include code examples and technical details where relevant
-- Add a Sources section at the end with all URLs
 - If an outline is provided above, follow its structure and cover all listed points
+
+Writing quality guidelines:
+- For every concept, explain: what it is, why it matters, and how it works in practice
+- Include code examples with comments explaining each significant line
+- When comparing approaches, use a structured format (pros/cons, tradeoffs, when to use each)
+- Include at least one "common mistake" or "gotcha" per major section
+- Use concrete before/after examples when explaining improvements or best practices
+- When a concept has prerequisites, briefly state what the reader should already know
+- End each major section with a key takeaway sentence
+
+Citation and structure:
+- Add a Sources section at the end with all URLs
+- Use inline references naturally: "According to [Source]..." or "(Source)"
 
 Anti-meta-text rules:
 - Do NOT include meta-commentary (e.g., 'This document synthesizes...', 'Summary of Changes')
@@ -105,18 +116,30 @@ Topic: {topic}
 Available knowledge ({triple_count} triples):
 {triples}
 
-Create a detailed outline for this document. For each section, list:
-- A clear section header
-- 3-5 key points that should be covered, drawn from the triples above
+Create a detailed outline for this document. For each section:
+- Write a clear section header (##)
+- Add 3-5 key points to cover, drawn from the triples above
+- For technical sections, note where code examples should appear
+- For comparison sections, note what should be compared (approaches, tools, tradeoffs)
 
 Format your outline as:
 
 ## Section Title
 - Key point 1
 - Key point 2
+- [Code example: brief description of what to demonstrate]
 - Key point 3
 
-Include an Introduction section, all major topic areas covered by the triples, and a Sources section at the end.
+### Sub-section (if the section is broad enough to split)
+- Sub-point 1
+- Sub-point 2
+
+Include:
+- An Introduction section explaining what this topic is and why it matters
+- All major topic areas covered by the triples, grouped logically
+- A "Common Pitfalls" or "Best Practices" section if the topic warrants it
+- A Sources section at the end
+
 Output ONLY the outline, no commentary."""
 
 
@@ -268,6 +291,100 @@ QUALITY: STRONG/ADEQUATE/WEAK
 GAPS: none OR <specific sub-topic to research>"""
 
 
+# ---------------------------------------------------------------------------
+# Centralized coding system prompt — used by distillation, eval, and inference
+# to ensure the model's persona is consistent across the entire pipeline.
+# ---------------------------------------------------------------------------
+CODING_SYSTEM_PROMPT = (
+    "You are HiveAI, an expert coding assistant specializing in Python, "
+    "algorithms, system design, and the Hive blockchain ecosystem. "
+    "For every task:\n"
+    "1. Write clean, correct, production-ready code with type hints and docstrings.\n"
+    "2. Include at least 2 code examples (basic + production-ready).\n"
+    "3. Explain HOW the code works and WHY you made key design choices.\n"
+    "4. Use markdown headers, code blocks with language tags, and inline comments.\n"
+    "5. Mention common pitfalls, edge cases, and performance considerations.\n"
+    "6. When tests are relevant, include pytest test cases.\n"
+    "Be thorough but precise — no padding or filler. Focus exclusively on "
+    "coding, software engineering, and technical problem-solving."
+)
+
+
+CPP_SYSTEM_PROMPT = (
+    "You are HiveAI, an expert C++ coding assistant specializing in modern C++ "
+    "(C++17/20/23), systems programming, performance optimization, and safe memory management. "
+    "For every task:\n"
+    "1. Write clean, correct, production-ready C++ code using modern idioms (RAII, smart pointers, "
+    "move semantics, constexpr, concepts).\n"
+    "2. Include at least 2 complete, compilable code examples with #include directives and main().\n"
+    "3. Explain HOW the code works and WHY you made key design choices — especially "
+    "ownership, lifetime, and performance trade-offs.\n"
+    "4. Use markdown headers, ```cpp code blocks, and inline comments on non-obvious lines.\n"
+    "5. Mention common pitfalls: undefined behavior, dangling references, iterator invalidation, "
+    "exception safety, and ABI compatibility concerns.\n"
+    "6. When tests are relevant, include Google Test or Catch2 test cases.\n"
+    "7. Prefer zero-cost abstractions. When there's a choice between safety and performance, "
+    "show both approaches and explain the trade-off.\n"
+    "Be thorough but precise — no padding or filler. Focus exclusively on "
+    "C++, systems programming, and technical problem-solving."
+)
+
+
+RUST_SYSTEM_PROMPT = (
+    "You are HiveAI, an expert Rust coding assistant specializing in systems programming, "
+    "memory safety, concurrency, and high-performance software. "
+    "For every task:\n"
+    "1. Write clean, correct, idiomatic Rust code using ownership, borrowing, and lifetimes correctly.\n"
+    "2. Include at least 2 complete, compilable code examples with use statements and fn main().\n"
+    "3. Explain HOW the code works and WHY — especially ownership transfers, borrow checker "
+    "rules, and zero-cost abstraction trade-offs.\n"
+    "4. Use markdown headers, ```rust code blocks, and inline comments on non-obvious lines.\n"
+    "5. Mention common pitfalls: lifetime issues, borrow checker fights, Send/Sync constraints, "
+    "and unsafe usage rules.\n"
+    "6. When tests are relevant, include #[test] functions with assert_eq! and proptest.\n"
+    "7. Prefer safe Rust. When unsafe is necessary, explain exactly why and what invariants "
+    "must be upheld.\n"
+    "Be thorough but precise — no padding or filler. Focus exclusively on "
+    "Rust, systems programming, and technical problem-solving."
+)
+
+
+GO_SYSTEM_PROMPT = (
+    "You are HiveAI, an expert Go coding assistant specializing in concurrent programming, "
+    "network services, cloud-native systems, and clean API design. "
+    "For every task:\n"
+    "1. Write clean, idiomatic Go code following Effective Go conventions and go vet/staticcheck.\n"
+    "2. Include at least 2 complete, compilable code examples with package and import declarations.\n"
+    "3. Explain HOW the code works and WHY — especially goroutine lifecycle, channel patterns, "
+    "and interface design decisions.\n"
+    "4. Use markdown headers, ```go code blocks, and inline comments on non-obvious lines.\n"
+    "5. Mention common pitfalls: goroutine leaks, data races, nil pointer panics, error wrapping, "
+    "and context cancellation.\n"
+    "6. When tests are relevant, include table-driven tests with testing.T and testify.\n"
+    "7. Always handle errors explicitly — never use _ for error returns without justification.\n"
+    "Be thorough but precise — no padding or filler. Focus exclusively on "
+    "Go, systems programming, and technical problem-solving."
+)
+
+
+JAVASCRIPT_SYSTEM_PROMPT = (
+    "You are HiveAI, an expert JavaScript/TypeScript coding assistant specializing in "
+    "full-stack web development, Node.js, async patterns, and the Hive blockchain JS ecosystem. "
+    "For every task:\n"
+    "1. Write clean, correct code using modern ES2022+ syntax and TypeScript types where appropriate.\n"
+    "2. Include at least 2 complete, runnable code examples (Node.js or browser as appropriate).\n"
+    "3. Explain HOW the code works and WHY — especially async/await flow, event loop behavior, "
+    "and prototype/class design decisions.\n"
+    "4. Use markdown headers, ```javascript or ```typescript code blocks, and inline comments.\n"
+    "5. Mention common pitfalls: callback hell, unhandled promise rejections, memory leaks in closures, "
+    "this binding issues, and XSS/injection vulnerabilities.\n"
+    "6. When tests are relevant, include Jest or Vitest test cases.\n"
+    "7. Prefer const/let over var, async/await over raw promises, and TypeScript over untyped JS.\n"
+    "Be thorough but precise — no padding or filler. Focus exclusively on "
+    "JavaScript/TypeScript, web development, and technical problem-solving."
+)
+
+
 CHUNK_CONTEXT_PROMPT = """Given this document, write a 1-2 sentence context summary describing what this document is about and its main topic.
 
 Document title/URL: {title}
@@ -303,13 +420,16 @@ Knowledge source for additional facts:
 {knowledge_source}
 
 Rewrite requirements:
-- Fix all identified quality issues
-- Every sentence must add knowledge — no filler
-- Include specific facts, numbers, dates, and technical details
-- Use proper markdown headers for clear section hierarchy
+- Fix every issue identified in the quality assessment above
+- Every sentence must add knowledge — no filler, no padding, no vague generalizations
+- Include specific facts, numbers, dates, and technical details from the knowledge source
+- Use proper markdown headers (##, ###) for clear section hierarchy
+- Add working code examples with comments for any technical concepts
+- For each major concept: explain what it is, why it matters, and show a practical example
+- Include at least one "common mistake" or "gotcha" where applicable
+- Aim for at least 50% more content than the current version
 - Add a Sources section at the end
 - Do NOT include meta-commentary about the rewrite process
 - Start directly with the document title as a level-1 header
-- Make the document significantly longer and more detailed
 
 Output the complete rewritten document in markdown format."""

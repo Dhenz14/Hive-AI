@@ -1,0 +1,65 @@
+[
+  {
+    "id": "db-index-001",
+    "domain": "database",
+    "severity": "high",
+    "instruction": "When should you add an index to a database table?",
+    "must_contain": ["query", "WHERE", "read", "write"],
+    "must_not_contain": ["index everything", "indexes have no downsides", "more indexes is always better"],
+    "rationale": "Indexes speed up reads (WHERE, JOIN, ORDER BY) but slow down writes (INSERT, UPDATE, DELETE must maintain the index). Over-indexing degrades write performance and wastes storage. Index columns used in frequent queries, not everything."
+  },
+  {
+    "id": "db-norm-001",
+    "domain": "database",
+    "severity": "high",
+    "instruction": "What is database normalization and when should you denormalize?",
+    "must_contain": ["redundanc", "normal form", "join"],
+    "must_not_contain": ["always normalize to 5NF", "never denormalize", "normalization is outdated"],
+    "rationale": "Normalization reduces data redundancy and update anomalies. Denormalization is appropriate for read-heavy workloads where join costs outweigh update anomaly risks. Neither extreme (always normalize / never normalize) is correct — it depends on access patterns."
+  },
+  {
+    "id": "db-acid-001",
+    "domain": "database",
+    "severity": "high",
+    "instruction": "What does ACID mean in database transactions?",
+    "must_contain": ["Atomic", "Consisten", "Isolat", "Durab"],
+    "must_not_contain": ["all databases are ACID", "NoSQL can't be ACID", "ACID means slow"],
+    "rationale": "ACID = Atomicity (all-or-nothing), Consistency (valid state transitions), Isolation (concurrent transactions don't interfere), Durability (committed = permanent). Not all databases are ACID (many NoSQL are eventually consistent). Some NoSQL (MongoDB 4.0+) DO support ACID. ACID doesn't inherently mean slow."
+  },
+  {
+    "id": "db-n1-001",
+    "domain": "database",
+    "severity": "critical",
+    "instruction": "What is the N+1 query problem and how do you fix it?",
+    "must_contain": ["N+1", "join", "eager", "batch"],
+    "must_not_contain": ["N+1 doesn't matter with fast databases", "just add caching", "ORMs prevent N+1"],
+    "rationale": "N+1 occurs when code fetches a list (1 query) then loops to fetch related data (N queries). Fix with JOINs, eager loading (SELECT_IN, JOIN fetch), or batch queries. ORMs are the #1 CAUSE of N+1 (lazy loading default), not the prevention. Caching masks the problem, doesn't fix it."
+  },
+  {
+    "id": "db-lock-001",
+    "domain": "database",
+    "severity": "high",
+    "instruction": "What is the difference between optimistic and pessimistic locking?",
+    "must_contain": ["optimistic", "pessimistic", "conflict", "version"],
+    "must_not_contain": ["always use pessimistic locking", "optimistic locking prevents all conflicts", "locking is unnecessary with modern databases"],
+    "rationale": "Pessimistic locking (SELECT FOR UPDATE) blocks concurrent access — good for high contention. Optimistic locking (version column, check-on-write) allows concurrent reads but detects conflicts at commit — good for low contention. Neither is universally better."
+  },
+  {
+    "id": "db-inject-001",
+    "domain": "database",
+    "severity": "critical",
+    "instruction": "How do you prevent SQL injection in an ORM?",
+    "must_contain": ["parameterize", "raw", "escape"],
+    "must_not_contain": ["ORMs are immune to SQL injection", "no need to worry with an ORM", "ORMs handle everything"],
+    "rationale": "ORMs prevent SQL injection in normal usage, but raw SQL queries within ORMs (raw(), execute(), text()) are still vulnerable if you interpolate user input. ORMs are NOT immune — any raw SQL escape hatch requires parameterized queries."
+  },
+  {
+    "id": "db-migrate-001",
+    "domain": "database",
+    "severity": "high",
+    "instruction": "How do you safely run database migrations in production?",
+    "must_contain": ["backup", "rollback", "test"],
+    "must_not_contain": ["just run migrations directly", "ALTER TABLE is always safe", "migrations can't break anything"],
+    "rationale": "Production migrations require: backup before running, tested rollback plan, run on staging first, avoid locking operations on large tables (ALTER TABLE can lock for hours). Migrations absolutely CAN break production — they modify the schema that all running code depends on."
+  }
+]

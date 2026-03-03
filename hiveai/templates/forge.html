@@ -1,0 +1,880 @@
+{% extends "base.html" %}
+{% block title %}HiveAI - The Mind Forge{% endblock %}
+
+{% block extra_css %}
+<style>
+    @keyframes forgePulse {
+        0% { box-shadow: 0 0 8px rgba(138, 43, 226, 0.3); }
+        50% { box-shadow: 0 0 20px rgba(138, 43, 226, 0.6), 0 0 40px rgba(75, 0, 130, 0.3); }
+        100% { box-shadow: 0 0 8px rgba(138, 43, 226, 0.3); }
+    }
+    @keyframes crystalShimmer {
+        0% { text-shadow: 0 0 4px rgba(138, 43, 226, 0.5); }
+        50% { text-shadow: 0 0 12px rgba(147, 112, 219, 0.8), 0 0 20px rgba(138, 43, 226, 0.5); }
+        100% { text-shadow: 0 0 4px rgba(138, 43, 226, 0.5); }
+    }
+    @keyframes barGlow {
+        0% { box-shadow: 0 0 5px rgba(138, 43, 226, 0.4); }
+        50% { box-shadow: 0 0 15px rgba(138, 43, 226, 0.7); }
+        100% { box-shadow: 0 0 5px rgba(138, 43, 226, 0.4); }
+    }
+    .forge-stat-card {
+        background: linear-gradient(145deg, #1e0a2e 0%, #130520 100%);
+        border: 2px solid #6b21a8;
+        border-radius: 6px;
+        padding: 1.2rem;
+        text-align: center;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(138,43,226,0.1);
+        animation: forgePulse 4s ease-in-out infinite;
+    }
+    .forge-stat-card .number {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #c084fc;
+        animation: crystalShimmer 3s ease-in-out infinite;
+    }
+    .forge-stat-card .label {
+        font-size: 0.85rem;
+        color: #a855f7;
+        margin-top: 0.3rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .forge-card {
+        background: linear-gradient(135deg, #1e0a2e 0%, #130520 100%);
+        border: 1px solid #6b21a8;
+        border-radius: 4px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(138,43,226,0.1);
+        position: relative;
+    }
+    .forge-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #9333ea, #6b21a8, transparent);
+    }
+    .forge-card h2 { color: #c084fc; }
+    .forge-card h3 { color: #a855f7; }
+    .progress-track {
+        width: 100%;
+        height: 28px;
+        background: #130520;
+        border: 2px solid #6b21a8;
+        border-radius: 14px;
+        overflow: hidden;
+        position: relative;
+        margin: 0.8rem 0;
+    }
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4c1d95, #7c3aed, #a855f7);
+        border-radius: 14px;
+        transition: width 0.5s ease;
+        animation: barGlow 2s ease-in-out infinite;
+        position: relative;
+    }
+    .progress-fill::after {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%);
+        animation: shimmerMove 2s linear infinite;
+        border-radius: 14px;
+    }
+    @keyframes shimmerMove {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+    }
+    .progress-label {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-family: 'MedievalSharp', cursive;
+        font-size: 0.75rem;
+        color: #e9d5ff;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        white-space: nowrap;
+        z-index: 2;
+    }
+    .btn-forge {
+        background: linear-gradient(180deg, #6b21a8 0%, #4c1d95 100%);
+        color: #e9d5ff;
+        border: 2px solid #9333ea;
+        display: inline-block;
+        padding: 0.6rem 1.2rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 700;
+        transition: all 0.2s;
+        font-family: 'MedievalSharp', cursive;
+        letter-spacing: 0.5px;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    .btn-forge:hover {
+        background: linear-gradient(180deg, #7c3aed 0%, #5b21b6 100%);
+        box-shadow: 0 0 12px rgba(138, 43, 226, 0.5);
+    }
+    .btn-forge:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .status-ready { background: #1e3a1e; color: #86efac; border-color: #4ade80; }
+    .status-training { background: #1e0a2e; color: #c084fc; border-color: #9333ea; }
+    .status-benchmarking { background: #2d1b0e; color: #fcd34d; border-color: #f59e0b; }
+    .status-published { background: #2d3a1e; color: #98d946; border-color: #6b8e23; }
+    .status-failed { background: #3d1010; color: #fca5a5; border-color: #8b2500; }
+    .status-pending { background: #2d1b0e; color: #cd7f32; border-color: #b87333; }
+    .pipeline-diagram {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin: 1rem 0;
+        font-size: 0.85rem;
+        color: #b87333;
+    }
+    .pipeline-stage {
+        display: flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 20px;
+        border: 1px solid;
+        font-family: 'MedievalSharp', cursive;
+        font-size: 0.75rem;
+    }
+    .pipeline-stage.done { border-color: #6b8e23; background: #1e2e10; color: #86efac; }
+    .pipeline-stage.active { border-color: #9333ea; background: #1e0a2e; color: #c084fc; animation: forgePulse 2s ease-in-out infinite; }
+    .pipeline-stage.future { border-color: #5c3a1e; background: #1a1008; color: #6b5a3e; }
+    .pipeline-arrow { color: #5c3a1e; font-size: 1rem; }
+    .feedback-box {
+        margin-top: 0.8rem;
+        padding: 0.8rem 1rem;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        display: none;
+    }
+    .feedback-box.info { background: rgba(138,43,226,0.1); border: 1px solid #6b21a8; color: #c084fc; }
+    .feedback-box.success { background: rgba(74,222,128,0.1); border: 1px solid #4ade80; color: #86efac; }
+    .feedback-box.error { background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #fca5a5; }
+    input[type="number"] {
+        width: 80px;
+        padding: 0.5rem 0.7rem;
+        background: #1a1008;
+        border: 2px solid #5c3a1e;
+        border-radius: 4px;
+        color: #d4b896;
+        font-size: 1rem;
+        font-family: 'Crimson Text', serif;
+        outline: none;
+    }
+    input[type="number"]:focus { border-color: #9333ea; box-shadow: 0 0 8px rgba(147,51,234,0.3); }
+    .pair-source-badge {
+        display: inline-block;
+        padding: 0.1rem 0.5rem;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-family: 'MedievalSharp', cursive;
+    }
+    .source-self_distill { background: #1e0a2e; color: #c084fc; border: 1px solid #6b21a8; }
+    .source-web_crawl { background: #1a1008; color: #cd7f32; border: 1px solid #b87333; }
+    .source-human_verified { background: #1e2e10; color: #86efac; border: 1px solid #4ade80; }
+    .quality-bar {
+        display: inline-block;
+        width: 60px;
+        height: 8px;
+        background: #1a1008;
+        border-radius: 4px;
+        overflow: hidden;
+        vertical-align: middle;
+        margin-left: 0.3rem;
+    }
+    .quality-fill {
+        height: 100%;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>🔮 The Mind Forge</h1>
+<p style="color: #a855f7; margin-bottom: 1.5rem; font-style: italic;">
+    The gnome no longer merely catalogues the world's knowledge — it mines its own ancient memory,
+    forging crystallized skills that endure forever.
+</p>
+
+<!-- Pipeline Diagram -->
+<div class="pipeline-diagram">
+    <div class="pipeline-stage done">⛏ Mine</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage done">💎 Extract</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage done">📜 Forge Books</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage active">📚 Gather Teachings</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage {% if unused_pairs >= 500 %}active{% else %}future{% endif %}">🔮 Crystallize</div>
+    <div class="pipeline-arrow">→</div>
+    <div class="pipeline-stage future">🏛 Hive Archive</div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));">
+    <div class="forge-stat-card">
+        <div class="number" id="stat-eligible">{{ eligible_pairs }}</div>
+        <div class="label">📚 Teachings Gathered</div>
+    </div>
+    <div class="forge-stat-card">
+        <div class="number" id="stat-total">{{ total_pairs }}</div>
+        <div class="label">⚗️ Total Lessons</div>
+    </div>
+    <div class="forge-stat-card">
+        <div class="number" id="stat-unused">{{ unused_pairs }}</div>
+        <div class="label">🎯 Unused Eligible</div>
+    </div>
+    <div class="forge-stat-card">
+        <div class="number" id="stat-crystals">{{ lora_count }}</div>
+        <div class="label">🔮 Crystals Forged</div>
+    </div>
+</div>
+
+<!-- Live Mining Status -->
+<div class="forge-card" id="mining-status-card">
+    <h2>⛏ Live Mining Status</h2>
+    <div id="mining-status-content">
+        <p style="color: #6b5a3e;">Loading mining status...</p>
+    </div>
+</div>
+
+<!-- Progress to Forge -->
+<div class="forge-card">
+    <h2>⚗️ Path to the Forge</h2>
+    <p style="color: #a855f7; margin-bottom: 0.8rem;">
+        500 eligible teachings are required to ignite the forge and crystallize a LoRA mind.
+    </p>
+    <div class="progress-track">
+        <div class="progress-fill" id="forge-progress-bar"
+             style="width: {{ [[(unused_pairs / 500 * 100)|round(1), 100]|min, 0]|max }}%;">
+        </div>
+        <div class="progress-label" id="forge-progress-label">
+            {{ unused_pairs }} / 500 Teachings
+        </div>
+    </div>
+    {% if unused_pairs >= 500 %}
+    <div style="margin-top: 1rem; padding: 0.8rem; background: rgba(138,43,226,0.15); border: 1px solid #9333ea; border-radius: 4px;">
+        <span style="color: #c084fc; font-family: 'MedievalSharp', cursive;">🔥 The Forge is ready!</span>
+        <span style="color: #a855f7;"> Export teachings to JSONL and begin LoRA training.</span>
+    </div>
+    {% endif %}
+
+    <div style="margin-top: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <div>
+            <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Version label</label>
+            <input type="text" id="export-version" value="v1" style="width: 80px;">
+        </div>
+        <div>
+            <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Target count</label>
+            <input type="number" id="export-target" value="500" min="100" max="5000" style="width: 80px;">
+        </div>
+        <div style="margin-top: 1.4rem;">
+            <button class="btn-forge" onclick="exportTeachings(false)" id="export-btn"
+                    {% if unused_pairs == 0 %}disabled title="No eligible teachings to export"{% endif %}>
+                📦 Export All
+            </button>
+        </div>
+        <div style="margin-top: 1.4rem;">
+            <button class="btn-forge" onclick="exportTeachings(true)" id="export-smart-btn"
+                    style="background: linear-gradient(180deg, #065f46 0%, #064e3b 100%); border-color: #10b981;"
+                    {% if unused_pairs == 0 %}disabled{% endif %}>
+                🎯 Smart Export
+            </button>
+        </div>
+        <div id="export-feedback" class="feedback-box"></div>
+    </div>
+</div>
+
+<!-- Soul Mining -->
+<div class="forge-card">
+    <h2>🧠 Soul Mining</h2>
+    <p style="color: #a855f7; margin-bottom: 1rem;">
+        Dispatch the gnome to mine its own ancient wisdom. Using 54 built-in coding topics,
+        Qwen3 distills its 2024 knowledge into structured teachings — ready for the forge.
+    </p>
+
+    <div style="display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: 1rem;">
+        <div>
+            <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Teachings per topic</label>
+            <input type="number" id="pairs-per-topic" value="3" min="1" max="6">
+        </div>
+        <div style="margin-top: 1.4rem;">
+            <button class="btn-forge" id="distill-builtin-btn" onclick="startSoulMining('builtin')">
+                ✨ Mine All 54 Topics
+            </button>
+        </div>
+        <div style="margin-top: 1.4rem;">
+            <button class="btn-forge" id="distill-hive-btn" onclick="startSoulMining('hive')"
+                    style="background: linear-gradient(180deg, #b45309 0%, #92400e 100%); border-color: #f59e0b;">
+                ⛓ Mine 70 Hive Topics
+            </button>
+        </div>
+    </div>
+
+    <div>
+        <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">
+            Custom topics (one per line, leave blank to use built-ins)
+        </label>
+        <textarea id="custom-topics" rows="3"
+            placeholder="Python async/await patterns&#10;Rust memory management&#10;GraphQL schema design..."
+            style="margin-bottom: 0.5rem;"></textarea>
+        <button class="btn-forge" id="distill-custom-btn" onclick="startSoulMining('custom')">
+            ⛏ Mine Custom Topics
+        </button>
+    </div>
+
+    <div id="distill-feedback" class="feedback-box"></div>
+
+    <div id="distill-status" style="display: none; margin-top: 1rem; padding: 0.8rem; background: rgba(138,43,226,0.1); border: 1px solid #6b21a8; border-radius: 4px;">
+        <span style="color: #c084fc; font-family: 'MedievalSharp', cursive;">⚗️ Soul Mining in progress...</span>
+        <span style="color: #a855f7;"> The gnome is distilling its ancient memory. This may take 15–45 minutes.</span>
+        <div style="margin-top: 0.5rem; color: #6b5a3e; font-size: 0.85rem;">
+            Watch the "Teachings Gathered" count rise above. The teaching count will update every 10 seconds.
+        </div>
+    </div>
+</div>
+
+<!-- Stage from Books -->
+<div class="forge-card">
+    <h2>📜 Stage from Books</h2>
+    <p style="color: #a855f7; margin-bottom: 1rem;">
+        Convert existing Golden Books into teachings — each book section becomes an instruction/response pair,
+        passed through the quality gate and dedup check before staging.
+    </p>
+    <button class="btn-forge" onclick="stageFromBooks()">📜 Stage Book Teachings</button>
+    <div id="books-feedback" class="feedback-box"></div>
+</div>
+
+<!-- Teach the Mind -->
+<div class="forge-card">
+    <h2>📖 Teach the Mind</h2>
+    <p style="color: #a855f7; margin-bottom: 1rem;">
+        Paste knowledge directly into the forge. The gnome will distill it into teachings
+        and prepare for micro-training. Paste code docs, technical articles, or any knowledge.
+    </p>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Title / Topic</label>
+        <input type="text" id="teach-title" placeholder="e.g., Hive Witness Scheduling Algorithm"
+               style="width: 100%; padding: 0.5rem; background: #1a0e2e; border: 2px solid #5b21b6;
+                      border-radius: 4px; color: #d4b8ff; font-family: 'Crimson Text', serif;">
+    </div>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="color: #a855f7; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Knowledge (markdown, code, or plain text)</label>
+        <textarea id="teach-content" rows="8" placeholder="Paste your knowledge here..."
+                  style="width: 100%; padding: 0.5rem; background: #1a0e2e; border: 2px solid #5b21b6;
+                         border-radius: 4px; color: #d4b8ff; font-family: 'Crimson Text', serif;
+                         resize: vertical;"></textarea>
+    </div>
+    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <button class="btn-forge" onclick="teachKnowledge(false)">📚 Stage Teachings</button>
+        <button class="btn-forge" onclick="teachKnowledge(true)"
+                style="background: linear-gradient(180deg, #065f46 0%, #064e3b 100%); border-color: #10b981;">
+            ⚡ Teach &amp; Micro-Train
+        </button>
+        <span id="teach-char-count" style="color: #6b5a3e; font-size: 0.8rem;"></span>
+    </div>
+    <div id="teach-feedback" class="feedback-box"></div>
+    <div id="teach-preview" style="display: none; margin-top: 1rem;"></div>
+</div>
+
+<!-- Recent Teachings -->
+<div class="forge-card">
+    <h2>📚 Recent Teachings</h2>
+    <div id="teachings-table-container">
+        <p class="empty">Loading teachings...</p>
+    </div>
+</div>
+
+<!-- Active Brain Adapters -->
+<div class="forge-card">
+    <h2>🧬 Active Brain Adapters</h2>
+    <p style="color: #a855f7; margin-bottom: 0.8rem; font-size: 0.85rem;">
+        Hot-swap LoRA adapters on llama-server without restarting. Compose multiple brains at runtime.
+    </p>
+    <div id="adapter-list" style="margin-bottom: 0.8rem;">
+        <p class="empty">Checking llama-server...</p>
+    </div>
+    <div style="display: flex; gap: 0.5rem;">
+        <button class="btn-forge" onclick="refreshAdapters()">🔄 Refresh</button>
+        <button class="btn-forge" onclick="useBaseModel()"
+                style="background: linear-gradient(180deg, #1e3a5f 0%, #1a2744 100%); border-color: #3b82f6;">
+            🧠 Base Model Only
+        </button>
+    </div>
+    <div id="adapter-feedback" class="feedback-box"></div>
+</div>
+
+<!-- Crystal Generations (LoRA versions) -->
+<div class="forge-card">
+    <h2>🔮 Crystal Generations</h2>
+    {% if versions %}
+    <table>
+        <thead>
+            <tr>
+                <th>Version</th>
+                <th>Base Model</th>
+                <th>Pairs</th>
+                <th>Benchmark</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for v in versions %}
+            <tr>
+                <td style="color: #c084fc; font-family: 'MedievalSharp', cursive;">{{ v.version }}</td>
+                <td style="color: #b87333;">{{ v.base_model }}</td>
+                <td>{{ v.pair_count }}</td>
+                <td>
+                    {% if v.benchmark_score is not none %}
+                        <span style="color: {% if v.benchmark_score >= 0.8 %}#86efac{% elif v.benchmark_score >= 0.6 %}#fcd34d{% else %}#fca5a5{% endif %};">
+                            {{ "%.1f"|format(v.benchmark_score * 100) }}%
+                        </span>
+                    {% else %}
+                        <span style="color: #6b5a3e;">—</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="status-badge status-{{ v.status }}">{{ v.status }}</span>
+                </td>
+                <td>{{ v.created_at.strftime('%b %d, %H:%M') if v.created_at else '—' }}</td>
+                <td>
+                    {% if v.status == 'ready' %}
+                    <button class="btn-forge" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;"
+                            onclick="exportBrain({{ v.id }})">📡 IPFS</button>
+                    {% endif %}
+                    {% if v.ipfs_cid %}
+                    <span style="color: #86efac; font-size: 0.7rem;" title="{{ v.ipfs_cid }}">
+                        CID: {{ v.ipfs_cid[:12] }}...
+                    </span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No crystals forged yet. Gather {{ min_pairs_micro }} teachings and ignite the micro-forge, or {{ min_pairs_standard }} for a full training run.</p>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const MIN_PAIRS_MICRO = {{ min_pairs_micro|default(20) }};
+const MIN_PAIRS_STANDARD = {{ min_pairs_standard|default(500) }};
+let pollInterval = null;
+
+async function loadTeachings() {
+    try {
+        const resp = await fetch('/api/lora/pairs');
+        const data = await resp.json();
+        if (data.error) return;
+
+        // Update stat cards
+        document.getElementById('stat-eligible').textContent = data.eligible;
+        document.getElementById('stat-total').textContent = data.total;
+        document.getElementById('stat-unused').textContent = data.unused_eligible;
+
+        // Update progress bar (micro threshold for "ready to train")
+        const target = MIN_PAIRS_STANDARD;
+        const pct = Math.min((data.unused_eligible / target * 100), 100).toFixed(1);
+        document.getElementById('forge-progress-bar').style.width = pct + '%';
+        const microReady = data.unused_eligible >= MIN_PAIRS_MICRO;
+        const label = microReady && data.unused_eligible < MIN_PAIRS_STANDARD
+            ? data.unused_eligible + ' teachings (⚡ micro-train ready!)'
+            : data.unused_eligible + ' / ' + target + ' Teachings';
+        document.getElementById('forge-progress-label').textContent = label;
+
+        // Enable/disable export
+        document.getElementById('export-btn').disabled = data.unused_eligible === 0;
+
+        // Render teachings table
+        renderTeachings(data.recent || []);
+    } catch (e) {
+        console.error('Failed to load teachings:', e);
+    }
+}
+
+function renderTeachings(pairs) {
+    const container = document.getElementById('teachings-table-container');
+    if (!pairs.length) {
+        container.innerHTML = '<p class="empty">No teachings gathered yet. Begin soul mining above.</p>';
+        return;
+    }
+    const rows = pairs.map(p => {
+        const qualityPct = Math.round((p.quality || 0) * 100);
+        const qualityColor = qualityPct >= 80 ? '#86efac' : qualityPct >= 60 ? '#fcd34d' : '#fca5a5';
+        const sourceClass = 'source-' + (p.source || 'unknown');
+        const eligible = p.is_eligible
+            ? '<span style="color:#86efac;">✓</span>'
+            : '<span style="color:#6b5a3e;">✗</span>';
+        return `<tr>
+            <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <span title="${escHtml(p.instruction)}">${escHtml(p.instruction)}</span>
+            </td>
+            <td>${p.topic ? '<span style="color:#b87333;">' + escHtml(p.topic.substring(0,30)) + '</span>' : '—'}</td>
+            <td><span class="pair-source-badge ${escHtml(sourceClass)}">${escHtml(p.source || '?')}</span></td>
+            <td>
+                <span style="color:${qualityColor};">${qualityPct}%</span>
+                <span class="quality-bar"><span class="quality-fill" style="width:${qualityPct}%;background:${qualityColor};"></span></span>
+            </td>
+            <td>${eligible}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `<table>
+        <thead><tr>
+            <th>Instruction</th>
+            <th>Topic</th>
+            <th>Source</th>
+            <th>Quality</th>
+            <th>Eligible</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function startSoulMining(mode) {
+    const feedback = document.getElementById('distill-feedback');
+    const status = document.getElementById('distill-status');
+    const pairsPerTopic = parseInt(document.getElementById('pairs-per-topic').value) || 3;
+
+    let body = { pairs_per_topic: pairsPerTopic };
+    if (mode === 'hive') {
+        body.hive = true;
+    } else if (mode === 'builtin') {
+        body.builtin = true;
+    } else {
+        const raw = document.getElementById('custom-topics').value;
+        const topics = raw.split('\n').map(l => l.trim()).filter(l => l);
+        if (!topics.length) {
+            showFeedback(feedback, 'error', 'Enter at least one custom topic, or use the topic buttons above.');
+            return;
+        }
+        body.topics = topics;
+    }
+
+    document.getElementById('distill-builtin-btn').disabled = true;
+    document.getElementById('distill-custom-btn').disabled = true;
+    document.getElementById('distill-hive-btn').disabled = true;
+    showFeedback(feedback, 'info', '⚗️ Dispatching the gnome into the inner mines... This is a long journey (15–45 min for 54 topics). The page will update as teachings accumulate.');
+    status.style.display = 'block';
+
+    try {
+        const resp = await fetch('/api/lora/distill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        if (resp.ok) {
+            showFeedback(feedback, 'success',
+                `✨ Soul mining complete! Generated ${data.generated} lessons, ${data.eligible} eligible teachings passed the quality gate.`);
+        } else {
+            showFeedback(feedback, 'error', data.error || 'Soul mining failed.');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', 'Connection lost during mining. Check the server terminal.');
+    } finally {
+        document.getElementById('distill-builtin-btn').disabled = false;
+        document.getElementById('distill-custom-btn').disabled = false;
+        document.getElementById('distill-hive-btn').disabled = false;
+        status.style.display = 'none';
+        loadTeachings();
+    }
+}
+
+// --- Teach the Mind ---
+async function teachKnowledge(autoTrain) {
+    const feedback = document.getElementById('teach-feedback');
+    const preview = document.getElementById('teach-preview');
+    const title = document.getElementById('teach-title').value.trim();
+    const content = document.getElementById('teach-content').value.trim();
+
+    if (!title) { showFeedback(feedback, 'error', 'Please enter a title.'); return; }
+    if (content.length < 100) { showFeedback(feedback, 'error', 'Content too short (minimum 100 characters).'); return; }
+
+    const action = autoTrain ? '⚡ Distilling & preparing micro-training...' : '📖 Distilling teachings from pasted knowledge...';
+    showFeedback(feedback, 'info', action);
+    preview.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/lora/teach', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, content, auto_train: autoTrain }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            showFeedback(feedback, 'error', data.error || 'Teaching failed.');
+            return;
+        }
+
+        let msg = `📖 Generated ${data.pairs_generated} pairs (${data.pairs_eligible} eligible)`;
+        if (data.micro_training_triggered) {
+            msg += ' — ⚡ Micro-training started in background!';
+        }
+        showFeedback(feedback, 'success', msg);
+
+        // Show preview of generated pairs
+        if (data.pairs_preview && data.pairs_preview.length > 0) {
+            let html = '<table><thead><tr><th>Instruction</th><th>Quality</th></tr></thead><tbody>';
+            for (const p of data.pairs_preview) {
+                const pct = (p.quality * 100).toFixed(0);
+                const color = p.quality >= 0.75 ? '#86efac' : p.quality >= 0.55 ? '#fcd34d' : '#fca5a5';
+                html += `<tr><td style="font-size: 0.85rem;">${escHtml(p.instruction)}</td>` +
+                    `<td style="color: ${color}; font-weight: 700;">${pct}%</td></tr>`;
+            }
+            html += '</tbody></table>';
+            preview.innerHTML = html;
+            preview.style.display = 'block';
+        }
+
+        loadTeachings();
+    } catch (e) {
+        showFeedback(feedback, 'error', 'Connection failed. Is the server running?');
+    }
+}
+
+// Character counter for teach textarea
+document.getElementById('teach-content').addEventListener('input', function() {
+    const count = this.value.length;
+    const el = document.getElementById('teach-char-count');
+    el.textContent = count > 0 ? count.toLocaleString() + ' chars' : '';
+});
+
+async function stageFromBooks() {
+    const feedback = document.getElementById('books-feedback');
+    showFeedback(feedback, 'info', '📜 Deriving teachings from Golden Books...');
+
+    try {
+        const resp = await fetch('/api/lora/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ include_books: true, version: 'books_stage' }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showFeedback(feedback, 'success',
+                `📜 Staged ${data.staged_from_books} teachings from Golden Books (${data.exported} total exported).`);
+            loadTeachings();
+        } else {
+            showFeedback(feedback, 'error', data.error || 'Staging failed.');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', 'Failed to stage from books.');
+    }
+}
+
+async function exportTeachings(smart) {
+    const feedback = document.getElementById('export-feedback');
+    const version = document.getElementById('export-version').value.trim() || 'v1';
+    const targetCount = parseInt(document.getElementById('export-target').value) || 500;
+    const label = smart ? '🎯 Smart exporting (stratified sampling)...' : '📦 Exporting all teachings to JSONL...';
+    showFeedback(feedback, 'info', label);
+
+    try {
+        const body = { version, include_books: true };
+        if (smart) {
+            body.smart = true;
+            body.target_count = targetCount;
+        }
+        const resp = await fetch('/api/lora/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            const method = data.smart_sampling ? ' (stratified sampling)' : '';
+            showFeedback(feedback, 'success',
+                `✅ Exported ${data.exported} teachings${method} to <code>${data.output_path}</code>. Ready for Unsloth training.`);
+        } else {
+            showFeedback(feedback, 'error', data.error || 'Export failed.');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', 'Export failed. Check server terminal.');
+    }
+}
+
+function showFeedback(el, type, msg) {
+    el.className = 'feedback-box ' + type;
+    el.innerHTML = msg;
+    el.style.display = 'block';
+}
+
+async function loadMiningStatus() {
+    try {
+        const resp = await fetch('/api/lora/mining-status');
+        const data = await resp.json();
+        if (data.error) return;
+
+        const card = document.getElementById('mining-status-content');
+        const pct = ((data.topics_mined / data.total_topics) * 100).toFixed(1);
+
+        let topicsHtml = '';
+        if (data.recent_topics && data.recent_topics.length > 0) {
+            topicsHtml = '<div style="margin-top: 0.8rem; max-height: 200px; overflow-y: auto;">' +
+                '<table style="font-size: 0.85rem;"><thead><tr>' +
+                '<th>Topic</th><th>Pairs</th><th>Best Quality</th>' +
+                '</tr></thead><tbody>' +
+                data.recent_topics.map(t => {
+                    const qColor = t.best_quality >= 0.85 ? '#86efac' : t.best_quality >= 0.70 ? '#fcd34d' : '#fca5a5';
+                    return `<tr>
+                        <td style="color:#b87333; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escHtml(t.topic)}</td>
+                        <td>${t.pairs}</td>
+                        <td><span style="color:${qColor};">${Math.round(t.best_quality * 100)}%</span></td>
+                    </tr>`;
+                }).join('') +
+                '</tbody></table></div>';
+        }
+
+        let logHtml = '';
+        if (data.log_tail && data.log_tail.length > 0) {
+            logHtml = '<details style="margin-top: 0.8rem;">' +
+                '<summary style="color: #a855f7; cursor: pointer; font-size: 0.85rem;">Raw Log (last 15 lines)</summary>' +
+                '<pre style="font-size: 0.75rem; color: #6b5a3e; background: #0a0510; padding: 0.5rem; border-radius: 4px; max-height: 200px; overflow-y: auto; margin-top: 0.4rem;">' +
+                data.log_tail.map(l => escHtml(l)).join('\n') +
+                '</pre></details>';
+        }
+
+        card.innerHTML = `
+            <div style="display: flex; gap: 2rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.8rem;">
+                <div>
+                    <span style="color: #a855f7; font-size: 0.85rem;">Phase:</span>
+                    <span style="color: #c084fc; font-family: 'MedievalSharp', cursive;">${escHtml(data.phase)}</span>
+                </div>
+                <div>
+                    <span style="color: #a855f7; font-size: 0.85rem;">Topics:</span>
+                    <span style="color: #c084fc; font-weight: 700;">${data.topics_mined} / ${data.total_topics}</span>
+                    <span style="color: #6b5a3e;">(${pct}%)</span>
+                </div>
+                <div>
+                    <span style="color: #a855f7; font-size: 0.85rem;">Eligible Pairs:</span>
+                    <span style="color: #86efac; font-weight: 700;">${data.eligible_pairs}</span>
+                </div>
+            </div>
+            ${data.current_topic ? `<div style="padding: 0.5rem 0.8rem; background: rgba(138,43,226,0.1); border: 1px solid #6b21a8; border-radius: 4px; margin-bottom: 0.5rem;">
+                <span style="color: #a855f7; font-size: 0.85rem;">Currently mining:</span>
+                <span style="color: #c084fc; font-family: 'MedievalSharp', cursive;">${escHtml(data.current_topic)}</span>
+            </div>` : '<div style="color: #6b5a3e;">No active mining detected.</div>'}
+            <div class="progress-track">
+                <div class="progress-fill" style="width: ${pct}%;"></div>
+                <div class="progress-label">${data.topics_mined} / ${data.total_topics} Topics Mined</div>
+            </div>
+            ${topicsHtml}
+            ${logHtml}
+        `;
+    } catch (e) {
+        console.error('Failed to load mining status:', e);
+    }
+}
+
+// --- Adapter Management ---
+async function refreshAdapters() {
+    const container = document.getElementById('adapter-list');
+    try {
+        const resp = await fetch('/api/lora/adapters');
+        const data = await resp.json();
+
+        if (!data.server || !data.server.online) {
+            container.innerHTML = '<p class="empty">llama-server offline. Start it to manage adapters.</p>';
+            return;
+        }
+
+        const adapters = data.adapters || [];
+        if (adapters.length === 0) {
+            container.innerHTML = '<p style="color: #86efac; font-size: 0.85rem;">🧠 Running base model only (no adapters loaded)</p>';
+            return;
+        }
+
+        let html = '<table style="font-size: 0.85rem;"><thead><tr><th>ID</th><th>Path</th><th>Scale</th></tr></thead><tbody>';
+        for (const a of adapters) {
+            const name = (a.path || '?').split('/').pop().split('\\').pop();
+            html += `<tr><td>${a.id}</td><td style="color: #c084fc;">${escHtml(name)}</td><td>${a.scale || 1.0}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = '<p class="empty">Could not reach llama-server.</p>';
+    }
+}
+
+async function useBaseModel() {
+    const feedback = document.getElementById('adapter-feedback');
+    showFeedback(feedback, 'info', '🧠 Switching to base model...');
+    try {
+        const resp = await fetch('/api/lora/adapters', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adapters: [] }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            showFeedback(feedback, 'success', '🧠 Now running base model only.');
+            refreshAdapters();
+        } else {
+            showFeedback(feedback, 'error', 'Failed to switch to base model.');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', 'llama-server not reachable.');
+    }
+}
+
+// --- Brain Export (IPFS) ---
+async function exportBrain(versionId) {
+    const feedback = document.getElementById('adapter-feedback');
+    showFeedback(feedback, 'info', '📡 Pinning adapter to IPFS...');
+    try {
+        const resp = await fetch('/api/lora/export-brain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ version_id: versionId }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showFeedback(feedback, 'success',
+                `📡 Exported to IPFS! CID: ${data.ipfs_cid} (${data.file_size_mb} MB)`);
+        } else {
+            showFeedback(feedback, 'error', data.error || 'IPFS export failed.');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', 'IPFS export failed. Is the IPFS daemon running?');
+    }
+}
+
+// Load teachings, mining status, and adapters on page load
+loadTeachings();
+loadMiningStatus();
+refreshAdapters();
+pollInterval = setInterval(() => { loadTeachings(); loadMiningStatus(); }, 10000);
+</script>
+{% endblock %}

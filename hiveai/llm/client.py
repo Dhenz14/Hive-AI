@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import threading
 import hashlib
@@ -11,7 +12,8 @@ from typing import List, Optional
 import instructor
 from hiveai.config import (
     OPENROUTER_BASE_URL, OPENROUTER_API_KEY, LLM_MODEL_REASONING, LLM_MODEL_FAST,
-    EMBEDDING_MODEL_NAME, OLLAMA_BASE_URL,
+    EMBEDDING_MODEL_NAME, OLLAMA_BASE_URL, LLAMA_SERVER_BASE_URL, LLAMA_SERVER_MODELS,
+    MOLORA_ENABLED,
 )
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,75 @@ class TripleExtractionResult(BaseModel):
 _thread_local = threading.local()
 
 _active_backend = None
+
+# ---------------------------------------------------------------------------
+# MoLoRA — Mixture of LoRA Experts routing (lazy-init, dormant if disabled)
+# ---------------------------------------------------------------------------
+_molora_router = None
+if MOLORA_ENABLED:
+    try:
+        from hiveai.lora.molora import MoLoRARouter
+        _molora_router = MoLoRARouter()
+        logger.info("MoLoRA router initialized — domain-based routing enabled")
+    except Exception as e:
+        logger.warning(f"MoLoRA init failed, falling back to standard routing: {e}")
+
+# ---------------------------------------------------------------------------
+# Circuit Breaker — stop hammering a dead endpoint after repeated failures.
+# After CIRCUIT_BREAKER_THRESHOLD consecutive failures, open the circuit for
+# CIRCUIT_BREAKER_COOLDOWN seconds. During cooldown, all calls fail immediately
+# instead of waiting for timeouts.
+# ---------------------------------------------------------------------------
+_circuit_breaker_failures = 0
+_circuit_breaker_open_until = 0.0  # timestamp when circuit closes
+_circuit_breaker_lock = threading.Lock()
+
+
+def _check_circuit_breaker():
+    """
+    Check if the circuit breaker is open. If open, raise immediately.
+    Returns True if OK to proceed, raises RuntimeError if circuit is open.
+    """
+    import time as _time
+    from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
+    global _circuit_breaker_failures, _circuit_breaker_open_until
+
+    with _circuit_breaker_lock:
+        now = _time.time()
+        if _circuit_breaker_open_until > now:
+            remaining = int(_circuit_breaker_open_until - now)
+            raise RuntimeError(
+                f"Circuit breaker OPEN: LLM endpoint had {CIRCUIT_BREAKER_THRESHOLD} consecutive failures. "
+                f"Cooling down for {remaining}s. Will retry automatically."
+            )
+        # If we were in cooldown but it's expired, reset (half-open state)
+        if _circuit_breaker_failures >= CIRCUIT_BREAKER_THRESHOLD:
+            _circuit_breaker_failures = 0
+            logger.info("Circuit breaker: cooldown expired, resetting to closed state")
+
+
+def _record_circuit_success():
+    """Record a successful LLM call — reset failure counter."""
+    global _circuit_breaker_failures
+    with _circuit_breaker_lock:
+        if _circuit_breaker_failures > 0:
+            _circuit_breaker_failures = 0
+
+
+def _record_circuit_failure():
+    """Record a failed LLM call — increment counter, open circuit if threshold reached."""
+    import time as _time
+    from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
+    global _circuit_breaker_failures, _circuit_breaker_open_until
+
+    with _circuit_breaker_lock:
+        _circuit_breaker_failures += 1
+        if _circuit_breaker_failures >= CIRCUIT_BREAKER_THRESHOLD:
+            _circuit_breaker_open_until = _time.time() + CIRCUIT_BREAKER_COOLDOWN
+            logger.error(
+                f"Circuit breaker OPENED: {_circuit_breaker_failures} consecutive failures. "
+                f"Pausing LLM calls for {CIRCUIT_BREAKER_COOLDOWN}s."
+            )
 
 
 def _detect_ollama():
@@ -100,11 +171,25 @@ def is_retryable_error(exception):
     )
 
 
-def get_client():
+def _is_llama_server_model(model: str) -> bool:
+    """Return True if this model should route to llama-server instead of Ollama."""
+    return model in LLAMA_SERVER_MODELS
+
+
+def get_client(model: str | None = None):
+    """Return an OpenAI-compatible client.
+
+    If *model* is a llama-server model (e.g. hiveai-v1), returns a client
+    pointed at the llama-server endpoint.  Otherwise uses the normal Ollama/
+    OpenRouter client cached on the thread-local.
+    """
+    if model and _is_llama_server_model(model):
+        # llama-server speaks OpenAI format — no caching needed (lightweight)
+        return OpenAI(base_url=f"{LLAMA_SERVER_BASE_URL}/v1", api_key="llama")
+
     if not hasattr(_thread_local, "client") or _thread_local.client is None:
         backend = get_active_backend()
         if backend == "ollama":
-            from hiveai.config import OLLAMA_BASE_URL
             _thread_local.client = OpenAI(
                 base_url=f"{OLLAMA_BASE_URL}/v1",
                 api_key="ollama",
@@ -123,12 +208,21 @@ def get_client():
     retry=retry_if_exception(is_retryable_error),
     reraise=True,
 )
-def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.", model=None, max_tokens=8192, temperature=0.3):
+def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.", model=None, max_tokens=8192, temperature=0.3, use_cache=True):
+    _check_circuit_breaker()
+
     if not model:
         model = _get_model_for_backend("reasoning")
 
-    client = get_client()
+    # Check LLM response cache (only for deterministic temperature <= 0.3)
+    if use_cache and temperature <= 0.3:
+        cached = get_cached_response(prompt, model)
+        if cached is not None:
+            return cached
+
+    client = get_client(model)
     try:
+        extra = {"chat_template_kwargs": {"enable_thinking": False}} if _is_llama_server_model(model) else {}
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -137,11 +231,136 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
             ],
             max_tokens=max_tokens,
             temperature=temperature,
+            extra_body=extra or None,
         )
-        return response.choices[0].message.content
+        _record_circuit_success()
+        content = response.choices[0].message.content
+
+        # Cache the response for future identical queries
+        if use_cache and temperature <= 0.3 and content:
+            set_cached_response(prompt, content, model)
+
+        return content
     except Exception as e:
+        _record_circuit_failure()
         logger.error(f"LLM call failed with model {model}: {e}")
         raise
+
+
+def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.",
+                    model=None, max_tokens=4096, temperature=0.3):
+    """
+    Stream tokens from Ollama (/api/chat NDJSON) or llama-server (/v1/chat/completions SSE).
+
+    Yields dicts: {"token": "..."} for each token, {"done": True, "full_response": "..."} at end.
+    Routing is automatic — llama-server models (e.g. hiveai-v1) use SSE format.
+    """
+    _check_circuit_breaker()
+
+    if not model:
+        model = _get_model_for_backend("reasoning")
+
+    # ---- llama-server path (OpenAI SSE) ----
+    if _is_llama_server_model(model):
+        try:
+            import json as _json
+            resp = requests.post(
+                f"{LLAMA_SERVER_BASE_URL}/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": True,
+                    "chat_template_kwargs": {"enable_thinking": False},
+                },
+                timeout=600,
+                stream=True,
+            )
+            resp.raise_for_status()
+
+            full_response = []
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                line_str = line.decode("utf-8") if isinstance(line, bytes) else line
+                if line_str.startswith("data: "):
+                    payload = line_str[6:]
+                    if payload.strip() == "[DONE]":
+                        break
+                    try:
+                        data = _json.loads(payload)
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            full_response.append(content)
+                            yield {"token": content}
+                    except (ValueError, KeyError):
+                        continue
+
+            _record_circuit_success()
+            full = "".join(full_response)
+            # Strip thinking blocks from visible response
+            if "</think>" in full:
+                full = full.split("</think>", 1)[1].strip()
+            yield {"done": True, "full_response": full}
+
+        except Exception as e:
+            _record_circuit_failure()
+            logger.error(f"llama-server streaming failed: {e}")
+            yield {"error": str(e), "done": True}
+        return
+
+    # ---- Ollama native path (/api/chat NDJSON) ----
+    try:
+        import json as _json
+        resp = requests.post(
+            f"{OLLAMA_BASE_URL}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": True,
+                "think": False,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                },
+            },
+            timeout=600,
+            stream=True,
+        )
+        resp.raise_for_status()
+
+        full_response = []
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                data = _json.loads(line)
+                content = data.get("message", {}).get("content", "")
+                if content:
+                    full_response.append(content)
+                    yield {"token": content}
+                if data.get("done"):
+                    _record_circuit_success()
+                    yield {"done": True, "full_response": "".join(full_response)}
+                    return
+            except (ValueError, KeyError):
+                continue
+
+        _record_circuit_success()
+        yield {"done": True, "full_response": "".join(full_response)}
+
+    except Exception as e:
+        _record_circuit_failure()
+        logger.error(f"Streaming LLM call failed: {e}")
+        yield {"error": str(e), "done": True}
 
 
 def reason(prompt, max_tokens=8192):
@@ -153,15 +372,97 @@ def fast(prompt, max_tokens=8192):
     return llm_call(prompt, model=_get_model_for_backend("fast"), max_tokens=max_tokens, temperature=0.2)
 
 
+def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
+    """
+    Classify query difficulty to route to fast() or reason().
+
+    Returns: "trivial", "simple", "moderate", "complex"
+
+    Routing logic:
+      trivial/simple → fast() model (instant, low VRAM)
+      moderate/complex → reason() model (full MoE power)
+    """
+    q = question.lower().strip()
+    words = q.split()
+    word_count = len(words)
+
+    # Complex signals (need full reasoning model)
+    complex_signals = 0
+    if any(w in q for w in ["compare", "trade-off", "tradeoff", "versus", "vs"]):
+        complex_signals += 2
+    if any(w in q for w in ["design", "architect", "implement", "build", "create"]):
+        complex_signals += 1
+    if any(w in q for w in ["debug", "fix", "error", "bug", "crash"]):
+        complex_signals += 1
+    if any(w in q for w in ["optimize", "performance", "benchmark", "scale"]):
+        complex_signals += 1
+    if any(w in q for w in ["why does", "how does", "explain how"]):
+        complex_signals += 1
+    if word_count > 30:
+        complex_signals += 1  # long questions tend to be complex
+
+    # Simple signals (fast model can handle)
+    simple_signals = 0
+    if word_count < 8:
+        simple_signals += 1
+    if any(w in q for w in ["what is", "define", "list", "name"]):
+        simple_signals += 1
+    if num_sections >= 5:
+        simple_signals += 1  # lots of context = easy retrieval
+
+    if complex_signals >= 3:
+        return "complex"
+    elif complex_signals >= 2:
+        return "moderate"
+    elif simple_signals >= 2:
+        return "trivial"
+    elif simple_signals >= 1 and complex_signals == 0:
+        return "simple"
+    return "moderate"
+
+
+def smart_call(prompt: str, question: str = "", num_sections: int = 0,
+               max_tokens: int = 4096) -> str:
+    """
+    Confidence-based model routing: routes easy queries to fast model,
+    complex queries to full reasoning model.
+
+    When MoLoRA is enabled, domain-specialized models are tried first.
+
+    This saves significant VRAM and latency for 60-70% of typical queries
+    while preserving quality for the hard ones.
+    """
+    # MoLoRA domain routing (if enabled and initialized)
+    if _molora_router is not None:
+        try:
+            query_text = question or prompt[:200]
+            domain, domain_model = _molora_router.route(query_text)
+            if domain != "general":
+                logger.info(f"MoLoRA routing: {domain} → {domain_model}")
+                return llm_call(prompt, model=domain_model, max_tokens=max_tokens, temperature=0.2)
+        except Exception as e:
+            logger.warning(f"MoLoRA routing failed, falling back to standard: {e}")
+
+    # Standard difficulty-based routing
+    difficulty = estimate_query_difficulty(question or prompt[:200], num_sections)
+
+    if difficulty in ("trivial", "simple"):
+        logger.info(f"Smart routing: {difficulty} → fast model")
+        return fast(prompt, max_tokens=min(max_tokens, 2048))
+    else:
+        logger.info(f"Smart routing: {difficulty} → reason model")
+        return reason(prompt, max_tokens=max_tokens)
+
+
 def _structured_call(prompt, response_model, model_type="fast", max_tokens=4096):
     try:
-        backend = get_active_backend()
-        if backend == "ollama":
-            from hiveai.config import OLLAMA_BASE_URL
+        model = _get_model_for_backend(model_type)
+        if _is_llama_server_model(model):
+            raw_client = OpenAI(base_url=f"{LLAMA_SERVER_BASE_URL}/v1", api_key="llama")
+        elif get_active_backend() == "ollama":
             raw_client = OpenAI(base_url=f"{OLLAMA_BASE_URL}/v1", api_key="ollama")
         else:
             raw_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
-        model = _get_model_for_backend(model_type)
         patched_client = instructor.from_openai(raw_client, mode=instructor.Mode.JSON)
         result = patched_client.chat.completions.create(
             model=model,
@@ -202,14 +503,16 @@ def _get_embedding_model():
             if _embedding_model is None:
                 from sentence_transformers import SentenceTransformer
                 logger.info(f"Loading embedding model: {EMBEDDING_MODEL_NAME}")
+                # Use CPU for embeddings to keep GPU free for LLM inference
+                embed_device = os.environ.get("EMBEDDING_DEVICE", "cpu")
                 try:
-                    _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-                    logger.info(f"Embedding model loaded ({_embedding_model.get_sentence_embedding_dimension()} dims)")
+                    _embedding_model = SentenceTransformer(EMBEDDING_MODEL_NAME, device=embed_device)
+                    logger.info(f"Embedding model loaded on {embed_device} ({_embedding_model.get_sentence_embedding_dimension()} dims)")
                 except Exception as e:
                     logger.warning(f"Failed to load embedding model {EMBEDDING_MODEL_NAME}: {e}. Falling back to BAAI/bge-m3")
                     try:
-                        _embedding_model = SentenceTransformer("BAAI/bge-m3")
-                        logger.info(f"Fallback embedding model loaded ({_embedding_model.get_sentence_embedding_dimension()} dims)")
+                        _embedding_model = SentenceTransformer("BAAI/bge-m3", device=embed_device)
+                        logger.info(f"Fallback embedding model loaded on {embed_device} ({_embedding_model.get_sentence_embedding_dimension()} dims)")
                     except Exception as fallback_error:
                         logger.error(f"Failed to load fallback embedding model: {fallback_error}")
                         raise
@@ -246,9 +549,59 @@ def rerank_sections(query: str, sections: list[dict], top_k: int = 8) -> list[di
 _embedding_cache = {}
 _embedding_cache_lock = threading.Lock()
 _CACHE_MAX_SIZE = 10000
+_EMBEDDING_CACHE_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "embedding_cache.db")
+_embedding_cache_dirty = 0  # count of unsaved entries since last flush
 
 def _cache_key(text):
     return hashlib.md5(text.encode()).hexdigest()
+
+def _load_embedding_cache_from_disk():
+    """Load embedding cache from SQLite on startup. Fast: ~1-2s for 10K entries."""
+    global _embedding_cache
+    try:
+        if not os.path.exists(_EMBEDDING_CACHE_DB):
+            return 0
+        import sqlite3, json as _json
+        con = sqlite3.connect(_EMBEDDING_CACHE_DB, timeout=5)
+        rows = con.execute("SELECT key, embedding FROM embeddings ORDER BY rowid DESC LIMIT ?",
+                           (_CACHE_MAX_SIZE,)).fetchall()
+        con.close()
+        loaded = 0
+        with _embedding_cache_lock:
+            for key, emb_json in rows:
+                if key not in _embedding_cache:
+                    _embedding_cache[key] = _json.loads(emb_json)
+                    loaded += 1
+        if loaded:
+            logger.info(f"Embedding cache: loaded {loaded} entries from disk")
+        return loaded
+    except Exception as e:
+        logger.warning(f"Failed to load embedding cache from disk: {e}")
+        return 0
+
+def _flush_embedding_cache_to_disk():
+    """Persist current embedding cache to SQLite. Called periodically."""
+    global _embedding_cache_dirty
+    try:
+        import sqlite3, json as _json
+        con = sqlite3.connect(_EMBEDDING_CACHE_DB, timeout=10)
+        con.execute("CREATE TABLE IF NOT EXISTS embeddings (key TEXT PRIMARY KEY, embedding TEXT)")
+        with _embedding_cache_lock:
+            items = list(_embedding_cache.items())
+            _embedding_cache_dirty = 0
+        # Batch insert with upsert
+        con.executemany(
+            "INSERT OR REPLACE INTO embeddings (key, embedding) VALUES (?, ?)",
+            [(k, _json.dumps(v)) for k, v in items]
+        )
+        con.commit()
+        con.close()
+        logger.debug(f"Embedding cache: flushed {len(items)} entries to disk")
+    except Exception as e:
+        logger.warning(f"Failed to flush embedding cache to disk: {e}")
+
+# Load cache from disk on module import
+_load_embedding_cache_from_disk()
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     if not texts:
@@ -270,25 +623,99 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
                 uncached_texts.append(text)
     
     if uncached_texts:
+        global _embedding_cache_dirty
         new_embeddings = model.encode(uncached_texts, normalize_embeddings=True, show_progress_bar=False)
         with _embedding_cache_lock:
             for idx, emb in zip(uncached_indices, new_embeddings):
                 emb_list = emb.tolist()
                 results[idx] = emb_list
                 key = _cache_key(texts[idx])
-                if len(_embedding_cache) < _CACHE_MAX_SIZE:
-                    _embedding_cache[key] = emb_list
-    
+                if len(_embedding_cache) >= _CACHE_MAX_SIZE:
+                    # Evict oldest 10% (FIFO via dict insertion order)
+                    evict_count = _CACHE_MAX_SIZE // 10
+                    for k in list(_embedding_cache.keys())[:evict_count]:
+                        del _embedding_cache[k]
+                _embedding_cache[key] = emb_list
+                _embedding_cache_dirty += 1
+        # Flush to disk every 100 new embeddings
+        if _embedding_cache_dirty >= 100:
+            _flush_embedding_cache_to_disk()
+
     return results
 
 def clear_embedding_cache():
     global _embedding_cache
+    # Flush to disk before clearing
+    if _embedding_cache:
+        _flush_embedding_cache_to_disk()
     _embedding_cache = {}
 
 
 def embed_text(text: str) -> list[float]:
     results = embed_texts([text])
+    if not results or results[0] is None:
+        raise ValueError(f"Failed to embed text (length={len(text)})")
     return results[0]
+
+
+# ---------------------------------------------------------------------------
+# LLM Response Cache — avoids re-calling the LLM for semantically identical queries.
+# Uses prompt hash + model name as key. TTL prevents stale responses.
+# ---------------------------------------------------------------------------
+import time as _time
+
+_llm_response_cache = {}
+_llm_response_cache_lock = threading.Lock()
+_LLM_CACHE_MAX_SIZE = 500
+_LLM_CACHE_TTL = 3600  # 1 hour default
+
+
+def _llm_cache_key(prompt: str, model: str = "") -> str:
+    """Hash the full prompt + model for cache lookup."""
+    content = f"{model}|{prompt}"
+    return hashlib.sha256(content.encode()).hexdigest()[:32]
+
+
+def get_cached_response(prompt: str, model: str = "") -> str | None:
+    """Check if a cached LLM response exists for this prompt."""
+    key = _llm_cache_key(prompt, model)
+    with _llm_response_cache_lock:
+        entry = _llm_response_cache.get(key)
+        if entry and _time.time() < entry["expires"]:
+            logger.debug(f"LLM cache HIT: {key}")
+            return entry["response"]
+        elif entry:
+            del _llm_response_cache[key]  # expired
+    return None
+
+
+def set_cached_response(prompt: str, response: str, model: str = "",
+                        ttl: int = _LLM_CACHE_TTL) -> None:
+    """Cache an LLM response for future identical queries."""
+    key = _llm_cache_key(prompt, model)
+    now = _time.time()
+    with _llm_response_cache_lock:
+        # Prune all expired entries first (prevents memory leak)
+        expired = [k for k, v in _llm_response_cache.items() if now >= v["expires"]]
+        for k in expired:
+            del _llm_response_cache[k]
+        # If still at capacity, evict oldest 10%
+        if len(_llm_response_cache) >= _LLM_CACHE_MAX_SIZE:
+            evict_count = max(_LLM_CACHE_MAX_SIZE // 10, 1)
+            by_age = sorted(_llm_response_cache, key=lambda k: _llm_response_cache[k]["expires"])
+            for k in by_age[:evict_count]:
+                del _llm_response_cache[k]
+        _llm_response_cache[key] = {
+            "response": response,
+            "expires": now + ttl,
+        }
+
+
+def clear_llm_cache():
+    """Clear the LLM response cache."""
+    global _llm_response_cache
+    with _llm_response_cache_lock:
+        _llm_response_cache = {}
 
 
 def clean_llm_response(text):

@@ -1,0 +1,47 @@
+{
+  "_comment": "Copy to config.json and customise. Credentials go in .env, not here.",
+
+  "rules": [
+    {
+      "_comment": "Vote 50% on any post tagged 'hive'",
+      "type": "tag",
+      "value": "hive",
+      "vote_weight": 50
+    },
+    {
+      "_comment": "Vote 100% on posts by a specific author",
+      "type": "author",
+      "value": "buildteam",
+      "vote_weight": 100
+    },
+    {
+      "_comment": "Vote 25% on any post by an author with rep >= 50",
+      "type": "min_reputation",
+      "value": 50,
+      "vote_weight": 25
+    },
+    {
+      "_comment": "Vote 30% on posts with at least 300 words",
+      "type": "min_words",
+      "value": 300,
+      "vote_weight": 30
+    }
+  ],
+
+  "default_vote_weight": 50,
+  "min_reputation": 25,
+  "min_word_count": 0,
+
+  "min_rc_percent": 10,
+  "min_vp_percent": 80,
+  "max_daily_votes": 20,
+  "vote_delay_minutes": 5,
+
+  "trail_accounts": [],
+  "trail_vote_weight": 50,
+
+  "blacklist": [],
+  "whitelist": [],
+
+  "vote_log_path": "vote_log.json"
+}

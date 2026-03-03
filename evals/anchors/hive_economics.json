@@ -1,0 +1,74 @@
+[
+  {
+    "id": "hive-econ-001",
+    "domain": "hive_economics",
+    "severity": "critical",
+    "instruction": "What is HBD and how does it maintain its peg to the US dollar?",
+    "must_contain": ["Hive Backed Dollar", "peg", "convert"],
+    "must_not_contain": ["algorithmic stablecoin like UST", "fully collateralized", "backed 1:1 by USD reserves"],
+    "rationale": "HBD is a blockchain-native stablecoin pegged via a conversion mechanism to $1 worth of HIVE (not USD reserves). It's NOT like UST (algorithmic) or USDC (reserve-backed). The peg works through a 3.5-day conversion to HIVE at the median price feed."
+  },
+  {
+    "id": "hive-econ-002",
+    "domain": "hive_economics",
+    "severity": "critical",
+    "instruction": "How does the Hive reward pool work?",
+    "must_contain": ["reward pool", "vote", "7 day", "curator"],
+    "must_not_contain": ["miners get rewards", "proof of work", "staking rewards like Ethereum"],
+    "rationale": "Hive has a daily reward pool distributed by stakeholder votes over a 7-day window. Rewards split between author and curators. This is NOT mining (PoW) or simple staking — it's Delegated Proof of Stake with social allocation."
+  },
+  {
+    "id": "hive-econ-003",
+    "domain": "hive_economics",
+    "severity": "high",
+    "instruction": "What is Hive Power and why does it matter?",
+    "must_contain": ["stake", "influence", "vest"],
+    "must_not_contain": ["Hive Power earns interest", "HP is a separate token", "HP can be transferred instantly"],
+    "rationale": "Hive Power (HP) is staked HIVE measured in VESTS. It provides governance influence and resource credits. HP is NOT a separate token — it's HIVE locked in a 13-week power-down schedule. It doesn't earn interest like HBD savings."
+  },
+  {
+    "id": "hive-econ-004",
+    "domain": "hive_economics",
+    "severity": "high",
+    "instruction": "How does curation work on Hive?",
+    "must_contain": ["curator", "vote", "reward"],
+    "must_not_contain": ["curators get 25%", "first voter gets all curation", "curation is the same as mining"],
+    "rationale": "Curation rewards are 50% of post rewards (changed from 25% in earlier hard forks). Early voting advantages were removed — curation is now linear regardless of vote timing. Saying curators get 25% reflects outdated pre-HF25 knowledge."
+  },
+  {
+    "id": "hive-econ-005",
+    "domain": "hive_economics",
+    "severity": "critical",
+    "instruction": "What is the HBD savings interest rate and how does it work?",
+    "must_contain": ["savings", "interest", "witness"],
+    "must_not_contain": ["fixed 10%", "guaranteed rate", "compound interest", "risk-free"],
+    "rationale": "HBD savings interest rate is set by witness consensus (median of witness votes), currently around 15-20% APR. It is NOT a fixed rate and can change. The rate is simple interest, not compound. While low-risk, calling it 'risk-free' ignores depeg scenarios."
+  },
+  {
+    "id": "hive-econ-006",
+    "domain": "hive_economics",
+    "severity": "high",
+    "instruction": "How does the Hive witness system work?",
+    "must_contain": ["witness", "block", "vote", "DPoS"],
+    "must_not_contain": ["anyone can produce blocks", "proof of work", "random selection"],
+    "rationale": "Hive uses Delegated Proof of Stake (DPoS). Top 20 witnesses (elected by stake-weighted votes) produce blocks in round-robin. One backup witness is included per round. This is NOT PoW, not random selection — it's elected block production."
+  },
+  {
+    "id": "hive-econ-007",
+    "domain": "hive_economics",
+    "severity": "high",
+    "instruction": "What happens during a Hive power down?",
+    "must_contain": ["13 week", "weekly", "liquid"],
+    "must_not_contain": ["instant unstaking", "7 day power down", "28 day power down", "penalty for powering down"],
+    "rationale": "Power down converts HP to liquid HIVE over 13 weekly installments (1/13 per week). There is NO penalty and NO shorter/longer period. Saying 7 days or 28 days confuses Hive with other chains."
+  },
+  {
+    "id": "hive-econ-008",
+    "domain": "hive_economics",
+    "severity": "high",
+    "instruction": "What is the Hive DHF (Decentralized Hive Fund)?",
+    "must_contain": ["proposal", "fund", "stakeholder"],
+    "must_not_contain": ["DAO with token voting", "treasury controlled by witnesses", "ICO funds"],
+    "rationale": "The DHF funds development proposals voted on by HP stakeholders. It's funded by a portion of inflation, not an ICO. Proposals need to exceed the 'return proposal' threshold. Witnesses don't control the DHF — stakeholders do via direct voting."
+  }
+]

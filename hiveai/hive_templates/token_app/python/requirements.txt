@@ -1,0 +1,26 @@
+# =============================================================================
+# Hive Engine Token App — Python Dependencies
+# =============================================================================
+#
+# Install with: pip install -r requirements.txt
+#
+# beem: The comprehensive Python library for the Hive blockchain.
+#   - Signs and broadcasts transactions to Hive Layer 1 nodes
+#   - Handles key management (active, posting, owner keys)
+#   - Equivalent of @hiveio/dhive in the JavaScript ecosystem
+#
+# requests: HTTP client for querying the Hive Engine sidechain API.
+#   - Used to read Layer 2 state (token info, balances, market orders)
+#   - Hive Engine exposes a JSON-RPC API at api.hive-engine.com/rpc
+#
+# flask: Lightweight Python web framework for the REST API.
+#
+# python-dotenv: Loads environment variables from .env file.
+#   - Keeps secrets (active key) out of source code
+# =============================================================================
+
+flask>=3.0
+beem>=0.24
+requests>=2.31
+python-dotenv>=1.0
+pytest>=8.0

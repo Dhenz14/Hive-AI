@@ -1,0 +1,56 @@
+[
+  {
+    "id": "test-unit-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "What is the difference between unit tests, integration tests, and end-to-end tests?",
+    "must_contain": ["unit", "integration", "end-to-end", "isolat"],
+    "must_not_contain": ["only unit tests are needed", "E2E tests replace unit tests", "integration tests are unnecessary"],
+    "rationale": "Unit = test isolated functions/classes (fast, many). Integration = test component interactions (medium speed, medium count). E2E = test full user flows (slow, few). All three levels are needed — the testing pyramid. No single level replaces the others."
+  },
+  {
+    "id": "test-mock-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "When should you use mocks vs stubs in testing?",
+    "must_contain": ["mock", "stub", "behavior", "isolat"],
+    "must_not_contain": ["mock everything", "never use mocks", "mocks and stubs are identical"],
+    "rationale": "Stubs provide canned responses (state verification). Mocks verify interactions (behavior verification). Over-mocking creates brittle tests coupled to implementation. Under-mocking makes tests slow/flaky. Mock external dependencies, not internal implementation details."
+  },
+  {
+    "id": "test-tdd-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "What is Test-Driven Development and what are its steps?",
+    "must_contain": ["red", "green", "refactor", "test first"],
+    "must_not_contain": ["TDD means writing tests after code", "TDD is the same as having tests", "TDD always increases development time"],
+    "rationale": "TDD cycle: Red (write failing test) → Green (minimal code to pass) → Refactor (clean up while green). Writing tests AFTER code is not TDD. TDD is a design discipline, not just testing. It often REDUCES total time by catching bugs early and guiding design."
+  },
+  {
+    "id": "test-coverage-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "Is 100% code coverage a good goal?",
+    "must_contain": ["coverage", "quality", "meaningful"],
+    "must_not_contain": ["100% coverage means no bugs", "coverage is useless", "always aim for 100%"],
+    "rationale": "100% coverage does NOT mean bug-free — it means every line was executed, not that every behavior was tested correctly. Coverage measures execution, not assertion quality. Chasing 100% leads to low-value tests. 80-90% with meaningful assertions is typically better than 100% with trivial tests."
+  },
+  {
+    "id": "test-flaky-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "What causes flaky tests and how do you fix them?",
+    "must_contain": ["flaky", "deterministic", "isolat"],
+    "must_not_contain": ["just retry flaky tests", "flaky tests don't matter", "skip flaky tests permanently"],
+    "rationale": "Flaky tests are caused by: shared state, timing dependencies, non-deterministic order, external service dependencies, date/time assumptions, and race conditions. FIX the root cause — retrying masks the problem, skipping accumulates tech debt. Flaky tests erode trust in the entire test suite."
+  },
+  {
+    "id": "test-fixture-001",
+    "domain": "testing",
+    "severity": "high",
+    "instruction": "How do you manage test data and fixtures effectively?",
+    "must_contain": ["fixture", "setup", "cleanup"],
+    "must_not_contain": ["use production data for testing", "shared test database is fine", "no cleanup needed"],
+    "rationale": "Test data should be: isolated per test (no shared mutable state), created in setup and cleaned in teardown, deterministic (no random data without seeds), and independent of production. Using production data risks PII exposure and non-reproducible tests."
+  }
+]

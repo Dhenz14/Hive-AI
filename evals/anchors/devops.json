@@ -1,0 +1,65 @@
+[
+  {
+    "id": "devops-docker-001",
+    "domain": "devops",
+    "severity": "high",
+    "instruction": "What is the difference between a Docker image and a container?",
+    "must_contain": ["image", "container", "running", "immutable"],
+    "must_not_contain": ["images and containers are the same", "containers are virtual machines", "Docker is a hypervisor"],
+    "rationale": "Images are immutable blueprints (layers, read-only). Containers are running instances of images (writable layer on top). Docker is NOT a hypervisor — containers share the host kernel, unlike VMs which each have their own OS kernel."
+  },
+  {
+    "id": "devops-docker-002",
+    "domain": "devops",
+    "severity": "critical",
+    "instruction": "How do you write a secure Dockerfile?",
+    "must_contain": ["non-root", "USER", "COPY"],
+    "must_not_contain": ["run as root is fine", "ADD is better than COPY", "latest tag is recommended"],
+    "rationale": "Secure Dockerfiles: use specific base image tags (NOT :latest), run as non-root user (USER directive), prefer COPY over ADD (ADD can auto-extract and fetch URLs), minimize layers, don't store secrets in images, use multi-stage builds."
+  },
+  {
+    "id": "devops-ci-001",
+    "domain": "devops",
+    "severity": "high",
+    "instruction": "What is the difference between CI and CD?",
+    "must_contain": ["Continuous Integration", "Continuous Delivery", "automat"],
+    "must_not_contain": ["CI and CD are the same thing", "CD means Continuous Development", "CI replaces testing"],
+    "rationale": "CI = Continuous Integration (auto build + test on each commit). CD = Continuous Delivery (auto deploy to staging, manual to prod) or Continuous Deployment (auto deploy to prod). CI does NOT replace testing — it automates running tests. CD is NOT 'Continuous Development.'"
+  },
+  {
+    "id": "devops-secret-001",
+    "domain": "devops",
+    "severity": "critical",
+    "instruction": "How do you manage secrets in a CI/CD pipeline?",
+    "must_contain": ["vault", "secret", "environment variable"],
+    "must_not_contain": ["commit secrets to repo", "encrypt secrets in code", "hardcode in pipeline config"],
+    "rationale": "Secrets must come from secret management systems (Vault, AWS Secrets Manager, GitHub Secrets) or encrypted environment variables. NEVER commit to repo, hardcode in pipeline YAML, or embed in Docker images. Even encrypted secrets in code are risky — the key must be managed somewhere."
+  },
+  {
+    "id": "devops-k8s-001",
+    "domain": "devops",
+    "severity": "high",
+    "instruction": "What is the difference between a Kubernetes Deployment and a Pod?",
+    "must_contain": ["Pod", "Deployment", "replica", "container"],
+    "must_not_contain": ["Pods and Deployments are the same", "always create Pods directly", "Deployments replace Pods"],
+    "rationale": "Pods are the smallest deployable unit (one or more containers). Deployments manage Pod replicas with rolling updates, rollback, and self-healing. Never create Pods directly in production — use Deployments for lifecycle management. Deployments CREATE and manage Pods."
+  },
+  {
+    "id": "devops-monitor-001",
+    "domain": "devops",
+    "severity": "high",
+    "instruction": "What are the key metrics to monitor in a production system?",
+    "must_contain": ["latency", "error", "throughput"],
+    "must_not_contain": ["CPU usage is all you need", "monitoring is optional", "logs are enough"],
+    "rationale": "The four golden signals (Google SRE): latency, error rate, throughput (traffic), and saturation (resource utilization). CPU alone misses application-level issues. Logs alone miss trends. Monitoring requires metrics + logging + tracing (observability)."
+  },
+  {
+    "id": "devops-iac-001",
+    "domain": "devops",
+    "severity": "high",
+    "instruction": "What is Infrastructure as Code and why is it important?",
+    "must_contain": ["code", "version control", "reproducib"],
+    "must_not_contain": ["IaC means writing scripts", "IaC replaces documentation", "IaC is only for cloud"],
+    "rationale": "IaC manages infrastructure through declarative config files (Terraform, CloudFormation, Ansible) in version control. It provides reproducibility, auditability, and consistency. IaC is NOT just scripts — declarative vs imperative distinction matters. Works for on-prem too, not just cloud."
+  }
+]

@@ -2,7 +2,9 @@
 
 ## What is it?
 
-HiveAI Knowledge Refinery is an AI-powered research system that autonomously discovers authoritative web sources, extracts structured knowledge into a persistent graph, generates polished "Golden Book" reference documents, and publishes them immutably to the Hive blockchain. It operates fully offline with Ollama—no API keys required—while seamlessly scaling to high-performance configurations with async job queues, automatic hardware tuning, and incremental knowledge graph updates.
+HiveAI Knowledge Refinery is an AI-powered research system that autonomously discovers authoritative web sources, extracts structured knowledge into a persistent graph, generates polished "Golden Book" reference documents, and publishes them immutably to the Hive blockchain. It then distills this knowledge into LoRA adapters — compressed skill artifacts that encode the *ability to produce knowledge*, not just stored facts.
+
+It operates fully offline with Ollama — no API keys required — while seamlessly scaling to high-performance configurations with async job queues, automatic hardware tuning, and incremental knowledge graph updates. The system features merge cycling (progressive LoRA training), MoLoRA domain routing, a secure code sandbox, and a Decentralized Brain Collective (DBC) for on-chain knowledge sharing.
 
 ---
 
@@ -33,17 +35,41 @@ HiveAI Knowledge Refinery is an AI-powered research system that autonomously dis
 - **Cross-Encoder Reranking** — ms-marco-MiniLM-L-6-v2 model dramatically improves result relevance after initial retrieval
 - **GraphRAG Context** — Leverages community summaries for broader topical questions
 - **Auto-Learn** — Detects knowledge gaps and automatically triggers background research jobs, re-answers with new knowledge when available
+- **Code Self-Verification** — Code blocks in chat responses are executed in a secure sandbox before returning to the user, catching runtime errors before they reach you
+- **MoLoRA Domain Routing** — Automatic domain detection routes queries to specialized models (Python, Hive, JavaScript, Rust, etc.) when enabled
+
+### LoRA Training Pipeline
+- **Self-Distillation** — 16 prompt templates generate training pairs from the model's own knowledge (standard + O1-style reasoning)
+- **Genetic Expansion** — Mutation operators (rephrase, constrain, generalize, error-inject, multi-step) expand top pairs for data diversity
+- **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
+- **Merge Cycling** — Train LoRA → merge into base → train new LoRA on improved base → repeat. Each cycle bakes specialization deeper into core weights
+- **MoLoRA (Mixture of LoRA Experts)** — Domain-specialized LoRAs with intelligent keyword-based query routing. Each domain gets its own merged Ollama model with graceful fallback to the generalist
+- **Eval System** — 115 coding challenges (100 general + 15 Hive-specific) across 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%)
+- **Multi-Backend Serving** — Ollama for standard models, llama-server for LoRA adapters, OpenRouter for cloud models. Automatic routing via `smart_call()`
 
 ### Blockchain Publishing
 - **Hive Blockchain Integration** — Publishes Golden Books to Hive with configurable multipart splitting for large content
 - **Tagged Organization** — Namespace-based tagging (archivedcontenthaf, hiveaiknowledgehaf) for discoverability
 - **Immutable Timestamping** — Permanent, verifiable record on distributed ledger with full source attribution
 
+### Decentralized Brain Collective (DBC)
+- **On-Chain Knowledge Sharing** — Nodes propose and vote on training pairs via Hive custom_json operations
+- **HP-Weighted Consensus** — Hive Power-weighted voting prevents sybil attacks; epoch-based timeout ensures liveness
+- **Pair Encoding** — Gzip + base64 encoding fits training pairs into Hive's custom_json size limits
+- **Secrets Scanner** — 10-pattern scanner prevents accidental credential leaks in training data
+- **RC Hysteresis** — Automatically pauses operations when Resource Credits drop below floor, resumes when recovered
+- **HivePoA Storage** — IPFS + GitHub Releases fallback for large adapter files with resume-capable downloads
+
 ### Local-First Operation
 - **Ollama Support** — Fully offline operation using Ollama with Qwen3, Phi-4, or any compatible model
 - **Hardware Auto-Detection** — Automatic profile selection (low/medium/high) based on CPU and RAM
 - **Configurable Embedding Models** — BAAI/bge-m3, Qwen3-Embedding, or any sentence-transformers model with single-command re-embedding
+- **Confidence Routing** — `smart_call()` classifies query difficulty → routes trivial/simple queries to fast model, complex ones to reasoning model. 60-70% of queries use the fast model.
 - **Zero External Dependencies** — Optional search APIs (Serper.dev, Brave) but fully functional without them
+
+### Secure Code Sandbox
+- **Safe Execution** — Python and JavaScript code runs in isolated subprocesses with timeouts, resource limits, and restricted imports
+- **Chat Verification** — When enabled (`CHAT_VERIFY_CODE=true`), all code in chat responses is executed before delivery, catching syntax and runtime errors
 
 ### Job Queue & Scaling
 - **Async Background Processing** — SQLAlchemy-based queue with automatic worker threads
@@ -96,7 +122,7 @@ OLLAMA_MODEL_FAST=qwen3:4b
 run.bat
 ```
 
-Open your browser to **http://localhost:5000** — that's it! Fully local, no API keys, no cloud dependencies.
+Open your browser to **http://localhost:5001** — that's it! Fully local, no API keys, no cloud dependencies.
 
 ---
 
@@ -128,7 +154,7 @@ nano .env
 ./run.sh
 ```
 
-Open your browser to **http://localhost:5000**
+Open your browser to **http://localhost:5001**
 
 ---
 
@@ -211,6 +237,93 @@ For access to cutting-edge models like Qwen3-30B, Phi-4, Claude, etc. without lo
 
 ---
 
+## LoRA Training
+
+HiveAI trains LoRA adapters that compress coding knowledge into lightweight model extensions. The pipeline supports multiple training versions, merge cycling, and domain-specialized models.
+
+### Training in WSL2
+
+LoRA training requires GPU access. On Windows, use WSL2 with an Ubuntu distro:
+
+```bash
+# Enter WSL2
+wsl -d Ubuntu-24.04
+
+# Activate training environment
+source /opt/hiveai-env/bin/activate
+cd /opt/hiveai/project
+
+# Train (example: v5 dense Qwen3.5-9B)
+python scripts/train_v5.py 2>&1 | tee logs/train_v5.log
+```
+
+### Merge Cycling
+
+After training, merge the LoRA into the base model to create an improved foundation for the next training cycle:
+
+```bash
+# Merge v5 adapter into base (creates models/qwen3.5-9b-cycle1)
+python scripts/auto_cycle.py --adapter loras/v5 --deploy --eval
+
+# View merge history
+python scripts/auto_cycle.py --history
+```
+
+### Domain-Specialized Training
+
+Train domain experts from filtered training data:
+
+```bash
+# See available domains
+python scripts/train_domain.py --list
+
+# Train Python specialist
+python scripts/train_domain.py --domain python --dry-run
+
+# Deploy domain model to Ollama
+python scripts/deploy_domain.py --domain python
+```
+
+### MoLoRA Routing
+
+Enable domain-based routing to automatically send queries to specialized models:
+
+```ini
+# In .env
+MOLORA_ENABLED=true
+MOLORA_DEFAULT_DOMAIN=general
+```
+
+When enabled, `smart_call()` classifies each query's domain (Python, Hive, JavaScript, Rust, etc.) and routes it to the matching specialized model. Falls back to the generalist model if a domain model isn't available.
+
+### Eval System
+
+Evaluate model quality with 115 coding challenges:
+
+```bash
+# Eval against Ollama model
+python scripts/run_eval.py --model qwen3:14b
+
+# Eval against llama-server (LoRA adapter)
+python scripts/run_eval.py --base-url http://localhost:11435
+
+# Compare with baseline
+python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
+```
+
+### LoRA Version History
+
+| Version | Base Model | Status | Pairs | Eval Score | Notes |
+|---------|-----------|--------|-------|------------|-------|
+| v1 | Qwen3-14B | Ready | 1,104 | 0.853 (+15%) | First successful training, proven |
+| v1.5 | Qwen3-14B | Cancelled | — | — | Superseded by v2 |
+| v2 | Qwen3.5-35B-A3B | Killed | — | — | Superseded by v3 |
+| v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
+| v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
+| v5 | Qwen3.5-9B (dense) | In Progress | 2,529 | — | Dense model, maxed-out r=64 LoRA |
+
+---
+
 ## Configuration Reference
 
 ### Required Settings
@@ -230,6 +343,21 @@ For access to cutting-edge models like Qwen3-30B, Phi-4, Claude, etc. without lo
 | `EXTRACTION_QUALITY` | `high` or `standard` | `high` |
 | `AI_INTEGRATIONS_OPENROUTER_API_KEY` | OpenRouter key | (blank) |
 
+### llama-server (LoRA Adapter Serving)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `LLAMA_SERVER_BASE_URL` | llama-server endpoint | `http://localhost:11435` |
+| `LLAMA_SERVER_MODELS` | Comma-separated model names routed to llama-server | `hiveai-v1,hiveai-v1.5,hiveai-v2` |
+| `LLAMA_SERVER_MODEL` | Currently active llama-server model | `hiveai-v1` |
+
+### MoLoRA (Domain Routing)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `MOLORA_ENABLED` | Enable domain-based model routing | `false` |
+| `MOLORA_DEFAULT_DOMAIN` | Default domain when no match | `general` |
+
 ### Embedding & Semantics
 
 | Variable | Purpose | Default |
@@ -238,6 +366,35 @@ For access to cutting-edge models like Qwen3-30B, Phi-4, Claude, etc. without lo
 | `SEMANTIC_SIMILARITY_THRESHOLD` | Duplicate detection (0.0-1.0) | `0.82` |
 | `HNSW_EF_SEARCH` | pgvector search accuracy | `100` |
 | `SEMANTIC_CHUNKING` | Embedding-based chunking | `false` |
+
+### Quality Gates
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `MIN_TRAINING_QUALITY` | Minimum quality for training pairs | `0.70` |
+| `LORA_EXPORT_QUALITY` | Minimum quality for LoRA export | `0.75` |
+| `MIN_CODE_BLOCKS` | Minimum code blocks required per pair | `1` |
+| `DEDUP_EXACT_THRESHOLD` | Exact duplicate threshold | `0.95` |
+| `DEDUP_PARAPHRASE_THRESHOLD` | Paraphrase duplicate threshold | `0.85` |
+| `DEDUP_NEAR_THRESHOLD` | Near-duplicate threshold | `0.75` |
+
+### Chat & Sandbox
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `CHAT_VERIFY_CODE` | Execute code blocks before returning to user | `true` |
+
+### DBC (Decentralized Brain Collective)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DBC_ENABLED` | Enable on-chain knowledge sharing | `false` |
+| `DBC_ACCOUNT` | Hive account for broadcasting | (blank) |
+| `DBC_POSTING_KEY` | Hive posting key | (blank) |
+| `DBC_MIN_ONCHAIN_QUALITY` | Minimum quality for on-chain pairs | `0.85` |
+| `DBC_EPOCH_TIMEOUT_HOURS` | Voting epoch timeout | `24` |
+| `DBC_RC_FLOOR_PERCENT` | RC floor for hysteresis pause | `20` |
+| `DBC_RC_RESUME_PERCENT` | RC level to resume operations | `50` |
 
 ### Hardware Profile
 
@@ -280,10 +437,17 @@ See `.env.example` for complete reference.
 - **CPU**: 4+ cores
 - **RAM**: 16 GB (8 GB minimum)
 - **GPU**: Optional — NVIDIA with 8GB+ VRAM for faster LLM inference
-- **Storage**: 10 GB
+- **Storage**: 10 GB (+ model weights)
 - **Database**: SQLite (automatic, no setup)
 - **LLM**: Ollama with qwen3:8b
 - **Profile**: `medium` or `high` (auto-detected)
+
+### LoRA Training (WSL2 on Windows)
+- **GPU**: NVIDIA with 16GB+ VRAM (RTX 4070 Ti SUPER or better)
+- **RAM**: 32GB+ system RAM
+- **WSL2**: Ubuntu 24.04 with CUDA support
+- **Python**: 3.11+ with PyTorch, transformers, peft, trl, bitsandbytes
+- **Storage**: 50GB+ for model weights and training data
 
 ### Cloud / Server (Production)
 - **CPU**: 2+ vCPU
@@ -378,8 +542,14 @@ Golden Book Generation
     ↓ (Outline → Write → Review → Rewrite)
 Quality Scoring
     ↓
+Training Pair Generation
+    ↓ (Self-distillation + genetic expansion)
+LoRA Training
+    ↓ (Merge cycling: train → merge → repeat)
+Model Deployment
+    ↓ (Ollama / llama-server)
 Blockchain Publishing
-    ↓ (Hive with multipart splitting)
+    ↓ (Hive + IPFS for LoRA weights)
 Immutable Record
 ```
 
@@ -389,12 +559,15 @@ Immutable Record
 |-----------|-----------|---------|
 | **Web Framework** | Flask | REST API and dashboard UI |
 | **Database** | SQLite or PostgreSQL + pgvector | Triples, embeddings, content storage |
-| **LLM** | Ollama or OpenRouter | Reasoning, extraction, writing, chat |
+| **LLM** | Ollama / llama-server / OpenRouter | Reasoning, extraction, writing, chat |
 | **Embeddings** | sentence-transformers | Vector search, semantic similarity |
 | **Web Scraping** | crawl4ai (Playwright) | JavaScript-aware page extraction |
 | **Graph Analysis** | NetworkX, Louvain | Community detection and summaries |
 | **Job Queue** | SQLAlchemy + threading | Async pipeline orchestration |
-| **Blockchain** | Hive RPC | Immutable publishing |
+| **LoRA Training** | PEFT, transformers, trl | Fine-tuning with merge cycling |
+| **Code Sandbox** | subprocess (isolated) | Safe Python/JS execution |
+| **Blockchain** | Hive RPC (beem) | Immutable publishing + DBC |
+| **Domain Router** | MoLoRA | Keyword-based query→model routing |
 
 ---
 
@@ -405,15 +578,17 @@ Immutable Record
 | **Language** | Python 3.11+ |
 | **Web Framework** | Flask |
 | **Database** | SQLite (local) or PostgreSQL 13+ with pgvector (production) |
-| **LLM Backends** | Ollama, OpenRouter (Claude, Qwen3, Phi-4, etc.) |
+| **LLM Backends** | Ollama, llama-server (LoRA), OpenRouter (Claude, Qwen3, Phi-4) |
 | **Embeddings** | sentence-transformers (BAAI/bge-m3, Qwen3-Embedding) |
 | **Web Scraping** | crawl4ai (Playwright) |
 | **Graph Computing** | NetworkX, Louvain (community detection) |
 | **Chunking** | semchunk (fast) or embedding-based (precise) |
 | **Structured LLM** | instructor (JSON schema validation) |
 | **Vector Search** | pgvector HNSW (PostgreSQL) or numpy cosine (SQLite) |
+| **LoRA Training** | PEFT, transformers, trl, bitsandbytes (WSL2 + CUDA) |
 | **Job Queue** | SQLAlchemy ORM + threading |
-| **Blockchain** | Hive RPC nodes |
+| **Blockchain** | Hive RPC nodes (beem, direct RPC, lighthive) |
+| **Model Serving** | Ollama, llama.cpp (llama-server) |
 
 ---
 
@@ -422,14 +597,30 @@ Immutable Record
 ```
 hiveai-knowledge-refinery/
 ├── hiveai/
-│   ├── app.py                 # Flask web server
-│   ├── config.py              # Configuration and hardware detection
-│   ├── hardware.py            # Hardware profile logic
-│   ├── models.py              # SQLAlchemy ORM models
-│   ├── chat.py                # Multi-hop RAG chat pipeline
+│   ├── app.py                 # Flask web server + dashboard
+│   ├── config.py              # Configuration, hardware detection, quality gates
+│   ├── hardware.py            # Hardware profile auto-detection
+│   ├── models.py              # SQLAlchemy ORM (TrainingPair, LoraVersion, ChatFeedback, etc.)
+│   ├── chat.py                # Multi-hop RAG chat pipeline with auto-learn
+│   ├── sandbox.py             # Secure code execution sandbox (Python + JS)
+│   ├── vectorstore.py         # Vector search (pgvector / numpy cosine)
 │   ├── llm/
-│   │   ├── client.py          # LLM backend abstraction (Ollama/OpenRouter)
-│   │   └── prompts.py         # System and reasoning prompts
+│   │   ├── client.py          # LLM routing (Ollama/llama-server/OpenRouter), smart_call(), MoLoRA
+│   │   └── prompts.py         # System prompts, Golden Book templates, CODING_SYSTEM_PROMPT
+│   ├── lora/
+│   │   ├── distiller.py       # 16 prompt templates, scorer v5, self-refinement, genetic expansion
+│   │   ├── trainer.py         # LoRA training wrapper (r=32 standard / r=8 micro, DoRA)
+│   │   ├── adapter_manager.py # Runtime multi-LoRA hot-swap
+│   │   ├── merge_cycle.py     # Merge cycling orchestrator (train → merge → repeat)
+│   │   ├── molora.py          # MoLoRA domain router (7 domains, keyword scoring)
+│   │   ├── brain_export.py    # IPFS pinning + Hive LoRA publication
+│   │   ├── exporter.py        # Golden Books → JSONL training pairs
+│   │   ├── dedup.py           # Embedding-based deduplication gate
+│   │   └── benchmark.py       # Held-out evaluation harness
+│   ├── dbc/
+│   │   ├── chain.py           # Hive blockchain abstraction, pair encoding, protocol logic
+│   │   ├── node.py            # DBC node daemon with MockChain for testing
+│   │   └── hivepoa.py         # IPFS/GitHub adapter storage client
 │   ├── pipeline/
 │   │   ├── url_discovery.py   # Source discovery (DuckDuckGo, Brave, SearXNG)
 │   │   ├── crawler.py         # Web crawling with caching
@@ -439,28 +630,52 @@ hiveai-knowledge-refinery/
 │   │   ├── contradiction.py   # Contradiction detection
 │   │   ├── communities.py     # Louvain clustering and summaries
 │   │   ├── writer.py          # Golden Book generation pipeline
-│   │   ├── scorer.py          # Quality scoring
+│   │   ├── scorer.py          # Quality scoring (v5)
 │   │   ├── publisher.py       # Hive blockchain publishing
 │   │   ├── queue_worker.py    # Async job orchestration
 │   │   └── orchestrator.py    # High-level pipeline coordinator
 │   ├── storage/
 │   │   └── graph_store.py     # Knowledge graph persistence
-│   ├── templates/             # Jinja2 HTML templates
-│   │   ├── dashboard.html
-│   │   ├── chat.html
-│   │   ├── graph_explorer.html
-│   │   ├── job_detail.html
-│   │   └── book_review.html
-│   └── static/                # CSS, JS, images for UI
-├── docs/
-│   ├── CONTRIBUTING.md        # Contribution guidelines
-│   ├── README.md              # Documentation
-│   └── CODE_OF_CONDUCT.md
+│   ├── hive_templates/        # Ready-to-use Hive app scaffolding
+│   │   ├── social_app/        # Blog/social app (JS + Python)
+│   │   ├── voting_bot/        # Automated curation bot
+│   │   ├── token_app/         # Hive Engine token operations
+│   │   ├── haf_indexer/       # HAF blockchain indexer
+│   │   └── keychain_auth/     # Hive Keychain authentication
+│   └── templates/             # Jinja2 HTML templates
+│       ├── dashboard.html     # System dashboard with merge cycle stats
+│       ├── chat.html          # Chat UI with domain badges
+│       ├── forge.html         # Training management
+│       ├── eval.html          # Eval results viewer
+│       ├── graph_explorer.html
+│       ├── job_detail.html
+│       └── book_review.html
+├── scripts/
+│   ├── run_eval.py            # 115-challenge eval harness
+│   ├── train_v5.py            # LoRA v5 training (dense Qwen3.5-9B)
+│   ├── deploy_v5.py           # Post-training deployment (merge → GGUF → Ollama)
+│   ├── auto_cycle.py          # Merge cycling CLI
+│   ├── train_domain.py        # Domain-filtered training wrapper
+│   ├── deploy_domain.py       # Domain adapter deployment
+│   ├── download_model.sh      # Reliable model download (XET-safe)
+│   ├── prepare_v5_data.py     # v5 data preparation
+│   ├── calibrate_eval.py      # Eval anchor calibration
+│   ├── claude_distill.py      # Claude distillation pipeline
+│   ├── mine_hive_knowledge.py # Hive-specific pair mining
+│   ├── distill_supervisor.py  # Continuous distillation manager
+│   └── setup_check.py         # First-run environment validator
+├── evals/
+│   └── anchors/               # 18 domain-specific eval anchor sets
+├── loras/
+│   ├── training_data/         # JSONL training datasets (v1-v5, DBC, MoE)
+│   ├── v1/                    # LoRA v1 adapter (Qwen3-14B) — proven
+│   ├── v2/                    # LoRA v2 adapter (Qwen3.5-35B-A3B) — killed
+│   └── domains/               # Domain-specialized adapters (MoLoRA)
+├── models/                    # Local model weights
+├── Dockerfile                 # Multi-stage container build
+├── docker-compose.yml         # Full stack (app + Ollama + GPU)
+├── BLUEPRINT.md               # LoRA pipeline architecture plan
 ├── .env.example               # Configuration template
-├── setup.sh                   # Linux/macOS setup script
-├── setup.bat                  # Windows setup script
-├── run.sh                     # Linux/macOS launcher
-├── run.bat                    # Windows launcher
 ├── pyproject.toml             # Python project metadata
 ├── requirements.txt           # Python dependencies
 ├── LICENSE                    # MIT License
@@ -474,7 +689,7 @@ hiveai-knowledge-refinery/
 ### Create a Research Job
 
 ```bash
-curl -X POST http://localhost:5000/api/jobs \
+curl -X POST http://localhost:5001/api/jobs \
   -H "Content-Type: application/json" \
   -d '{"topic": "Quantum Machine Learning 2025"}'
 ```
@@ -482,7 +697,7 @@ curl -X POST http://localhost:5000/api/jobs \
 ### Batch Create Jobs
 
 ```bash
-curl -X POST http://localhost:5000/api/jobs/batch \
+curl -X POST http://localhost:5001/api/jobs/batch \
   -H "Content-Type: application/json" \
   -d '{
     "topics": [
@@ -496,13 +711,13 @@ curl -X POST http://localhost:5000/api/jobs/batch \
 ### Monitor Queue
 
 ```bash
-curl http://localhost:5000/api/queue/status
+curl http://localhost:5001/api/queue/status
 ```
 
 ### Chat with Knowledge Base
 
 ```bash
-curl -X POST http://localhost:5000/api/chat \
+curl -X POST http://localhost:5001/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "message": "What are the latest advances in quantum computing?",
@@ -514,13 +729,13 @@ curl -X POST http://localhost:5000/api/chat \
 
 ```bash
 # Hardware profile
-curl http://localhost:5000/api/hardware
+curl http://localhost:5001/api/hardware
 
 # LLM backend
-curl http://localhost:5000/api/llm-status
+curl http://localhost:5001/api/llm-status
 
 # Embedding model
-curl http://localhost:5000/api/embedding-status
+curl http://localhost:5001/api/embedding-status
 ```
 
 ---
@@ -545,6 +760,12 @@ run.bat
 export PRODUCTION=1
 export WEB_WORKERS=4
 python -m hiveai.app
+```
+
+### Docker
+
+```bash
+docker-compose up -d
 ```
 
 ### Database Setup
@@ -601,14 +822,40 @@ We welcome contributions! Please see [CONTRIBUTING.md](docs/CONTRIBUTING.md) for
 
 ## Roadmap
 
-- [ ] Multi-document summarization across book collections
-- [ ] Fine-tuning embedding models on domain-specific data
-- [ ] Real-time collaborative knowledge graph editing
-- [ ] Advanced visualization of community structures
-- [ ] Integration with external knowledge bases (Wikipedia, Wikidata)
-- [ ] Multilingual support and cross-lingual entity resolution
-- [ ] IPFS integration for distributed storage
-- [ ] Mobile companion app for Hive authentication
+### Phase 1 — Information Compression (complete)
+
+The refinery: raw web pages → extracted triples → knowledge graph → Golden Books → Hive blockchain.
+
+- [x] Web crawl → triple extraction → knowledge graph
+- [x] Golden Book generation with quality scoring
+- [x] Hive blockchain publishing with multipart splitting
+- [x] Multi-hop RAG chat ("Ask the Keeper")
+- [x] Secure code sandbox with chat self-verification
+
+### Phase 2 — Skill Compression (current)
+
+The trainer: accumulated knowledge → LoRA adapters that encode the *ability to produce knowledge*.
+
+- [x] Self-distillation (16 templates, genetic expansion, scorer v5)
+- [x] LoRA v1 training + eval harness (115 challenges, +15% over baseline)
+- [x] Multi-backend LLM routing (Ollama + llama-server + OpenRouter)
+- [x] Confidence routing via `smart_call()` (60-70% fast model usage)
+- [x] Merge cycling (train → merge → repeat)
+- [x] MoLoRA domain routing (Python, Hive, JS, Rust, C++, Go)
+- [ ] LoRA v5 training (dense Qwen3.5-9B, r=64) — in progress
+- [ ] Domain specialist training (per-domain LoRAs)
+- [ ] GRPO+ reinforcement learning via rLLM
+
+### Phase 3 — On-Chain Skill Storage (in progress)
+
+Decentralized Brain Collective: knowledge and skills stored on Hive, reconstructible by anyone.
+
+- [x] DBC protocol (on-chain pair proposals, HP-weighted voting, epoch consensus)
+- [x] 3-backend chain abstraction (beem → direct RPC → lighthive)
+- [x] Pair encoding (gzip + base64), secrets scanner, RC hysteresis
+- [x] HivePoA adapter storage (IPFS + GitHub Releases fallback)
+- [ ] Live deployment and testing on Hive testnet
+- [ ] Multi-node federation and peer discovery
 
 ---
 
@@ -628,4 +875,7 @@ Built with:
 - [sentence-transformers](https://huggingface.co/sentence-transformers/) — Embeddings
 - [instructor](https://github.com/jxnl/instructor) — Structured LLM outputs
 - [NetworkX](https://networkx.org/) — Graph analysis
+- [PEFT](https://github.com/huggingface/peft) — Parameter-efficient fine-tuning
 - [Hive Blockchain](https://hive.io) — Decentralized publishing
+- [Ollama](https://ollama.com) — Local LLM serving
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — GGUF model serving

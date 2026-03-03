@@ -1,0 +1,39 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+*.egg-info
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Data (mount as volumes instead)
+*.db
+hiveai.db
+
+# Models (too large for Docker image)
+models/
+unsloth_compiled_cache/
+
+# Logs
+logs/
+*.log
+
+# Dev files
+.claude/
+*.jsonl
+BLUEPRINT.md
+UPGRADE_QWEN35.md
+
+# OS
+Thumbs.db
+.DS_Store

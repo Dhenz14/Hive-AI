@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hive Keychain Login</title>
+    <style>
+        /*
+         * Minimal styling -- this is an auth template, not a design system.
+         * Replace with your own CSS in production.
+         */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px 16px;
+        }
+
+        .container {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 560px;
+        }
+
+        h1 {
+            color: #e31337;
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+
+        h2 {
+            color: #e31337;
+            font-size: 18px;
+            margin-bottom: 12px;
+        }
+
+        h3 {
+            color: #ccc;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: #aaa;
+            margin-bottom: 6px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            background: #0f0f23;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+        }
+
+        input:focus, textarea:focus, select:focus {
+            border-color: #e31337;
+        }
+
+        textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: #e31337;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+
+        button:hover { background: #c01030; }
+        button:disabled { background: #555; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: #2a4a6a;
+        }
+        .btn-secondary:hover { background: #3a5a7a; }
+
+        .status {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            display: none;
+            word-break: break-word;
+        }
+
+        .status.error {
+            display: block;
+            background: #2a0a0a;
+            border: 1px solid #e31337;
+            color: #ff6b6b;
+        }
+
+        .status.success {
+            display: block;
+            background: #0a2a0a;
+            border: 1px solid #2ecc71;
+            color: #2ecc71;
+        }
+
+        .status.info {
+            display: block;
+            background: #0a0a2a;
+            border: 1px solid #3498db;
+            color: #5dade2;
+        }
+
+        .profile-card {
+            display: none;
+            margin-top: 24px;
+            padding: 20px;
+            background: #0f0f23;
+            border: 1px solid #2a2a4a;
+            border-radius: 8px;
+        }
+
+        .profile-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #1a1a2e;
+            font-size: 13px;
+        }
+
+        .profile-row .label { color: #888; }
+        .profile-row .value { color: #e0e0e0; text-align: right; max-width: 60%; word-break: break-word; }
+
+        .profile-image {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            border: 2px solid #e31337;
+            margin-bottom: 12px;
+        }
+
+        .logout-btn {
+            background: #333;
+            margin-top: 16px;
+        }
+        .logout-btn:hover { background: #444; }
+
+        #keychain-warning {
+            display: none;
+            margin-bottom: 16px;
+            padding: 12px;
+            background: #2a2a0a;
+            border: 1px solid #f39c12;
+            border-radius: 6px;
+            color: #f39c12;
+            font-size: 13px;
+        }
+        #keychain-warning a { color: #f1c40f; }
+
+        /* ---- Operations panel (post-auth) ---- */
+        #operations-section {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            width: auto;
+            padding: 8px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 6px 6px 0 0;
+            cursor: pointer;
+            color: #aaa;
+            margin-top: 0;
+        }
+        .tab-btn:hover { background: #2a2a4a; color: #fff; }
+        .tab-btn.active { background: #1a1a2e; color: #e31337; border-bottom-color: #1a1a2e; }
+
+        .tab-panel {
+            display: none;
+            padding: 16px;
+            background: #0f0f23;
+            border: 1px solid #2a2a4a;
+            border-radius: 0 8px 8px 8px;
+        }
+
+        .tab-panel.active { display: block; }
+
+        .inline-group {
+            display: flex;
+            gap: 8px;
+        }
+        .inline-group > * { flex: 1; }
+
+        .hint {
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .section-divider {
+            border: none;
+            border-top: 1px solid #2a2a4a;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <!-- ================================================================
+             LOGIN SECTION
+             ================================================================
+             This is the unauthenticated view. The user enters their Hive
+             username and clicks the button to start the challenge-response
+             authentication flow with Hive Keychain.
+        -->
+        <div id="login-section">
+            <h1>Hive Keychain Login</h1>
+            <p class="subtitle">Authenticate with your Hive account -- no passwords needed</p>
+
+            <!--
+                KEYCHAIN DETECTION WARNING
+                ===========================
+                Hive Keychain injects `window.hive_keychain` into every page.
+                We check for its existence to determine if the extension is installed.
+                If not present, we show a helpful message with install links.
+                The check runs on page load and again after 1.5s (extension injection timing).
+            -->
+            <div id="keychain-warning">
+                <strong>Hive Keychain not detected.</strong><br><br>
+                Hive Keychain is a browser extension that securely stores your
+                Hive private keys and signs transactions without exposing them
+                to websites.<br><br>
+                Install it from:
+                <a href="https://hive-keychain.com" target="_blank" rel="noopener">hive-keychain.com</a>
+                (Chrome, Firefox, Brave, Edge)
+            </div>
+
+            <div class="form-group">
+                <label for="username">Hive Username</label>
+                <!--
+                    Hive usernames are 3-16 characters:
+                    lowercase letters, numbers, dots, and hyphens.
+                    They always start with a letter. No @ prefix needed.
+                -->
+                <input type="text" id="username" placeholder="e.g. alice" autocomplete="off" spellcheck="false" />
+            </div>
+
+            <!--
+                The login button triggers the full challenge-response flow:
+                1. POST /api/auth/challenge -> server sends a random nonce
+                2. Keychain signs the nonce with the user's posting key
+                3. POST /api/auth/verify -> server verifies signature against on-chain public key
+                4. Server returns a JWT for session management
+            -->
+            <button id="login-btn" onclick="login()">Sign in with Keychain</button>
+
+            <div id="status" class="status"></div>
+        </div>
+
+        <!-- ================================================================
+             PROFILE SECTION (visible after successful authentication)
+             ================================================================
+             Displays the user's on-chain Hive profile data, fetched from
+             the protected /api/profile endpoint using the JWT.
+        -->
+        <div id="profile-section" class="profile-card">
+            <img id="profile-image" class="profile-image" src="" alt="Profile" />
+            <h2 id="profile-name"></h2>
+            <div id="profile-details"></div>
+            <button class="logout-btn" onclick="logout()">Logout</button>
+        </div>
+
+        <!-- ================================================================
+             OPERATIONS SECTION (visible after successful authentication)
+             ================================================================
+             Demonstrates the major Keychain API methods beyond authentication:
+             - Posting content (requestBroadcast with "comment" operation)
+             - Sending tokens (requestTransfer)
+             - Voting (requestBroadcast with "vote" operation)
+             - Delegation (requestDelegation)
+             - Custom JSON (requestBroadcast with "custom_json" operation)
+
+             Each operation prompts Keychain for user approval. The private
+             key never leaves the extension.
+        -->
+        <div id="operations-section">
+            <hr class="section-divider" />
+            <h2>Blockchain Operations</h2>
+            <p class="subtitle">Each action will prompt Hive Keychain for your approval</p>
+
+            <!-- Tab navigation -->
+            <div class="tabs">
+                <button class="tab-btn active" data-tab="tab-post">Post</button>
+                <button class="tab-btn" data-tab="tab-transfer">Transfer</button>
+                <button class="tab-btn" data-tab="tab-vote">Vote</button>
+                <button class="tab-btn" data-tab="tab-delegate">Delegate</button>
+                <button class="tab-btn" data-tab="tab-custom">Custom JSON</button>
+            </div>
+
+            <!-- ---- TAB: Publish a Post ---- -->
+            <!--
+                HIVE POSTING (the "comment" operation)
+                =======================================
+                On Hive, both top-level posts and replies use the same "comment"
+                operation. The difference:
+                  - Top-level post: parent_author="" parent_permlink="category"
+                  - Reply: parent_author="original_author" parent_permlink="original_permlink"
+
+                Uses POSTING key authority.
+            -->
+            <div id="tab-post" class="tab-panel active">
+                <h3>Publish a Post</h3>
+                <div class="form-group">
+                    <label for="post-title">Title</label>
+                    <input type="text" id="post-title" placeholder="My first Hive post" />
+                </div>
+                <div class="form-group">
+                    <label for="post-body">Body (Markdown supported)</label>
+                    <textarea id="post-body" placeholder="Hello Hive! This is my first post using Keychain authentication."></textarea>
+                </div>
+                <button class="btn-secondary" onclick="publishPost()">Publish via Keychain</button>
+                <p class="hint">Uses Posting key. Keychain will show you the full post before broadcasting.</p>
+            </div>
+
+            <!-- ---- TAB: Transfer Tokens ---- -->
+            <!--
+                HIVE TRANSFERS
+                ===============
+                Transfers send liquid HIVE or HBD (Hive Backed Dollars) between accounts.
+                - Amount must have exactly 3 decimal places (e.g., "1.000")
+                - Memo is public unless prefixed with # (then encrypted with memo keys)
+                - Uses ACTIVE key authority (financial operation)
+            -->
+            <div id="tab-transfer" class="tab-panel">
+                <h3>Send HIVE or HBD</h3>
+                <div class="form-group">
+                    <label for="transfer-to">Recipient</label>
+                    <input type="text" id="transfer-to" placeholder="bob" />
+                </div>
+                <div class="inline-group">
+                    <div class="form-group">
+                        <label for="transfer-amount">Amount</label>
+                        <input type="number" id="transfer-amount" placeholder="1.000" step="0.001" min="0.001" />
+                    </div>
+                    <div class="form-group">
+                        <label for="transfer-currency">Currency</label>
+                        <!-- HIVE: the native token. HBD: Hive Backed Dollars (stablecoin pegged to ~$1 USD) -->
+                        <select id="transfer-currency">
+                            <option value="HIVE">HIVE</option>
+                            <option value="HBD">HBD</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="transfer-memo">Memo (optional)</label>
+                    <input type="text" id="transfer-memo" placeholder="Thanks for the tutorial!" />
+                    <p class="hint">Memos are public on the blockchain. Prefix with # to encrypt with memo keys.</p>
+                </div>
+                <button class="btn-secondary" onclick="sendTransfer()">Send via Keychain</button>
+                <p class="hint">Uses Active key. Keychain shows a clear transfer confirmation.</p>
+            </div>
+
+            <!-- ---- TAB: Vote on Content ---- -->
+            <!--
+                HIVE VOTING
+                ============
+                Voting distributes the "reward pool" to content creators.
+                - Weight: 10000 = 100% upvote, -10000 = 100% downvote, 0 = unvote
+                - Voting power regenerates ~20%/day (heavy voters should pace themselves)
+                - Uses POSTING key authority (social operation)
+            -->
+            <div id="tab-vote" class="tab-panel">
+                <h3>Vote on a Post or Comment</h3>
+                <div class="form-group">
+                    <label for="vote-author">Author</label>
+                    <input type="text" id="vote-author" placeholder="alice" />
+                </div>
+                <div class="form-group">
+                    <label for="vote-permlink">Permlink</label>
+                    <!--
+                        A permlink is the URL slug of a Hive post.
+                        Example: for hive.blog/@alice/my-first-post the permlink is "my-first-post"
+                    -->
+                    <input type="text" id="vote-permlink" placeholder="my-first-post" />
+                </div>
+                <div class="form-group">
+                    <label for="vote-weight">Vote Weight (%)</label>
+                    <input type="number" id="vote-weight" value="100" min="-100" max="100" />
+                    <p class="hint">100 = full upvote, -100 = full downvote, 0 = remove vote</p>
+                </div>
+                <button class="btn-secondary" onclick="voteOnContent()">Vote via Keychain</button>
+            </div>
+
+            <!-- ---- TAB: Delegate HP ---- -->
+            <!--
+                HIVE POWER DELEGATION
+                ======================
+                Delegation lends your voting influence (HP) to another account.
+                - The delegatee gets increased voting power and resource credits
+                - You can undelegate at any time (5-day cooldown)
+                - Your HP is NOT transferred, just the influence is shared
+                - Uses ACTIVE key authority (financial-level operation)
+            -->
+            <div id="tab-delegate" class="tab-panel">
+                <h3>Delegate Hive Power</h3>
+                <div class="form-group">
+                    <label for="delegate-to">Delegatee</label>
+                    <input type="text" id="delegate-to" placeholder="bob" />
+                </div>
+                <div class="form-group">
+                    <label for="delegate-amount">Amount (HP)</label>
+                    <input type="number" id="delegate-amount" placeholder="10.000" step="0.001" min="0" />
+                    <p class="hint">Set to 0 to remove an existing delegation (5-day cooldown).</p>
+                </div>
+                <button class="btn-secondary" onclick="delegateHP()">Delegate via Keychain</button>
+            </div>
+
+            <!-- ---- TAB: Custom JSON ---- -->
+            <!--
+                CUSTOM JSON
+                ============
+                The swiss army knife of Hive operations. Dapps use custom_json
+                to store arbitrary data on the blockchain:
+                - Splinterlands: game actions, card trades
+                - dBuzz: short posts
+                - Hive-Engine: sidechain token operations
+                The "id" field identifies your dapp (e.g., "splinterlands", "sm_market_sale")
+            -->
+            <div id="tab-custom" class="tab-panel">
+                <h3>Broadcast Custom JSON</h3>
+                <div class="form-group">
+                    <label for="custom-json-id">Operation ID</label>
+                    <input type="text" id="custom-json-id" placeholder="my-dapp" />
+                    <p class="hint">A unique identifier for your dapp (e.g., "splinterlands", "my-app")</p>
+                </div>
+                <div class="form-group">
+                    <label for="custom-json-data">JSON Data</label>
+                    <textarea id="custom-json-data" placeholder='{"action": "like", "target": "@alice/my-post"}'></textarea>
+                </div>
+                <button class="btn-secondary" onclick="broadcastCustomJson()">Broadcast via Keychain</button>
+                <p class="hint">Uses Posting key. Stored permanently on the Hive blockchain.</p>
+            </div>
+
+            <!-- Operations status message (shared across all tabs) -->
+            <div id="ops-status" class="status"></div>
+        </div>
+
+    </div>
+
+    <!--
+        Load the external app.js which contains:
+        - Keychain detection logic
+        - Challenge-response authentication flow
+        - Profile management
+        - Post-auth operations (post, transfer, vote, delegate, custom_json)
+        - Full tutorial comments explaining every Keychain API method
+
+        The inline script from the original template has been moved to this
+        external file for better maintainability and reusability.
+    -->
+    <script src="app.js"></script>
+</body>
+</html>

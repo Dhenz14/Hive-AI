@@ -1,0 +1,395 @@
+{% extends "base.html" %}
+{% block title %}HiveAI - Eval Arena{% endblock %}
+
+{% block extra_css %}
+<style>
+    .eval-card {
+        background: linear-gradient(135deg, #1a1008 0%, #0d0a05 100%);
+        border: 1px solid #5c3a1e;
+        border-radius: 4px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(205,127,50,0.1);
+        position: relative;
+    }
+    .eval-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #cd7f32, #b87333, transparent);
+    }
+    .eval-card h2 { color: #cd7f32; }
+    .eval-stat-card {
+        background: linear-gradient(145deg, #1a1008 0%, #0d0a05 100%);
+        border: 2px solid #5c3a1e;
+        border-radius: 6px;
+        padding: 1.2rem;
+        text-align: center;
+    }
+    .eval-stat-card .number {
+        font-family: 'MedievalSharp', cursive;
+        font-size: 2rem;
+        font-weight: 700;
+        color: #cd7f32;
+    }
+    .eval-stat-card .label {
+        font-size: 0.85rem;
+        color: #b87333;
+        margin-top: 0.3rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .btn-eval {
+        background: linear-gradient(180deg, #92400e 0%, #78350f 100%);
+        color: #fcd34d;
+        border: 2px solid #b45309;
+        display: inline-block;
+        padding: 0.6rem 1.2rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 700;
+        transition: all 0.2s;
+        font-family: 'MedievalSharp', cursive;
+    }
+    .btn-eval:hover {
+        background: linear-gradient(180deg, #b45309 0%, #92400e 100%);
+        box-shadow: 0 0 12px rgba(180, 83, 9, 0.5);
+    }
+    .btn-eval:disabled { opacity: 0.5; cursor: not-allowed; }
+    .score-badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
+        font-family: 'MedievalSharp', cursive;
+        font-weight: 700;
+        font-size: 1.1rem;
+    }
+    .score-high { background: rgba(74,222,128,0.15); color: #86efac; border: 1px solid #4ade80; }
+    .score-mid { background: rgba(252,211,77,0.15); color: #fcd34d; border: 1px solid #f59e0b; }
+    .score-low { background: rgba(252,165,165,0.15); color: #fca5a5; border: 1px solid #ef4444; }
+    .dim-bar {
+        display: inline-block;
+        height: 14px;
+        border-radius: 3px;
+        vertical-align: middle;
+    }
+    .progress-track {
+        width: 100%;
+        height: 28px;
+        background: #0d0a05;
+        border: 2px solid #5c3a1e;
+        border-radius: 14px;
+        overflow: hidden;
+        position: relative;
+        margin: 0.8rem 0;
+    }
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #78350f, #b45309, #f59e0b);
+        border-radius: 14px;
+        transition: width 0.5s ease;
+    }
+    .progress-label {
+        position: absolute;
+        top: 50%; left: 50%;
+        transform: translate(-50%, -50%);
+        font-family: 'MedievalSharp', cursive;
+        font-size: 0.75rem;
+        color: #fef3c7;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        white-space: nowrap;
+        z-index: 2;
+    }
+    .report-row { cursor: pointer; transition: background 0.15s; }
+    .report-row:hover { background: rgba(205,127,50,0.08); }
+    select {
+        padding: 0.5rem 0.7rem;
+        background: #1a1008;
+        border: 2px solid #5c3a1e;
+        border-radius: 4px;
+        color: #d4b896;
+        font-size: 0.9rem;
+        font-family: 'Crimson Text', serif;
+        outline: none;
+    }
+    select:focus { border-color: #b45309; box-shadow: 0 0 8px rgba(180,83,9,0.3); }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>📊 The Eval Arena</h1>
+<p style="color: #b87333; margin-bottom: 1.5rem; font-style: italic;">
+    Test the gnome's knowledge against structured challenges. Compare models, track progress, measure mastery.
+</p>
+
+<!-- Run Evaluation -->
+<div class="eval-card">
+    <h2>⚔ Launch Evaluation</h2>
+    <div style="display: flex; gap: 1.5rem; align-items: flex-end; flex-wrap: wrap; margin-top: 1rem;">
+        <div>
+            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Model</label>
+            <select id="eval-model">
+                <option value="">Default (fast model)</option>
+                <option value="qwen3:14b">qwen3:14b (baseline)</option>
+                <option value="hiveai-v1">hiveai-v1 (llama-server)</option>
+                <option value="hiveai-v2">hiveai-v2 (llama-server)</option>
+            </select>
+        </div>
+        <div>
+            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Category</label>
+            <select id="eval-category">
+                <option value="">All (115 challenges)</option>
+                <option value="code">Code (30%)</option>
+                <option value="test">Test (30%)</option>
+                <option value="concept">Concept (20%)</option>
+                <option value="explain">Explain (20%)</option>
+                <option value="hive_sdk">Hive SDK</option>
+                <option value="hive_layer2">Hive Layer 2</option>
+                <option value="hive_economics">Hive Economics</option>
+                <option value="hive_architecture">Hive Architecture</option>
+                <option value="hive_security">Hive Security</option>
+            </select>
+        </div>
+        <div>
+            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Limit</label>
+            <select id="eval-limit">
+                <option value="">All</option>
+                <option value="5">5 (quick test)</option>
+                <option value="15">15 (Hive only)</option>
+                <option value="50">50 (half)</option>
+            </select>
+        </div>
+        <div>
+            <button class="btn-eval" id="eval-run-btn" onclick="runEval()">
+                ⚔ Begin Trial
+            </button>
+        </div>
+    </div>
+
+    <!-- Progress -->
+    <div id="eval-progress-container" style="display: none; margin-top: 1rem;">
+        <div class="progress-track">
+            <div class="progress-fill" id="eval-progress-bar" style="width: 0%;"></div>
+            <div class="progress-label" id="eval-progress-label">Starting...</div>
+        </div>
+        <div id="eval-current" style="color: #6b5a3e; font-size: 0.85rem; margin-top: 0.3rem;"></div>
+    </div>
+
+    <div id="eval-error" style="display: none; margin-top: 1rem; padding: 0.8rem; background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 4px; color: #fca5a5;"></div>
+</div>
+
+<!-- Latest Results -->
+<div class="eval-card" id="results-card" style="display: none;">
+    <h2>🏆 Trial Results</h2>
+    <div style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin: 1rem 0;">
+        <div>
+            <span style="color: #b87333; font-size: 0.85rem;">Model:</span>
+            <span id="result-model" style="color: #cd7f32; font-family: 'MedievalSharp', cursive;"></span>
+        </div>
+        <div>
+            <span style="color: #b87333; font-size: 0.85rem;">Overall:</span>
+            <span id="result-score" class="score-badge"></span>
+        </div>
+        <div>
+            <span style="color: #b87333; font-size: 0.85rem;">Challenges:</span>
+            <span id="result-count" style="color: #d4b896;"></span>
+        </div>
+    </div>
+
+    <!-- Dimension Breakdown -->
+    <h3 style="color: #b87333; margin-top: 1.2rem;">Dimension Scores</h3>
+    <div id="result-dimensions" style="margin-top: 0.5rem;"></div>
+</div>
+
+<!-- Past Reports -->
+<div class="eval-card">
+    <h2>📜 Past Trials</h2>
+    <div id="reports-container">
+        <p class="empty">Loading past reports...</p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let pollInterval = null;
+
+async function runEval() {
+    const model = document.getElementById('eval-model').value || undefined;
+    const category = document.getElementById('eval-category').value || undefined;
+    const limitVal = document.getElementById('eval-limit').value;
+    const limit = limitVal ? parseInt(limitVal) : undefined;
+
+    document.getElementById('eval-run-btn').disabled = true;
+    document.getElementById('eval-progress-container').style.display = 'block';
+    document.getElementById('eval-error').style.display = 'none';
+    document.getElementById('results-card').style.display = 'none';
+
+    try {
+        const body = {};
+        if (model) body.model = model;
+        if (category) body.category = category;
+        if (limit) body.limit = limit;
+
+        const resp = await fetch('/api/eval/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            showError(data.error || 'Failed to start evaluation');
+            document.getElementById('eval-run-btn').disabled = false;
+            return;
+        }
+
+        // Start polling
+        pollInterval = setInterval(pollStatus, 3000);
+    } catch (e) {
+        showError('Connection failed. Is the server running?');
+        document.getElementById('eval-run-btn').disabled = false;
+    }
+}
+
+async function pollStatus() {
+    try {
+        const resp = await fetch('/api/eval/status');
+        const data = await resp.json();
+
+        if (data.error) {
+            clearInterval(pollInterval);
+            showError(data.error);
+            document.getElementById('eval-run-btn').disabled = false;
+            document.getElementById('eval-progress-container').style.display = 'none';
+            return;
+        }
+
+        if (data.progress) {
+            const total = data.progress.total || 1;
+            const done = data.progress.completed || 0;
+            const pct = ((done / total) * 100).toFixed(1);
+            document.getElementById('eval-progress-bar').style.width = pct + '%';
+            document.getElementById('eval-progress-label').textContent = done + ' / ' + total + ' challenges';
+            if (data.progress.current) {
+                document.getElementById('eval-current').textContent = 'Testing: ' + data.progress.current;
+            }
+        }
+
+        if (!data.running && data.has_results) {
+            clearInterval(pollInterval);
+            document.getElementById('eval-run-btn').disabled = false;
+            document.getElementById('eval-progress-container').style.display = 'none';
+            loadResults();
+            loadReports();
+        }
+    } catch (e) {
+        // Ignore transient fetch errors during polling
+    }
+}
+
+async function loadResults() {
+    try {
+        const resp = await fetch('/api/eval/results');
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        document.getElementById('results-card').style.display = 'block';
+        document.getElementById('result-model').textContent = data.model || 'unknown';
+        document.getElementById('result-count').textContent = data.total_challenges || 0;
+
+        const score = data.overall_score || 0;
+        const scorePct = (score * 100).toFixed(1);
+        const scoreEl = document.getElementById('result-score');
+        scoreEl.textContent = scorePct + '%';
+        scoreEl.className = 'score-badge ' + (score >= 0.8 ? 'score-high' : score >= 0.6 ? 'score-mid' : 'score-low');
+
+        // Dimension breakdown
+        const dims = data.dimension_scores || {};
+        const dimContainer = document.getElementById('result-dimensions');
+        let dimHtml = '<table style="width: 100%;"><tbody>';
+        for (const [dim, val] of Object.entries(dims)) {
+            const pct = (val * 100).toFixed(1);
+            const color = val >= 0.8 ? '#86efac' : val >= 0.6 ? '#fcd34d' : '#fca5a5';
+            dimHtml += `<tr>
+                <td style="width: 120px; color: #b87333; font-weight: 600; text-transform: capitalize;">${dim}</td>
+                <td style="width: 60px; color: ${color}; font-family: 'MedievalSharp', cursive;">${pct}%</td>
+                <td><div style="background: #0d0a05; border: 1px solid #3d2a14; border-radius: 3px; height: 14px; width: 100%;">
+                    <div class="dim-bar" style="width: ${pct}%; background: ${color};"></div>
+                </div></td>
+            </tr>`;
+        }
+        dimHtml += '</tbody></table>';
+        dimContainer.innerHTML = dimHtml;
+    } catch (e) {
+        console.error('Failed to load results:', e);
+    }
+}
+
+async function loadReports() {
+    try {
+        const resp = await fetch('/api/eval/reports');
+        const data = await resp.json();
+        const container = document.getElementById('reports-container');
+
+        if (!data.length) {
+            container.innerHTML = '<p class="empty">No past trials recorded. Run an evaluation above.</p>';
+            return;
+        }
+
+        let html = '<table><thead><tr><th>Report</th><th>Model</th><th>Score</th><th>Challenges</th><th>Date</th></tr></thead><tbody>';
+        for (const r of data) {
+            if (r.error) continue;
+            const score = r.overall_score ? (r.overall_score * 100).toFixed(1) : '—';
+            const color = (r.overall_score || 0) >= 0.8 ? '#86efac' : (r.overall_score || 0) >= 0.6 ? '#fcd34d' : '#fca5a5';
+            const ts = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—';
+            html += `<tr class="report-row">
+                <td style="color: #cd7f32; font-size: 0.85rem;">${escHtml(r.filename)}</td>
+                <td style="color: #b87333;">${escHtml(r.model || '?')}</td>
+                <td><span style="color: ${color}; font-weight: 700;">${score}%</span></td>
+                <td>${r.total_challenges || '—'}</td>
+                <td style="color: #6b5a3e; font-size: 0.85rem;">${ts}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        container.innerHTML = html;
+    } catch (e) {
+        console.error('Failed to load reports:', e);
+    }
+}
+
+function showError(msg) {
+    const el = document.getElementById('eval-error');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function escHtml(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Load past reports on page load
+loadReports();
+
+// Check if an eval is already running
+(async function checkRunning() {
+    try {
+        const resp = await fetch('/api/eval/status');
+        const data = await resp.json();
+        if (data.running) {
+            document.getElementById('eval-run-btn').disabled = true;
+            document.getElementById('eval-progress-container').style.display = 'block';
+            pollInterval = setInterval(pollStatus, 3000);
+        }
+        if (data.has_results) {
+            loadResults();
+        }
+    } catch (e) {}
+})();
+</script>
+{% endblock %}

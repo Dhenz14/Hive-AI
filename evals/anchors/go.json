@@ -1,0 +1,74 @@
+[
+  {
+    "id": "go-goroutine-001",
+    "domain": "go",
+    "severity": "critical",
+    "instruction": "How do goroutines work and how do you prevent goroutine leaks?",
+    "must_contain": ["goroutine", "go ", "leak", "done"],
+    "must_not_contain": ["goroutines are threads", "goroutines are free", "don't worry about goroutine cleanup"],
+    "rationale": "Goroutines are lightweight green threads multiplexed onto OS threads by the Go runtime. They are NOT free — each costs ~2-8KB stack and leaked goroutines accumulate memory. Prevent leaks with: context cancellation, done channels, or WaitGroup. Always ensure goroutines have an exit path."
+  },
+  {
+    "id": "go-channel-001",
+    "domain": "go",
+    "severity": "critical",
+    "instruction": "What is the difference between buffered and unbuffered channels in Go?",
+    "must_contain": ["buffer", "block", "synchron"],
+    "must_not_contain": ["always use buffered channels", "unbuffered channels are slow", "channels replace mutexes"],
+    "rationale": "Unbuffered channels synchronize sender and receiver — both block until the other is ready. Buffered channels only block when full/empty. Unbuffered is for synchronization, buffered for decoupling. Channels complement mutexes — use channels for communication, mutexes for protecting shared state."
+  },
+  {
+    "id": "go-error-001",
+    "domain": "go",
+    "severity": "critical",
+    "instruction": "What are Go's error handling best practices?",
+    "must_contain": ["error", "nil", "wrap", "fmt.Errorf"],
+    "must_not_contain": ["just panic on errors", "ignore errors with _", "Go should have exceptions"],
+    "rationale": "Go uses explicit error returns, NOT exceptions. Check err != nil after every call. Wrap errors with fmt.Errorf(\"context: %w\", err) for stack context. Use errors.Is/errors.As for type-safe checking. NEVER discard errors with _ unless you can justify it. panic is for unrecoverable bugs only."
+  },
+  {
+    "id": "go-interface-001",
+    "domain": "go",
+    "severity": "high",
+    "instruction": "How do interfaces work in Go and what makes them different from other languages?",
+    "must_contain": ["interface", "implicit", "method"],
+    "must_not_contain": ["Go interfaces are like Java interfaces", "you must declare implements", "interfaces require inheritance"],
+    "rationale": "Go interfaces are satisfied implicitly — a type implements an interface if it has all the methods, no 'implements' keyword. This enables decoupling: define interfaces where they're used, not where types are defined. Keep interfaces small (1-3 methods). Accept interfaces, return structs."
+  },
+  {
+    "id": "go-context-001",
+    "domain": "go",
+    "severity": "high",
+    "instruction": "What is context.Context in Go and how should it be used?",
+    "must_contain": ["context", "cancel", "timeout", "first parameter"],
+    "must_not_contain": ["store everything in context", "context replaces function parameters", "context is optional for servers"],
+    "rationale": "context.Context carries deadlines, cancellation signals, and request-scoped values across API boundaries. Pass as first parameter (ctx context.Context). Use WithCancel/WithTimeout/WithDeadline for lifecycle control. Do NOT store business logic data in context values — only request-scoped metadata like trace IDs."
+  },
+  {
+    "id": "go-race-001",
+    "domain": "go",
+    "severity": "critical",
+    "instruction": "How do you detect and prevent race conditions in Go?",
+    "must_contain": ["race", "mutex", "atomic"],
+    "must_not_contain": ["Go prevents race conditions automatically", "goroutines can't have races", "just add sleep to fix races"],
+    "rationale": "Go does NOT prevent data races — concurrent goroutine access to shared state without synchronization is a race condition. Detect with 'go run -race'. Fix with: sync.Mutex for complex state, sync/atomic for simple counters, channels for communication. Sleep NEVER fixes races — it just hides them."
+  },
+  {
+    "id": "go-defer-001",
+    "domain": "go",
+    "severity": "high",
+    "instruction": "How does defer work in Go and what are the gotchas?",
+    "must_contain": ["defer", "LIFO", "return"],
+    "must_not_contain": ["defer runs immediately", "defer has no overhead", "use defer for everything"],
+    "rationale": "defer schedules a function call to execute when the surrounding function returns, in LIFO order. Gotchas: deferred function arguments are evaluated immediately (not lazily), defer in a loop can accumulate (use explicit close), and deferred closures capture variable references (not values). defer has small overhead — avoid in tight loops."
+  },
+  {
+    "id": "go-generics-001",
+    "domain": "go",
+    "severity": "high",
+    "instruction": "How do generics work in Go 1.18+ and what are their limitations?",
+    "must_contain": ["type parameter", "constraint", "comparable"],
+    "must_not_contain": ["Go generics are like C++ templates", "generics solve everything", "don't use generics"],
+    "rationale": "Go 1.18+ generics use type parameters with constraints (interfaces). Built-in constraints: any, comparable. Limitations vs C++/Rust: no specialization, no variadic type params, no method type params (only function and type level), no operator overloading through generics. Use generics for data structures and algorithms, not for every function."
+  }
+]

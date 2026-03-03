@@ -24,8 +24,9 @@ def generate_permlink(title):
 def generate_tags(topic, content_hash):
     tags = [HIVE_REFINED_TAG]
 
-    hash_prefix = f"knowledgehash{content_hash[0].lower()}"
-    tags.append(hash_prefix)
+    if content_hash:
+        hash_prefix = f"knowledgehash{content_hash[0].lower()}"
+        tags.append(hash_prefix)
 
     topic_words = topic.lower().split()
     for word in topic_words[:2]:
@@ -35,7 +36,6 @@ def generate_tags(topic, content_hash):
 
     while len(tags) < 5:
         tags.append("hiveai")
-        break
 
     return tags[:5]
 

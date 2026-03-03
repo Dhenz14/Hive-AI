@@ -1,0 +1,65 @@
+[
+  {
+    "id": "web-cors-001",
+    "domain": "web",
+    "severity": "critical",
+    "instruction": "What is CORS and how do you configure it properly?",
+    "must_contain": ["Cross-Origin", "Access-Control", "origin"],
+    "must_not_contain": ["Access-Control-Allow-Origin: * is always safe", "CORS is a security feature that protects the server", "disable CORS in production"],
+    "rationale": "CORS is a browser-enforced policy that restricts cross-origin requests. It protects the USER (not the server) from malicious sites making requests with the user's cookies. Allow-Origin: * is safe ONLY for public APIs with no credentials. Never disable CORS in production."
+  },
+  {
+    "id": "web-https-001",
+    "domain": "web",
+    "severity": "critical",
+    "instruction": "Why is HTTPS important and when should you use it?",
+    "must_contain": ["encrypt", "TLS", "certificate"],
+    "must_not_contain": ["HTTPS is only for login pages", "HTTP is fine for static sites", "HTTPS is just for e-commerce"],
+    "rationale": "HTTPS should be used for ALL web traffic, not just login pages. HTTP allows eavesdropping, injection (ISP ad injection, WiFi MitM), and session hijacking on ANY page. Modern browsers flag HTTP as insecure. Service workers and many APIs require HTTPS."
+  },
+  {
+    "id": "web-cookie-001",
+    "domain": "web",
+    "severity": "critical",
+    "instruction": "How do you set secure cookies in a web application?",
+    "must_contain": ["HttpOnly", "Secure", "SameSite"],
+    "must_not_contain": ["cookies are secure by default", "HttpOnly is optional", "just use localStorage instead of cookies"],
+    "rationale": "Secure cookies require: HttpOnly (prevents XSS access), Secure (HTTPS only), SameSite (CSRF mitigation), and appropriate Path/Domain/Expiry. Cookies are NOT secure by default. localStorage is NOT a replacement — it's accessible to any JS on the page (XSS vulnerability)."
+  },
+  {
+    "id": "web-csp-001",
+    "domain": "web",
+    "severity": "high",
+    "instruction": "What is Content Security Policy (CSP) and how do you implement it?",
+    "must_contain": ["Content-Security-Policy", "script-src", "header"],
+    "must_not_contain": ["CSP replaces input validation", "CSP makes XSS impossible", "unsafe-inline is fine"],
+    "rationale": "CSP is a defense-in-depth header that restricts resource loading (scripts, styles, images). It mitigates XSS impact but does NOT replace input validation/output encoding. 'unsafe-inline' defeats the purpose for scripts. CSP is a layer, not a silver bullet."
+  },
+  {
+    "id": "web-rest-001",
+    "domain": "web",
+    "severity": "high",
+    "instruction": "What are the principles of RESTful API design?",
+    "must_contain": ["HTTP method", "resource", "stateless"],
+    "must_not_contain": ["REST requires JSON", "REST requires a framework", "POST for everything is RESTful"],
+    "rationale": "REST uses HTTP methods semantically (GET=read, POST=create, PUT=replace, PATCH=update, DELETE=remove) on resource URIs. REST is NOT JSON-specific (can use XML, etc.), doesn't require a framework, and using POST for everything violates REST principles."
+  },
+  {
+    "id": "web-cache-001",
+    "domain": "web",
+    "severity": "high",
+    "instruction": "How does HTTP caching work?",
+    "must_contain": ["Cache-Control", "ETag", "header"],
+    "must_not_contain": ["caching just works automatically", "no-cache means don't cache", "all responses should be cached"],
+    "rationale": "HTTP caching uses Cache-Control headers (max-age, no-store, no-cache, public/private) and validation (ETag, Last-Modified). no-cache does NOT mean 'don't cache' — it means 'revalidate before using.' no-store means don't cache. Not all responses should be cached (authenticated, dynamic)."
+  },
+  {
+    "id": "web-auth-001",
+    "domain": "web",
+    "severity": "critical",
+    "instruction": "How do you implement session management securely in a web application?",
+    "must_contain": ["session", "HttpOnly", "regenerat"],
+    "must_not_contain": ["store session ID in URL", "session IDs in localStorage", "sequential session IDs"],
+    "rationale": "Session IDs must be: cryptographically random, stored in HttpOnly/Secure cookies (NOT URL or localStorage), regenerated after login (prevents session fixation), and invalidated on logout. Sequential IDs are guessable. URL-based sessions leak via Referer header."
+  }
+]

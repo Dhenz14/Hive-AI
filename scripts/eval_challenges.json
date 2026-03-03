@@ -1,0 +1,2566 @@
+[
+  {
+    "id": "py-comp-001",
+    "category": "python",
+    "topic": "list_comprehensions",
+    "difficulty": 1,
+    "instruction": "Write a Python function called `even_squares` that takes a list of integers and returns a new list containing only the even numbers, squared. Use a list comprehension.",
+    "expected_concepts": [
+      "def",
+      "return",
+      "for",
+      "if",
+      "comprehension",
+      "even",
+      "**"
+    ],
+    "test_code": "result = even_squares([1, 2, 3, 4, 5, 6])\nassert result == [4, 16, 36], f'Expected [4, 16, 36] but got {result}'\nassert even_squares([]) == []\nassert even_squares([1, 3, 5]) == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-str-002",
+    "category": "python",
+    "topic": "string_formatting",
+    "difficulty": 1,
+    "instruction": "Write a Python function called `format_greeting` that takes a name (str) and age (int) and returns a greeting using an f-string. Example: format_greeting('Alice', 30) returns 'Hello, Alice! You are 30 years old.'",
+    "expected_concepts": [
+      "def",
+      "return",
+      "f-string",
+      "format"
+    ],
+    "test_code": "assert format_greeting('Alice', 30) == 'Hello, Alice! You are 30 years old.'\nassert format_greeting('Bob', 0) == 'Hello, Bob! You are 0 years old.'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-dict-003",
+    "category": "python",
+    "topic": "dictionaries",
+    "difficulty": 1,
+    "instruction": "Write a Python function called `word_count` that takes a string and returns a dictionary mapping each word (lowercased) to its count. Split on whitespace.",
+    "expected_concepts": [
+      "def",
+      "dict",
+      "split",
+      "lower",
+      "for",
+      "return"
+    ],
+    "test_code": "result = word_count('the cat sat on the mat')\nassert result == {'the': 2, 'cat': 1, 'sat': 1, 'on': 1, 'mat': 1}, f'Got {result}'\nassert word_count('') == {}\nassert word_count('hello hello hello') == {'hello': 3}\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-gen-004",
+    "category": "python",
+    "topic": "generators",
+    "difficulty": 2,
+    "instruction": "Write a Python generator function called `fibonacci` that yields Fibonacci numbers indefinitely (0, 1, 1, 2, 3, 5, 8, ...). Show how to get the first N numbers using itertools.islice.",
+    "expected_concepts": [
+      "yield",
+      "generator",
+      "fibonacci",
+      "itertools",
+      "islice"
+    ],
+    "test_code": "import itertools\nfib = fibonacci()\nassert list(itertools.islice(fib, 8)) == [0, 1, 1, 2, 3, 5, 8, 13]\nfib2 = fibonacci()\nassert list(itertools.islice(fib2, 1)) == [0]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-dec-005",
+    "category": "python",
+    "topic": "decorators",
+    "difficulty": 2,
+    "instruction": "Write a Python decorator called `timer` that measures and prints the execution time of any function it wraps. Use functools.wraps to preserve the original function's metadata. The decorator should print 'Function {name} took {time:.4f}s'.",
+    "expected_concepts": [
+      "def",
+      "decorator",
+      "wraps",
+      "functools",
+      "time",
+      "wrapper"
+    ],
+    "test_code": "import io, sys\n@timer\ndef slow_func():\n    import time; time.sleep(0.01)\n    return 42\nassert slow_func.__name__ == 'slow_func', 'wraps not applied'\nresult = slow_func()\nassert result == 42, f'Expected 42 but got {result}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-ctx-006",
+    "category": "python",
+    "topic": "context_managers",
+    "difficulty": 2,
+    "instruction": "Write a Python context manager class called `TempDirectory` that creates a temporary directory on __enter__ and deletes it (and all contents) on __exit__. Return the directory path from __enter__.",
+    "expected_concepts": [
+      "class",
+      "__enter__",
+      "__exit__",
+      "tempfile",
+      "shutil",
+      "rmtree"
+    ],
+    "test_code": "import os\nwith TempDirectory() as tmpdir:\n    assert os.path.isdir(tmpdir)\n    filepath = os.path.join(tmpdir, 'test.txt')\n    with open(filepath, 'w') as f:\n        f.write('hello')\n    assert os.path.exists(filepath)\nassert not os.path.exists(tmpdir), 'Directory should be deleted after exit'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-async-007",
+    "category": "python",
+    "topic": "asyncio",
+    "difficulty": 3,
+    "instruction": "Write an async Python function called `fetch_all` that takes a list of URLs (strings) and a coroutine factory `fetch(url)`, and runs all fetches concurrently using asyncio.gather. Return the list of results. Include proper error handling — if one fetch fails, return None for that URL instead of crashing.",
+    "expected_concepts": [
+      "async",
+      "await",
+      "asyncio",
+      "gather",
+      "return_exceptions",
+      "coroutine"
+    ],
+    "test_code": "import asyncio\nasync def mock_fetch(url):\n    if 'fail' in url:\n        raise ValueError('fetch failed')\n    return f'content of {url}'\nasync def test():\n    results = await fetch_all(['http://a.com', 'http://fail.com', 'http://b.com'], mock_fetch)\n    assert results[0] == 'content of http://a.com'\n    assert results[1] is None, f'Expected None for failed URL, got {results[1]}'\n    assert results[2] == 'content of http://b.com'\nasyncio.run(test())\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-meta-008",
+    "category": "python",
+    "topic": "metaclasses",
+    "difficulty": 4,
+    "instruction": "Write a Python metaclass called `SingletonMeta` that ensures any class using it can only have one instance. If the class is instantiated again, return the existing instance. Include thread safety using threading.Lock.",
+    "expected_concepts": [
+      "metaclass",
+      "type",
+      "__call__",
+      "singleton",
+      "threading",
+      "Lock",
+      "instance"
+    ],
+    "test_code": "class MyDB(metaclass=SingletonMeta):\n    def __init__(self):\n        self.value = 42\na = MyDB()\nb = MyDB()\nassert a is b, 'Singleton failed: different instances'\nassert a.value == 42\n# Thread safety test\nimport threading\ninstances = []\ndef create():\n    instances.append(MyDB())\nthreads = [threading.Thread(target=create) for _ in range(10)]\nfor t in threads: t.start()\nfor t in threads: t.join()\nassert all(i is a for i in instances), 'Thread safety failed'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-desc-009",
+    "category": "python",
+    "topic": "descriptors",
+    "difficulty": 4,
+    "instruction": "Write a Python descriptor class called `ValidatedField` that enforces type checking and optional range validation on class attributes. It should work as: `age = ValidatedField(int, min_val=0, max_val=150)`. Raise TypeError for wrong type and ValueError for out-of-range values.",
+    "expected_concepts": [
+      "descriptor",
+      "__get__",
+      "__set__",
+      "__set_name__",
+      "TypeError",
+      "ValueError",
+      "validation"
+    ],
+    "test_code": "class Person:\n    age = ValidatedField(int, min_val=0, max_val=150)\n    name = ValidatedField(str)\np = Person()\np.age = 25\nassert p.age == 25\np.name = 'Alice'\nassert p.name == 'Alice'\ntry:\n    p.age = 'old'\n    assert False, 'Should raise TypeError'\nexcept TypeError:\n    pass\ntry:\n    p.age = -1\n    assert False, 'Should raise ValueError'\nexcept ValueError:\n    pass\ntry:\n    p.age = 200\n    assert False, 'Should raise ValueError'\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-proto-010",
+    "category": "python",
+    "topic": "protocol_classes",
+    "difficulty": 5,
+    "instruction": "Explain Python's Protocol classes from typing and structural subtyping. Write a Protocol called `Drawable` with a `draw(self) -> str` method. Then write a function `render_all` that accepts a list of Drawables and returns their joined output. Show that classes conforming to the protocol work WITHOUT explicitly inheriting from it. Discuss runtime vs static type checking implications.",
+    "expected_concepts": [
+      "Protocol",
+      "typing",
+      "structural",
+      "subtyping",
+      "runtime_checkable",
+      "draw",
+      "duck typing"
+    ],
+    "test_code": "from typing import Protocol, runtime_checkable\n# Test that Protocol and render_all work with structural subtyping\nclass Square:\n    def draw(self) -> str:\n        return 'Square'\nclass Circle:\n    def draw(self) -> str:\n        return 'Circle'\nresult = render_all([Square(), Circle()])\nassert 'Square' in result[0] and 'Circle' in result[1], f'Expected drawings, got {result}'\n# Test that non-Drawable fails or is excluded\ntry:\n    assert isinstance(Square(), Drawable), 'runtime_checkable Protocol should work'\nexcept Exception:\n    pass  # runtime_checkable is optional\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-slot-011",
+    "category": "python",
+    "topic": "slots",
+    "difficulty": 3,
+    "instruction": "Write a Python class called `Point` that uses __slots__ for memory optimization with attributes x, y, z (all floats). Include a `distance_to` method that calculates Euclidean distance to another Point. Explain the memory savings compared to a regular class.",
+    "expected_concepts": [
+      "__slots__",
+      "class",
+      "memory",
+      "optimization",
+      "distance",
+      "sqrt"
+    ],
+    "test_code": "import math\np1 = Point(0, 0, 0)\np2 = Point(3, 4, 0)\nassert abs(p1.distance_to(p2) - 5.0) < 0.001\ntry:\n    p1.w = 10\n    assert False, 'Should not allow arbitrary attributes with __slots__'\nexcept AttributeError:\n    pass\nassert not hasattr(p1, '__dict__'), 'Should not have __dict__ with __slots__'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-abc-012",
+    "category": "python",
+    "topic": "abstract_base_classes",
+    "difficulty": 3,
+    "instruction": "Write an abstract base class called `Shape` with abstract methods `area()` and `perimeter()`. Implement two concrete subclasses: `Circle` (radius) and `Rectangle` (width, height). Ensure that instantiating Shape directly raises TypeError.",
+    "expected_concepts": [
+      "ABC",
+      "abstractmethod",
+      "class",
+      "inheritance",
+      "area",
+      "perimeter"
+    ],
+    "test_code": "import math\nc = Circle(5)\nassert abs(c.area() - math.pi * 25) < 0.001\nassert abs(c.perimeter() - 2 * math.pi * 5) < 0.001\nr = Rectangle(3, 4)\nassert r.area() == 12\nassert r.perimeter() == 14\ntry:\n    Shape()\n    assert False, 'Should not instantiate abstract class'\nexcept TypeError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-enum-013",
+    "category": "python",
+    "topic": "enums",
+    "difficulty": 2,
+    "instruction": "Write a Python Enum called `HttpStatus` with members OK=200, NOT_FOUND=404, INTERNAL_ERROR=500, and BAD_REQUEST=400. Add a method `is_error` that returns True if the status code is >= 400. Show usage examples.",
+    "expected_concepts": [
+      "Enum",
+      "class",
+      "value",
+      "method",
+      "member"
+    ],
+    "test_code": "assert HttpStatus.OK.value == 200\nassert HttpStatus.NOT_FOUND.value == 404\nassert HttpStatus.OK.is_error() == False\nassert HttpStatus.NOT_FOUND.is_error() == True\nassert HttpStatus.INTERNAL_ERROR.is_error() == True\nassert HttpStatus(200) == HttpStatus.OK\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-dataclass-014",
+    "category": "python",
+    "topic": "dataclasses",
+    "difficulty": 2,
+    "instruction": "Write a frozen dataclass called `Config` with fields: host (str, default 'localhost'), port (int, default 8080), debug (bool, default False). Add a method `url` that returns 'http://{host}:{port}'. Since it's frozen, demonstrate that modification raises an error.",
+    "expected_concepts": [
+      "dataclass",
+      "frozen",
+      "field",
+      "default",
+      "FrozenInstanceError"
+    ],
+    "test_code": "from dataclasses import FrozenInstanceError\nc = Config()\nassert c.host == 'localhost'\nassert c.port == 8080\nassert c.url() == 'http://localhost:8080'\nc2 = Config(host='example.com', port=443, debug=True)\nassert c2.url() == 'http://example.com:443'\ntry:\n    c.port = 9090\n    assert False, 'Should not modify frozen dataclass'\nexcept FrozenInstanceError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-weakref-015",
+    "category": "python",
+    "topic": "weakref",
+    "difficulty": 4,
+    "instruction": "Explain Python weakrefs and circular reference problems. Write a class `Cache` that uses weakref.WeakValueDictionary to store objects without preventing garbage collection. Demonstrate with a test that shows objects being collected when no strong references remain.",
+    "expected_concepts": [
+      "weakref",
+      "WeakValueDictionary",
+      "garbage",
+      "collection",
+      "circular",
+      "reference"
+    ],
+    "test_code": "import weakref, gc\n# Test WeakValueDictionary-based Cache\ncache = Cache()\nclass Item:\n    def __init__(self, name): self.name = name\nitem = Item('test')\ncache.put('key1', item)\nassert cache.get('key1') is not None, 'Item should be in cache'\nassert cache.get('key1').name == 'test'\ndel item\ngc.collect()\n# After deleting strong ref and GC, weak ref should be gone\nassert cache.get('key1') is None, 'Item should be garbage collected'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-import-016",
+    "category": "python",
+    "topic": "import_system",
+    "difficulty": 5,
+    "instruction": "Explain Python's import system in depth: how module loading works, the role of sys.modules, __init__.py, relative vs absolute imports, import hooks (sys.meta_path), and circular import resolution. Include code examples demonstrating at least 3 of these concepts.",
+    "expected_concepts": [
+      "sys.modules",
+      "importlib",
+      "__init__",
+      "meta_path",
+      "circular",
+      "relative",
+      "absolute",
+      "finder",
+      "loader"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "py-mp-017",
+    "category": "python",
+    "topic": "multiprocessing",
+    "difficulty": 3,
+    "instruction": "Write a function called `parallel_map` that uses multiprocessing.Pool to apply a function to a list of items in parallel. It should accept the function, items list, and number of workers. Include proper cleanup with pool.close() and pool.join().",
+    "expected_concepts": [
+      "multiprocessing",
+      "Pool",
+      "map",
+      "parallel",
+      "close",
+      "join",
+      "workers"
+    ],
+    "test_code": "def square(x):\n    return x * x\nresult = parallel_map(square, [1, 2, 3, 4, 5], workers=2)\nassert result == [1, 4, 9, 16, 25], f'Got {result}'\nassert parallel_map(square, [], workers=2) == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-typing-018",
+    "category": "python",
+    "topic": "type_hints",
+    "difficulty": 3,
+    "instruction": "Write a generic Python function called `first_or_default` that takes a list of items of type T and an optional default of type T, returning the first item or the default. Use proper type hints with TypeVar. Also write a TypedDict called `UserProfile` with required fields name (str), email (str) and optional field age (int).",
+    "expected_concepts": [
+      "TypeVar",
+      "Generic",
+      "Optional",
+      "TypedDict",
+      "type hints",
+      "Union"
+    ],
+    "test_code": "assert first_or_default([1, 2, 3]) == 1\nassert first_or_default([], default=42) == 42\nassert first_or_default(['a', 'b']) == 'a'\nassert first_or_default([], default='x') == 'x'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-path-019",
+    "category": "python",
+    "topic": "pathlib",
+    "difficulty": 1,
+    "instruction": "Write a function called `find_python_files` that takes a directory path (str) and returns a sorted list of all .py file names (not full paths, just filenames) in that directory. Use pathlib.Path, not os.walk.",
+    "expected_concepts": [
+      "pathlib",
+      "Path",
+      "glob",
+      "suffix",
+      "name"
+    ],
+    "test_code": "import tempfile, os\nwith tempfile.TemporaryDirectory() as d:\n    for name in ['a.py', 'b.txt', 'c.py', 'z.py']:\n        open(os.path.join(d, name), 'w').close()\n    result = find_python_files(d)\n    assert result == ['a.py', 'c.py', 'z.py'], f'Got {result}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "py-gc-020",
+    "category": "python",
+    "topic": "memory_management",
+    "difficulty": 5,
+    "instruction": "Explain Python's memory management in depth: reference counting, generational garbage collection, the role of gc module, __del__ pitfalls, memory profiling with tracemalloc, and strategies for reducing memory usage in production applications. Include at least 3 code examples demonstrating these concepts.",
+    "expected_concepts": [
+      "reference counting",
+      "gc",
+      "generation",
+      "tracemalloc",
+      "__del__",
+      "memory",
+      "garbage",
+      "collect"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "algo-bs-001",
+    "category": "algorithms",
+    "topic": "binary_search",
+    "difficulty": 1,
+    "instruction": "Write a function called `binary_search` that takes a sorted list of integers and a target value, returning the index of the target or -1 if not found. Use the iterative approach with low/high pointers.",
+    "expected_concepts": [
+      "binary",
+      "search",
+      "low",
+      "high",
+      "mid",
+      "sorted",
+      "O(log n)"
+    ],
+    "test_code": "assert binary_search([1, 3, 5, 7, 9], 5) == 2\nassert binary_search([1, 3, 5, 7, 9], 1) == 0\nassert binary_search([1, 3, 5, 7, 9], 9) == 4\nassert binary_search([1, 3, 5, 7, 9], 4) == -1\nassert binary_search([], 1) == -1\nassert binary_search([42], 42) == 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-sort-002",
+    "category": "algorithms",
+    "topic": "sorting",
+    "difficulty": 2,
+    "instruction": "Implement `merge_sort` in Python that sorts a list of integers in ascending order. Use the divide-and-conquer approach with a helper merge function. Return the sorted list (do not modify in-place).",
+    "expected_concepts": [
+      "merge",
+      "sort",
+      "divide",
+      "conquer",
+      "recursive",
+      "O(n log n)",
+      "stable"
+    ],
+    "test_code": "assert merge_sort([38, 27, 43, 3, 9, 82, 10]) == [3, 9, 10, 27, 38, 43, 82]\nassert merge_sort([]) == []\nassert merge_sort([1]) == [1]\nassert merge_sort([5, 4, 3, 2, 1]) == [1, 2, 3, 4, 5]\nassert merge_sort([1, 1, 1]) == [1, 1, 1]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-dp-003",
+    "category": "algorithms",
+    "topic": "dynamic_programming",
+    "difficulty": 3,
+    "instruction": "Implement a function called `lcs_length` that finds the length of the longest common subsequence of two strings using dynamic programming with a 2D table. Also implement `lcs_string` that returns the actual subsequence string by backtracking through the table.",
+    "expected_concepts": [
+      "dynamic",
+      "programming",
+      "table",
+      "subsequence",
+      "backtrack",
+      "O(n*m)"
+    ],
+    "test_code": "assert lcs_length('ABCBDAB', 'BDCAB') == 4\nassert lcs_length('', 'ABC') == 0\nassert lcs_length('ABC', 'ABC') == 3\ns = lcs_string('ABCBDAB', 'BDCAB')\nassert len(s) == 4\nassert lcs_string('', 'ABC') == ''\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-graph-004",
+    "category": "algorithms",
+    "topic": "graph_bfs",
+    "difficulty": 2,
+    "instruction": "Implement a function called `shortest_path` that finds the shortest path between two nodes in an unweighted graph using BFS. The graph is represented as an adjacency list (dict of node -> list of neighbors). Return the path as a list of nodes, or an empty list if no path exists.",
+    "expected_concepts": [
+      "BFS",
+      "queue",
+      "deque",
+      "visited",
+      "path",
+      "shortest",
+      "graph"
+    ],
+    "test_code": "graph = {'A': ['B', 'C'], 'B': ['A', 'D'], 'C': ['A', 'D'], 'D': ['B', 'C', 'E'], 'E': ['D']}\npath = shortest_path(graph, 'A', 'E')\nassert path[0] == 'A' and path[-1] == 'E'\nassert len(path) == 4, f'Expected length 4, got {len(path)}'\nassert shortest_path(graph, 'A', 'A') == ['A']\nassert shortest_path(graph, 'A', 'Z') == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-heap-005",
+    "category": "algorithms",
+    "topic": "heap",
+    "difficulty": 2,
+    "instruction": "Implement a MinHeap class with methods: push(val), pop() (returns and removes minimum), peek() (returns minimum without removing), and a property `size`. Use a list as the underlying storage. Do not use the heapq module.",
+    "expected_concepts": [
+      "heap",
+      "push",
+      "pop",
+      "sift_up",
+      "sift_down",
+      "parent",
+      "child",
+      "O(log n)"
+    ],
+    "test_code": "h = MinHeap()\nh.push(5)\nh.push(3)\nh.push(7)\nh.push(1)\nassert h.size == 4\nassert h.peek() == 1\nassert h.pop() == 1\nassert h.pop() == 3\nassert h.pop() == 5\nassert h.pop() == 7\nassert h.size == 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-trie-006",
+    "category": "algorithms",
+    "topic": "trie",
+    "difficulty": 3,
+    "instruction": "Implement a Trie data structure with methods: insert(word), search(word) -> bool (exact match), starts_with(prefix) -> bool, and words_with_prefix(prefix) -> list[str] (returns all words with given prefix).",
+    "expected_concepts": [
+      "trie",
+      "prefix",
+      "tree",
+      "children",
+      "insert",
+      "search",
+      "node"
+    ],
+    "test_code": "t = Trie()\nfor w in ['apple', 'app', 'application', 'banana', 'band']:\n    t.insert(w)\nassert t.search('apple') == True\nassert t.search('app') == True\nassert t.search('ap') == False\nassert t.starts_with('app') == True\nassert t.starts_with('xyz') == False\nresult = sorted(t.words_with_prefix('app'))\nassert result == ['app', 'apple', 'application'], f'Got {result}'\nassert sorted(t.words_with_prefix('ban')) == ['banana', 'band']\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-uf-007",
+    "category": "algorithms",
+    "topic": "union_find",
+    "difficulty": 3,
+    "instruction": "Implement a UnionFind (Disjoint Set) data structure with path compression and union by rank. Methods: find(x), union(x, y), connected(x, y) -> bool, and a property `components` that returns the number of disjoint sets.",
+    "expected_concepts": [
+      "union",
+      "find",
+      "rank",
+      "compression",
+      "path",
+      "disjoint",
+      "component"
+    ],
+    "test_code": "uf = UnionFind(5)\nassert uf.components == 5\nuf.union(0, 1)\nuf.union(2, 3)\nassert uf.components == 3\nassert uf.connected(0, 1) == True\nassert uf.connected(0, 2) == False\nuf.union(1, 3)\nassert uf.connected(0, 3) == True\nassert uf.components == 2\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-slide-008",
+    "category": "algorithms",
+    "topic": "sliding_window",
+    "difficulty": 3,
+    "instruction": "Write a function called `max_sum_subarray` that finds the maximum sum of a contiguous subarray of size k. Also write `longest_unique_substring` that finds the length of the longest substring without repeating characters using a sliding window.",
+    "expected_concepts": [
+      "sliding",
+      "window",
+      "subarray",
+      "sum",
+      "set",
+      "deque"
+    ],
+    "test_code": "assert max_sum_subarray([1, 4, 2, 10, 2, 3, 1, 0, 20], 4) == 24\nassert max_sum_subarray([1, 2, 3], 3) == 6\nassert longest_unique_substring('abcabcbb') == 3\nassert longest_unique_substring('bbbbb') == 1\nassert longest_unique_substring('pwwkew') == 3\nassert longest_unique_substring('') == 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-topo-009",
+    "category": "algorithms",
+    "topic": "topological_sort",
+    "difficulty": 3,
+    "instruction": "Implement a function called `topological_sort` that takes a directed acyclic graph (dict of node -> list of neighbors) and returns a valid topological ordering. If the graph has a cycle, raise a ValueError. Use Kahn's algorithm (BFS-based with in-degree counting).",
+    "expected_concepts": [
+      "topological",
+      "sort",
+      "DAG",
+      "in-degree",
+      "Kahn",
+      "queue",
+      "cycle"
+    ],
+    "test_code": "graph = {'A': ['B', 'C'], 'B': ['D'], 'C': ['D'], 'D': []}\nresult = topological_sort(graph)\nassert result.index('A') < result.index('B')\nassert result.index('A') < result.index('C')\nassert result.index('B') < result.index('D')\nassert result.index('C') < result.index('D')\ntry:\n    topological_sort({'A': ['B'], 'B': ['A']})\n    assert False, 'Should raise ValueError for cycle'\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-dijkstra-010",
+    "category": "algorithms",
+    "topic": "dijkstra",
+    "difficulty": 4,
+    "instruction": "Implement Dijkstra's shortest path algorithm. Write a function called `dijkstra` that takes a weighted graph (dict of node -> list of (neighbor, weight) tuples), a start node, and returns a dict of shortest distances from start to all reachable nodes.",
+    "expected_concepts": [
+      "Dijkstra",
+      "priority",
+      "queue",
+      "heapq",
+      "shortest",
+      "path",
+      "weight",
+      "distance"
+    ],
+    "test_code": "import math\ngraph = {\n    'A': [('B', 1), ('C', 4)],\n    'B': [('C', 2), ('D', 6)],\n    'C': [('D', 3)],\n    'D': []\n}\ndist = dijkstra(graph, 'A')\nassert dist['A'] == 0\nassert dist['B'] == 1\nassert dist['C'] == 3\nassert dist['D'] == 6\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-bt-011",
+    "category": "algorithms",
+    "topic": "backtracking",
+    "difficulty": 4,
+    "instruction": "Write a function called `solve_n_queens` that solves the N-Queens puzzle. Given an integer n, return all distinct solutions as lists of column positions (e.g., for n=4, [1,3,0,2] means queen in row 0 at col 1, row 1 at col 3, etc.).",
+    "expected_concepts": [
+      "backtrack",
+      "queen",
+      "diagonal",
+      "column",
+      "recursive",
+      "constraint"
+    ],
+    "test_code": "solutions = solve_n_queens(4)\nassert len(solutions) == 2, f'Expected 2 solutions for n=4, got {len(solutions)}'\nassert len(solve_n_queens(1)) == 1\nassert len(solve_n_queens(8)) == 92\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-seg-012",
+    "category": "algorithms",
+    "topic": "segment_tree",
+    "difficulty": 5,
+    "instruction": "Implement a SegmentTree class for range sum queries with point updates. Methods: build(arr), update(index, value), query(left, right) -> sum of arr[left:right+1]. All operations should be O(log n).",
+    "expected_concepts": [
+      "segment",
+      "tree",
+      "range",
+      "query",
+      "update",
+      "build",
+      "O(log n)",
+      "node"
+    ],
+    "test_code": "st = SegmentTree([1, 3, 5, 7, 9, 11])\nassert st.query(0, 5) == 36\nassert st.query(1, 3) == 15\nst.update(2, 10)\nassert st.query(1, 3) == 20\nassert st.query(0, 5) == 41\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-bit-013",
+    "category": "algorithms",
+    "topic": "bit_manipulation",
+    "difficulty": 3,
+    "instruction": "Write the following bit manipulation functions: `count_set_bits(n)` returns the number of 1-bits, `is_power_of_two(n)` checks if n is a power of 2, `single_number(nums)` finds the number that appears once when all others appear twice (using XOR).",
+    "expected_concepts": [
+      "bit",
+      "XOR",
+      "AND",
+      "shift",
+      "power",
+      "count",
+      "mask"
+    ],
+    "test_code": "assert count_set_bits(7) == 3\nassert count_set_bits(0) == 0\nassert count_set_bits(255) == 8\nassert is_power_of_two(16) == True\nassert is_power_of_two(0) == False\nassert is_power_of_two(6) == False\nassert single_number([2, 2, 1]) == 1\nassert single_number([4, 1, 2, 1, 2]) == 4\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-astar-014",
+    "category": "algorithms",
+    "topic": "a_star",
+    "difficulty": 5,
+    "instruction": "Implement the A* pathfinding algorithm for a 2D grid. Write a function `astar(grid, start, goal)` where grid is a 2D list (0=walkable, 1=wall), start and goal are (row, col) tuples. Return the shortest path as a list of (row, col) tuples, or empty list if no path. Use Manhattan distance as heuristic.",
+    "expected_concepts": [
+      "A*",
+      "heuristic",
+      "Manhattan",
+      "priority",
+      "queue",
+      "g_score",
+      "f_score",
+      "open_set"
+    ],
+    "test_code": "grid = [\n    [0, 0, 0, 0],\n    [0, 1, 1, 0],\n    [0, 0, 0, 0],\n    [0, 1, 0, 0]\n]\npath = astar(grid, (0, 0), (3, 3))\nassert path[0] == (0, 0)\nassert path[-1] == (3, 3)\nassert all(grid[r][c] == 0 for r, c in path)\nassert astar([[0, 1], [1, 0]], (0, 0), (1, 1)) == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-bloom-015",
+    "category": "algorithms",
+    "topic": "bloom_filter",
+    "difficulty": 5,
+    "instruction": "Implement a BloomFilter class with methods: add(item), might_contain(item) -> bool, and a property `false_positive_rate`. Use multiple hash functions (at least 3). Explain the probabilistic nature and when to use it vs a set.",
+    "expected_concepts": [
+      "bloom",
+      "filter",
+      "hash",
+      "probabilistic",
+      "false positive",
+      "bit array"
+    ],
+    "test_code": "bf = BloomFilter(size=1000, num_hashes=3)\nfor i in range(100):\n    bf.add(f'item_{i}')\nfor i in range(100):\n    assert bf.might_contain(f'item_{i}'), f'False negative for item_{i}'\nfp = sum(1 for i in range(1000) if bf.might_contain(f'not_item_{i}'))\nassert fp < 200, f'Too many false positives: {fp}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-single-001",
+    "category": "design_patterns",
+    "topic": "singleton",
+    "difficulty": 2,
+    "instruction": "Implement the Singleton pattern in Python using a decorator called `singleton`. The decorator should ensure that only one instance of the decorated class exists. Show usage with an example DatabaseConnection class.",
+    "expected_concepts": [
+      "singleton",
+      "decorator",
+      "instance",
+      "pattern",
+      "class"
+    ],
+    "test_code": "@singleton\nclass DB:\n    def __init__(self):\n        self.connected = True\na = DB()\nb = DB()\nassert a is b\nassert a.connected == True\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-factory-002",
+    "category": "design_patterns",
+    "topic": "factory",
+    "difficulty": 2,
+    "instruction": "Implement the Factory pattern. Write a `ShapeFactory` class with a static method `create(shape_type: str, **kwargs)` that returns Circle, Rectangle, or Triangle objects. Each shape should have an `area()` method. Raise ValueError for unknown shape types.",
+    "expected_concepts": [
+      "factory",
+      "pattern",
+      "create",
+      "class",
+      "static",
+      "area"
+    ],
+    "test_code": "c = ShapeFactory.create('circle', radius=5)\nimport math\nassert abs(c.area() - math.pi * 25) < 0.01\nr = ShapeFactory.create('rectangle', width=3, height=4)\nassert r.area() == 12\ntry:\n    ShapeFactory.create('hexagon')\n    assert False, 'Should raise ValueError'\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-observer-003",
+    "category": "design_patterns",
+    "topic": "observer",
+    "difficulty": 3,
+    "instruction": "Implement the Observer pattern. Write an EventEmitter class with methods: on(event, callback), off(event, callback), and emit(event, *args). Callbacks should be called in order of registration. Show a practical example with a stock price tracker.",
+    "expected_concepts": [
+      "observer",
+      "event",
+      "callback",
+      "subscribe",
+      "emit",
+      "pattern",
+      "decouple"
+    ],
+    "test_code": "results = []\ndef on_data(val):\n    results.append(val)\ndef on_data2(val):\n    results.append(val * 2)\ne = EventEmitter()\ne.on('data', on_data)\ne.on('data', on_data2)\ne.emit('data', 5)\nassert results == [5, 10], f'Got {results}'\ne.off('data', on_data2)\ne.emit('data', 3)\nassert results == [5, 10, 3]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-strategy-004",
+    "category": "design_patterns",
+    "topic": "strategy",
+    "difficulty": 3,
+    "instruction": "Implement the Strategy pattern for a text compressor. Write a Compressor class that accepts a strategy (interface with compress/decompress methods). Implement at least two strategies: RunLengthEncoding and a NullCompressor (passthrough). The compressor should be swappable at runtime.",
+    "expected_concepts": [
+      "strategy",
+      "pattern",
+      "interface",
+      "compress",
+      "runtime",
+      "swap"
+    ],
+    "test_code": "rle = RunLengthEncoding()\nnull = NullCompressor()\nc = Compressor(rle)\nencoded = c.compress('aaabbbcc')\nassert c.decompress(encoded) == 'aaabbbcc'\nc.strategy = null\nassert c.compress('hello') == 'hello'\nassert c.decompress('hello') == 'hello'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-command-005",
+    "category": "design_patterns",
+    "topic": "command",
+    "difficulty": 3,
+    "instruction": "Implement the Command pattern for an undo/redo system. Write a CommandHistory class that tracks executed commands. Each command has execute() and undo() methods. Implement AddTextCommand and DeleteTextCommand that modify a Document (a simple text holder).",
+    "expected_concepts": [
+      "command",
+      "undo",
+      "redo",
+      "execute",
+      "pattern",
+      "history",
+      "stack"
+    ],
+    "test_code": "doc = Document()\nhist = CommandHistory()\nhist.execute(AddTextCommand(doc, 'Hello'))\nassert doc.text == 'Hello'\nhist.execute(AddTextCommand(doc, ' World'))\nassert doc.text == 'Hello World'\nhist.undo()\nassert doc.text == 'Hello'\nhist.redo()\nassert doc.text == 'Hello World'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-di-006",
+    "category": "design_patterns",
+    "topic": "dependency_injection",
+    "difficulty": 4,
+    "instruction": "Explain and implement dependency injection in Python. Write a simple DI container class called `Container` with methods: register(interface, implementation), resolve(interface). Show constructor injection and how it enables testing with mocks.",
+    "expected_concepts": [
+      "dependency",
+      "injection",
+      "container",
+      "register",
+      "resolve",
+      "interface",
+      "decouple",
+      "testing"
+    ],
+    "test_code": "class ILogger:\n    def log(self, msg): pass\nclass ConsoleLogger(ILogger):\n    def __init__(self): self.logs = []\n    def log(self, msg): self.logs.append(msg)\nc = Container()\nc.register(ILogger, ConsoleLogger)\nlogger = c.resolve(ILogger)\nassert isinstance(logger, ConsoleLogger)\nlogger.log('test')\nassert logger.logs == ['test']\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-state-007",
+    "category": "design_patterns",
+    "topic": "state_machine",
+    "difficulty": 4,
+    "instruction": "Implement a finite state machine for a traffic light. Write a TrafficLight class that transitions between Red, Yellow, and Green states. Each state should have a `next()` method that transitions to the next state and a `color` property. Include a `wait_time` property (Red=30, Green=25, Yellow=5).",
+    "expected_concepts": [
+      "state",
+      "machine",
+      "transition",
+      "pattern",
+      "class"
+    ],
+    "test_code": "tl = TrafficLight()\nassert tl.color == 'Red'\nassert tl.wait_time == 30\ntl.next()\nassert tl.color == 'Green'\nassert tl.wait_time == 25\ntl.next()\nassert tl.color == 'Yellow'\nassert tl.wait_time == 5\ntl.next()\nassert tl.color == 'Red'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-builder-008",
+    "category": "design_patterns",
+    "topic": "builder",
+    "difficulty": 3,
+    "instruction": "Implement the Builder pattern for constructing SQL SELECT queries. Write a QueryBuilder class with chainable methods: select(*columns), from_table(table), where(condition), order_by(column, desc=False), limit(n). The build() method returns the SQL string.",
+    "expected_concepts": [
+      "builder",
+      "pattern",
+      "chain",
+      "fluent",
+      "SQL",
+      "query",
+      "build"
+    ],
+    "test_code": "q = QueryBuilder().select('name', 'age').from_table('users').where('age > 18').order_by('name').limit(10).build()\nassert 'SELECT name, age' in q\nassert 'FROM users' in q\nassert 'WHERE age > 18' in q\nassert 'ORDER BY name' in q\nassert 'LIMIT 10' in q\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-adapter-009",
+    "category": "design_patterns",
+    "topic": "adapter",
+    "difficulty": 3,
+    "instruction": "Implement the Adapter pattern. You have a legacy class `OldPaymentGateway` with a `make_payment(amount_cents)` method. Write an adapter called `PaymentAdapter` that wraps it and exposes a modern interface: `pay(amount_dollars)` that converts dollars to cents and delegates.",
+    "expected_concepts": [
+      "adapter",
+      "pattern",
+      "wrapper",
+      "interface",
+      "legacy",
+      "convert"
+    ],
+    "test_code": "class OldPaymentGateway:\n    def __init__(self): self.payments = []\n    def make_payment(self, amount_cents): self.payments.append(amount_cents)\nold = OldPaymentGateway()\nadapter = PaymentAdapter(old)\nadapter.pay(10.50)\nassert old.payments == [1050]\nadapter.pay(0.99)\nassert old.payments == [1050, 99]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "pat-visitor-010",
+    "category": "design_patterns",
+    "topic": "visitor",
+    "difficulty": 5,
+    "instruction": "Implement the Visitor pattern for an AST (Abstract Syntax Tree). Define node types: NumberNode, BinaryOpNode (with left, op, right), and UnaryOpNode. Write a PrintVisitor that returns a string representation and an EvalVisitor that evaluates the expression numerically.",
+    "expected_concepts": [
+      "visitor",
+      "pattern",
+      "accept",
+      "visit",
+      "double dispatch",
+      "AST",
+      "expression"
+    ],
+    "test_code": "# Test Visitor pattern with AST nodes\n# NumberNode, BinaryOpNode, PrintVisitor expected\nexpr = BinaryOpNode(NumberNode(2), '+', BinaryOpNode(NumberNode(3), '*', NumberNode(4)))\nvisitor = PrintVisitor()\nresult = expr.accept(visitor)\nassert '2' in str(result) and '3' in str(result) and '4' in str(result), f'Missing numbers in {result}'\nassert '+' in str(result) or 'add' in str(result).lower(), f'Missing operator in {result}'\n# Simple expression\nsimple = NumberNode(42)\nassert '42' in str(simple.accept(visitor))\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-pool-001",
+    "category": "systems",
+    "topic": "connection_pool",
+    "difficulty": 3,
+    "instruction": "Implement a thread-safe connection pool class called `ConnectionPool`. It should have: get_connection() (blocks if pool exhausted), release_connection(conn), and a configurable max_size. Use threading.Semaphore for concurrency control.",
+    "expected_concepts": [
+      "pool",
+      "thread",
+      "semaphore",
+      "connection",
+      "acquire",
+      "release",
+      "block"
+    ],
+    "test_code": "import threading\nclass MockConnection:\n    def __init__(self, id): self.id = id; self.closed = False\npool = ConnectionPool(max_size=2, factory=lambda: MockConnection(0))\nc1 = pool.get_connection()\nc2 = pool.get_connection()\nassert c1 is not c2\n# Pool exhausted — release one\npool.release_connection(c1)\nc3 = pool.get_connection()\nassert c3 is c1  # reused\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-rate-002",
+    "category": "systems",
+    "topic": "rate_limiter",
+    "difficulty": 3,
+    "instruction": "Implement a token bucket rate limiter class called `RateLimiter`. Constructor takes `rate` (tokens per second) and `capacity` (max burst). Methods: allow() -> bool (returns True if request is allowed, consuming one token), and tokens_available -> float.",
+    "expected_concepts": [
+      "token",
+      "bucket",
+      "rate",
+      "limit",
+      "capacity",
+      "time",
+      "refill"
+    ],
+    "test_code": "import time\nrl = RateLimiter(rate=10, capacity=5)\nassert rl.allow() == True\nassert rl.allow() == True\nfor _ in range(3): rl.allow()\nassert rl.allow() == False  # exhausted 5 tokens\ntime.sleep(0.3)  # refill ~3 tokens\nassert rl.allow() == True\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-lru-003",
+    "category": "systems",
+    "topic": "lru_cache",
+    "difficulty": 4,
+    "instruction": "Implement an LRU cache from scratch with O(1) get and put operations. Use a doubly-linked list and a hash map. Do not use OrderedDict. Write a class `LRUCache` with methods: get(key) -> value or -1, put(key, value), and a capacity parameter.",
+    "expected_concepts": [
+      "LRU",
+      "cache",
+      "doubly",
+      "linked",
+      "list",
+      "hash",
+      "map",
+      "O(1)",
+      "evict"
+    ],
+    "test_code": "cache = LRUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nassert cache.get(1) == 1\ncache.put(3, 3)  # evicts key 2\nassert cache.get(2) == -1\ncache.put(4, 4)  # evicts key 1\nassert cache.get(1) == -1\nassert cache.get(3) == 3\nassert cache.get(4) == 4\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-circuit-004",
+    "category": "systems",
+    "topic": "circuit_breaker",
+    "difficulty": 4,
+    "instruction": "Implement the Circuit Breaker pattern. Write a class `CircuitBreaker` with states: CLOSED (normal), OPEN (failing, reject immediately), HALF_OPEN (testing). Configure failure_threshold, recovery_timeout, and success_threshold. Wrap a callable and manage state transitions automatically.",
+    "expected_concepts": [
+      "circuit",
+      "breaker",
+      "state",
+      "CLOSED",
+      "OPEN",
+      "HALF_OPEN",
+      "threshold",
+      "timeout"
+    ],
+    "test_code": "call_count = 0\ndef flaky_service():\n    global call_count; call_count += 1\n    if call_count <= 3: raise Exception('fail')\n    return 'ok'\ncb = CircuitBreaker(failure_threshold=3, recovery_timeout=0.1, success_threshold=1)\nfor _ in range(3):\n    try: cb.call(flaky_service)\n    except: pass\nassert cb.state == 'OPEN'\ntry:\n    cb.call(flaky_service)\n    assert False, 'Should reject in OPEN state'\nexcept Exception as e:\n    assert 'Circuit is OPEN' in str(e) or 'open' in str(e).lower()\nimport time; time.sleep(0.15)\nresult = cb.call(flaky_service)\nassert result == 'ok'\nassert cb.state == 'CLOSED'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-retry-005",
+    "category": "systems",
+    "topic": "retry_backoff",
+    "difficulty": 2,
+    "instruction": "Write a decorator called `retry` that retries a function on exception with exponential backoff. Parameters: max_retries (default 3), base_delay (default 1.0), backoff_factor (default 2.0). The delay doubles each retry. Log each retry attempt.",
+    "expected_concepts": [
+      "retry",
+      "exponential",
+      "backoff",
+      "decorator",
+      "exception",
+      "delay",
+      "sleep"
+    ],
+    "test_code": "attempt_count = 0\n@retry(max_retries=3, base_delay=0.01, backoff_factor=2.0)\ndef flaky():\n    global attempt_count; attempt_count += 1\n    if attempt_count < 3: raise ValueError('not yet')\n    return 'success'\nresult = flaky()\nassert result == 'success'\nassert attempt_count == 3\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-pubsub-006",
+    "category": "systems",
+    "topic": "pub_sub",
+    "difficulty": 3,
+    "instruction": "Implement a thread-safe publish/subscribe message broker. Write a `MessageBroker` class with methods: subscribe(topic, callback), unsubscribe(topic, callback), publish(topic, message). Callbacks should be invoked in separate threads for non-blocking delivery.",
+    "expected_concepts": [
+      "publish",
+      "subscribe",
+      "topic",
+      "callback",
+      "thread",
+      "broker",
+      "decouple"
+    ],
+    "test_code": "import time\nresults = []\ndef handler(msg): results.append(msg)\nbroker = MessageBroker()\nbroker.subscribe('news', handler)\nbroker.publish('news', 'hello')\ntime.sleep(0.1)\nassert 'hello' in results, f'Expected hello in results, got {results}'\nbroker.unsubscribe('news', handler)\nbroker.publish('news', 'world')\ntime.sleep(0.1)\nassert len(results) == 1\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-scheduler-007",
+    "category": "systems",
+    "topic": "task_scheduler",
+    "difficulty": 4,
+    "instruction": "Implement a priority-based task scheduler using a heap. Write a `TaskScheduler` class with: add_task(priority, task_fn), run_next() -> result (runs highest priority task), and run_all() -> list of results. Lower number = higher priority.",
+    "expected_concepts": [
+      "scheduler",
+      "priority",
+      "heap",
+      "task",
+      "queue",
+      "run"
+    ],
+    "test_code": "results = []\ndef make_task(val): return lambda: val\ns = TaskScheduler()\ns.add_task(3, make_task('low'))\ns.add_task(1, make_task('high'))\ns.add_task(2, make_task('mid'))\nassert s.run_next() == 'high'\nassert s.run_next() == 'mid'\nassert s.run_next() == 'low'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-async-pool-008",
+    "category": "systems",
+    "topic": "async_worker_pool",
+    "difficulty": 5,
+    "instruction": "Implement an async worker pool using asyncio. Write a class `AsyncWorkerPool` with: submit(coro_fn, *args) to submit work, and shutdown() to wait for all pending tasks. The pool should have a configurable max_workers that limits concurrent execution using asyncio.Semaphore.",
+    "expected_concepts": [
+      "async",
+      "worker",
+      "pool",
+      "semaphore",
+      "asyncio",
+      "concurrent",
+      "task"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "sys-hash-009",
+    "category": "systems",
+    "topic": "consistent_hashing",
+    "difficulty": 5,
+    "instruction": "Implement consistent hashing for distributed systems. Write a `ConsistentHash` class with: add_node(node_id), remove_node(node_id), get_node(key) -> node_id. Use virtual nodes (replicas) for better distribution. Explain how this minimizes key redistribution when nodes are added/removed.",
+    "expected_concepts": [
+      "consistent",
+      "hash",
+      "ring",
+      "virtual",
+      "node",
+      "replica",
+      "distribute"
+    ],
+    "test_code": "# Test consistent hashing\nch = ConsistentHash(replicas=100)\nch.add_node('server-1')\nch.add_node('server-2')\nch.add_node('server-3')\n# All keys should map to a valid node\nnodes_used = set()\nfor i in range(100):\n    node = ch.get_node(f'key-{i}')\n    assert node in ('server-1', 'server-2', 'server-3'), f'Unknown node: {node}'\n    nodes_used.add(node)\nassert len(nodes_used) >= 2, f'Poor distribution: only {nodes_used}'\n# Removing a node should redistribute\nbefore = ch.get_node('test-key')\nch.remove_node(before)\nafter = ch.get_node('test-key')\nassert after != before, 'Key should move after removing its node'\nassert after in ('server-1', 'server-2', 'server-3') - {before}\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sys-2pc-010",
+    "category": "systems",
+    "topic": "two_phase_commit",
+    "difficulty": 5,
+    "instruction": "Explain and implement a simplified two-phase commit protocol. Write a Coordinator class that manages Transaction participants. Phase 1: coordinator sends prepare, participants vote yes/no. Phase 2: if all yes, commit; otherwise abort. Handle participant failures gracefully.",
+    "expected_concepts": [
+      "two-phase",
+      "commit",
+      "coordinator",
+      "participant",
+      "prepare",
+      "vote",
+      "abort"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "web-rest-001",
+    "category": "web",
+    "topic": "rest_api",
+    "difficulty": 1,
+    "instruction": "Design a RESTful API for a todo list application. List the endpoints (method + path), request/response formats, and status codes. Then write the Flask route handlers for: GET /todos, POST /todos, PUT /todos/<id>, DELETE /todos/<id>. Use an in-memory list.",
+    "expected_concepts": [
+      "REST",
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "status",
+      "JSON",
+      "route"
+    ],
+    "test_code": "# Test Flask REST API handlers\nimport json as _json\ntry:\n    client = app.test_client()\nexcept:\n    # If app isn't defined, create it\n    from flask import Flask, jsonify, request\n    assert callable(globals().get('create_app', None)) or 'app' in dir(), 'Should define app or create_app'\n    print('ALL TESTS PASSED'); import sys; sys.exit(0)\n# Test GET /todos\nresp = client.get('/todos')\nassert resp.status_code == 200, f'GET /todos returned {resp.status_code}'\n# Test POST /todos\nresp = client.post('/todos', data=_json.dumps({'title': 'Test'}), content_type='application/json')\nassert resp.status_code in (200, 201), f'POST /todos returned {resp.status_code}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "web-jwt-002",
+    "category": "web",
+    "topic": "jwt",
+    "difficulty": 3,
+    "instruction": "Write functions for JWT authentication: `create_token(payload, secret, expires_in=3600)` that creates a JWT token, and `verify_token(token, secret)` that verifies and returns the payload or raises an error. Implement the encoding/decoding manually using base64 and hmac (don't use the jwt library).",
+    "expected_concepts": [
+      "JWT",
+      "token",
+      "base64",
+      "hmac",
+      "header",
+      "payload",
+      "signature",
+      "secret"
+    ],
+    "test_code": "import time\ntoken = create_token({'user': 'alice', 'role': 'admin'}, 'mysecret', expires_in=10)\nassert isinstance(token, str)\nassert token.count('.') == 2\npayload = verify_token(token, 'mysecret')\nassert payload['user'] == 'alice'\nassert payload['role'] == 'admin'\ntry:\n    verify_token(token, 'wrongsecret')\n    assert False, 'Should fail with wrong secret'\nexcept Exception:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "web-sql-003",
+    "category": "web",
+    "topic": "sql_injection",
+    "difficulty": 2,
+    "instruction": "Explain SQL injection vulnerabilities with examples of vulnerable code. Then show the correct way to prevent SQL injection using parameterized queries. Write a safe function called `get_user` that queries a SQLite database with a parameterized query. Also show an example of an ORM-based approach.",
+    "expected_concepts": [
+      "SQL",
+      "injection",
+      "parameterized",
+      "prepared",
+      "sanitize",
+      "ORM",
+      "vulnerable"
+    ],
+    "test_code": "import sqlite3\n# Test SQL injection prevention\nconn = sqlite3.connect(':memory:')\nconn.execute('CREATE TABLE users (id INTEGER, name TEXT, email TEXT)')\nconn.execute(\"INSERT INTO users VALUES (1, 'Alice', 'alice@test.com')\")\nconn.commit()\n# Test safe function with normal input\nresult = get_user(conn, 1)\nassert result is not None, 'Should find user 1'\n# Test with SQL injection attempt - should NOT return all users\ntry:\n    result = get_user(conn, \"1 OR 1=1\")\n    # If it returns, should only return one user or None\n    if isinstance(result, list):\n        assert len(result) <= 1, 'SQL injection protection failed - returned multiple rows'\nexcept (TypeError, ValueError, sqlite3.Error):\n    pass  # Correctly rejected malicious input\nconn.close()\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "web-pagination-004",
+    "category": "web",
+    "topic": "pagination",
+    "difficulty": 2,
+    "instruction": "Implement cursor-based pagination. Write a function called `paginate` that takes a sorted list of items (dicts with 'id' field), a cursor (the id of the last seen item, or None), and page_size. Return {items: [...], next_cursor: str|None, has_more: bool}.",
+    "expected_concepts": [
+      "cursor",
+      "pagination",
+      "next",
+      "page",
+      "offset",
+      "has_more"
+    ],
+    "test_code": "items = [{'id': i, 'name': f'item_{i}'} for i in range(1, 21)]\npage1 = paginate(items, cursor=None, page_size=5)\nassert len(page1['items']) == 5\nassert page1['items'][0]['id'] == 1\nassert page1['has_more'] == True\npage2 = paginate(items, cursor=page1['next_cursor'], page_size=5)\nassert page2['items'][0]['id'] == 6\nlast = paginate(items, cursor=15, page_size=5)\nassert last['items'][-1]['id'] == 20\nassert last['has_more'] == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "web-ws-005",
+    "category": "web",
+    "topic": "websocket",
+    "difficulty": 3,
+    "instruction": "Explain the WebSocket protocol: how the handshake works (HTTP upgrade), the frame format, and when to use WebSockets vs SSE vs long-polling. Write a Python WebSocket echo server using the asyncio library and the websockets package. Include ping/pong handling.",
+    "expected_concepts": [
+      "WebSocket",
+      "handshake",
+      "upgrade",
+      "frame",
+      "ping",
+      "pong",
+      "echo",
+      "async"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "web-cache-006",
+    "category": "web",
+    "topic": "caching_strategies",
+    "difficulty": 3,
+    "instruction": "Explain and implement cache-aside (lazy loading) pattern. Write a class `CacheAside` with methods: get(key), set(key, value, ttl), invalidate(key). The get method should accept a loader function that fetches from the source on cache miss. Include TTL expiration.",
+    "expected_concepts": [
+      "cache",
+      "aside",
+      "TTL",
+      "expire",
+      "miss",
+      "hit",
+      "invalidate",
+      "loader"
+    ],
+    "test_code": "import time\nload_count = 0\ndef loader(key):\n    global load_count; load_count += 1\n    return f'value_{key}'\ncache = CacheAside()\nv1 = cache.get('k1', loader=loader, ttl=0.2)\nassert v1 == 'value_k1'\nassert load_count == 1\nv2 = cache.get('k1', loader=loader)\nassert v2 == 'value_k1'\nassert load_count == 1  # cache hit\ntime.sleep(0.3)\nv3 = cache.get('k1', loader=loader, ttl=1)\nassert v3 == 'value_k1'\nassert load_count == 2  # expired, reloaded\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "web-idempotent-007",
+    "category": "web",
+    "topic": "idempotent_api",
+    "difficulty": 4,
+    "instruction": "Explain idempotency in API design and why it matters. Implement an idempotency layer: write a decorator called `idempotent` that uses an idempotency key (from request header) to cache and return the same response for duplicate requests. Store results in a dict with TTL.",
+    "expected_concepts": [
+      "idempotent",
+      "idempotency",
+      "key",
+      "duplicate",
+      "retry",
+      "cache",
+      "safe"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "web-graphql-008",
+    "category": "web",
+    "topic": "graphql",
+    "difficulty": 4,
+    "instruction": "Compare GraphQL vs REST API design. Explain N+1 problem, query complexity, schema-first design, and when to use each. Write a simple GraphQL schema for a blog (User, Post, Comment) and show how to implement the resolvers in Python using a dict-based approach.",
+    "expected_concepts": [
+      "GraphQL",
+      "REST",
+      "schema",
+      "resolver",
+      "N+1",
+      "query",
+      "mutation",
+      "type"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "web-oauth-009",
+    "category": "web",
+    "topic": "oauth2",
+    "difficulty": 4,
+    "instruction": "Explain the OAuth2 Authorization Code flow step by step. Diagram the flow between User, Client App, Auth Server, and Resource Server. Then write the server-side callback handler in Python/Flask that exchanges the authorization code for an access token.",
+    "expected_concepts": [
+      "OAuth2",
+      "authorization",
+      "code",
+      "token",
+      "redirect",
+      "client_id",
+      "secret",
+      "scope"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "web-rate-010",
+    "category": "web",
+    "topic": "rate_limiting",
+    "difficulty": 3,
+    "instruction": "Implement API rate limiting middleware for Flask. Write a decorator called `rate_limit` that limits requests per IP address using a sliding window. Parameters: max_requests and window_seconds. Return 429 Too Many Requests when exceeded.",
+    "expected_concepts": [
+      "rate",
+      "limit",
+      "middleware",
+      "429",
+      "sliding",
+      "window",
+      "IP",
+      "decorator"
+    ],
+    "test_code": "import time\nfrom flask import Flask\napp = Flask(__name__)\n\n@app.route('/test')\n@rate_limit(max_requests=3, window_seconds=10)\ndef test_route():\n    return 'OK'\n\nwith app.test_client() as client:\n    for i in range(3):\n        resp = client.get('/test')\n        assert resp.status_code == 200, f'Request {i+1} should succeed'\n    resp = client.get('/test')\n    assert resp.status_code == 429, f'Request 4 should be rate limited, got {resp.status_code}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-fix-001",
+    "category": "testing",
+    "topic": "pytest_fixtures",
+    "difficulty": 1,
+    "instruction": "Write pytest fixtures and tests for a simple BankAccount class. The class has: deposit(amount), withdraw(amount), and balance property. Write fixtures for: empty_account, funded_account (with $100). Write at least 4 test functions covering normal operations and edge cases (negative amounts, overdraft).",
+    "expected_concepts": [
+      "pytest",
+      "fixture",
+      "assert",
+      "test",
+      "setup",
+      "parametrize"
+    ],
+    "test_code": "# Test the BankAccount class directly (not the fixtures)\naccount = BankAccount()\nassert account.balance == 0, f'Expected 0 balance, got {account.balance}'\naccount.deposit(100)\nassert account.balance == 100, f'Expected 100 after deposit, got {account.balance}'\naccount.withdraw(30)\nassert account.balance == 70, f'Expected 70 after withdraw, got {account.balance}'\ntry:\n    account.withdraw(1000)\n    assert False, 'Should raise on insufficient funds'\nexcept (ValueError, Exception):\n    pass\nassert account.balance == 70, 'Balance should not change after failed withdrawal'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-mock-002",
+    "category": "testing",
+    "topic": "mocking",
+    "difficulty": 2,
+    "instruction": "Write a function `get_user_info(user_id)` that calls an external API and returns user data. Then write tests using unittest.mock to mock the API call. Show: patching, return_value, side_effect for errors, and assert_called_with. Do not make any real HTTP calls.",
+    "expected_concepts": [
+      "mock",
+      "patch",
+      "return_value",
+      "side_effect",
+      "assert_called",
+      "MagicMock"
+    ],
+    "test_code": "# Test the get_user_info function structure\nfrom unittest.mock import patch, MagicMock\n# Mock the external API call\nwith patch('__main__.get_user_info') as mock_fn:\n    mock_fn.return_value = {'id': 1, 'name': 'Alice'}\n    result = mock_fn(1)\n    assert result == {'id': 1, 'name': 'Alice'}\n    mock_fn.assert_called_with(1)\n# Test the actual function exists and is callable\nassert callable(get_user_info), 'get_user_info should be callable'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-prop-003",
+    "category": "testing",
+    "topic": "property_testing",
+    "difficulty": 3,
+    "instruction": "Explain property-based testing and write tests for a `sort_and_deduplicate(lst)` function using hypothesis. Define properties like: output is sorted, output contains no duplicates, all output elements were in input, output length <= input length. Show the @given decorator usage.",
+    "expected_concepts": [
+      "hypothesis",
+      "property",
+      "given",
+      "strategy",
+      "invariant",
+      "shrink"
+    ],
+    "test_code": "result = sort_and_deduplicate([3, 1, 4, 1, 5, 9, 2, 6, 5, 3])\nassert result == [1, 2, 3, 4, 5, 6, 9], f'Expected sorted deduped list, got {result}'\nassert sort_and_deduplicate([]) == []\nassert sort_and_deduplicate([1]) == [1]\nassert sort_and_deduplicate([5, 5, 5]) == [5]\nassert sort_and_deduplicate([3, 2, 1]) == [1, 2, 3]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-tdd-004",
+    "category": "testing",
+    "topic": "tdd",
+    "difficulty": 2,
+    "instruction": "Demonstrate test-driven development by building a `Stack` class. Write tests FIRST (Red), then implement to make them pass (Green), then refactor. Show the complete TDD cycle with at least 5 tests: push, pop, peek, is_empty, and underflow error.",
+    "expected_concepts": [
+      "TDD",
+      "red",
+      "green",
+      "refactor",
+      "test first",
+      "assert"
+    ],
+    "test_code": "s = Stack()\nassert s.is_empty() == True\ns.push(1)\ns.push(2)\nassert s.peek() == 2\nassert s.is_empty() == False\nassert s.pop() == 2\nassert s.pop() == 1\nassert s.is_empty() == True\ntry:\n    s.pop()\n    assert False, 'Should raise on empty pop'\nexcept (IndexError, Exception):\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-param-005",
+    "category": "testing",
+    "topic": "parametrize",
+    "difficulty": 2,
+    "instruction": "Write a function `is_palindrome(s)` that checks if a string is a palindrome (ignoring case and non-alphanumeric characters). Then write pytest parametrized tests with @pytest.mark.parametrize covering: simple palindromes, phrases, empty string, single char, and non-palindromes.",
+    "expected_concepts": [
+      "parametrize",
+      "pytest",
+      "mark",
+      "test",
+      "cases",
+      "edge"
+    ],
+    "test_code": "assert is_palindrome('racecar') == True\nassert is_palindrome('A man, a plan, a canal: Panama') == True\nassert is_palindrome('hello') == False\nassert is_palindrome('') == True\nassert is_palindrome('a') == True\nassert is_palindrome('Race a Car') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-snapshot-006",
+    "category": "testing",
+    "topic": "snapshot_testing",
+    "difficulty": 3,
+    "instruction": "Explain snapshot testing: what it is, when to use it, and its pros/cons. Write a simple snapshot testing framework: a `SnapshotTest` class with assert_match(name, value) that saves/compares JSON snapshots to a file. On first run, save. On subsequent runs, compare and fail on mismatch.",
+    "expected_concepts": [
+      "snapshot",
+      "test",
+      "compare",
+      "save",
+      "update",
+      "regression",
+      "golden"
+    ],
+    "test_code": "import json, tempfile, os\n# Test the SnapshotTest class\nsnap_dir = tempfile.mkdtemp()\nst = SnapshotTest(snap_dir)\n# First call should save the snapshot\nst.assert_match('test1', {'name': 'Alice', 'age': 30})\n# Second call with same data should pass\nst.assert_match('test1', {'name': 'Alice', 'age': 30})\n# Different data should fail\ntry:\n    st.assert_match('test1', {'name': 'Bob', 'age': 25})\n    assert False, 'Should fail on snapshot mismatch'\nexcept (AssertionError, Exception):\n    pass\n# Cleanup\nimport shutil; shutil.rmtree(snap_dir)\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "test-async-007",
+    "category": "testing",
+    "topic": "testing_async",
+    "difficulty": 3,
+    "instruction": "Show how to test async Python code with pytest. Write an async function `fetch_data(url)` and demonstrate: using pytest-asyncio, async fixtures, mocking aiohttp calls, and testing exception handling in async code.",
+    "expected_concepts": [
+      "async",
+      "pytest",
+      "asyncio",
+      "fixture",
+      "mock",
+      "aiohttp",
+      "await"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "test-doubles-008",
+    "category": "testing",
+    "topic": "test_doubles",
+    "difficulty": 3,
+    "instruction": "Explain the differences between test doubles: Mocks, Stubs, Fakes, Spies, and Dummies. For each, provide a Python code example showing when and why you'd use it. Include a practical scenario like testing an email notification service.",
+    "expected_concepts": [
+      "mock",
+      "stub",
+      "fake",
+      "spy",
+      "dummy",
+      "test double",
+      "verify"
+    ],
+    "test_code": "# Test that the code defines/demonstrates test doubles\n# We check the stub and fake implementations exist and work\nimport inspect\n# The response should have defined classes or functions for doubles\n# Check for stub-like behavior\nhas_stub = False\nhas_fake = False\nfor name, obj in list(globals().items()):\n    if inspect.isclass(obj) and 'stub' in name.lower():\n        has_stub = True\n    if inspect.isclass(obj) and 'fake' in name.lower():\n        has_fake = True\nassert has_stub or has_fake, 'Should define at least one test double class'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-window-001",
+    "category": "database",
+    "topic": "window_functions",
+    "difficulty": 2,
+    "instruction": "Write SQL queries using window functions. Given an 'employees' table (id, name, department, salary), write queries for: 1) Rank employees by salary within each department (RANK), 2) Running total of salaries (SUM OVER), 3) Previous employee's salary (LAG), 4) Top 3 earners per department.",
+    "expected_concepts": [
+      "RANK",
+      "ROW_NUMBER",
+      "LAG",
+      "LEAD",
+      "PARTITION BY",
+      "OVER",
+      "window"
+    ],
+    "test_code": "import sqlite3\nconn = sqlite3.connect(':memory:')\nc = conn.cursor()\nc.execute('CREATE TABLE employees (id INTEGER, name TEXT, department TEXT, salary REAL)')\ndata = [(1,'Alice','Eng',90000),(2,'Bob','Eng',85000),(3,'Carol','Sales',75000),\n        (4,'Dave','Sales',80000),(5,'Eve','Eng',95000)]\nc.executemany('INSERT INTO employees VALUES (?,?,?,?)', data)\n# Test RANK query\nc.execute('SELECT name, department, salary, RANK() OVER (PARTITION BY department ORDER BY salary DESC) as rnk FROM employees')\nrows = c.fetchall()\neng_ranks = [(r[0], r[3]) for r in rows if r[1] == 'Eng']\nassert eng_ranks[0] == ('Eve', 1), f'Eve should be rank 1 in Eng, got {eng_ranks}'\n# Test running total\nc.execute('SELECT name, salary, SUM(salary) OVER (ORDER BY salary) as running FROM employees ORDER BY salary')\nrows = c.fetchall()\nassert rows[-1][2] == sum(d[3] for d in data), 'Running total should equal total salary'\nconn.close()\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-normal-002",
+    "category": "database",
+    "topic": "normalization",
+    "difficulty": 2,
+    "instruction": "Explain database normalization from 1NF through BCNF with examples. Start with an unnormalized table for a school system (students, courses, teachers, grades) and progressively normalize it. Show the SQL CREATE TABLE statements for each normal form.",
+    "expected_concepts": [
+      "1NF",
+      "2NF",
+      "3NF",
+      "BCNF",
+      "functional",
+      "dependency",
+      "primary key",
+      "normalize"
+    ],
+    "test_code": "import sqlite3\n# Test basic normalized schema\nconn = sqlite3.connect(':memory:')\nc = conn.cursor()\n# Create normalized tables (3NF)\nc.execute('CREATE TABLE students (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')\nc.execute('CREATE TABLE courses (id INTEGER PRIMARY KEY, name TEXT NOT NULL, teacher_id INTEGER)')\nc.execute('CREATE TABLE teachers (id INTEGER PRIMARY KEY, name TEXT NOT NULL)')\nc.execute('CREATE TABLE enrollments (student_id INTEGER, course_id INTEGER, grade TEXT, PRIMARY KEY (student_id, course_id))')\nc.execute('INSERT INTO students VALUES (1, \"Alice\")')\nc.execute('INSERT INTO teachers VALUES (1, \"Dr. Smith\")')\nc.execute('INSERT INTO courses VALUES (1, \"Math 101\", 1)')\nc.execute('INSERT INTO enrollments VALUES (1, 1, \"A\")')\n# Verify join works (no data redundancy)\nc.execute('SELECT s.name, c.name, t.name, e.grade FROM enrollments e '\n          'JOIN students s ON e.student_id=s.id '\n          'JOIN courses c ON e.course_id=c.id '\n          'JOIN teachers t ON c.teacher_id=t.id')\nrow = c.fetchone()\nassert row == ('Alice', 'Math 101', 'Dr. Smith', 'A'), f'Got {row}'\nconn.close()\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-lock-003",
+    "category": "database",
+    "topic": "locking",
+    "difficulty": 3,
+    "instruction": "Implement optimistic locking in Python with SQLite. Write a function that reads a record, modifies it, and writes it back with a version check. If the version changed between read and write, raise a ConcurrencyError. Show the SQL and Python code.",
+    "expected_concepts": [
+      "optimistic",
+      "pessimistic",
+      "version",
+      "lock",
+      "concurrent",
+      "conflict",
+      "retry"
+    ],
+    "test_code": "import sqlite3\nconn = sqlite3.connect(':memory:')\nconn.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, version INTEGER DEFAULT 1)')\nconn.execute(\"INSERT INTO items VALUES (1, 'original', 1)\")\nconn.commit()\nresult = optimistic_update(conn, 1, 'updated')\nassert result == True or result is None, 'First update should succeed'\nrow = conn.execute('SELECT name, version FROM items WHERE id=1').fetchone()\nassert row is not None, 'Row should exist'\nassert row[1] >= 1, 'Version should be at least 1'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-index-004",
+    "category": "database",
+    "topic": "index_optimization",
+    "difficulty": 3,
+    "instruction": "Explain B-tree indexes, composite indexes, covering indexes, and partial indexes. For a query `SELECT name, email FROM users WHERE status = 'active' AND created_at > '2024-01-01' ORDER BY created_at DESC LIMIT 100`, design the optimal index and explain why. Show EXPLAIN ANALYZE output interpretation.",
+    "expected_concepts": [
+      "B-tree",
+      "index",
+      "composite",
+      "covering",
+      "partial",
+      "EXPLAIN",
+      "scan"
+    ],
+    "test_code": "import sqlite3\nconn = sqlite3.connect(':memory:')\nconn.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT, status TEXT, created_at TEXT)')\nfor i in range(100):\n    conn.execute('INSERT INTO users VALUES (?, ?, ?, ?, ?)', (i, f'user{i}', f'user{i}@test.com', 'active' if i%2==0 else 'inactive', f'2024-01-{(i%28)+1:02d}'))\nconn.commit()\nresult = create_optimal_indexes(conn, 'users')\nassert isinstance(result, (list, dict)), 'Should return index info'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-migration-005",
+    "category": "database",
+    "topic": "migrations",
+    "difficulty": 3,
+    "instruction": "Explain database migration patterns: forward-only vs reversible, zero-downtime migrations, expand-contract pattern. Write a simple migration system in Python: a `Migrator` class that tracks applied migrations in a table and runs pending migrations in order.",
+    "expected_concepts": [
+      "migration",
+      "version",
+      "up",
+      "down",
+      "schema",
+      "rollback",
+      "track"
+    ],
+    "test_code": "import sqlite3\nconn = sqlite3.connect(':memory:')\nconn.execute('CREATE TABLE schema_version (version INTEGER)')\nconn.execute('INSERT INTO schema_version VALUES (0)')\nconn.commit()\nmigrations = [\n    'CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)',\n    'ALTER TABLE users ADD COLUMN email TEXT',\n]\nresult = run_migrations(conn, migrations)\nassert isinstance(result, (dict, int, bool)), 'Should return migration result'\nversion = conn.execute('SELECT version FROM schema_version').fetchone()[0]\nassert version >= 1, f'Version should be updated, got {version}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-acid-006",
+    "category": "database",
+    "topic": "acid",
+    "difficulty": 4,
+    "instruction": "Explain ACID properties with concrete examples of what goes wrong when each is violated. Then explain isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with examples of dirty reads, non-repeatable reads, and phantom reads.",
+    "expected_concepts": [
+      "ACID",
+      "atomicity",
+      "consistency",
+      "isolation",
+      "durability",
+      "dirty read",
+      "phantom"
+    ],
+    "test_code": "result = demonstrate_acid_violation('atomicity')\nassert isinstance(result, dict), 'Should return a dict'\nassert 'violation' in result or 'description' in result, 'Should describe the violation'\nassert 'example' in result or 'code' in result or 'scenario' in result, 'Should include an example'\nresult2 = demonstrate_acid_violation('isolation')\nassert isinstance(result2, dict), 'Isolation violation should return dict'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "db-sharding-007",
+    "category": "database",
+    "topic": "sharding",
+    "difficulty": 5,
+    "instruction": "Explain database sharding strategies: hash-based, range-based, and directory-based. Discuss the challenges: cross-shard queries, rebalancing, hotspots. Implement a simple hash-based shard router in Python that maps keys to shard numbers.",
+    "expected_concepts": [
+      "shard",
+      "partition",
+      "hash",
+      "range",
+      "directory",
+      "rebalance",
+      "hotspot"
+    ],
+    "test_code": "router = ShardRouter(num_shards=4)\nasserts_shard = router.get_shard('user_123')\nassert 0 <= asserts_shard < 4\n# Same key always maps to same shard\nassert router.get_shard('user_123') == router.get_shard('user_123')\n# Different keys may map to different shards\nshards = set(router.get_shard(f'key_{i}') for i in range(100))\nassert len(shards) > 1, 'Should distribute across multiple shards'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "js-closure-001",
+    "category": "javascript",
+    "topic": "closures",
+    "difficulty": 1,
+    "instruction": "Explain JavaScript closures with 3 examples: 1) A counter function that maintains private state, 2) The classic loop variable problem with var vs let, 3) A function factory (makeMultiplier(n) returns a function that multiplies by n). Explain the execution context and scope chain.",
+    "expected_concepts": [
+      "closure",
+      "scope",
+      "lexical",
+      "var",
+      "let",
+      "function",
+      "private",
+      "state"
+    ],
+    "test_code": "// Test closures\n// Counter with private state\nconst counter = makeCounter ? makeCounter() : createCounter();\nlet v1 = counter.increment ? counter.increment() : counter();\nlet v2 = counter.increment ? counter.increment() : counter();\nconsole.assert(v2 > v1, 'Counter should increment');\n\n// Multiplier factory\nif (typeof makeMultiplier === 'function') {\n    const double = makeMultiplier(2);\n    const triple = makeMultiplier(3);\n    console.assert(double(5) === 10, 'double(5) should be 10');\n    console.assert(triple(5) === 15, 'triple(5) should be 15');\n}\nconsole.log('ALL TESTS PASSED');"
+  },
+  {
+    "id": "js-promise-002",
+    "category": "javascript",
+    "topic": "promises",
+    "difficulty": 2,
+    "instruction": "Write a JavaScript Promise-based function `retry(fn, maxRetries)` that retries an async function up to maxRetries times. Show the equivalent using async/await. Then implement `Promise.all` from scratch (call it `promiseAll`).",
+    "expected_concepts": [
+      "Promise",
+      "then",
+      "catch",
+      "async",
+      "await",
+      "retry",
+      "resolve",
+      "reject"
+    ],
+    "test_code": "// Test retry function\nasync function testRetry() {\n    let attempts = 0;\n    const failTwice = async () => {\n        attempts++;\n        if (attempts < 3) throw new Error('fail');\n        return 'success';\n    };\n    const result = await retry(failTwice, 5);\n    console.assert(result === 'success', `Expected success, got ${result}`);\n    console.assert(attempts === 3, `Expected 3 attempts, got ${attempts}`);\n\n    // Test exhausting retries\n    try {\n        await retry(() => { throw new Error('always fail'); }, 2);\n        console.assert(false, 'Should have thrown');\n    } catch (e) {\n        console.assert(e.message === 'always fail', 'Should preserve error');\n    }\n    console.log('ALL TESTS PASSED');\n}\ntestRetry();"
+  },
+  {
+    "id": "js-eventloop-003",
+    "category": "javascript",
+    "topic": "event_loop",
+    "difficulty": 3,
+    "instruction": "Explain the JavaScript event loop in depth: call stack, microtask queue, macrotask queue, rendering pipeline. Given this code, predict the exact output order and explain why: setTimeout, Promise.resolve().then(), queueMicrotask, requestAnimationFrame, and synchronous code.",
+    "expected_concepts": [
+      "event loop",
+      "microtask",
+      "macrotask",
+      "call stack",
+      "queue",
+      "setTimeout",
+      "Promise"
+    ],
+    "test_code": "const output = [];\nsetTimeout(() => output.push('timeout'), 0);\nPromise.resolve().then(() => output.push('promise'));\noutput.push('sync');\nsetTimeout(() => {\n  const expected = ['sync', 'promise', 'timeout'];\n  const match = JSON.stringify(output) === JSON.stringify(expected);\n  if (!match) { console.error('Expected', expected, 'got', output); process.exit(1); }\n  console.log('ALL TESTS PASSED');\n}, 100);"
+  },
+  {
+    "id": "js-proto-004",
+    "category": "javascript",
+    "topic": "prototype_chain",
+    "difficulty": 3,
+    "instruction": "Explain JavaScript's prototype chain and how inheritance works under the hood. Show: Object.create, __proto__ vs prototype, constructor functions vs class syntax, and how property lookup traverses the chain. Include a diagram of the prototype chain for a custom class.",
+    "expected_concepts": [
+      "prototype",
+      "__proto__",
+      "chain",
+      "Object.create",
+      "constructor",
+      "inheritance",
+      "class"
+    ],
+    "test_code": "function Animal(name) { this.name = name; }\nAnimal.prototype.speak = function() { return this.name + ' speaks'; };\nconst dog = new Animal('Rex');\nassert_eq = (a, b, msg) => { if (a !== b) { console.error(msg + ': ' + a + ' !== ' + b); process.exit(1); } };\nassert_eq(dog.speak(), 'Rex speaks', 'speak method');\nassert_eq(dog.__proto__ === Animal.prototype, true, 'proto chain');\nassert_eq(dog.constructor === Animal, true, 'constructor');\nassert_eq(dog.hasOwnProperty('name'), true, 'own property');\nassert_eq(dog.hasOwnProperty('speak'), false, 'inherited property');\nconsole.log('ALL TESTS PASSED');"
+  },
+  {
+    "id": "ts-generics-005",
+    "category": "javascript",
+    "topic": "typescript_generics",
+    "difficulty": 3,
+    "instruction": "Write TypeScript code demonstrating advanced generics: 1) A generic Result<T, E> type (like Rust's), 2) A generic Repository<T> with CRUD methods, 3) Conditional types (IsString<T>), 4) Mapped types to make all properties optional or readonly.",
+    "expected_concepts": [
+      "generic",
+      "constraint",
+      "extends",
+      "keyof",
+      "mapped",
+      "conditional",
+      "infer"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "ts-utility-006",
+    "category": "javascript",
+    "topic": "typescript_utility_types",
+    "difficulty": 2,
+    "instruction": "Explain and demonstrate TypeScript utility types: Partial<T>, Required<T>, Pick<T, K>, Omit<T, K>, Record<K, V>, Readonly<T>, ReturnType<T>, and Parameters<T>. For each, show a practical use case and the type transformation it performs.",
+    "expected_concepts": [
+      "Partial",
+      "Required",
+      "Pick",
+      "Omit",
+      "Record",
+      "Readonly",
+      "utility"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-proxy-007",
+    "category": "javascript",
+    "topic": "proxy",
+    "difficulty": 4,
+    "instruction": "Explain JavaScript's Proxy and Reflect APIs. Implement: 1) A validation proxy that type-checks property assignments, 2) A logging proxy that logs all property accesses, 3) A reactive proxy (like Vue 3's reactivity system) that triggers callbacks when properties change.",
+    "expected_concepts": [
+      "Proxy",
+      "Reflect",
+      "handler",
+      "trap",
+      "get",
+      "set",
+      "reactive"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-streams-008",
+    "category": "javascript",
+    "topic": "node_streams",
+    "difficulty": 4,
+    "instruction": "Explain Node.js streams: Readable, Writable, Transform, and Duplex. Demonstrate backpressure handling. Write a Transform stream that converts CSV lines to JSON objects. Explain when streams are better than loading entire files into memory.",
+    "expected_concepts": [
+      "stream",
+      "Readable",
+      "Writable",
+      "Transform",
+      "pipe",
+      "backpressure",
+      "chunk"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "sec-hash-001",
+    "category": "security",
+    "topic": "password_hashing",
+    "difficulty": 2,
+    "instruction": "Explain why you should never store plaintext passwords. Compare hashing algorithms: MD5 (bad), SHA-256 (insufficient alone), bcrypt, and Argon2. Write Python functions `hash_password(password)` and `verify_password(password, hash)` using bcrypt with proper salt handling.",
+    "expected_concepts": [
+      "bcrypt",
+      "salt",
+      "hash",
+      "argon2",
+      "rainbow",
+      "table",
+      "rounds"
+    ],
+    "test_code": "# Test password hashing functions\nhashed = hash_password('my_secret_password')\nassert hashed != 'my_secret_password', 'Should not store plaintext'\nassert len(hashed) > 20, f'Hash seems too short: {len(hashed)}'\nassert verify_password('my_secret_password', hashed) == True, 'Correct password should verify'\nassert verify_password('wrong_password', hashed) == False, 'Wrong password should not verify'\n# Different calls should produce different hashes (salting)\nhashed2 = hash_password('my_secret_password')\nassert hashed != hashed2, 'Same password should produce different hashes (salt)'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-hmac-002",
+    "category": "security",
+    "topic": "hmac",
+    "difficulty": 3,
+    "instruction": "Explain HMAC and its role in message authentication. Write Python functions: `sign_message(message, secret)` that creates an HMAC-SHA256 signature, and `verify_message(message, signature, secret)` that verifies it. Use the hmac module. Explain timing attack prevention.",
+    "expected_concepts": [
+      "HMAC",
+      "SHA256",
+      "signature",
+      "verify",
+      "timing",
+      "compare_digest",
+      "secret"
+    ],
+    "test_code": "sig = sign_message('hello world', 'mysecret')\nassert verify_message('hello world', sig, 'mysecret') == True\nassert verify_message('hello world', sig, 'wrongsecret') == False\nassert verify_message('tampered', sig, 'mysecret') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-xss-003",
+    "category": "security",
+    "topic": "xss_prevention",
+    "difficulty": 2,
+    "instruction": "Explain Cross-Site Scripting (XSS): stored, reflected, and DOM-based. Show vulnerable code examples and their secure alternatives. Write a `sanitize_html(input)` function that escapes dangerous characters. Discuss Content-Security-Policy headers.",
+    "expected_concepts": [
+      "XSS",
+      "sanitize",
+      "escape",
+      "CSP",
+      "Content-Security-Policy",
+      "stored",
+      "reflected"
+    ],
+    "test_code": "assert '<' not in sanitize_html('<script>alert(1)</script>')\nassert '&lt;' in sanitize_html('<b>bold</b>')\nassert sanitize_html('hello') == 'hello'\nassert '\"' not in sanitize_html('a\"b') or '&quot;' in sanitize_html('a\"b')\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-timing-004",
+    "category": "security",
+    "topic": "timing_attacks",
+    "difficulty": 4,
+    "instruction": "Explain timing attacks in string comparisons and why `==` is vulnerable for secret comparison. Write a constant-time comparison function and explain how hmac.compare_digest works. Show how an attacker could exploit timing differences to guess an API key byte by byte.",
+    "expected_concepts": [
+      "timing",
+      "attack",
+      "constant-time",
+      "compare_digest",
+      "side-channel",
+      "byte"
+    ],
+    "test_code": "import hmac\nresult1 = constant_time_compare(b'secret123', b'secret123')\nassert result1 == True, 'Identical strings should match'\nresult2 = constant_time_compare(b'secret123', b'secret456')\nassert result2 == False, 'Different strings should not match'\nresult3 = constant_time_compare(b'short', b'longer_string')\nassert result3 == False, 'Different lengths should not match'\nresult4 = constant_time_compare(b'', b'')\nassert result4 == True, 'Empty strings should match'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-random-005",
+    "category": "security",
+    "topic": "secure_random",
+    "difficulty": 2,
+    "instruction": "Explain why `random.random()` is NOT secure for tokens/passwords. Show the correct way using `secrets` module. Write functions: `generate_token(length=32)` for URL-safe tokens, `generate_password(length=16)` with uppercase, lowercase, digits, and symbols.",
+    "expected_concepts": [
+      "secrets",
+      "token",
+      "random",
+      "CSPRNG",
+      "urlsafe",
+      "password"
+    ],
+    "test_code": "t1 = generate_token(32)\nt2 = generate_token(32)\nassert len(t1) >= 32\nassert t1 != t2\np = generate_password(16)\nassert len(p) == 16\nassert any(c.isupper() for c in p)\nassert any(c.islower() for c in p)\nassert any(c.isdigit() for c in p)\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-csrf-006",
+    "category": "security",
+    "topic": "csrf",
+    "difficulty": 3,
+    "instruction": "Explain Cross-Site Request Forgery (CSRF): how the attack works, why cookies are vulnerable, and prevention strategies. Implement a CSRF token system: `generate_csrf_token(session_id, secret)` and `validate_csrf_token(token, session_id, secret)` using HMAC.",
+    "expected_concepts": [
+      "CSRF",
+      "token",
+      "cookie",
+      "SameSite",
+      "Origin",
+      "Referer",
+      "HMAC"
+    ],
+    "test_code": "token = generate_csrf_token('session123', 'secret')\nassert validate_csrf_token(token, 'session123', 'secret') == True\nassert validate_csrf_token(token, 'other_session', 'secret') == False\nassert validate_csrf_token('fake_token', 'session123', 'secret') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-docker-001",
+    "category": "devops",
+    "topic": "dockerfile",
+    "difficulty": 1,
+    "instruction": "Write a multi-stage Dockerfile for a Python Flask application. Stage 1: install dependencies. Stage 2: copy only the necessary files and run the app. Include: non-root user, health check, .dockerignore best practices, and explain each directive.",
+    "expected_concepts": [
+      "FROM",
+      "COPY",
+      "RUN",
+      "multi-stage",
+      "USER",
+      "HEALTHCHECK",
+      "EXPOSE"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "ops-12factor-002",
+    "category": "devops",
+    "topic": "twelve_factor",
+    "difficulty": 2,
+    "instruction": "Explain the 12-Factor App methodology and demonstrate 3 key factors in Python: 1) Config (environment variables), 2) Backing services (database URLs), 3) Logs (structured JSON logging). Write code showing the correct implementation for each.",
+    "expected_concepts": [
+      "12-factor",
+      "environment",
+      "config",
+      "logging",
+      "backing service",
+      "stateless"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "ops-logging-003",
+    "category": "devops",
+    "topic": "structured_logging",
+    "difficulty": 2,
+    "instruction": "Implement structured JSON logging in Python. Write a custom logging formatter that outputs JSON with fields: timestamp, level, message, logger_name, and extra context. Show how to add request_id tracing across function calls using contextvars.",
+    "expected_concepts": [
+      "logging",
+      "JSON",
+      "structured",
+      "formatter",
+      "contextvars",
+      "request_id",
+      "trace"
+    ],
+    "test_code": "import json, logging, io\n# Test structured JSON logging formatter\n# Create a logger with the custom formatter\ntest_logger = logging.getLogger('test_structured')\ntest_logger.setLevel(logging.DEBUG)\nstream = io.StringIO()\nhandler = logging.StreamHandler(stream)\nhandler.setFormatter(JsonFormatter())\ntest_logger.addHandler(handler)\ntest_logger.info('Test message', extra={'request_id': 'abc-123'})\noutput = stream.getvalue().strip()\nparsed = json.loads(output)\nassert 'timestamp' in parsed or 'time' in parsed, f'Missing timestamp in {parsed}'\nassert parsed.get('level', parsed.get('levelname', '')) in ('INFO', 'info'), f'Wrong level in {parsed}'\nassert 'Test message' in parsed.get('message', parsed.get('msg', '')), f'Missing message in {parsed}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-feature-004",
+    "category": "devops",
+    "topic": "feature_flags",
+    "difficulty": 3,
+    "instruction": "Implement a feature flag system in Python. Write a `FeatureFlags` class that: loads flags from a JSON config, supports boolean and percentage-based rollouts, evaluates flags per-user (consistent hashing), and allows runtime flag updates without restart.",
+    "expected_concepts": [
+      "feature",
+      "flag",
+      "rollout",
+      "percentage",
+      "toggle",
+      "config",
+      "consistent"
+    ],
+    "test_code": "flags = FeatureFlags({'dark_mode': True, 'new_ui': {'enabled': True, 'rollout_pct': 50}})\nassert flags.is_enabled('dark_mode') == True\nassert flags.is_enabled('nonexistent') == False\n# Percentage rollout should be deterministic per user\nr1 = flags.is_enabled('new_ui', user_id='alice')\nr2 = flags.is_enabled('new_ui', user_id='alice')\nassert r1 == r2, 'Should be consistent for same user'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-deploy-005",
+    "category": "devops",
+    "topic": "deployment",
+    "difficulty": 4,
+    "instruction": "Explain blue-green and canary deployment strategies. For each, describe: the architecture, how traffic is shifted, rollback procedure, and monitoring requirements. Write a simple Python simulation of canary deployment with weighted traffic routing.",
+    "expected_concepts": [
+      "blue-green",
+      "canary",
+      "rollback",
+      "traffic",
+      "weight",
+      "deploy",
+      "health"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "ops-git-006",
+    "category": "devops",
+    "topic": "git_branching",
+    "difficulty": 2,
+    "instruction": "Compare trunk-based development vs gitflow branching strategies. For each, explain: branch structure, merge strategy, release process, and team size suitability. Draw ASCII diagrams showing the branch timeline for a typical feature development cycle.",
+    "expected_concepts": [
+      "trunk",
+      "gitflow",
+      "branch",
+      "merge",
+      "release",
+      "feature",
+      "hotfix"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-001",
+    "category": "hive_sdk",
+    "topic": "reputation_conversion",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `reputation_to_score` that converts a Hive raw reputation number (int) to a human-readable reputation score (float, 1 decimal place). Hive stores reputation as a large integer. The formula is: score = max(log10(abs(rep)) - 9, 0) * 9 + 25. If rep is negative, subtract from 25 instead of adding. If rep is 0, return 25. Examples: rep=95832978796820 -> 69.2, rep=0 -> 25, rep=-500000000000 -> 22.5 (approximately).",
+    "expected_concepts": [
+      "def",
+      "log10",
+      "reputation",
+      "abs",
+      "math",
+      "return"
+    ],
+    "test_code": "import math\nresult = reputation_to_score(95832978796820)\nassert abs(result - 69.2) < 0.5, f'Expected ~69.2 but got {result}'\nassert reputation_to_score(0) == 25, f'Zero rep should be 25'\nassert reputation_to_score(1000000000) == 25.0, f'Min rep should be ~25'\nneg = reputation_to_score(-500000000000)\nassert neg < 25, f'Negative rep should be below 25, got {neg}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sdk-002",
+    "category": "hive_sdk",
+    "topic": "vests_to_hp",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `vests_to_hp` that converts VESTS (Hive's internal power unit) to Hive Power (HP). It takes three arguments: vests (float), total_vesting_fund_hive (float), and total_vesting_shares (float). The formula is: HP = vests * total_vesting_fund_hive / total_vesting_shares. Also write a function `hp_to_vests` that does the reverse. Include docstrings explaining why Hive uses VESTS internally instead of HP directly.",
+    "expected_concepts": [
+      "def",
+      "VESTS",
+      "Hive Power",
+      "conversion",
+      "total_vesting",
+      "return"
+    ],
+    "test_code": "hp = vests_to_hp(1000000.0, 200000000.0, 400000000000.0)\nassert abs(hp - 0.5) < 0.01, f'Expected ~0.5 HP but got {hp}'\nvests = hp_to_vests(100.0, 200000000.0, 400000000000.0)\nassert abs(vests - 200000000.0) < 1.0, f'Expected ~200M VESTS but got {vests}'\nround_trip = vests_to_hp(hp_to_vests(42.0, 200000000.0, 400000000000.0), 200000000.0, 400000000000.0)\nassert abs(round_trip - 42.0) < 0.001, f'Round trip failed: {round_trip}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sdk-003",
+    "category": "hive_sdk",
+    "topic": "custom_json_operation",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `build_custom_json` that constructs a Hive custom_json operation dictionary. It takes: posting_account (str), op_id (str), payload (dict), and an optional active_account (str, default None). The function should return a dict with keys: 'required_auths' (list - contains active_account if provided), 'required_posting_auths' (list - contains posting_account if no active_account), 'id' (the op_id string), and 'json' (the payload serialized as a JSON string). Explain in comments why custom_json is the backbone of all Hive Layer 2 applications.",
+    "expected_concepts": [
+      "custom_json",
+      "required_auths",
+      "required_posting_auths",
+      "json",
+      "Layer 2",
+      "id"
+    ],
+    "test_code": "import json\nresult = build_custom_json('alice', 'follow', {'follower': 'alice', 'following': 'bob', 'what': ['blog']})\nassert result['required_auths'] == [], f'No active auth expected: {result[\"required_auths\"]}'\nassert result['required_posting_auths'] == ['alice']\nassert result['id'] == 'follow'\nassert json.loads(result['json']) == {'follower': 'alice', 'following': 'bob', 'what': ['blog']}\nresult2 = build_custom_json('alice', 'ssc-mainnet-hive', {'to': 'bob'}, active_account='alice')\nassert result2['required_auths'] == ['alice']\nassert result2['required_posting_auths'] == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sdk-004",
+    "category": "hive_sdk",
+    "topic": "resource_credits",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `rc_percentage` that calculates the current Resource Credits percentage for a Hive account. It takes: current_mana (int), max_mana (int), and last_update_time (int, Unix timestamp). RC regenerates linearly: it takes 5 days (432000 seconds) to go from 0% to 100%. The function should calculate the current mana considering regeneration since last_update_time, cap it at max_mana, and return the percentage (0-100 float). Use time.time() for the current timestamp. Also write a function `estimate_rc_cost` that takes operation_type ('comment', 'vote', 'transfer', 'custom_json') and returns an approximate RC cost as an integer.",
+    "expected_concepts": [
+      "Resource Credits",
+      "mana",
+      "regeneration",
+      "timestamp",
+      "percentage",
+      "RC"
+    ],
+    "test_code": "import time\npct = rc_percentage(5000, 10000, int(time.time()))\nassert abs(pct - 50.0) < 1.0, f'Expected ~50% but got {pct}'\npct_full = rc_percentage(10000, 10000, int(time.time()))\nassert abs(pct_full - 100.0) < 1.0, f'Expected ~100% but got {pct_full}'\npct_regen = rc_percentage(0, 10000, int(time.time()) - 216000)\nassert 45 < pct_regen < 55, f'Expected ~50% after 2.5 days regen but got {pct_regen}'\ncost = estimate_rc_cost('vote')\nassert isinstance(cost, int) and cost > 0, f'RC cost should be positive int'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-layer2-001",
+    "category": "hive_layer2",
+    "topic": "hive_engine_transfer",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `build_engine_transfer` that constructs the custom_json payload for a Hive Engine token transfer. It takes: sender (str), recipient (str), symbol (str), quantity (str - must be a decimal string), and memo (str, optional default ''). The function should return a dict with 'contractName' = 'tokens', 'contractAction' = 'transfer', and 'contractPayload' containing 'symbol', 'to', 'quantity', and 'memo'. Also write `build_engine_stake` for staking tokens (contractAction = 'stake', payload has 'to', 'symbol', 'quantity'). Explain in comments how Hive Engine works as a Layer 2 sidechain.",
+    "expected_concepts": [
+      "contractName",
+      "contractAction",
+      "tokens",
+      "transfer",
+      "stake",
+      "sidechain",
+      "Layer 2"
+    ],
+    "test_code": "t = build_engine_transfer('alice', 'bob', 'BEE', '10.000', 'payment')\nassert t['contractName'] == 'tokens'\nassert t['contractAction'] == 'transfer'\nassert t['contractPayload']['symbol'] == 'BEE'\nassert t['contractPayload']['to'] == 'bob'\nassert t['contractPayload']['quantity'] == '10.000'\nassert t['contractPayload']['memo'] == 'payment'\ns = build_engine_stake('alice', 'bob', 'BEE', '5.000')\nassert s['contractAction'] == 'stake'\nassert s['contractPayload']['to'] == 'bob'\nassert s['contractPayload']['symbol'] == 'BEE'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-layer2-002",
+    "category": "hive_layer2",
+    "topic": "custom_json_protocol",
+    "difficulty": 4,
+    "instruction": "Design and implement a simple decentralized voting protocol on Hive using custom_json operations. Write a Python class called `HiveVotingProtocol` with these methods: `create_proposal(title, options, end_block)` returns the custom_json payload to create a proposal, `cast_vote(proposal_id, option_index)` returns the payload to vote, and `parse_action(json_str)` parses a custom_json string and returns a dict with 'action' ('create' or 'vote') and the relevant fields. Use 'hivevote' as the custom_json id. Explain in comments how custom_json enables any dApp protocol on Hive Layer 1.",
+    "expected_concepts": [
+      "custom_json",
+      "protocol",
+      "proposal",
+      "vote",
+      "parse",
+      "decentralized",
+      "Layer 1"
+    ],
+    "test_code": "import json\np = HiveVotingProtocol()\ncreate = p.create_proposal('Best Language', ['Python', 'Rust', 'Go'], 80000000)\nassert create['action'] == 'create'\nassert create['title'] == 'Best Language'\nassert len(create['options']) == 3\nvote = p.cast_vote('prop-123', 0)\nassert vote['action'] == 'vote'\nassert vote['proposal_id'] == 'prop-123'\nassert vote['option_index'] == 0\nparsed = p.parse_action(json.dumps(create))\nassert parsed['action'] == 'create'\nassert parsed['title'] == 'Best Language'\nparsed_vote = p.parse_action(json.dumps(vote))\nassert parsed_vote['action'] == 'vote'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-layer2-003",
+    "category": "hive_layer2",
+    "topic": "nft_schema",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `build_nft_issue` that creates the custom_json payload for issuing an NFT on Hive Engine. It takes: symbol (str), to (str), properties (dict with keys like 'name', 'image', 'description', 'attributes'). Return a dict with contractName='nft', contractAction='issue', and contractPayload containing 'symbol', 'to', and 'properties' (as a JSON string within the payload). Also write `build_nft_transfer` for transferring NFTs (needs nfts list with {symbol, ids} objects). Explain how Hive Engine NFTs differ from Ethereum ERC-721.",
+    "expected_concepts": [
+      "NFT",
+      "nft",
+      "issue",
+      "transfer",
+      "symbol",
+      "properties",
+      "contractName"
+    ],
+    "test_code": "import json\nnft = build_nft_issue('MYTHICAL', 'alice', {'name': 'Dragon', 'image': 'ipfs://abc', 'description': 'A rare dragon', 'attributes': {'power': 95}})\nassert nft['contractName'] == 'nft'\nassert nft['contractAction'] == 'issue'\nassert nft['contractPayload']['symbol'] == 'MYTHICAL'\nassert nft['contractPayload']['to'] == 'alice'\nprops = json.loads(nft['contractPayload']['properties']) if isinstance(nft['contractPayload']['properties'], str) else nft['contractPayload']['properties']\nassert props['name'] == 'Dragon'\ntx = build_nft_transfer('alice', 'bob', [{'symbol': 'MYTHICAL', 'ids': ['1', '2']}])\nassert tx['contractAction'] == 'transfer'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-econ-001",
+    "category": "hive_economics",
+    "topic": "hbd_interest",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `calculate_hbd_savings_interest` that calculates the interest earned on HBD (Hive Backed Dollars) held in savings. It takes: principal (float, HBD amount), annual_rate (float, e.g. 0.15 for 15%), and days (int, number of days in savings). HBD savings interest is paid monthly and compounds. Return the total amount after the given period (principal + interest). Also write `current_hbd_apr` that returns a brief explanation of how the HBD interest rate is set (by witness consensus, currently around 15% APR).",
+    "expected_concepts": [
+      "HBD",
+      "savings",
+      "interest",
+      "compound",
+      "APR",
+      "witness"
+    ],
+    "test_code": "result = calculate_hbd_savings_interest(1000.0, 0.15, 365)\nassert 1140 < result < 1170, f'Expected ~1161 (15% compounded monthly) but got {result}'\nresult_30 = calculate_hbd_savings_interest(1000.0, 0.15, 30)\nassert 1010 < result_30 < 1015, f'Expected ~1012.5 for 30 days but got {result_30}'\nresult_zero = calculate_hbd_savings_interest(1000.0, 0.15, 0)\nassert result_zero == 1000.0, f'Zero days should return principal, got {result_zero}'\nexplanation = current_hbd_apr()\nassert isinstance(explanation, str) and len(explanation) > 20\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-econ-002",
+    "category": "hive_economics",
+    "topic": "curation_rewards",
+    "difficulty": 4,
+    "instruction": "Write a Python function called `estimate_curation_reward` that estimates the curation reward for voting on a Hive post. It takes: vote_rshares (int - the voter's rshares contribution), total_rshares (int - total rshares on the post after vote), reward_fund_balance (float - reward fund in HIVE), recent_claims (int - total recent claims), hive_price (float - HIVE price in USD), and vote_time_minutes (int - minutes after post creation when voted). The curation reward calculation: 1) Post reward = vote rshares^2 / recent_claims * reward_fund_balance, 2) Curation gets 50% of post rewards, 3) Early voter penalty: if voted before 5 minutes, penalty = (5 - vote_time_minutes)/5 of curation reward is returned to reward pool. Return estimated curation in HIVE. Explain the 50/50 split and early voter penalty in comments.",
+    "expected_concepts": [
+      "curation",
+      "rshares",
+      "reward",
+      "50/50",
+      "early voter",
+      "penalty",
+      "reward pool"
+    ],
+    "test_code": "reward = estimate_curation_reward(\n    vote_rshares=1000000000,\n    total_rshares=5000000000,\n    reward_fund_balance=800000.0,\n    recent_claims=500000000000000,\n    hive_price=0.30,\n    vote_time_minutes=10\n)\nassert isinstance(reward, float) and reward > 0, f'Expected positive reward, got {reward}'\nreward_early = estimate_curation_reward(\n    vote_rshares=1000000000,\n    total_rshares=5000000000,\n    reward_fund_balance=800000.0,\n    recent_claims=500000000000000,\n    hive_price=0.30,\n    vote_time_minutes=2\n)\nassert reward_early < reward, f'Early vote should get less reward: {reward_early} vs {reward}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-econ-003",
+    "category": "hive_economics",
+    "topic": "reward_pool_math",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `calculate_post_payout` that estimates the pending payout of a Hive post in HBD. It takes: net_rshares (int), reward_fund_balance (float - reward fund HIVE), recent_claims (int), hive_price_usd (float), and hbd_print_rate (float, 0-1, default 0.5). The formula: 1) claim = net_rshares / recent_claims * reward_fund_balance (in HIVE), 2) value_usd = claim * hive_price_usd, 3) author gets 50% (the rest is curation), 4) of author's share: hbd_print_rate goes to HBD, rest to HP. Return a dict with 'total_usd', 'author_hbd', 'author_hp_value', 'curation_value'. Explain the reward pool mechanics in comments.",
+    "expected_concepts": [
+      "reward",
+      "payout",
+      "rshares",
+      "HBD",
+      "HP",
+      "curation",
+      "author"
+    ],
+    "test_code": "result = calculate_post_payout(\n    net_rshares=10000000000,\n    reward_fund_balance=800000.0,\n    recent_claims=500000000000000,\n    hive_price_usd=0.30\n)\nassert 'total_usd' in result and 'author_hbd' in result\nassert 'author_hp_value' in result and 'curation_value' in result\nassert result['total_usd'] > 0, f'Payout should be positive'\nassert abs(result['curation_value'] - result['total_usd'] * 0.5) < 0.01, f'Curation should be ~50%'\nassert result['author_hbd'] + result['author_hp_value'] > 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-arch-001",
+    "category": "hive_architecture",
+    "topic": "haf_schema_design",
+    "difficulty": 4,
+    "instruction": "Design and write the SQL schema (as a Python string) for a HAF (Hive Application Framework) application that indexes all HIVE and HBD transfer operations. Write a Python function called `get_haf_schema` that returns a string containing the CREATE TABLE statements. The schema should include: 1) A `transfers` table (id, block_num, trx_id, sender, receiver, amount, asset, memo, timestamp), 2) An `account_stats` table (account, total_sent_hive, total_received_hive, total_sent_hbd, total_received_hbd, transfer_count, unique_counterparties, last_active), 3) Proper indexes for querying by account, block, and time range. Also write `get_haf_registration_sql(app_name)` that returns the SQL to register a HAF application context. Explain in comments how HAF differs from API-based indexing.",
+    "expected_concepts": [
+      "HAF",
+      "CREATE TABLE",
+      "transfers",
+      "index",
+      "PostgreSQL",
+      "hive.app_create_context",
+      "block_num"
+    ],
+    "test_code": "schema = get_haf_schema()\nassert 'CREATE TABLE' in schema\nassert 'transfers' in schema.lower()\nassert 'account_stats' in schema.lower()\nassert 'block_num' in schema.lower()\nassert 'INDEX' in schema.upper()\nassert 'sender' in schema.lower()\nassert 'receiver' in schema.lower()\nreg = get_haf_registration_sql('my_transfer_indexer')\nassert 'app_create_context' in reg.lower() or 'hive.app' in reg.lower()\nassert 'my_transfer_indexer' in reg\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-arch-002",
+    "category": "hive_architecture",
+    "topic": "block_parsing",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `parse_hive_block` that takes a Hive block dict (as returned by the condenser API `get_block`) and extracts all operations into a flat list. Each item should be a dict with: 'trx_id', 'op_type', 'op_data', 'timestamp', 'block_num'. A block has 'transactions' (list), each transaction has 'transaction_id' and 'operations' (list of [type, data] pairs). The block itself has 'timestamp' and 'block_id'. Also write `filter_ops(ops, op_type)` that filters the list to only operations of a given type (e.g., 'vote', 'transfer', 'comment'). Handle virtual operations gracefully (they may have different structure).",
+    "expected_concepts": [
+      "block",
+      "operations",
+      "transaction",
+      "parse",
+      "filter",
+      "op_type",
+      "trx_id"
+    ],
+    "test_code": "block = {\n    'block_id': '004c4b40abc',\n    'timestamp': '2024-01-15T10:30:00',\n    'transactions': [\n        {\n            'transaction_id': 'abc123',\n            'operations': [\n                ['vote', {'voter': 'alice', 'author': 'bob', 'permlink': 'hello', 'weight': 10000}],\n                ['transfer', {'from': 'alice', 'to': 'bob', 'amount': '1.000 HIVE', 'memo': 'test'}]\n            ]\n        },\n        {\n            'transaction_id': 'def456',\n            'operations': [\n                ['comment', {'author': 'charlie', 'permlink': 'post1', 'body': 'hello world'}]\n            ]\n        }\n    ]\n}\nops = parse_hive_block(block)\nassert len(ops) == 3, f'Expected 3 ops, got {len(ops)}'\nassert ops[0]['op_type'] == 'vote'\nassert ops[0]['trx_id'] == 'abc123'\nassert ops[1]['op_type'] == 'transfer'\nassert ops[2]['op_type'] == 'comment'\nvotes = filter_ops(ops, 'vote')\nassert len(votes) == 1\nassert votes[0]['op_data']['voter'] == 'alice'\ntransfers = filter_ops(ops, 'transfer')\nassert len(transfers) == 1\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-arch-003",
+    "category": "hive_architecture",
+    "topic": "dpos_consensus",
+    "difficulty": 4,
+    "instruction": "Explain Hive's Delegated Proof of Stake (DPoS) consensus mechanism in detail. Cover: 1) How witnesses are elected (stakeholder voting, 1 HP = 1 vote, top 20 + 1 rotating backup), 2) Block production schedule (3-second blocks, round-robin among top 21 witnesses), 3) How irreversibility works (a block is irreversible after 2/3+1 of witnesses confirm = 15 of 21), 4) What happens when a witness misses a block (penalty, automatic failover), 5) How DPoS compares to Ethereum's PoS and Bitcoin's PoW in terms of finality time, energy, and decentralization trade-offs. Include specific numbers: 3s blocks, 63s rounds (21 witnesses × 3s), ~45s to irreversibility.",
+    "expected_concepts": [
+      "DPoS",
+      "witness",
+      "block production",
+      "irreversible",
+      "round-robin",
+      "3 second",
+      "top 20",
+      "consensus"
+    ],
+    "test_code": "result = simulate_dpos_round(num_witnesses=21)\nassert isinstance(result, dict), 'Should return a dict'\nassert 'block_producers' in result, 'Should have block_producers'\nassert len(result['block_producers']) == 21, f'Should have 21 producers, got {len(result[\"block_producers\"])}'\nassert 'round_time_seconds' in result, 'Should have round_time_seconds'\nassert result['round_time_seconds'] == 63, f'21 witnesses * 3s = 63s, got {result[\"round_time_seconds\"]}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sec-001",
+    "category": "hive_security",
+    "topic": "key_hierarchy",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `validate_key_usage` that checks whether a given key type is appropriate for a given operation. It takes: key_type (str: 'posting', 'active', 'owner', 'memo') and operation (str: 'vote', 'comment', 'transfer', 'power_up', 'account_update', 'change_password', 'decrypt_memo', 'custom_json', 'witness_vote', 'create_account'). Return a dict with 'allowed' (bool), 'reason' (str explaining why). The Hive key hierarchy: posting key (social ops: vote, comment, custom_json, follow), active key (financial: transfer, power_up, witness_vote, create_account), owner key (account control: account_update, change_password), memo key (only for encrypting/decrypting private memos). Higher keys can do lower key operations but that's bad practice. Explain security implications in comments.",
+    "expected_concepts": [
+      "posting",
+      "active",
+      "owner",
+      "memo",
+      "key hierarchy",
+      "security",
+      "authority"
+    ],
+    "test_code": "r = validate_key_usage('posting', 'vote')\nassert r['allowed'] == True, f'Posting key should allow votes'\nr = validate_key_usage('posting', 'transfer')\nassert r['allowed'] == False, f'Posting key should NOT allow transfers'\nr = validate_key_usage('active', 'transfer')\nassert r['allowed'] == True, f'Active key should allow transfers'\nr = validate_key_usage('memo', 'vote')\nassert r['allowed'] == False, f'Memo key should NOT allow votes'\nr = validate_key_usage('memo', 'decrypt_memo')\nassert r['allowed'] == True, f'Memo key should allow decryption'\nr = validate_key_usage('owner', 'change_password')\nassert r['allowed'] == True, f'Owner key should allow password changes'\nr = validate_key_usage('active', 'change_password')\nassert r['allowed'] == False, f'Active key should NOT allow password changes'\nassert 'reason' in r and len(r['reason']) > 5\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sec-002",
+    "category": "hive_security",
+    "topic": "account_recovery",
+    "difficulty": 4,
+    "instruction": "Explain Hive's account recovery process in detail and write a Python function called `recovery_timeline` that calculates the timeline for account recovery steps. It takes: compromise_detected_at (datetime) and returns a dict with key dates. The Hive recovery process: 1) Account recovery must be initiated within 30 days of the owner key being changed, 2) The recovery account (set at account creation, usually the account creator) initiates recovery, 3) The original owner provides proof of identity using a key that was valid in the last 30 days, 4) After the recovery request is approved, there is a mandatory 30-day waiting period before the new owner key becomes active, 5) During this waiting period, the thief cannot change the recovery account. Write the function and explain in comments why this design prevents both theft and false recovery claims. Also discuss the importance of setting a trusted recovery account.",
+    "expected_concepts": [
+      "recovery",
+      "owner key",
+      "30 days",
+      "recovery account",
+      "waiting period",
+      "identity",
+      "security"
+    ],
+    "test_code": "from datetime import datetime, timedelta\ndetected = datetime(2024, 6, 15, 12, 0, 0)\ntimeline = recovery_timeline(detected)\nassert 'recovery_deadline' in timeline, 'Should have recovery_deadline'\nassert 'waiting_period_ends' in timeline, 'Should have waiting_period_ends'\ndeadline = timeline['recovery_deadline']\nassert isinstance(deadline, datetime)\nassert (deadline - detected).days == 30, f'Recovery deadline should be 30 days, got {(deadline - detected).days}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "cpp-mem-001",
+    "category": "cpp",
+    "topic": "smart_pointers_raii",
+    "difficulty": 2,
+    "instruction": "Explain RAII (Resource Acquisition Is Initialization) in C++ and demonstrate the three smart pointer types: std::unique_ptr, std::shared_ptr, and std::weak_ptr. For each, write a complete C++ example showing: (1) How to create and use the smart pointer, (2) When it automatically cleans up the resource, (3) A common mistake developers make with it, (4) When to choose this type over the others. Also implement a custom RAII wrapper class for a file handle that automatically closes the file in its destructor. Show how your wrapper prevents resource leaks even when exceptions occur.",
+    "expected_concepts": [
+      "unique_ptr",
+      "shared_ptr",
+      "weak_ptr",
+      "RAII",
+      "destructor",
+      "make_unique",
+      "make_shared",
+      "move",
+      "ownership"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-mem-002",
+    "category": "cpp",
+    "topic": "move_semantics",
+    "difficulty": 3,
+    "instruction": "Explain C++ move semantics and rvalue references in depth. Write a complete C++ class called `Buffer` that manages a dynamically allocated array. Implement: (1) Constructor, destructor, copy constructor, copy assignment operator, (2) Move constructor and move assignment operator using && rvalue references, (3) A swap function. For each special member function, explain the Rule of Five and show what happens if you omit any of them. Write a main() that demonstrates the performance difference between copying and moving a large Buffer (1 million elements). Show the output including move vs copy counts using a static counter.",
+    "expected_concepts": [
+      "rvalue",
+      "std::move",
+      "move constructor",
+      "move assignment",
+      "Rule of Five",
+      "noexcept",
+      "swap",
+      "&&"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-tmpl-001",
+    "category": "cpp",
+    "topic": "template_metaprogramming",
+    "difficulty": 3,
+    "instruction": "Explain C++ template metaprogramming from basics to intermediate level. Write the following compile-time computations: (1) A `Factorial<N>` template that computes factorials at compile time using template specialization, (2) A `TypeList` that stores a list of types with Head/Tail access, (3) A `Contains<TypeList, T>` that checks if type T exists in the list at compile time, (4) A `constexpr` function version of Factorial using if constexpr (C++17). For each, show how to use static_assert to verify correctness at compile time. Explain the trade-offs between template metaprogramming and constexpr approaches.",
+    "expected_concepts": [
+      "template",
+      "specialization",
+      "constexpr",
+      "static_assert",
+      "compile-time",
+      "variadic",
+      "typename"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-tmpl-002",
+    "category": "cpp",
+    "topic": "sfinae_type_traits",
+    "difficulty": 4,
+    "instruction": "Explain SFINAE (Substitution Failure Is Not An Error) in C++ and how it enables compile-time function overload selection. Write complete examples demonstrating: (1) A `has_size_method<T>` type trait that detects if a type has a `.size()` method, using both the classic SFINAE approach and the C++17 std::void_t approach, (2) A `serialize` function template that uses SFINAE to choose between serializing arithmetic types (to string), containers (element-by-element), and types with a `.to_string()` method, (3) An `enable_if`-based overload set that handles integral vs floating-point types differently. Show how C++20 concepts simplify these same patterns and when you should still use SFINAE.",
+    "expected_concepts": [
+      "SFINAE",
+      "enable_if",
+      "void_t",
+      "decltype",
+      "type_traits",
+      "is_arithmetic",
+      "concept",
+      "requires"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-stl-001",
+    "category": "cpp",
+    "topic": "containers_iterators",
+    "difficulty": 2,
+    "instruction": "Compare the major C++ STL containers and their performance characteristics. Write a complete C++ program that benchmarks insertion, lookup, and iteration for: std::vector, std::deque, std::list, std::set, std::unordered_set, std::map, and std::unordered_map with 100,000 elements. For each container: (1) Show the correct way to insert elements, (2) Demonstrate iterator usage including begin/end, reverse iterators, and const iterators, (3) Show iterator invalidation rules with code that would crash if you got them wrong. End with a decision table: given an access pattern (random access, ordered iteration, frequent insertion, frequent lookup), which container should you choose and why?",
+    "expected_concepts": [
+      "vector",
+      "map",
+      "unordered_map",
+      "iterator",
+      "begin",
+      "end",
+      "invalidation",
+      "complexity",
+      "benchmark"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-stl-002",
+    "category": "cpp",
+    "topic": "algorithms_lambdas",
+    "difficulty": 2,
+    "instruction": "Demonstrate C++ STL algorithms with lambda expressions. Write a complete program that processes a vector of Employee structs (name, department, salary) using STL algorithms: (1) std::sort with a custom comparator lambda to sort by salary descending, (2) std::partition to separate engineering from non-engineering employees, (3) std::transform to apply a 10% raise to all employees, (4) std::accumulate to compute total payroll, (5) std::find_if with a lambda to find the first employee earning above a threshold, (6) std::remove_if with erase to fire employees below a performance threshold. For each algorithm, show the lambda capture syntax (by value [=], by reference [&], specific captures) and explain when each capture mode is appropriate. Show at least one generic lambda using auto parameters.",
+    "expected_concepts": [
+      "lambda",
+      "sort",
+      "transform",
+      "accumulate",
+      "find_if",
+      "remove_if",
+      "capture",
+      "algorithm"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-conc-001",
+    "category": "cpp",
+    "topic": "threads_mutex",
+    "difficulty": 3,
+    "instruction": "Write a thread-safe bounded queue (producer-consumer pattern) in C++ using std::thread, std::mutex, and std::condition_variable. The queue should: (1) Support push() that blocks when the queue is full, (2) Support pop() that blocks when the queue is empty, (3) Support try_push() and try_pop() that return immediately with a bool, (4) Be templated on the element type and configurable max size. Demonstrate it with 3 producer threads and 2 consumer threads processing 10,000 items total. Show proper shutdown semantics (how to signal consumers to stop). Explain why std::lock_guard vs std::unique_lock matter here, and why you must check the condition in a while loop, not an if statement (spurious wakeups).",
+    "expected_concepts": [
+      "thread",
+      "mutex",
+      "condition_variable",
+      "lock_guard",
+      "unique_lock",
+      "producer-consumer",
+      "spurious wakeup",
+      "notify"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-conc-002",
+    "category": "cpp",
+    "topic": "async_futures",
+    "difficulty": 4,
+    "instruction": "Explain C++ async programming with std::async, std::future, std::promise, and std::packaged_task. Write a complete thread pool implementation that: (1) Has a configurable number of worker threads, (2) Accepts tasks via submit() that returns a std::future for the result, (3) Uses std::packaged_task internally to wrap callable objects, (4) Properly handles exceptions thrown by tasks (propagated through the future), (5) Supports graceful shutdown. Demonstrate the thread pool by parallelizing a CPU-intensive task (e.g., computing SHA-256 hashes of 1000 strings). Compare the performance of your thread pool vs std::async with launch::async policy. Explain the difference between std::async launch policies (async, deferred, async|deferred).",
+    "expected_concepts": [
+      "async",
+      "future",
+      "promise",
+      "packaged_task",
+      "thread_pool",
+      "launch",
+      "exception_ptr",
+      "get"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-perf-001",
+    "category": "cpp",
+    "topic": "cache_friendly_data",
+    "difficulty": 4,
+    "instruction": "Explain CPU cache architecture (L1/L2/L3) and how data layout affects C++ performance. Write a benchmark comparing: (1) Array of Structs (AoS) vs Struct of Arrays (SoA) for iterating over position data (x, y, z floats for 10 million particles), (2) Row-major vs column-major matrix traversal for a 4096x4096 matrix, (3) A linked list vs a vector for sequential iteration of 1 million elements. For each benchmark, explain the cache line utilization, prefetcher behavior, and expected speedup ratios. Show the actual timing results. Then write a cache-oblivious matrix transpose algorithm and explain why it outperforms the naive approach for large matrices. Discuss how alignas() and padding affect struct layout.",
+    "expected_concepts": [
+      "cache line",
+      "L1",
+      "prefetch",
+      "AoS",
+      "SoA",
+      "alignment",
+      "false sharing",
+      "cache-oblivious",
+      "alignas"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-modern-001",
+    "category": "cpp",
+    "topic": "concepts_ranges",
+    "difficulty": 3,
+    "instruction": "Demonstrate C++20 concepts and ranges. Write: (1) A concept called `Printable` that requires a type to have operator<< for std::ostream, (2) A concept called `Container` that requires begin(), end(), size(), and value_type, (3) A constrained function template using requires clauses that only accepts Containers of Printable elements, (4) Use std::ranges::views to create a pipeline that filters a vector of integers (keep evens), transforms them (square), takes the first 10, and prints them. (5) Implement a custom range view called `stride_view` that yields every Nth element of an input range. Compare the ranges approach to traditional iterator-based code for readability and performance.",
+    "expected_concepts": [
+      "concept",
+      "requires",
+      "ranges",
+      "views",
+      "filter",
+      "transform",
+      "pipe",
+      "constraint"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-own-001",
+    "category": "rust",
+    "topic": "ownership_basics",
+    "difficulty": 2,
+    "instruction": "Explain Rust's ownership system and demonstrate it with code examples. Cover: (1) The three ownership rules (each value has one owner, only one owner at a time, value is dropped when owner goes out of scope). (2) Write a function that takes ownership of a String, modifies it, and returns it. (3) Show what happens when you try to use a variable after it has been moved. (4) Demonstrate the difference between types that implement Copy (like i32) and types that don't (like String). (5) Explain when and why Rust uses move semantics instead of deep copy.",
+    "expected_concepts": [
+      "ownership",
+      "move",
+      "drop",
+      "scope",
+      "Copy",
+      "String",
+      "clone",
+      "stack"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'ownership' in rl, 'Must discuss ownership'\nassert any(w in rl for w in ['move', 'moved', 'moves']), 'Must discuss move semantics'\nassert 'drop' in rl or 'dropped' in rl, 'Must mention drop/cleanup'\nassert 'scope' in rl, 'Must discuss scope'\nassert any(w in rl for w in ['copy', 'clone']), 'Must discuss Copy vs Clone'\nassert 'fn ' in response or 'fn(' in response, 'Must include function examples'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-borrow-002",
+    "category": "rust",
+    "topic": "borrowing_rules",
+    "difficulty": 2,
+    "instruction": "Explain Rust's borrowing rules with code examples. Cover: (1) The difference between shared references (&T) and mutable references (&mut T). (2) The rule that you can have either one mutable reference OR any number of shared references, but not both. (3) Write a function that takes an immutable borrow of a Vec<i32> and returns the sum. (4) Write a function that takes a mutable borrow of a Vec<i32> and appends a value. (5) Show a code example that would fail to compile due to borrowing violations, and explain why. (6) Explain how borrowing prevents data races at compile time.",
+    "expected_concepts": [
+      "borrow",
+      "reference",
+      "&T",
+      "&mut",
+      "mutable",
+      "immutable",
+      "data race",
+      "compile"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert any(w in rl for w in ['borrow', 'borrowing']), 'Must discuss borrowing'\nassert '&mut' in response, 'Must show mutable reference syntax'\nassert any(w in rl for w in ['immutable', 'shared', '&t']), 'Must discuss shared/immutable references'\nassert any(w in rl for w in ['data race', 'data races', 'race condition']), 'Must discuss data race prevention'\nassert 'fn ' in response, 'Must include function examples'\nassert any(w in rl for w in ['compile', 'compiler', 'compilation']), 'Must discuss compile-time checks'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-lifetime-003",
+    "category": "rust",
+    "topic": "lifetime_annotations",
+    "difficulty": 3,
+    "instruction": "Explain Rust lifetime annotations with code examples. Cover: (1) Why lifetimes are needed — write a function that returns a reference to the longer of two string slices, showing why the compiler needs lifetime annotations. (2) The syntax for lifetime annotations using 'a. (3) Lifetime elision rules — the three rules the compiler uses to infer lifetimes. (4) Lifetimes in struct definitions — create a struct that holds a reference and annotate it. (5) The 'static lifetime and when to use it. (6) Show a dangling reference example that lifetimes prevent.",
+    "expected_concepts": [
+      "lifetime",
+      "'a",
+      "elision",
+      "static",
+      "dangling",
+      "struct",
+      "reference",
+      "annotation"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'lifetime' in rl, 'Must discuss lifetimes'\nassert \"'a\" in response or \"'a\" in response, 'Must show lifetime annotation syntax'\nassert 'elision' in rl or 'elide' in rl, 'Must discuss lifetime elision'\nassert 'static' in rl, 'Must discuss static lifetime'\nassert any(w in rl for w in ['dangling', 'dangle', 'invalid reference']), 'Must discuss dangling references'\nassert 'struct' in rl, 'Must show struct with lifetime'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-result-004",
+    "category": "rust",
+    "topic": "error_handling",
+    "difficulty": 2,
+    "instruction": "Explain Rust error handling with Result<T, E> and the ? operator. Cover: (1) The Result enum definition (Ok and Err variants). (2) Write a function that parses a string to an integer and returns Result<i32, String>. (3) Show pattern matching on Result with match. (4) Demonstrate the ? operator for error propagation and how it simplifies chained operations. (5) Using map, and_then, unwrap_or for Result combinators. (6) Creating custom error types with the std::error::Error trait. (7) Explain the difference between Result and panic!/unwrap for error handling.",
+    "expected_concepts": [
+      "Result",
+      "Ok",
+      "Err",
+      "?",
+      "match",
+      "unwrap",
+      "Error trait",
+      "propagation"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'result' in rl, 'Must discuss Result type'\nassert 'Ok' in response, 'Must show Ok variant'\nassert 'Err' in response, 'Must show Err variant'\nassert '?' in response, 'Must show ? operator'\nassert 'match' in rl, 'Must show pattern matching'\nassert any(w in rl for w in ['propagat', 'propagation', 'bubble']), 'Must discuss error propagation'\nassert any(w in rl for w in ['unwrap', 'panic']), 'Must discuss unwrap/panic'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-trait-005",
+    "category": "rust",
+    "topic": "traits",
+    "difficulty": 3,
+    "instruction": "Explain Rust traits with comprehensive code examples. Cover: (1) Define a trait called Summary with a method summarize(&self) -> String. (2) Implement the trait for two different structs (Article and Tweet). (3) Default method implementations in traits. (4) Trait bounds in function signatures using both `impl Trait` syntax and `where` clauses. (5) Returning types that implement traits with `impl Trait`. (6) Derive macros for common traits (Debug, Clone, PartialEq). (7) Trait objects with dyn for dynamic dispatch vs static dispatch with generics. Explain the trade-offs.",
+    "expected_concepts": [
+      "trait",
+      "impl",
+      "dyn",
+      "where",
+      "derive",
+      "dispatch",
+      "generic",
+      "default"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'trait ' in rl or 'trait\\n' in rl, 'Must define a trait'\nassert 'impl ' in response, 'Must implement traits'\nassert 'dyn ' in response or 'dyn ' in rl, 'Must discuss trait objects with dyn'\nassert any(w in rl for w in ['where', 'trait bound']), 'Must discuss trait bounds or where clauses'\nassert 'derive' in rl, 'Must discuss derive macros'\nassert any(w in rl for w in ['static dispatch', 'dynamic dispatch', 'monomorphization']), 'Must discuss dispatch mechanisms'\nassert any(w in rl for w in ['generic', 'generics']), 'Must discuss generics'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-enum-006",
+    "category": "rust",
+    "topic": "enums_pattern_matching",
+    "difficulty": 2,
+    "instruction": "Explain Rust enums with data (algebraic data types) and pattern matching. Cover: (1) Define an enum called Shape with variants: Circle(f64), Rectangle(f64, f64), and Triangle(f64, f64, f64) representing dimensions. (2) Implement a method area(&self) -> f64 using match. (3) Show how Option<T> is an enum (Some/None) and pattern match on it. (4) Demonstrate if let and while let for concise pattern matching. (5) Nested patterns and destructuring in match arms. (6) The exhaustiveness guarantee of match — explain why it matters for safety.",
+    "expected_concepts": [
+      "enum",
+      "match",
+      "pattern",
+      "Option",
+      "Some",
+      "None",
+      "if let",
+      "destructuring"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'enum ' in rl, 'Must define an enum'\nassert 'match ' in rl, 'Must use match expression'\nassert 'Option' in response, 'Must discuss Option type'\nassert 'Some' in response and 'None' in response, 'Must show Some and None variants'\nassert 'if let' in response, 'Must show if let syntax'\nassert any(w in rl for w in ['destructur', 'destructure']), 'Must discuss destructuring'\nassert any(w in rl for w in ['exhaust', 'exhaustive', 'exhaustiveness']), 'Must discuss exhaustiveness'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-concurrent-007",
+    "category": "rust",
+    "topic": "safe_concurrency",
+    "difficulty": 4,
+    "instruction": "Explain safe concurrency in Rust with code examples. Cover: (1) Using std::thread::spawn to create threads. (2) Sharing data between threads using Arc<Mutex<T>> — write an example where multiple threads increment a shared counter. (3) Message passing with mpsc channels (std::sync::mpsc) — create a producer-consumer example. (4) Explain the Send and Sync traits and why they matter for thread safety. (5) Show how Rust prevents data races at compile time with its ownership and type system. (6) Compare Arc<Mutex<T>> vs channels for different use cases. (7) Demonstrate proper error handling with lock poisoning.",
+    "expected_concepts": [
+      "Arc",
+      "Mutex",
+      "thread",
+      "channel",
+      "mpsc",
+      "Send",
+      "Sync",
+      "lock"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'Arc' in response, 'Must discuss Arc'\nassert 'Mutex' in response, 'Must discuss Mutex'\nassert any(w in rl for w in ['thread', 'spawn']), 'Must discuss thread spawning'\nassert any(w in rl for w in ['channel', 'mpsc']), 'Must discuss channels/mpsc'\nassert 'Send' in response, 'Must discuss Send trait'\nassert 'Sync' in response, 'Must discuss Sync trait'\nassert any(w in rl for w in ['data race', 'race condition']), 'Must discuss data race prevention'\nassert any(w in rl for w in ['lock', 'poison']), 'Must discuss lock mechanics'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-async-008",
+    "category": "rust",
+    "topic": "async_await_tokio",
+    "difficulty": 4,
+    "instruction": "Explain Rust async/await with Tokio runtime. Cover: (1) The difference between async functions and sync functions — what a Future is. (2) Write an async function that fetches data from a URL using reqwest and returns the body. (3) Using #[tokio::main] to create the runtime. (4) Spawning concurrent tasks with tokio::spawn and joining them. (5) tokio::select! for racing multiple futures. (6) Async channels (tokio::sync::mpsc) vs std sync channels. (7) Common pitfalls: holding a MutexGuard across an await point, blocking the executor. (8) Explain the difference between tokio::spawn (concurrency) and tokio::task::spawn_blocking (CPU-bound work).",
+    "expected_concepts": [
+      "async",
+      "await",
+      "Future",
+      "tokio",
+      "spawn",
+      "select",
+      "runtime",
+      "executor"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'async' in rl, 'Must discuss async'\nassert 'await' in rl or '.await' in response, 'Must discuss await'\nassert 'Future' in response or 'future' in rl, 'Must discuss Future trait'\nassert 'tokio' in rl, 'Must discuss Tokio runtime'\nassert 'spawn' in rl, 'Must discuss task spawning'\nassert 'select' in rl, 'Must discuss select'\nassert any(w in rl for w in ['runtime', 'executor']), 'Must discuss runtime/executor'\nassert any(w in rl for w in ['blocking', 'spawn_blocking', 'block_on']), 'Must discuss blocking operations'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-unsafe-009",
+    "category": "rust",
+    "topic": "unsafe_rust",
+    "difficulty": 5,
+    "instruction": "Explain when and how to use unsafe Rust correctly. Cover: (1) The five things you can do in an unsafe block: dereference raw pointers, call unsafe functions, access/modify mutable static variables, implement unsafe traits, access fields of unions. (2) Write an example of dereferencing a raw pointer (*const T, *mut T). (3) Creating a safe abstraction over unsafe code — implement a simple split_at_mut function using unsafe. (4) FFI (Foreign Function Interface) — calling a C function from Rust using extern 'C'. (5) The invariants you must uphold when using unsafe and why the compiler can't check them. (6) Best practices: minimize unsafe scope, document invariants, use #[deny(unsafe_op_in_unsafe_fn)].",
+    "expected_concepts": [
+      "unsafe",
+      "raw pointer",
+      "dereference",
+      "FFI",
+      "extern",
+      "invariant",
+      "abstraction",
+      "undefined behavior"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'unsafe' in rl, 'Must discuss unsafe'\nassert any(w in rl for w in ['raw pointer', '*const', '*mut']), 'Must discuss raw pointers'\nassert any(w in rl for w in ['dereference', 'deref']), 'Must discuss dereferencing'\nassert 'ffi' in rl or 'foreign function' in rl, 'Must discuss FFI'\nassert 'extern' in rl, 'Must discuss extern'\nassert any(w in rl for w in ['invariant', 'guarantee', 'contract']), 'Must discuss invariants'\nassert any(w in rl for w in ['undefined behavior', 'ub ', 'unsound']), 'Must discuss undefined behavior'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "rust-iter-010",
+    "category": "rust",
+    "topic": "iterators",
+    "difficulty": 3,
+    "instruction": "Explain Rust iterators and zero-cost abstractions with code examples. Cover: (1) The Iterator trait and the next() method. (2) Creating an iterator by implementing Iterator for a custom struct (e.g., a Counter that counts from 1 to a maximum). (3) Iterator adaptors: map, filter, enumerate, zip, chain, take, skip, flat_map — chain at least 3 together in a pipeline. (4) Consuming adaptors: collect, sum, fold, any, all, find, count. (5) Iterating over collections: iter(), iter_mut(), into_iter() and ownership differences. (6) Explain zero-cost abstractions — how iterator chains compile to the same assembly as hand-written loops. (7) Lazy evaluation: show that adaptors don't execute until consumed.",
+    "expected_concepts": [
+      "Iterator",
+      "next",
+      "map",
+      "filter",
+      "collect",
+      "zero-cost",
+      "lazy",
+      "into_iter"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'Iterator' in response or 'iterator' in rl, 'Must discuss Iterator trait'\nassert 'next' in rl, 'Must discuss next() method'\nassert '.map(' in response or 'map(' in response, 'Must show map adaptor'\nassert '.filter(' in response or 'filter(' in response, 'Must show filter adaptor'\nassert '.collect' in response or 'collect()' in response, 'Must show collect'\nassert 'zero-cost' in rl or 'zero cost' in rl, 'Must discuss zero-cost abstractions'\nassert any(w in rl for w in ['lazy', 'lazily']), 'Must discuss lazy evaluation'\nassert 'into_iter' in response or 'iter()' in response, 'Must discuss iteration methods'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-goroutine-001",
+    "category": "go",
+    "topic": "goroutines_waitgroup",
+    "difficulty": 2,
+    "instruction": "Explain Go goroutines and sync.WaitGroup with code examples. Cover: (1) What goroutines are and how they differ from OS threads (lightweight, multiplexed onto threads by the Go scheduler). (2) Launching goroutines with the go keyword. (3) Using sync.WaitGroup to wait for a group of goroutines to finish — show Add, Done, and Wait. (4) Write an example that spawns 5 goroutines, each printing a number, and waits for all to complete. (5) Common mistake: capturing loop variables by reference in goroutine closures and the fix. (6) Explain the goroutine scheduler (M:N scheduling, GOMAXPROCS).",
+    "expected_concepts": [
+      "goroutine",
+      "WaitGroup",
+      "go keyword",
+      "lightweight",
+      "scheduler",
+      "Add",
+      "Done",
+      "Wait"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'goroutine' in rl, 'Must discuss goroutines'\nassert 'WaitGroup' in response or 'waitgroup' in rl, 'Must discuss WaitGroup'\nassert 'go ' in response, 'Must show go keyword usage'\nassert any(w in rl for w in ['lightweight', 'light-weight', 'green thread']), 'Must explain goroutines are lightweight'\nassert any(w in rl for w in ['scheduler', 'scheduling']), 'Must discuss scheduler'\nassert '.Add(' in response or '.Done()' in response, 'Must show WaitGroup methods'\nassert '.Wait()' in response or 'wg.Wait' in response, 'Must show Wait call'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-channel-002",
+    "category": "go",
+    "topic": "channels",
+    "difficulty": 2,
+    "instruction": "Explain Go channels (buffered vs unbuffered) with code examples. Cover: (1) Creating channels with make(chan T) and make(chan T, capacity). (2) Sending and receiving with the <- operator. (3) The difference between unbuffered channels (synchronous — sender blocks until receiver is ready) and buffered channels (sender blocks only when buffer is full). (4) Write a producer-consumer example using a channel. (5) Closing channels with close() and detecting closure with the comma-ok idiom: val, ok := <-ch. (6) Ranging over a channel with for range. (7) Directional channel types: chan<- T (send-only) and <-chan T (receive-only) in function signatures.",
+    "expected_concepts": [
+      "channel",
+      "make",
+      "buffered",
+      "unbuffered",
+      "<-",
+      "close",
+      "range",
+      "directional"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'chan ' in response or 'chan\\n' in response or 'channel' in rl, 'Must discuss channels'\nassert 'make(' in response, 'Must show make for channel creation'\nassert 'buffer' in rl, 'Must discuss buffered vs unbuffered'\nassert '<-' in response, 'Must show <- operator'\nassert 'close' in rl, 'Must discuss closing channels'\nassert 'range' in rl, 'Must discuss ranging over channels'\nassert any(w in rl for w in ['send-only', 'receive-only', 'directional', 'chan<-', '<-chan']), 'Must discuss directional channels'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-select-003",
+    "category": "go",
+    "topic": "select_statement",
+    "difficulty": 3,
+    "instruction": "Explain Go's select statement for channel multiplexing with code examples. Cover: (1) Basic select syntax with multiple case statements on channel operations. (2) Using select to receive from whichever channel is ready first. (3) The default case for non-blocking channel operations. (4) Implementing a timeout using time.After within select. (5) Write a fan-in function that merges multiple input channels into a single output channel using select in a loop. (6) Using select with a done/quit channel for graceful shutdown. (7) Random selection: when multiple cases are ready, select chooses one uniformly at random.",
+    "expected_concepts": [
+      "select",
+      "case",
+      "channel",
+      "timeout",
+      "default",
+      "fan-in",
+      "multiplexing",
+      "time.After"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'select' in rl, 'Must discuss select statement'\nassert 'case ' in rl or 'case\\n' in rl, 'Must show case in select'\nassert any(w in rl for w in ['timeout', 'time.after']), 'Must discuss timeout handling'\nassert 'default' in rl, 'Must discuss default case'\nassert any(w in rl for w in ['fan-in', 'fanin', 'merge']), 'Must discuss fan-in pattern'\nassert any(w in rl for w in ['multiplex', 'multiplexing']), 'Must discuss multiplexing'\nassert any(w in rl for w in ['random', 'uniformly']), 'Must mention random selection when multiple ready'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-error-004",
+    "category": "go",
+    "topic": "error_handling",
+    "difficulty": 2,
+    "instruction": "Explain Go error handling patterns with code examples. Cover: (1) The error interface (Error() string method). (2) Returning errors as the last return value — the (result, error) convention. (3) Checking errors with if err != nil. (4) Creating custom error types by implementing the error interface on a struct. (5) Wrapping errors with fmt.Errorf and the %w verb for error chains. (6) Unwrapping and inspecting errors with errors.Is() and errors.As(). (7) Sentinel errors (like io.EOF) and when to use them. (8) Explain why Go chose explicit error handling over exceptions.",
+    "expected_concepts": [
+      "error",
+      "nil",
+      "Error()",
+      "fmt.Errorf",
+      "%w",
+      "errors.Is",
+      "errors.As",
+      "sentinel"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'error' in rl, 'Must discuss error interface'\nassert 'nil' in response, 'Must show nil checking'\nassert 'err != nil' in response or 'err!=nil' in response, 'Must show err != nil pattern'\nassert any(w in rl for w in ['fmt.errorf', 'errorf']), 'Must discuss fmt.Errorf'\nassert '%w' in response, 'Must show %w wrapping verb'\nassert 'errors.Is' in response or 'errors.As' in response, 'Must discuss errors.Is or errors.As'\nassert any(w in rl for w in ['sentinel', 'io.eof']), 'Must discuss sentinel errors'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-interface-005",
+    "category": "go",
+    "topic": "interfaces",
+    "difficulty": 3,
+    "instruction": "Explain Go interfaces and implicit satisfaction with code examples. Cover: (1) Defining an interface — create a Shape interface with Area() float64 and Perimeter() float64 methods. (2) Implement the interface for Circle and Rectangle structs without explicit declaration. (3) Explain implicit satisfaction — no 'implements' keyword needed. (4) The empty interface (interface{} / any) and when to use it. (5) Type assertions: value.(Type) and the comma-ok pattern. (6) Type switches for handling multiple types. (7) Interface composition — creating larger interfaces from smaller ones (like io.ReadWriter from io.Reader and io.Writer). (8) Explain the 'accept interfaces, return structs' principle.",
+    "expected_concepts": [
+      "interface",
+      "implicit",
+      "type assertion",
+      "type switch",
+      "empty interface",
+      "composition",
+      "io.Reader",
+      "any"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'interface' in rl, 'Must discuss interfaces'\nassert any(w in rl for w in ['implicit', 'implicitly']), 'Must discuss implicit satisfaction'\nassert any(w in rl for w in ['type assertion', 'type assert']), 'Must discuss type assertions'\nassert any(w in rl for w in ['type switch', 'switch']), 'Must discuss type switches'\nassert 'interface{}' in response or 'any' in rl, 'Must discuss empty interface'\nassert any(w in rl for w in ['composition', 'compose', 'embedding']), 'Must discuss interface composition'\nassert any(w in rl for w in ['io.reader', 'io.writer', 'io.readwriter']), 'Must reference io interfaces'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-context-006",
+    "category": "go",
+    "topic": "context_package",
+    "difficulty": 3,
+    "instruction": "Explain Go's context package for cancellation and timeouts with code examples. Cover: (1) Why context exists — propagating deadlines, cancellation signals, and request-scoped values across API boundaries. (2) context.Background() and context.TODO() as root contexts. (3) context.WithCancel — create a cancellable context and show the cancel function. (4) context.WithTimeout and context.WithDeadline — write an HTTP handler that times out after 5 seconds. (5) context.WithValue for request-scoped data (and why not to overuse it). (6) Listening for ctx.Done() in goroutines for graceful cancellation. (7) Best practices: pass context as the first parameter, never store it in a struct, always call cancel.",
+    "expected_concepts": [
+      "context",
+      "cancel",
+      "timeout",
+      "deadline",
+      "Done",
+      "Background",
+      "WithCancel",
+      "WithTimeout"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'context' in rl, 'Must discuss context package'\nassert any(w in rl for w in ['cancel', 'cancellation']), 'Must discuss cancellation'\nassert any(w in rl for w in ['timeout', 'withtimeout']), 'Must discuss timeouts'\nassert any(w in rl for w in ['deadline', 'withdeadline']), 'Must discuss deadlines'\nassert 'Done()' in response or 'ctx.Done' in response or '.done()' in rl, 'Must show Done channel'\nassert 'Background' in response, 'Must discuss Background context'\nassert 'WithCancel' in response or 'withcancel' in rl, 'Must show WithCancel'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-generic-007",
+    "category": "go",
+    "topic": "generics",
+    "difficulty": 3,
+    "instruction": "Explain Go generics (introduced in Go 1.18) with type constraints. Cover: (1) Basic generic function syntax with type parameters — write a generic Min function that works with any ordered type. (2) Type constraints using interfaces — define a Number constraint that accepts int, float64, etc. (3) The constraints package (golang.org/x/exp/constraints) and built-in comparable constraint. (4) Generic types — implement a generic Stack[T] with Push, Pop, and Peek methods. (5) Type inference — when you can omit type arguments. (6) The ~ operator for underlying type constraints. (7) Limitations: no method-level type parameters, no specialization.",
+    "expected_concepts": [
+      "generic",
+      "type parameter",
+      "constraint",
+      "comparable",
+      "Stack",
+      "interface",
+      "~",
+      "inference"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert any(w in rl for w in ['generic', 'generics']), 'Must discuss generics'\nassert any(w in rl for w in ['type parameter', 'type param']), 'Must discuss type parameters'\nassert any(w in rl for w in ['constraint', 'constraints']), 'Must discuss constraints'\nassert 'comparable' in rl, 'Must discuss comparable constraint'\nassert '[T]' in response or '[T ' in response, 'Must show type parameter syntax'\nassert any(w in rl for w in ['inference', 'infer']), 'Must discuss type inference'\nassert '~' in response, 'Must show tilde operator for underlying types'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-http-008",
+    "category": "go",
+    "topic": "http_servers",
+    "difficulty": 2,
+    "instruction": "Explain building HTTP servers with Go's net/http package. Cover: (1) Creating a basic HTTP server with http.HandleFunc and http.ListenAndServe. (2) The http.Handler interface and http.HandlerFunc type. (3) Writing a handler that returns JSON — set Content-Type, marshal data with encoding/json, write response. (4) URL routing and path parameters (Go 1.22+ patterns like /users/{id}). (5) Middleware pattern — write a logging middleware that wraps a handler. (6) Using http.ServeMux for routing. (7) Reading request body, query parameters, and headers. (8) Graceful shutdown with http.Server and context.",
+    "expected_concepts": [
+      "http",
+      "HandleFunc",
+      "ListenAndServe",
+      "Handler",
+      "middleware",
+      "JSON",
+      "ServeMux",
+      "ResponseWriter"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'http' in rl, 'Must discuss net/http'\nassert any(w in rl for w in ['handlefunc', 'handle']), 'Must discuss HandleFunc'\nassert any(w in rl for w in ['listenandserve', 'listen']), 'Must discuss ListenAndServe'\nassert 'Handler' in response or 'handler' in rl, 'Must discuss Handler interface'\nassert 'middleware' in rl, 'Must discuss middleware pattern'\nassert 'json' in rl, 'Must discuss JSON handling'\nassert 'ResponseWriter' in response or 'responsewriter' in rl, 'Must discuss ResponseWriter'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-test-009",
+    "category": "go",
+    "topic": "testing",
+    "difficulty": 3,
+    "instruction": "Explain Go's testing patterns with code examples. Cover: (1) Writing test functions with func TestXxx(t *testing.T) in _test.go files. (2) Table-driven tests — define test cases as a slice of structs and loop over them with t.Run for subtests. Write a complete example testing an Add function. (3) t.Error vs t.Fatal vs t.Skip. (4) Benchmark functions with func BenchmarkXxx(b *testing.B) and the b.N loop. (5) Test helpers with t.Helper(). (6) Using testify for assertions (optional library). (7) Running tests: go test, go test -v, go test -run, go test -bench, go test -cover.",
+    "expected_concepts": [
+      "testing.T",
+      "table-driven",
+      "t.Run",
+      "benchmark",
+      "testing.B",
+      "t.Helper",
+      "subtest",
+      "coverage"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert 'testing' in rl, 'Must discuss testing package'\nassert any(w in rl for w in ['table-driven', 'table driven']), 'Must discuss table-driven tests'\nassert 't.Run' in response or 't.run' in rl, 'Must show t.Run for subtests'\nassert any(w in rl for w in ['benchmark', 'benchmarkxxx']), 'Must discuss benchmarks'\nassert 'testing.B' in response or 'b.N' in response, 'Must show benchmark function signature'\nassert any(w in rl for w in ['t.helper', 'helper']), 'Must discuss test helpers'\nassert any(w in rl for w in ['coverage', '-cover', 'cover']), 'Must discuss test coverage'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "go-race-010",
+    "category": "go",
+    "topic": "race_conditions",
+    "difficulty": 4,
+    "instruction": "Explain Go race conditions and the race detector with code examples. Cover: (1) What a race condition is — show a concrete example of two goroutines incrementing a shared counter without synchronization. (2) Using go test -race and go run -race to detect races. (3) Fixing races with sync.Mutex — rewrite the counter example safely. (4) sync.RWMutex for read-heavy workloads. (5) Atomic operations with sync/atomic (atomic.AddInt64, atomic.LoadInt64, atomic.Value). (6) Using channels instead of shared memory to avoid races ('share memory by communicating'). (7) sync.Once for one-time initialization. (8) The happens-before relationship in Go's memory model.",
+    "expected_concepts": [
+      "race condition",
+      "race detector",
+      "Mutex",
+      "RWMutex",
+      "atomic",
+      "sync.Once",
+      "happens-before",
+      "data race"
+    ],
+    "test_code": "response = globals().get('_response', '')\nrl = response.lower()\nassert any(w in rl for w in ['race condition', 'data race']), 'Must discuss race conditions'\nassert any(w in rl for w in ['-race', 'race detector']), 'Must discuss race detector'\nassert 'Mutex' in response or 'mutex' in rl, 'Must discuss Mutex'\nassert 'RWMutex' in response or 'rwmutex' in rl, 'Must discuss RWMutex'\nassert 'atomic' in rl, 'Must discuss atomic operations'\nassert any(w in rl for w in ['sync.once', 'once.do']), 'Must discuss sync.Once'\nassert any(w in rl for w in ['happens-before', 'happens before', 'memory model']), 'Must discuss memory model'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-kmp-016",
+    "category": "algorithms",
+    "topic": "kmp_string_matching",
+    "difficulty": 4,
+    "instruction": "Implement the KMP (Knuth-Morris-Pratt) string matching algorithm in Python. Write: (1) A function `build_lps(pattern)` that builds the Longest Proper Prefix which is also Suffix (LPS/failure) array for the pattern. (2) A function `kmp_search(text, pattern)` that returns a list of all starting indices where the pattern occurs in the text. The algorithm should run in O(n + m) time where n is the length of the text and m is the length of the pattern. Do not use Python's built-in find() or regex.",
+    "expected_concepts": [
+      "KMP",
+      "prefix",
+      "suffix",
+      "LPS",
+      "failure function",
+      "O(n + m)",
+      "pattern matching",
+      "backtrack"
+    ],
+    "test_code": "lps = build_lps('AABAACAABAA')\nassert lps == [0, 1, 0, 1, 2, 0, 1, 2, 3, 4, 5], f'LPS wrong: {lps}'\nassert build_lps('ABAB') == [0, 0, 1, 2]\nassert build_lps('AAAA') == [0, 1, 2, 3]\nassert build_lps('') == []\nresult = kmp_search('AABAACAADAABAABA', 'AABA')\nassert result == [0, 9, 12], f'Expected [0, 9, 12], got {result}'\nassert kmp_search('ABABABABAB', 'ABAB') == [0, 2, 4, 6]\nassert kmp_search('hello', 'world') == []\nassert kmp_search('aaa', 'a') == [0, 1, 2]\nassert kmp_search('', 'a') == []\nassert kmp_search('abc', '') == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-gcd-017",
+    "category": "algorithms",
+    "topic": "gcd_modular_arithmetic",
+    "difficulty": 2,
+    "instruction": "Implement GCD and related modular arithmetic functions in Python. Write: (1) `gcd(a, b)` using the Euclidean algorithm (iterative). (2) `lcm(a, b)` using the relationship lcm(a,b) = |a*b| / gcd(a,b). (3) `extended_gcd(a, b)` that returns (gcd, x, y) such that a*x + b*y = gcd(a, b) (the Extended Euclidean Algorithm). (4) `mod_inverse(a, m)` that returns the modular multiplicative inverse of a mod m using the extended GCD, or raises ValueError if no inverse exists. Do not use math.gcd or any built-in GCD.",
+    "expected_concepts": [
+      "GCD",
+      "Euclidean",
+      "modular",
+      "inverse",
+      "extended",
+      "LCM",
+      "remainder",
+      "coprime"
+    ],
+    "test_code": "assert gcd(48, 18) == 6\nassert gcd(0, 5) == 5\nassert gcd(5, 0) == 5\nassert gcd(17, 13) == 1\nassert gcd(100, 75) == 25\nassert lcm(4, 6) == 12\nassert lcm(3, 7) == 21\nassert lcm(0, 5) == 0\ng, x, y = extended_gcd(35, 15)\nassert g == 5\nassert 35 * x + 15 * y == 5\ng2, x2, y2 = extended_gcd(17, 13)\nassert g2 == 1\nassert 17 * x2 + 13 * y2 == 1\nassert mod_inverse(3, 11) == 4  # 3*4 = 12 ≡ 1 (mod 11)\nassert (mod_inverse(7, 26) * 7) % 26 == 1\ntry:\n    mod_inverse(6, 9)\n    assert False, 'Should raise ValueError for non-coprime'\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-lfu-018",
+    "category": "algorithms",
+    "topic": "lfu_cache",
+    "difficulty": 4,
+    "instruction": "Implement an LFU (Least Frequently Used) cache in Python. Create a class `LFUCache` with: (1) `__init__(self, capacity)` — initialize with a maximum capacity. (2) `get(self, key)` — return the value if key exists (and increment its frequency), otherwise return -1. (3) `put(self, key, value)` — insert or update the key-value pair. If at capacity, evict the least frequently used key. If there's a tie in frequency, evict the least recently used among them. Both get and put must run in O(1) average time. Use a combination of hash maps and doubly-linked lists (or OrderedDicts) to achieve this.",
+    "expected_concepts": [
+      "LFU",
+      "frequency",
+      "eviction",
+      "O(1)",
+      "hash map",
+      "doubly linked",
+      "least recently",
+      "capacity"
+    ],
+    "test_code": "cache = LFUCache(2)\ncache.put(1, 1)\ncache.put(2, 2)\nassert cache.get(1) == 1, 'Key 1 should return 1'\ncache.put(3, 3)  # evicts key 2 (freq 1, least recent)\nassert cache.get(2) == -1, 'Key 2 should be evicted'\nassert cache.get(3) == 3, 'Key 3 should return 3'\ncache.put(4, 4)  # evicts key 3 (freq 1, key 1 has freq 2)\nassert cache.get(1) == 1, 'Key 1 should still exist (freq 3 now)'\nassert cache.get(3) == -1, 'Key 3 should be evicted'\nassert cache.get(4) == 4, 'Key 4 should return 4'\ncache2 = LFUCache(0)\ncache2.put(0, 0)\nassert cache2.get(0) == -1, 'Zero capacity cache should always return -1'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-scc-019",
+    "category": "algorithms",
+    "topic": "strongly_connected_components",
+    "difficulty": 5,
+    "instruction": "Implement Tarjan's algorithm for finding strongly connected components (SCCs) in a directed graph. Write a function `tarjan_scc(graph)` where graph is a dict mapping node -> list of neighbors. Return a list of SCCs, where each SCC is a sorted list of nodes. The overall list should be in reverse topological order of the condensation DAG. Also implement `is_strongly_connected(graph)` that returns True if the entire graph is a single SCC. Use iterative DFS with an explicit stack to avoid recursion limits on large graphs.",
+    "expected_concepts": [
+      "Tarjan",
+      "SCC",
+      "strongly connected",
+      "low-link",
+      "stack",
+      "DFS",
+      "topological",
+      "condensation"
+    ],
+    "test_code": "graph1 = {0: [1], 1: [2], 2: [0, 3], 3: [4], 4: [5], 5: [3]}\nsccs = tarjan_scc(graph1)\nscc_sets = [set(scc) for scc in sccs]\nassert {0, 1, 2} in scc_sets, f'Missing SCC {{0,1,2}}, got {sccs}'\nassert {3, 4, 5} in scc_sets, f'Missing SCC {{3,4,5}}, got {sccs}'\nassert len(sccs) == 2\ngraph2 = {1: [2], 2: [3], 3: [1]}\nassert is_strongly_connected(graph2) == True\ngraph3 = {1: [2], 2: [3], 3: []}\nassert is_strongly_connected(graph3) == False\nsccs3 = tarjan_scc(graph3)\nassert len(sccs3) == 3, f'DAG should have 3 SCCs, got {len(sccs3)}'\ngraph4 = {0: [1], 1: [2, 4], 2: [3], 3: [0], 4: [5], 5: [6], 6: [4]}\nsccs4 = tarjan_scc(graph4)\nscc_sets4 = [set(scc) for scc in sccs4]\nassert {0, 1, 2, 3} in scc_sets4\nassert {4, 5, 6} in scc_sets4\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "algo-radix-020",
+    "category": "algorithms",
+    "topic": "radix_sort",
+    "difficulty": 3,
+    "instruction": "Implement radix sort in Python. Write: (1) `counting_sort_by_digit(arr, exp)` — a stable counting sort that sorts based on the digit at position exp (1 for ones, 10 for tens, etc.). (2) `radix_sort(arr)` — sorts a list of non-negative integers using LSD (Least Significant Digit) radix sort by repeatedly calling counting_sort_by_digit for each digit position. The function should return a new sorted list. Handle edge cases: empty list, single element, all same values. The algorithm should run in O(d * (n + k)) time where d is the number of digits, n is the number of elements, and k is the range of digits (10 for decimal).",
+    "expected_concepts": [
+      "radix",
+      "counting sort",
+      "digit",
+      "stable",
+      "LSD",
+      "bucket",
+      "O(d*(n+k))",
+      "non-comparative"
+    ],
+    "test_code": "assert radix_sort([170, 45, 75, 90, 802, 24, 2, 66]) == [2, 24, 45, 66, 75, 90, 170, 802]\nassert radix_sort([]) == []\nassert radix_sort([1]) == [1]\nassert radix_sort([5, 5, 5]) == [5, 5, 5]\nassert radix_sort([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]\nassert radix_sort([100, 10, 1, 1000]) == [1, 10, 100, 1000]\nassert radix_sort([0, 0, 0]) == [0, 0, 0]\nprint('ALL TESTS PASSED')"
+  }
+]

@@ -110,9 +110,96 @@ def _extract_key_entities(sections):
     return list(entities)[:15]
 
 
+def _expand_short_query(question, history=None):
+    """
+    Expand terse queries for better search recall.
+
+    Short queries like "DPoS?" or "explain consensus" lack enough signal
+    for good embedding similarity. This expands them with:
+    1. Common abbreviation lookups
+    2. Conversation context from recent messages
+    """
+    # Common abbreviations in our domain
+    ABBREVIATIONS = {
+        "dpos": "Delegated Proof of Stake DPoS consensus",
+        "pos": "Proof of Stake PoS consensus",
+        "pow": "Proof of Work PoW mining consensus",
+        "rc": "resource credits Hive blockchain",
+        "raii": "Resource Acquisition Is Initialization C++ memory management",
+        "stl": "Standard Template Library C++ containers",
+        "api": "Application Programming Interface REST",
+        "sql": "Structured Query Language database",
+        "orm": "Object Relational Mapping database",
+        "jwt": "JSON Web Token authentication",
+        "oauth": "OAuth authentication authorization",
+        "crud": "Create Read Update Delete operations",
+        "ci/cd": "continuous integration continuous deployment",
+        "tdd": "Test Driven Development testing",
+        "dns": "Domain Name System networking",
+        "tcp": "Transmission Control Protocol networking",
+        "ssl": "Secure Sockets Layer TLS encryption",
+        "rpc": "Remote Procedure Call distributed systems",
+        "grpc": "gRPC Remote Procedure Call protocol buffers",
+        "wasm": "WebAssembly browser runtime",
+        "ssr": "Server Side Rendering web",
+        "mvcc": "Multi Version Concurrency Control database",
+        "dag": "Directed Acyclic Graph data structure",
+        "bfs": "Breadth First Search graph traversal",
+        "dfs": "Depth First Search graph traversal",
+        "dp": "dynamic programming algorithms optimization",
+        "gc": "garbage collection memory management",
+        "hive": "Hive blockchain decentralized social",
+        "smt": "Smart Media Tokens Hive blockchain",
+        "vests": "VESTS Hive Power staking blockchain",
+        "hbd": "Hive Backed Dollars stablecoin blockchain",
+    }
+
+    content_words = [
+        w for w in question.lower().split()
+        if len(w) > 1 and w not in STOP_WORDS
+    ]
+
+    expanded = question
+
+    # Expand abbreviations found in the query
+    for word in content_words:
+        clean = word.strip("?.,!:;")
+        if clean in ABBREVIATIONS:
+            expanded += " " + ABBREVIATIONS[clean]
+
+    # For very short queries (< 4 content words), pull more context from history
+    if len(content_words) < 4 and history:
+        context_phrases = []
+        for h in reversed(history[-6:]):
+            role = h.get("role", "")
+            content = h.get("content", "")
+            if role == "user" and content.strip() != question.strip():
+                words = [
+                    w for w in content.lower().split()
+                    if len(w) > 3 and w not in STOP_WORDS
+                ]
+                context_phrases.extend(words[:5])
+            elif role == "assistant":
+                # Extract key technical terms from assistant responses
+                words = [
+                    w for w in content.lower().split()
+                    if len(w) > 4 and w not in STOP_WORDS
+                ]
+                context_phrases.extend(words[:3])
+            if len(context_phrases) >= 15:
+                break
+        if context_phrases:
+            unique = list(dict.fromkeys(context_phrases))
+            expanded += " " + " ".join(unique[:10])
+
+    return expanded
+
+
 def search_knowledge_sections(question, db, history=None):
     try:
-        query_str = question
+        query_str = _expand_short_query(question, history)
+
+        # Also add general history context
         if history:
             history_words = []
             for h in history[-4:]:
@@ -121,12 +208,12 @@ def search_knowledge_sections(question, db, history=None):
                     if len(w) > 3 and w not in STOP_WORDS and w not in history_words:
                         history_words.append(w)
             if history_words:
-                query_str = question + " " + " ".join(history_words[:10])
+                query_str = query_str + " " + " ".join(history_words[:10])
 
         query_embedding = embed_text(query_str)
 
-        from hiveai.vectorstore import vector_search
-        top_sections = vector_search(db, query_embedding, limit=12, max_distance=0.8)
+        from hiveai.vectorstore import vector_search, hybrid_search
+        top_sections = hybrid_search(db, query_str, query_embedding, limit=12, max_distance=0.8)
 
         if top_sections and len(top_sections) >= 2:
             try:

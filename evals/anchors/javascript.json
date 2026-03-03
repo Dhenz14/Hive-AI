@@ -1,0 +1,74 @@
+[
+  {
+    "id": "js-async-001",
+    "domain": "javascript",
+    "severity": "critical",
+    "instruction": "What is the difference between callbacks, Promises, and async/await in JavaScript?",
+    "must_contain": ["callback", "Promise", "async", "await"],
+    "must_not_contain": ["callbacks are deprecated", "Promises replace callbacks entirely", "async/await is synchronous"],
+    "rationale": "All three are async patterns: callbacks (oldest, callback hell risk), Promises (chainable, .then/.catch), async/await (syntactic sugar over Promises). async/await is NOT synchronous — it's Promises with cleaner syntax. Callbacks are still used in Node.js APIs and event handlers."
+  },
+  {
+    "id": "js-closure-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "What is a closure in JavaScript and what are common pitfalls?",
+    "must_contain": ["closure", "scope", "variable", "function"],
+    "must_not_contain": ["closures cause memory leaks always", "closures are bad practice", "avoid closures"],
+    "rationale": "Closures capture variables by reference (not value), which causes the classic loop-var bug with var. CAN cause memory leaks if they capture large objects unintentionally, but are NOT inherently bad — they're fundamental to JS patterns (callbacks, module pattern, event handlers)."
+  },
+  {
+    "id": "js-equality-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "What is the difference between == and === in JavaScript?",
+    "must_contain": ["strict", "type coercion", "==="],
+    "must_not_contain": ["== is fine for everything", "they are the same", "=== is only for objects"],
+    "rationale": "== performs type coercion ('' == 0 is true, null == undefined is true). === compares value AND type without coercion. Always prefer === unless you explicitly want coercion. == produces many unintuitive results ([] == false is true)."
+  },
+  {
+    "id": "js-this-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "How does the 'this' keyword work in JavaScript?",
+    "must_contain": ["context", "bind", "arrow"],
+    "must_not_contain": ["this always refers to the object", "this works like Java/C++", "this is simple"],
+    "rationale": "'this' in JS depends on HOW a function is called, not where it's defined (unlike Java/C++). Arrow functions capture 'this' lexically. Regular functions get 'this' from call context. Common bug: passing methods as callbacks loses 'this'. Use bind(), arrow functions, or explicit context."
+  },
+  {
+    "id": "js-proto-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "How does prototypal inheritance work in JavaScript?",
+    "must_contain": ["prototype", "chain", "Object"],
+    "must_not_contain": ["JavaScript has classical inheritance", "classes replaced prototypes", "JS classes work like Java classes"],
+    "rationale": "JS uses prototypal inheritance — objects inherit directly from other objects via the prototype chain. ES6 classes are syntactic sugar over prototypes, NOT classical inheritance. JS classes do NOT work like Java/C++ classes — there are no true private fields (until #private), no interfaces, and the prototype chain is still the mechanism."
+  },
+  {
+    "id": "js-event-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "What is the JavaScript event loop and how does it work?",
+    "must_contain": ["event loop", "call stack", "queue", "single-threaded"],
+    "must_not_contain": ["JavaScript is multi-threaded", "setTimeout is precise timing", "async code runs in parallel threads"],
+    "rationale": "JS is single-threaded with an event loop: synchronous code runs on the call stack, async callbacks go to the task queue (macrotasks) or microtask queue (Promises). setTimeout is NOT precise — it's a minimum delay. Async code does NOT run in parallel threads (Web Workers are separate)."
+  },
+  {
+    "id": "js-null-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "What is the difference between null, undefined, and NaN in JavaScript?",
+    "must_contain": ["null", "undefined", "NaN"],
+    "must_not_contain": ["null and undefined are the same", "NaN === NaN is true", "typeof null is 'null'"],
+    "rationale": "null = intentional absence, undefined = uninitialized/missing, NaN = invalid number. Key gotchas: typeof null is 'object' (historical bug), NaN !== NaN (use Number.isNaN()), null == undefined is true but null === undefined is false."
+  },
+  {
+    "id": "js-immut-001",
+    "domain": "javascript",
+    "severity": "high",
+    "instruction": "How do you handle immutability in JavaScript?",
+    "must_contain": ["Object.freeze", "spread", "const"],
+    "must_not_contain": ["const makes objects immutable", "const prevents all changes", "JavaScript objects are immutable by default"],
+    "rationale": "const prevents reassignment, NOT mutation — const obj = {} still allows obj.x = 1. Object.freeze() is shallow — nested objects are still mutable. For deep immutability use libraries (immer) or recursive freeze. JS objects are mutable by default."
+  }
+]

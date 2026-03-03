@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if not DATABASE_URL:
@@ -39,11 +42,44 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL_REASONING = os.environ.get("OLLAMA_MODEL_REASONING", "qwen3:14b")
 OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3:8b")
 
+# llama-server — used for LoRA adapter models that Ollama can't load natively.
+# Set LLAMA_SERVER_MODELS to a comma-separated list of model names that should
+# route to llama-server instead of Ollama (default: hiveai-v1).
+LLAMA_SERVER_BASE_URL = os.environ.get("LLAMA_SERVER_BASE_URL", "http://localhost:11435")
+LLAMA_SERVER_MODELS: set = {
+    m.strip()
+    for m in os.environ.get("LLAMA_SERVER_MODELS", "hiveai-v1,hiveai-v1.5,hiveai-v2").split(",")
+    if m.strip()
+}
+# The currently-active llama-server model (the one llama-server.exe is actually running)
+LLAMA_SERVER_MODEL = os.environ.get("LLAMA_SERVER_MODEL", "hiveai-v1")
+
 EXTRACTION_QUALITY = os.environ.get("EXTRACTION_QUALITY", "high").lower()
 
 EMBEDDING_MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
 EMBEDDING_DIMENSIONS = 1024
 SEMANTIC_SIMILARITY_THRESHOLD = float(os.environ.get("SEMANTIC_SIMILARITY_THRESHOLD", "0.82"))
+MIN_TRAINING_QUALITY = float(os.environ.get("MIN_TRAINING_QUALITY", "0.70"))
+LORA_EXPORT_QUALITY = float(os.environ.get("LORA_EXPORT_QUALITY", "0.75"))
+# Hard gate: pairs with fewer code blocks than this are never eligible (coding model must code)
+MIN_CODE_BLOCKS = int(os.environ.get("MIN_CODE_BLOCKS", "1"))
+
+# --- Deduplication thresholds (tiered system) ---
+# Above EXACT: always reject (true duplicate)
+DEDUP_EXACT_THRESHOLD = float(os.environ.get("DEDUP_EXACT_THRESHOLD", "0.95"))
+# Above PARAPHRASE: reject unless new pair has significantly better quality
+DEDUP_PARAPHRASE_THRESHOLD = float(os.environ.get("DEDUP_PARAPHRASE_THRESHOLD", "0.85"))
+# Above NEAR: allow if responses cover different angles (diversity preserved)
+DEDUP_NEAR_THRESHOLD = float(os.environ.get("DEDUP_NEAR_THRESHOLD", "0.75"))
+# Quality improvement margin for paraphrase tier
+DEDUP_QUALITY_MARGIN = float(os.environ.get("DEDUP_QUALITY_MARGIN", "0.10"))
+
+# --- Entity resolution ---
+ENTITY_SIMILARITY_THRESHOLD = float(os.environ.get("ENTITY_SIMILARITY_THRESHOLD", "0.92"))
+
+# --- LLM circuit breaker ---
+CIRCUIT_BREAKER_THRESHOLD = int(os.environ.get("CIRCUIT_BREAKER_THRESHOLD", "5"))
+CIRCUIT_BREAKER_COOLDOWN = int(os.environ.get("CIRCUIT_BREAKER_COOLDOWN", "60"))
 
 CORS_PROXIES = [
     "https://corsproxy.io/?",
@@ -73,3 +109,105 @@ SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "")
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
 SEMANTIC_CHUNKING = os.environ.get("SEMANTIC_CHUNKING", "").lower() in ("1", "true", "yes")
 CRAWL_CACHE_TTL_HOURS = int(os.environ.get("CRAWL_CACHE_TTL_HOURS", "168"))
+
+# --- Chat self-verification ---
+# When enabled, code blocks in chat responses are executed in the sandbox
+# before returning to the user. Adds 0-15s latency but catches runtime errors.
+CHAT_VERIFY_CODE = os.environ.get("CHAT_VERIFY_CODE", "true").lower() in ("1", "true", "yes")
+
+# --- MoLoRA (Mixture of LoRA Experts) ---
+MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
+MOLORA_DEFAULT_DOMAIN = os.environ.get("MOLORA_DEFAULT_DOMAIN", "general")
+
+# --- DBC (Decentralized Brain Collective) ---
+DBC_ENABLED = os.environ.get("DBC_ENABLED", "false").lower() in ("1", "true", "yes")
+DBC_ACCOUNT = os.environ.get("DBC_ACCOUNT", "")
+DBC_POSTING_KEY = os.environ.get("DBC_POSTING_KEY", "")
+DBC_CUSTOM_JSON_ID = "hiveai"
+DBC_MIN_ONCHAIN_QUALITY = float(os.environ.get("DBC_MIN_ONCHAIN_QUALITY", "0.85"))
+DBC_EPOCH_TIMEOUT_HOURS = int(os.environ.get("DBC_EPOCH_TIMEOUT_HOURS", "24"))
+DBC_RC_FLOOR_PERCENT = float(os.environ.get("DBC_RC_FLOOR_PERCENT", "20"))
+DBC_RC_RESUME_PERCENT = float(os.environ.get("DBC_RC_RESUME_PERCENT", "50"))
+
+
+def validate_config():
+    """
+    Validate configuration on startup. Returns list of warnings.
+    Raises RuntimeError for fatal misconfigurations.
+    """
+    import logging
+    logger = logging.getLogger("hiveai.config")
+    warnings = []
+
+    # Fatal checks
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is required")
+
+    if DB_BACKEND == "postgresql" and "postgresql" not in DATABASE_URL:
+        raise RuntimeError(f"DATABASE_URL doesn't look like PostgreSQL: {DATABASE_URL[:30]}...")
+
+    # Quality gate sanity
+    if MIN_TRAINING_QUALITY >= LORA_EXPORT_QUALITY:
+        warnings.append(
+            f"MIN_TRAINING_QUALITY ({MIN_TRAINING_QUALITY}) >= LORA_EXPORT_QUALITY ({LORA_EXPORT_QUALITY}). "
+            "Export threshold should be higher than training minimum."
+        )
+
+    if MIN_TRAINING_QUALITY < 0.5 or MIN_TRAINING_QUALITY > 1.0:
+        warnings.append(f"MIN_TRAINING_QUALITY={MIN_TRAINING_QUALITY} looks out of range (expected 0.5-1.0)")
+
+    if LORA_EXPORT_QUALITY < 0.5 or LORA_EXPORT_QUALITY > 1.0:
+        warnings.append(f"LORA_EXPORT_QUALITY={LORA_EXPORT_QUALITY} looks out of range (expected 0.5-1.0)")
+
+    # Dedup threshold ordering
+    if not (DEDUP_EXACT_THRESHOLD > DEDUP_PARAPHRASE_THRESHOLD > DEDUP_NEAR_THRESHOLD):
+        warnings.append(
+            f"Dedup thresholds not ordered: exact={DEDUP_EXACT_THRESHOLD} > "
+            f"paraphrase={DEDUP_PARAPHRASE_THRESHOLD} > near={DEDUP_NEAR_THRESHOLD}"
+        )
+
+    # LLM backend availability
+    if LLM_BACKEND == "openrouter" and not OPENROUTER_API_KEY:
+        warnings.append("LLM_BACKEND=openrouter but OPENROUTER_API_KEY is not set")
+
+    # llama-server model should be in the models set
+    if LLAMA_SERVER_MODEL and LLAMA_SERVER_MODEL not in LLAMA_SERVER_MODELS:
+        warnings.append(
+            f"LLAMA_SERVER_MODEL='{LLAMA_SERVER_MODEL}' not in LLAMA_SERVER_MODELS={LLAMA_SERVER_MODELS}. "
+            "Requests to this model won't route to llama-server."
+        )
+
+    # Embedding dimensions
+    if EMBEDDING_DIMENSIONS not in (384, 512, 768, 1024, 1536, 3072, 4096):
+        warnings.append(f"EMBEDDING_DIMENSIONS={EMBEDDING_DIMENSIONS} — unusual dimension, verify model compatibility")
+
+    # Chunk size vs overlap sanity
+    if CHUNK_OVERLAP >= CHUNK_SIZE:
+        warnings.append(f"CHUNK_OVERLAP ({CHUNK_OVERLAP}) >= CHUNK_SIZE ({CHUNK_SIZE}). Chunks will repeat content.")
+
+    # Check for known-bad OLLAMA_MODEL_FAST setting
+    if OLLAMA_MODEL_FAST in LLAMA_SERVER_MODELS:
+        warnings.append(
+            f"OLLAMA_MODEL_FAST='{OLLAMA_MODEL_FAST}' is a llama-server model. "
+            "Ollama can't serve LoRA models — fast model calls will fail."
+        )
+
+    # DBC config checks
+    if DBC_ENABLED:
+        if not DBC_ACCOUNT:
+            warnings.append("DBC_ENABLED=true but DBC_ACCOUNT is not set")
+        if DBC_RC_FLOOR_PERCENT >= DBC_RC_RESUME_PERCENT:
+            warnings.append(
+                f"DBC_RC_FLOOR_PERCENT ({DBC_RC_FLOOR_PERCENT}) >= DBC_RC_RESUME_PERCENT ({DBC_RC_RESUME_PERCENT}). "
+                "Hysteresis requires floor < resume."
+            )
+
+    # Log results
+    for w in warnings:
+        logger.warning(f"[CONFIG] {w}")
+
+    if not warnings:
+        logger.info(f"[CONFIG] Validated OK — backend={LLM_BACKEND}, db={DB_BACKEND}, "
+                     f"profile={HARDWARE_PROFILE}, verify_code={CHAT_VERIFY_CODE}")
+
+    return warnings

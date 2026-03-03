@@ -1,0 +1,17 @@
+# HAF Transfer Indexer — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Flask web framework for the REST API server
+flask>=3.0
+
+# PostgreSQL adapter — psycopg2-binary includes pre-compiled libpq
+# so you don't need to install PostgreSQL client libraries separately.
+# For production, consider using psycopg2 (non-binary) compiled against
+# your system's libpq for better performance.
+psycopg2-binary>=2.9
+
+# Environment variable loading from .env files
+python-dotenv>=1.0
+
+# Testing framework
+pytest>=8.0

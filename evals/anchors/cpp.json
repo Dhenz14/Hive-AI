@@ -1,0 +1,74 @@
+[
+  {
+    "id": "cpp-mem-001",
+    "domain": "cpp",
+    "severity": "critical",
+    "instruction": "How do you prevent memory leaks in C++?",
+    "must_contain": ["smart pointer", "unique_ptr", "shared_ptr", "RAII"],
+    "must_not_contain": ["just remember to call delete", "memory leaks don't matter", "garbage collector"],
+    "rationale": "Modern C++ uses RAII and smart pointers (unique_ptr, shared_ptr) to prevent leaks. Manual new/delete is error-prone and outdated. C++ has NO garbage collector — relying on one or on manual discipline is wrong."
+  },
+  {
+    "id": "cpp-dangle-001",
+    "domain": "cpp",
+    "severity": "critical",
+    "instruction": "What is a dangling pointer and how do you prevent it?",
+    "must_contain": ["delet", "freed", "smart pointer"],
+    "must_not_contain": ["dangling pointers are harmless", "just set to NULL after delete", "use-after-free is caught by compiler"],
+    "rationale": "Dangling pointers reference freed memory — use-after-free is undefined behavior (crashes, security exploits). Setting to NULL after delete is a partial mitigation, not a solution. Smart pointers prevent the issue structurally. Compilers do NOT reliably catch use-after-free."
+  },
+  {
+    "id": "cpp-move-001",
+    "domain": "cpp",
+    "severity": "high",
+    "instruction": "What is move semantics in C++ and when should you use it?",
+    "must_contain": ["std::move", "rvalue", "transfer"],
+    "must_not_contain": ["move copies the data", "move is always faster", "always use std::move"],
+    "rationale": "Move semantics TRANSFERS ownership of resources (no copy). std::move doesn't move — it casts to rvalue reference, enabling the move constructor/assignment. Moves aren't always faster (small types) and overuse defeats compiler optimizations (RVO/NRVO)."
+  },
+  {
+    "id": "cpp-ub-001",
+    "domain": "cpp",
+    "severity": "critical",
+    "instruction": "What is undefined behavior in C++ and why is it dangerous?",
+    "must_contain": ["undefined behavior", "compiler"],
+    "must_not_contain": ["UB always crashes", "UB just gives wrong results", "UB is predictable on x86"],
+    "rationale": "Undefined behavior means the compiler can assume it never happens and optimize accordingly — it can make code before the UB unreachable, remove checks, or cause time-travel bugs. UB does NOT reliably crash or give wrong results — it can appear to work then break with a different compiler/optimization level."
+  },
+  {
+    "id": "cpp-vector-001",
+    "domain": "cpp",
+    "severity": "high",
+    "instruction": "How do you avoid iterator invalidation in C++ containers?",
+    "must_contain": ["invalidat", "insert", "erase"],
+    "must_not_contain": ["iterators are always valid", "just use indexes instead", "reserve prevents all invalidation"],
+    "rationale": "Modifying a container (insert, erase, push_back) can invalidate iterators. For vector: any reallocation invalidates ALL iterators. reserve() only prevents reallocation invalidation from push_back, not from insert/erase. Each container has different invalidation rules."
+  },
+  {
+    "id": "cpp-thread-001",
+    "domain": "cpp",
+    "severity": "critical",
+    "instruction": "How do you safely share data between threads in C++?",
+    "must_contain": ["mutex", "lock", "atomic"],
+    "must_not_contain": ["volatile makes variables thread-safe", "reading is always safe", "just use global variables"],
+    "rationale": "Thread safety requires synchronization: mutex/lock_guard for compound operations, std::atomic for single variables. volatile does NOT provide thread safety in C++ (unlike Java) — it only prevents compiler reordering, not CPU reordering. Concurrent reads without synchronization on non-atomic types is undefined behavior."
+  },
+  {
+    "id": "cpp-cast-001",
+    "domain": "cpp",
+    "severity": "high",
+    "instruction": "What are the different cast types in C++ and when do you use each?",
+    "must_contain": ["static_cast", "dynamic_cast", "reinterpret_cast", "const_cast"],
+    "must_not_contain": ["C-style casts are fine in C++", "just use (Type)x", "all casts are the same"],
+    "rationale": "C++ has 4 named casts with distinct semantics: static_cast (compile-time safe), dynamic_cast (runtime polymorphic), reinterpret_cast (bit reinterpretation), const_cast (remove/add const). C-style casts try each in sequence and are dangerous because they can silently become reinterpret_cast."
+  },
+  {
+    "id": "cpp-buf-001",
+    "domain": "cpp",
+    "severity": "critical",
+    "instruction": "How do you prevent buffer overflows in C++?",
+    "must_contain": ["bounds", "std::vector", "std::string", "at()"],
+    "must_not_contain": ["strcpy is safe", "arrays check bounds automatically", "buffer overflows can't happen in C++"],
+    "rationale": "Buffer overflows are prevented by using std::vector/string instead of raw arrays, using .at() for bounds-checked access, and avoiding unsafe C functions (strcpy, sprintf, gets). Raw arrays do NOT check bounds. C++ does NOT prevent buffer overflows automatically."
+  }
+]

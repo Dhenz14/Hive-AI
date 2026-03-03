@@ -6,29 +6,49 @@
 
 <div class="stats-grid">
     <div class="stat-card">
-        <div class="number">{{ stats.total_jobs }}</div>
-        <div class="label">⚒ Expeditions</div>
+        <div class="number" id="stat-total-jobs">{{ stats.total_jobs }}</div>
+        <div class="label">Expeditions</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.active_jobs }}</div>
-        <div class="label">⛏ Mining</div>
+        <div class="number" id="stat-active-jobs">{{ stats.active_jobs }}</div>
+        <div class="label">Mining</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.total_pages }}</div>
-        <div class="label">🪨 Ore Collected</div>
+        <div class="number" id="stat-total-pages">{{ stats.total_pages }}</div>
+        <div class="label">Ore Collected</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.total_triples }}</div>
-        <div class="label">💎 Gold Nuggets</div>
+        <div class="number" id="stat-total-triples">{{ stats.total_triples }}</div>
+        <div class="label">Gold Nuggets</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.total_books }}</div>
-        <div class="label">📜 Tomes</div>
+        <div class="number" id="stat-total-books">{{ stats.total_books }}</div>
+        <div class="label">Tomes</div>
     </div>
     <div class="stat-card">
-        <div class="number">{{ stats.published_books }}</div>
-        <div class="label">🏆 Treasures Shared</div>
+        <div class="number" id="stat-published-books">{{ stats.published_books }}</div>
+        <div class="label">Books Inscribed</div>
     </div>
+    <div class="stat-card">
+        <div class="number" id="stat-eligible-teachings">{{ stats.eligible_teachings }}</div>
+        <div class="label">Teachings</div>
+    </div>
+    <div class="stat-card">
+        <div class="number" id="stat-lora-crystals">{{ stats.lora_crystals }}</div>
+        <div class="label">Crystals Forged</div>
+    </div>
+    {% if merge_cycles is defined and merge_cycles > 0 %}
+    <div class="stat-card">
+        <div class="number" id="stat-merge-cycles">{{ merge_cycles }}</div>
+        <div class="label">Merge Cycles</div>
+    </div>
+    {% endif %}
+    {% if molora_domains is defined and molora_domains|length > 1 %}
+    <div class="stat-card">
+        <div class="number" id="stat-domain-models">{{ molora_domains|length }}</div>
+        <div class="label">Domain Models</div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="card">
@@ -272,7 +292,35 @@ async function submitBatch() {
     }
 }
 
+async function refreshStats() {
+    try {
+        const resp = await fetch('/api/stats');
+        const s = await resp.json();
+        const map = {
+            'stat-total-jobs': s.total_jobs,
+            'stat-active-jobs': s.active_jobs,
+            'stat-total-pages': s.total_pages,
+            'stat-total-triples': s.total_triples,
+            'stat-total-books': s.total_books,
+            'stat-published-books': s.published_books,
+            'stat-eligible-teachings': s.eligible_teachings,
+            'stat-lora-crystals': s.lora_crystals,
+        };
+        for (const [id, val] of Object.entries(map)) {
+            const el = document.getElementById(id);
+            if (el && el.textContent !== String(val)) {
+                el.textContent = val;
+                el.style.transition = 'color 0.3s';
+                el.style.color = '#ffd700';
+                setTimeout(() => { el.style.color = ''; }, 1500);
+            }
+        }
+    } catch (err) {}
+}
+
 refreshQueueStatus();
+refreshStats();
 setInterval(refreshQueueStatus, 5000);
+setInterval(refreshStats, 10000);
 </script>
 {% endblock %}

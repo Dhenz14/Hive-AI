@@ -151,7 +151,7 @@ class GoldenBook(Base):
     content = Column(Text, nullable=False)
     content_hash = Column(String(64), nullable=False)
     source_count = Column(Integer, default=0)
-    source_urls = Column(JSON, default=list)
+    source_urls = Column(JSON, default=lambda: [])
     triple_count = Column(Integer, default=0)
     word_count = Column(Integer, default=0)
     status = Column(String(50), default="draft")
@@ -166,6 +166,11 @@ class GoldenBook(Base):
     compressed_content = Column(Text, nullable=True)
 
     sections = relationship("BookSection", back_populates="book", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("ix_golden_books_status", "status"),
+        Index("ix_golden_books_quality", "quality_score"),
+    )
 
 
 class BookReference(Base):
@@ -191,7 +196,7 @@ class Community(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
-    entities = Column(JSON, default=list)
+    entities = Column(JSON, default=lambda: [])
     triple_count = Column(Integer, default=0)
     summary = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
@@ -211,7 +216,7 @@ class HiveKnown(Base):
     author = Column(String(50), nullable=True)
     title = Column(String(500), nullable=True)
     content_hash = Column(String(64), nullable=True)
-    tags = Column(JSON, default=list)
+    tags = Column(JSON, default=lambda: [])
     discovered_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
@@ -279,6 +284,91 @@ else:
                 self.embedding_json = json.dumps(value)
 
 
+class TrainingPair(Base):
+    __tablename__ = "training_pairs"
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String(50), nullable=False)     # "self_distill" | "web_crawl" | "human_verified"
+    topic = Column(String(500), nullable=True)
+    instruction = Column(Text, nullable=False)
+    response = Column(Text, nullable=False)
+    embedding_json = Column(Text, nullable=True)    # 1024-dim floats, JSON-serialized
+    quality = Column(Float, default=0.0)
+    is_eligible = Column(Boolean, default=False)
+    lora_version = Column(Integer, nullable=True)   # set when used in a training run
+    metadata_json = Column(Text, nullable=True)     # JSON blob for refinement trajectories, DPO data, etc.
+    created_at = Column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        Index("ix_training_pairs_source", "source"),
+        Index("ix_training_pairs_eligible", "is_eligible"),
+        Index("ix_training_pairs_topic", "topic"),
+    )
+
+    @property
+    def embedding(self):
+        if self.embedding_json is None:
+            return None
+        try:
+            return json.loads(self.embedding_json)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+    @embedding.setter
+    def embedding(self, value):
+        if value is None:
+            self.embedding_json = None
+        elif isinstance(value, (list, tuple)):
+            self.embedding_json = json.dumps([float(v) for v in value])
+        elif hasattr(value, "tolist"):
+            self.embedding_json = json.dumps(value.tolist())
+        else:
+            self.embedding_json = json.dumps(value)
+
+
+class LoraVersion(Base):
+    __tablename__ = "lora_versions"
+
+    id = Column(Integer, primary_key=True)
+    version = Column(String(50), nullable=False)    # "v1.0", "v1.1", etc.
+    base_model = Column(String(100), nullable=False)
+    pair_count = Column(Integer, default=0)
+    benchmark_score = Column(Float, nullable=True)
+    adapter_path = Column(String(500), nullable=True)
+    status = Column(String(50), default="pending")  # "training"|"benchmarking"|"ready"|"published"
+    hive_tx_id = Column(String(64), nullable=True)
+    ipfs_cid = Column(String(128), nullable=True)   # IPFS Content ID for adapter GGUF
+    export_metadata = Column(JSON, nullable=True)    # {file_size, sha256, base_model, ...}
+    merge_cycle = Column(Integer, default=0)          # which merge cycle this adapter was used in
+    merged_base_path = Column(String(500), nullable=True)  # path to merged output base
+    parent_version_id = Column(Integer, ForeignKey("lora_versions.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    published_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_lora_versions_status", "status"),
+    )
+
+
+class ChatFeedback(Base):
+    """User feedback on chat responses — corrections become training pairs."""
+    __tablename__ = "chat_feedback"
+
+    id = Column(Integer, primary_key=True)
+    message_hash = Column(String(64), nullable=False)   # SHA-256 of user question
+    user_message = Column(Text, nullable=False)
+    ai_response = Column(Text, nullable=False)
+    rating = Column(String(10), nullable=False)         # "up" or "down"
+    correction = Column(Text, nullable=True)            # user's corrected answer
+    staged_pair_id = Column(Integer, ForeignKey("training_pairs.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    __table_args__ = (
+        Index("ix_chat_feedback_rating", "rating"),
+        Index("ix_chat_feedback_hash", "message_hash"),
+    )
+
+
 class SystemConfig(Base):
     __tablename__ = "system_config"
     key = Column(String, primary_key=True)
@@ -294,3 +384,28 @@ def init_db():
         except Exception as e:
             logger.warning(f"Could not create pgvector extension: {e}")
     Base.metadata.create_all(engine)
+
+    # Lightweight column migrations — add columns that create_all can't add to existing tables
+    _migrate_add_columns(engine)
+
+
+def _migrate_add_columns(engine):
+    """Add columns to existing tables that create_all() can't handle.
+
+    Each migration is idempotent — safe to run on every startup.
+    """
+    migrations = [
+        ("training_pairs", "metadata_json", "TEXT"),
+        ("lora_versions", "merge_cycle", "INTEGER DEFAULT 0"),
+        ("lora_versions", "merged_base_path", "VARCHAR(500)"),
+        ("lora_versions", "parent_version_id", "INTEGER"),
+    ]
+    with engine.connect() as conn:
+        for table, column, col_type in migrations:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                conn.commit()
+                logger.info(f"Migration: added {table}.{column}")
+            except Exception:
+                # Column already exists — expected on subsequent startups
+                conn.rollback()

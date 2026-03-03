@@ -1,0 +1,65 @@
+[
+  {
+    "id": "sys-scale-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "What is the difference between horizontal and vertical scaling?",
+    "must_contain": ["horizontal", "vertical", "machine", "instance"],
+    "must_not_contain": ["vertical scaling is always better", "horizontal scaling solves everything", "just buy a bigger server"],
+    "rationale": "Vertical = bigger machine (limits: physical hardware ceiling). Horizontal = more machines (requires: stateless design, load balancing, distributed state). Neither is universally better. Vertical has hard limits. Horizontal adds complexity (consistency, network partitions)."
+  },
+  {
+    "id": "sys-cap-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "What is the CAP theorem?",
+    "must_contain": ["Consistency", "Availability", "Partition", "two of three"],
+    "must_not_contain": ["you can have all three", "CAP is outdated and irrelevant", "just choose CA"],
+    "rationale": "CAP theorem: distributed systems can guarantee at most 2 of 3 (Consistency, Availability, Partition tolerance). Since network partitions are unavoidable, the real choice is CP vs AP. Claiming all three is possible or CA is viable in a distributed system is incorrect."
+  },
+  {
+    "id": "sys-lb-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "How does load balancing work and what algorithms are common?",
+    "must_contain": ["load balancer", "round robin", "health check"],
+    "must_not_contain": ["load balancers are optional at scale", "round robin is always best", "load balancers eliminate all bottlenecks"],
+    "rationale": "Load balancers distribute traffic across backends. Common algorithms: round-robin (simple), least connections (dynamic), weighted (heterogeneous servers), consistent hashing (stateful). Health checks are essential — routing to dead backends causes outages. LBs don't eliminate database/network bottlenecks."
+  },
+  {
+    "id": "sys-cache-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "What are the common caching strategies and their trade-offs?",
+    "must_contain": ["cache", "invalidation", "TTL"],
+    "must_not_contain": ["cache everything forever", "caching has no downsides", "just use Redis"],
+    "rationale": "Caching strategies: cache-aside (app manages), read-through (cache manages reads), write-through (cache manages writes), write-behind (async writes). Cache invalidation is famously hard. Stale data, cache stampedes, memory pressure, and consistency issues are real trade-offs."
+  },
+  {
+    "id": "sys-queue-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "When should you use a message queue in system design?",
+    "must_contain": ["decouple", "async", "producer", "consumer"],
+    "must_not_contain": ["message queues solve all scaling problems", "always use a queue", "queues guarantee exactly-once delivery"],
+    "rationale": "Message queues decouple producers from consumers, enable async processing, buffer traffic spikes, and improve reliability. But they add complexity (ordering, idempotency, dead letter handling). Most queues provide at-least-once delivery, NOT exactly-once. Don't add a queue for simple synchronous request/response."
+  },
+  {
+    "id": "sys-micro-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "When should you use microservices vs a monolith?",
+    "must_contain": ["monolith", "microservice", "complexity", "team"],
+    "must_not_contain": ["microservices are always better", "monoliths are outdated", "start with microservices"],
+    "rationale": "Microservices add operational complexity (networking, deployment, observability, data consistency). They're justified for large teams, independent scaling needs, and polyglot requirements. Start with a monolith and extract services as needed. Premature microservices is a common mistake."
+  },
+  {
+    "id": "sys-db-001",
+    "domain": "systems",
+    "severity": "high",
+    "instruction": "When should you use SQL vs NoSQL databases?",
+    "must_contain": ["SQL", "NoSQL", "schema", "query"],
+    "must_not_contain": ["NoSQL is always faster", "SQL is outdated", "NoSQL scales and SQL doesn't"],
+    "rationale": "SQL: strong consistency, complex queries, relationships, ACID. NoSQL: flexible schema, horizontal scaling, specific access patterns (document, key-value, graph, time-series). Neither is universally better. SQL databases CAN scale (sharding, read replicas). NoSQL CAN support relationships (but less efficiently)."
+  }
+]

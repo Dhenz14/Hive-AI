@@ -73,3 +73,31 @@ desktop/node_modules/
 
 # Cursor
 .cursorignore
+
+# LoRA binary artifacts (adapters, checkpoints, GGUF — too large for Git)
+loras/v*/adapter_model.safetensors
+loras/v*/checkpoint-*/
+loras/v*/hiveai-*.gguf
+loras/v*/gguf/
+loras/v*/merged_gguf/
+loras/domains/
+*.safetensors
+*.gguf
+*.pt
+# Keep training data JSONL and config files
+!loras/training_data/
+!loras/training_data/**
+
+# Claude Code local settings
+.claude/
+
+# Junk files
+nul
+temp_module.py
+{ea},
+
+# Compiled caches
+unsloth_compiled_cache/
+
+# Large binary assets in scripts
+scripts/design_patterns.pdf

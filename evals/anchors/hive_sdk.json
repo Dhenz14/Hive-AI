@@ -1,0 +1,92 @@
+[
+  {
+    "id": "hive-sdk-001",
+    "domain": "hive_sdk",
+    "severity": "critical",
+    "instruction": "How do you post a custom_json transaction on the Hive blockchain using Python?",
+    "must_contain": ["custom_json", "beem", "required_posting_auths", "json"],
+    "must_not_contain": ["required_active_auths for custom_json by default", "steem", "steempy"],
+    "rationale": "custom_json operations require required_posting_auths (not active) for most apps. Using active auth for a custom_json is a privilege escalation risk. beem is the standard Python Hive library — steempy/steem references indicate outdated knowledge."
+  },
+  {
+    "id": "hive-sdk-002",
+    "domain": "hive_sdk",
+    "severity": "critical",
+    "instruction": "What are the different key types on the Hive blockchain and when do you use each?",
+    "must_contain": ["posting", "active", "owner", "memo"],
+    "must_not_contain": ["posting key can transfer funds", "active and posting are interchangeable", "only one key type"],
+    "rationale": "Hive has a strict key hierarchy: posting (social), active (financial), owner (recovery), memo (encrypted messages). Confusing these is a critical security error — posting keys CANNOT transfer funds, and active keys should never be used for social operations."
+  },
+  {
+    "id": "hive-sdk-003",
+    "domain": "hive_sdk",
+    "severity": "critical",
+    "instruction": "How do you broadcast a transfer operation on Hive using beem?",
+    "must_contain": ["active", "Transfer", "broadcast"],
+    "must_not_contain": ["posting_key", "required_posting_auths", "steem"],
+    "rationale": "Transfer operations REQUIRE active authority. Using posting key for a transfer will fail. This is a fundamental Hive security boundary — financial ops always need active key."
+  },
+  {
+    "id": "hive-sdk-004",
+    "domain": "hive_sdk",
+    "severity": "high",
+    "instruction": "How do you stream real-time operations from the Hive blockchain?",
+    "must_contain": ["Blockchain", "stream", "ops"],
+    "must_not_contain": ["polling every second", "REST API polling", "websocket"],
+    "rationale": "beem's Blockchain().stream() is the standard pattern for real-time Hive data. Hive uses a streaming model via beem, not REST polling or WebSockets. Polling a Hive API node would be rate-limited and wasteful."
+  },
+  {
+    "id": "hive-sdk-005",
+    "domain": "hive_sdk",
+    "severity": "high",
+    "instruction": "How do you read account data from the Hive blockchain?",
+    "must_contain": ["Account", "beem"],
+    "must_not_contain": ["steem", "steemit API", "condenser_api is the only way"],
+    "rationale": "beem's Account class is the standard way to read Hive account data. References to 'steem' or 'steemit API' indicate the model is confusing Hive with the forked-from Steem chain."
+  },
+  {
+    "id": "hive-sdk-006",
+    "domain": "hive_sdk",
+    "severity": "critical",
+    "instruction": "How do you create a Hive post programmatically?",
+    "must_contain": ["Comment", "posting", "parent_permlink"],
+    "must_not_contain": ["active key to post", "create_post function", "steem"],
+    "rationale": "Hive posts are Comment operations with empty parent_author. They require posting authority, NOT active. parent_permlink is the category/community. Using active key for posting is a privilege violation."
+  },
+  {
+    "id": "hive-sdk-007",
+    "domain": "hive_sdk",
+    "severity": "high",
+    "instruction": "How do you vote on a Hive post using beem?",
+    "must_contain": ["vote", "posting", "weight"],
+    "must_not_contain": ["active key to vote", "weight is 1-10", "steem"],
+    "rationale": "Votes require posting authority and weight is specified as a percentage (100 = 1% to 10000 = 100%). Common mistake: thinking weight is 1-10 scale or that voting needs active key."
+  },
+  {
+    "id": "hive-sdk-008",
+    "domain": "hive_sdk",
+    "severity": "high",
+    "instruction": "What is the difference between a Hive post and a comment in the protocol?",
+    "must_contain": ["Comment", "parent_author"],
+    "must_not_contain": ["different operation types", "Post operation", "posts and comments use different APIs"],
+    "rationale": "Posts and comments are BOTH Comment operations. The difference is parent_author: empty string for posts, author username for replies. There is NO separate 'Post' operation type in the Hive protocol."
+  },
+  {
+    "id": "hive-sdk-009",
+    "domain": "hive_sdk",
+    "severity": "critical",
+    "instruction": "How do you handle Hive private keys safely in a Python application?",
+    "must_contain": ["environment variable", "never hardcode"],
+    "must_not_contain": ["wif = \"5K", "private_key = \"5", "paste your key"],
+    "rationale": "Hive private keys start with '5' (WIF format). Hardcoding them in source code is the #1 cause of stolen Hive accounts. Keys must come from environment variables or encrypted storage."
+  },
+  {
+    "id": "hive-sdk-010",
+    "domain": "hive_sdk",
+    "severity": "high",
+    "instruction": "What are resource credits on Hive and how do they work?",
+    "must_contain": ["RC", "resource credit", "stake", "free"],
+    "must_not_contain": ["gas fees", "transaction fees", "pay per transaction", "ETH-style fees"],
+    "rationale": "Hive has NO transaction fees. Resource credits (RC) are regenerating bandwidth allocated by HP stake. Comparing to gas fees or saying transactions cost money is fundamentally wrong — Hive is feeless."
+  }
+]

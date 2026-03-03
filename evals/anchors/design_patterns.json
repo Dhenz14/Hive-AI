@@ -1,0 +1,65 @@
+[
+  {
+    "id": "dp-singleton-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What is the Singleton pattern and when should you avoid it?",
+    "must_contain": ["single instance", "global"],
+    "must_not_contain": ["always use Singleton", "Singleton has no downsides", "Singleton is the best pattern"],
+    "rationale": "Singleton ensures one instance globally. It introduces hidden dependencies, makes testing difficult (hard to mock), and creates tight coupling. Often overused. Prefer dependency injection. Appropriate for: loggers, connection pools, config objects — NOT for every shared resource."
+  },
+  {
+    "id": "dp-solid-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What does the Single Responsibility Principle mean?",
+    "must_contain": ["one reason to change", "responsib"],
+    "must_not_contain": ["one function per class", "every class should be small", "one method only"],
+    "rationale": "SRP means a class should have ONE REASON TO CHANGE (one actor/stakeholder responsible for it), NOT that it should have one method or be small. A class with 10 methods can follow SRP if they all serve the same actor. Splitting too aggressively violates SRP by scattering cohesive logic."
+  },
+  {
+    "id": "dp-factory-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "When should you use the Factory pattern?",
+    "must_contain": ["creat", "interface", "decouple"],
+    "must_not_contain": ["use Factory for every object", "Factory replaces constructors", "always use Abstract Factory"],
+    "rationale": "Factory pattern is useful when: creation logic is complex, the concrete type depends on runtime conditions, or you need to decouple client code from specific implementations. Don't use it for simple object creation — unnecessary abstraction adds complexity without benefit."
+  },
+  {
+    "id": "dp-observer-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What is the Observer pattern and what are its trade-offs?",
+    "must_contain": ["subscribe", "notify", "event", "decouple"],
+    "must_not_contain": ["Observer has no drawbacks", "Observer replaces all communication", "observers can't cause memory leaks"],
+    "rationale": "Observer decouples event producers from consumers (pub/sub). Trade-offs: memory leaks (forgotten subscriptions), hard to debug (implicit flow), ordering dependencies, cascade effects (observer triggers observer). CAN cause memory leaks if observers aren't properly unsubscribed."
+  },
+  {
+    "id": "dp-di-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What is Dependency Injection and why is it useful?",
+    "must_contain": ["inject", "test", "decouple"],
+    "must_not_contain": ["DI requires a framework", "DI is only for Java/C#", "DI adds too much complexity"],
+    "rationale": "DI passes dependencies to a class instead of the class creating them. Benefits: testability (inject mocks), flexibility (swap implementations), decoupling. Does NOT require a framework — constructor injection is DI. Works in every language including Python, JS, Go."
+  },
+  {
+    "id": "dp-compose-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What does 'composition over inheritance' mean?",
+    "must_contain": ["has-a", "compos", "inherit"],
+    "must_not_contain": ["never use inheritance", "inheritance is always wrong", "composition replaces all inheritance"],
+    "rationale": "Prefer has-a (composition) over is-a (inheritance) because: inheritance creates tight coupling, fragile base class problem, deep hierarchies become rigid. But inheritance IS appropriate for genuine is-a relationships (shape→circle, animal→dog). The principle is 'prefer', not 'never use.'"
+  },
+  {
+    "id": "dp-mvc-001",
+    "domain": "design_patterns",
+    "severity": "high",
+    "instruction": "What is the MVC pattern and how does data flow through it?",
+    "must_contain": ["Model", "View", "Controller", "separate"],
+    "must_not_contain": ["Views can directly modify the Model", "Controller contains business logic", "MVC is the only architecture pattern"],
+    "rationale": "MVC separates concerns: Model (data + business logic), View (presentation), Controller (input handling + coordination). Views should NOT directly modify Models. Controllers should NOT contain business logic — they delegate to Models. MVC is one of many patterns (MVP, MVVM, MVI, etc.)."
+  }
+]

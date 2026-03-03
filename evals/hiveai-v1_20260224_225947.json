@@ -1,0 +1,1879 @@
+{
+  "model": "hiveai-v1",
+  "timestamp": "2026-02-24T22:59:47.979681",
+  "total_challenges": 100,
+  "errors": 10,
+  "scored": 90,
+  "overall_score": 0.766,
+  "dimension_scores": {
+    "code_validity": 0.91,
+    "test_passing": 0.757,
+    "concept_coverage": 0.912,
+    "explanation": 0.378
+  },
+  "by_category": {
+    "algorithms": {
+      "score": 0.825,
+      "count": 15,
+      "test_pass_rate": 0.867,
+      "tests_total": 15
+    },
+    "database": {
+      "score": 0.665,
+      "count": 7,
+      "test_pass_rate": 1.0,
+      "tests_total": 1
+    },
+    "design_patterns": {
+      "score": 0.766,
+      "count": 10,
+      "test_pass_rate": 0.667,
+      "tests_total": 9
+    },
+    "javascript": {
+      "score": 0.532,
+      "count": 8,
+      "test_pass_rate": 0.0,
+      "tests_total": 0
+    },
+    "python": {
+      "score": 0.824,
+      "count": 20,
+      "test_pass_rate": 0.875,
+      "tests_total": 16
+    },
+    "security": {
+      "score": 0.865,
+      "count": 2,
+      "test_pass_rate": 1.0,
+      "tests_total": 1
+    },
+    "systems": {
+      "score": 0.735,
+      "count": 10,
+      "test_pass_rate": 0.286,
+      "tests_total": 7
+    },
+    "testing": {
+      "score": 0.816,
+      "count": 8,
+      "test_pass_rate": 1.0,
+      "tests_total": 2
+    },
+    "web": {
+      "score": 0.792,
+      "count": 10,
+      "test_pass_rate": 0.0,
+      "tests_total": 3
+    }
+  },
+  "by_difficulty": {
+    "1": {
+      "score": 0.806,
+      "count": 8
+    },
+    "2": {
+      "score": 0.747,
+      "count": 21
+    },
+    "3": {
+      "score": 0.758,
+      "count": 34
+    },
+    "4": {
+      "score": 0.733,
+      "count": 16
+    },
+    "5": {
+      "score": 0.849,
+      "count": 11
+    }
+  },
+  "timing": {
+    "total_seconds": 21965.4,
+    "avg_ms_per_challenge": 234733,
+    "total_tokens": 78768
+  },
+  "challenges": [
+    {
+      "id": "py-comp-001",
+      "category": "python",
+      "topic": "list_comprehensions",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.225,
+        "overall": 0.845
+      },
+      "has_test_code": true,
+      "duration_ms": 28569,
+      "tokens_eval": 186,
+      "response_preview": "```python\ndef even_squares(numbers):\n    \"\"\"\n    Returns a list of squares of even numbers from the input list.\n\n    Parameters:\n    numbers (list of int): The input list of integers.\n\n    Returns:\n    list of int: A list containing the squares of the even numbers from the input list.\n    \"\"\"\n    re",
+      "error": null
+    },
+    {
+      "id": "py-str-002",
+      "category": "python",
+      "topic": "string_formatting",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.275,
+        "overall": 0.855
+      },
+      "has_test_code": true,
+      "duration_ms": 38396,
+      "tokens_eval": 252,
+      "response_preview": "```python\ndef format_greeting(name: str, age: int) -> str:\n    \"\"\"\n    Returns a formatted greeting using an f-string.\n\n    Args:\n        name (str): The name of the person.\n        age (int): The age of the person.\n\n    Returns:\n        str: A greeting message in the format 'Hello, {name}! You are ",
+      "error": null
+    },
+    {
+      "id": "py-dict-003",
+      "category": "python",
+      "topic": "dictionaries",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.325,
+        "overall": 0.865
+      },
+      "has_test_code": true,
+      "duration_ms": 56860,
+      "tokens_eval": 389,
+      "response_preview": "### Implementation\n\n```python\ndef word_count(text: str) -> dict[str, int]:\n    \"\"\"\n    Count the occurrences of each word in the input text.\n\n    Args:\n        text: A string containing words separated by whitespace.\n\n    Returns:\n        A dictionary where keys are words (lowercased) and values are",
+      "error": null
+    },
+    {
+      "id": "py-gen-004",
+      "category": "python",
+      "topic": "generators",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.325,
+        "overall": 0.865
+      },
+      "has_test_code": true,
+      "duration_ms": 56401,
+      "tokens_eval": 382,
+      "response_preview": "### Generator Function for Fibonacci Numbers\n\n```python\nimport itertools\n\ndef fibonacci():\n    a, b = 0, 1\n    while True:\n        yield a\n        a, b = b, a + b\n```\n\n### Explanation\n\n- **Generator Function**: The `fibonacci` function is a generator that yields Fibonacci numbers indefinitely.\n  - I",
+      "error": null
+    },
+    {
+      "id": "py-dec-005",
+      "category": "python",
+      "topic": "decorators",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.29,
+        "overall": 0.858
+      },
+      "has_test_code": true,
+      "duration_ms": 45924,
+      "tokens_eval": 307,
+      "response_preview": "```python\nimport time\nimport functools\n\ndef timer(func):\n    @functools.wraps(func)\n    def wrapper(*args, **kwargs):\n        start_time = time.perf_counter()\n        result = func(*args, **kwargs)\n        end_time = time.perf_counter()\n        elapsed_time = end_time - start_time\n        print(f'Fu",
+      "error": null
+    },
+    {
+      "id": "py-ctx-006",
+      "category": "python",
+      "topic": "context_managers",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.365,
+        "overall": 0.873
+      },
+      "has_test_code": true,
+      "duration_ms": 78587,
+      "tokens_eval": 539,
+      "response_preview": "```python\nimport os\nimport tempfile\nimport shutil\nfrom contextlib import contextmanager\n\n\nclass TempDirectory:\n    def __init__(self, suffix=None, prefix=None, dir=None):\n        self._dir = None\n        self._suffix = suffix\n        self._prefix = prefix\n        self._temp_dir = dir\n\n    def __ente",
+      "error": null
+    },
+    {
+      "id": "py-async-007",
+      "category": "python",
+      "topic": "asyncio",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.275,
+        "overall": 0.855
+      },
+      "has_test_code": true,
+      "duration_ms": 52642,
+      "tokens_eval": 353,
+      "response_preview": "```python\nimport asyncio\n\nasync def fetch_all(urls: list[str], fetch: callable) -> list:\n    \"\"\"\n    Fetches data from multiple URLs concurrently using asyncio.gather.\n\n    Args:\n        urls (list[str]): A list of URLs to fetch data from.\n        fetch (callable): A coroutine factory that takes a U",
+      "error": null
+    },
+    {
+      "id": "py-meta-008",
+      "category": "python",
+      "topic": "metaclasses",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 62391,
+      "tokens_eval": 427,
+      "response_preview": "### Implementation of `SingletonMeta` Metaclass\n\n```python\nimport threading\n\nclass SingletonMeta(type):\n    _instances = {}\n    _lock = threading.Lock()\n\n    def __call__(cls, *args, **kwargs):\n        if cls not in cls._instances:\n            with cls._lock:\n                if cls not in cls._insta",
+      "error": null
+    },
+    {
+      "id": "py-desc-009",
+      "category": "python",
+      "topic": "descriptors",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 81796,
+      "tokens_eval": 561,
+      "response_preview": "```python\nclass ValidatedField:\n    def __init__(self, expected_type, min_val=None, max_val=None):\n        self.expected_type = expected_type\n        self.min_val = min_val\n        self.max_val = max_val\n\n    def __set_name__(self, owner, name):\n        self.name = name\n\n    def __get__(self, obj, o",
+      "error": null
+    },
+    {
+      "id": "py-proto-010",
+      "category": "python",
+      "topic": "protocol_classes",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.375,
+        "overall": 0.829
+      },
+      "has_test_code": false,
+      "duration_ms": 118115,
+      "tokens_eval": 795,
+      "response_preview": "### Understanding Python's `Protocol` Classes and Structural Subtyping\n\nPython's `Protocol` classes (introduced in Python 3.8) enable **structural subtyping**, also known as **duck typing**. A class conforms to a protocol if it has the required methods and attributes, **regardless of whether it expl",
+      "error": null
+    },
+    {
+      "id": "py-slot-011",
+      "category": "python",
+      "topic": "slots",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.667,
+        "explanation": 0.38,
+        "overall": 0.809
+      },
+      "has_test_code": true,
+      "duration_ms": 70769,
+      "tokens_eval": 480,
+      "response_preview": "```python\nclass Point:\n    __slots__ = ('x', 'y', 'z')\n\n    def __init__(self, x: float, y: float, z: float):\n        self.x = x\n        self.y = y\n        self.z = z\n\n    def distance_to(self, other: 'Point') -> float:\n        dx = self.x - other.x\n        dy = self.y - other.y\n        dz = self.z ",
+      "error": null
+    },
+    {
+      "id": "py-abc-012",
+      "category": "python",
+      "topic": "abstract_base_classes",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.38,
+        "overall": 0.843
+      },
+      "has_test_code": true,
+      "duration_ms": 99748,
+      "tokens_eval": 525,
+      "response_preview": "```python\nfrom abc import ABC, abstractmethod\nimport math\n\nclass Shape(ABC):\n    @abstractmethod\n    def area(self):\n        \"\"\"Calculate and return the area of the shape.\"\"\"\n        pass\n\n    @abstractmethod\n    def perimeter(self):\n        \"\"\"Calculate and return the perimeter of the shape.\"\"\"\n   ",
+      "error": null
+    },
+    {
+      "id": "py-enum-013",
+      "category": "python",
+      "topic": "enums",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.8,
+        "explanation": 0.27,
+        "overall": 0.814
+      },
+      "has_test_code": true,
+      "duration_ms": 76745,
+      "tokens_eval": 306,
+      "response_preview": "```python\nfrom enum import Enum\n\nclass HttpStatus(Enum):\n    OK = 200\n    NOT_FOUND = 404\n    INTERNAL_ERROR = 500\n    BAD_REQUEST = 400\n\n    def is_error(self) -> bool:\n        return self.value >= 400\n\n# Example usage\nif __name__ == \"__main__\":\n    status = HttpStatus.OK\n    print(f\"Status: {statu",
+      "error": null
+    },
+    {
+      "id": "py-dataclass-014",
+      "category": "python",
+      "topic": "dataclasses",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.59
+      },
+      "has_test_code": true,
+      "duration_ms": 101281,
+      "tokens_eval": 357,
+      "response_preview": "```python\nfrom dataclasses import dataclass\nfrom typing import Any\n\n@dataclass(frozen=True)\nclass Config:\n    host: str = 'localhost'\n    port: int = 8080\n    debug: bool = False\n\n    def url(self) -> str:\n        return f'http://{self.host}:{self.port}'\n```\n\n### Explanation:\n\n- **`@dataclass(frozen",
+      "error": null
+    },
+    {
+      "id": "py-weakref-015",
+      "category": "python",
+      "topic": "weakref",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.475,
+        "overall": 0.895
+      },
+      "has_test_code": false,
+      "duration_ms": 181140,
+      "tokens_eval": 846,
+      "response_preview": "### Understanding Weak References and Circular References\n\nIn Python, **strong references** prevent an object from being garbage collected as long as at least one strong reference exists. **Weak references**, on the other hand, allow you to refer to an object without preventing its garbage collectio",
+      "error": null
+    },
+    {
+      "id": "py-import-016",
+      "category": "python",
+      "topic": "import_system",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.43,
+        "overall": 0.886
+      },
+      "has_test_code": false,
+      "duration_ms": 211971,
+      "tokens_eval": 1186,
+      "response_preview": "## Python's Import System: How Modules Are Loaded\n\nPython's import system is a powerful and flexible mechanism that allows for dynamic module loading, custom import behavior, and complex package structures. Understanding how it works is essential for advanced Python development.\n\n---\n\n### 1. **How M",
+      "error": null
+    },
+    {
+      "id": "py-mp-017",
+      "category": "python",
+      "topic": "multiprocessing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.275,
+        "overall": 0.585
+      },
+      "has_test_code": true,
+      "duration_ms": 131545,
+      "tokens_eval": 439,
+      "response_preview": "```python\nfrom multiprocessing import Pool\nfrom typing import Callable, List, Any\n\n\ndef parallel_map(func: Callable[[Any], Any], items: List[Any], num_workers: int) -> List[Any]:\n    \"\"\"\n    Applies a function to a list of items in parallel using multiprocessing.Pool.\n\n    Args:\n        func: The fu",
+      "error": null
+    },
+    {
+      "id": "py-typing-018",
+      "category": "python",
+      "topic": "type_hints",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.667,
+        "explanation": 0.35,
+        "overall": 0.803
+      },
+      "has_test_code": true,
+      "duration_ms": 159291,
+      "tokens_eval": 748,
+      "response_preview": "### Implementation\n\n```python\nfrom typing import TypeVar, Optional, TypedDict, List\n\n# Define a TypeVar for generic type T\nT = TypeVar('T')\n\ndef first_or_default(items: List[T], default: Optional[T] = None) -> T:\n    \"\"\"\n    Returns the first item from the list if it is not empty.\n    If the list is",
+      "error": null
+    },
+    {
+      "id": "py-path-019",
+      "category": "python",
+      "topic": "pathlib",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.8,
+        "explanation": 0.3,
+        "overall": 0.82
+      },
+      "has_test_code": true,
+      "duration_ms": 115955,
+      "tokens_eval": 356,
+      "response_preview": "### Implementation\n\n```python\nfrom pathlib import Path\n\ndef find_python_files(directory_path: str) -> list[str]:\n    \"\"\"\n    Find all .py files in the given directory and return a sorted list of their filenames.\n\n    Args:\n        directory_path (str): The path to the directory to search.\n\n    Retur",
+      "error": null
+    },
+    {
+      "id": "py-gc-020",
+      "category": "python",
+      "topic": "memory_management",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 248446,
+      "tokens_eval": 1274,
+      "response_preview": "## Python Memory Management: Reference Counting, Garbage Collection, and Memory Profiling\n\nPython uses a combination of **reference counting** and **generational garbage collection** to manage memory. Understanding these mechanisms is essential for writing efficient and memory-safe Python code.\n\n---",
+      "error": null
+    },
+    {
+      "id": "algo-bs-001",
+      "category": "algorithms",
+      "topic": "binary_search",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.876
+      },
+      "has_test_code": true,
+      "duration_ms": 201281,
+      "tokens_eval": 548,
+      "response_preview": "### Binary Search Implementation\n\n```python\ndef binary_search(sorted_list, target):\n    \"\"\"\n    Perform an iterative binary search on a sorted list of integers.\n\n    Parameters:\n    - sorted_list (list of int): A list of integers that is already sorted in ascending order.\n    - target (int): The int",
+      "error": null
+    },
+    {
+      "id": "algo-sort-002",
+      "category": "algorithms",
+      "topic": "sorting",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.38,
+        "overall": 0.847
+      },
+      "has_test_code": true,
+      "duration_ms": 133212,
+      "tokens_eval": 520,
+      "response_preview": "### Implementation of `merge_sort` in Python\n\n```python\ndef merge_sort(arr):\n    \"\"\"\n    Sorts a list of integers in ascending order using the merge sort algorithm.\n    \n    This function uses a divide-and-conquer approach:\n    1. **Divide**: Split the list into two halves.\n    2. **Conquer**: Recur",
+      "error": null
+    },
+    {
+      "id": "algo-dp-003",
+      "category": "algorithms",
+      "topic": "dynamic_programming",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.455,
+        "overall": 0.858
+      },
+      "has_test_code": true,
+      "duration_ms": 195397,
+      "tokens_eval": 954,
+      "response_preview": "### Implementation\n\n```python\ndef lcs_length(s1: str, s2: str) -> int:\n    \"\"\"\n    Compute the length of the longest common subsequence (LCS) between two strings using dynamic programming.\n\n    Args:\n        s1: First input string.\n        s2: Second input string.\n\n    Returns:\n        The length of",
+      "error": null
+    },
+    {
+      "id": "algo-graph-004",
+      "category": "algorithms",
+      "topic": "graph_bfs",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.876
+      },
+      "has_test_code": true,
+      "duration_ms": 125371,
+      "tokens_eval": 466,
+      "response_preview": "### Implementation\n\n```python\nfrom collections import deque\n\ndef shortest_path(graph, start, end):\n    \"\"\"\n    Find the shortest path between two nodes in an unweighted graph using BFS.\n\n    Args:\n        graph (dict): Adjacency list representation of the graph.\n        start: The starting node.\n   ",
+      "error": null
+    },
+    {
+      "id": "algo-heap-005",
+      "category": "algorithms",
+      "topic": "heap",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.625,
+        "explanation": 0.35,
+        "overall": 0.795
+      },
+      "has_test_code": true,
+      "duration_ms": 167889,
+      "tokens_eval": 845,
+      "response_preview": "### MinHeap Implementation\n\n```python\nclass MinHeap:\n    def __init__(self):\n        self._heap = []\n    \n    def push(self, val):\n        \"\"\"Add a value to the heap and maintain the heap property.\"\"\"\n        self._heap.append(val)\n        self._bubble_up(len(self._heap) - 1)\n    \n    def pop(self):",
+      "error": null
+    },
+    {
+      "id": "algo-trie-006",
+      "category": "algorithms",
+      "topic": "trie",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.33,
+        "overall": 0.837
+      },
+      "has_test_code": true,
+      "duration_ms": 226340,
+      "tokens_eval": 707,
+      "response_preview": "### Trie Data Structure Implementation\n\n```python\nfrom typing import List, Optional\n\n\nclass TrieNode:\n    def __init__(self):\n        self.children: dict[str, \"TrieNode\"] = {}\n        self.is_end: bool = False\n        self.word: Optional[str] = None  # Stores the word at the end of the path\n\n\nclass ",
+      "error": null
+    },
+    {
+      "id": "algo-uf-007",
+      "category": "algorithms",
+      "topic": "union_find",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.61
+      },
+      "has_test_code": true,
+      "duration_ms": 307041,
+      "tokens_eval": 960,
+      "response_preview": "### Union-Find (Disjoint Set) Data Structure\n\n```python\nclass UnionFind:\n    def __init__(self, elements):\n        self._parent = {}\n        self._rank = {}\n        self._elements = elements\n        self._num_components = len(elements)\n\n        for element in elements:\n            self._parent[eleme",
+      "error": null
+    },
+    {
+      "id": "algo-slide-008",
+      "category": "algorithms",
+      "topic": "sliding_window",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.35,
+        "overall": 0.837
+      },
+      "has_test_code": true,
+      "duration_ms": 148952,
+      "tokens_eval": 624,
+      "response_preview": "### `max_sum_subarray` — Maximum Sum of a Contiguous Subarray of Size `k`\n\n```python\ndef max_sum_subarray(arr, k):\n    \"\"\"\n    Finds the maximum sum of a contiguous subarray of size `k`.\n\n    Args:\n        arr (list of int): The input array.\n        k (int): The size of the subarray.\n\n    Returns:\n ",
+      "error": null
+    },
+    {
+      "id": "algo-topo-009",
+      "category": "algorithms",
+      "topic": "topological_sort",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.485,
+        "overall": 0.897
+      },
+      "has_test_code": true,
+      "duration_ms": 193559,
+      "tokens_eval": 854,
+      "response_preview": "### Implementation of `topological_sort` Using Kahn's Algorithm\n\n```python\nfrom collections import deque\nfrom typing import Dict, List, Set, Optional, Any\n\ndef topological_sort(graph: Dict[Any, List[Any]]) -> List[Any]:\n    \"\"\"\n    Perform a topological sort on a directed acyclic graph (DAG) using K",
+      "error": null
+    },
+    {
+      "id": "algo-dijkstra-010",
+      "category": "algorithms",
+      "topic": "dijkstra",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.87
+      },
+      "has_test_code": true,
+      "duration_ms": 129956,
+      "tokens_eval": 585,
+      "response_preview": "### Implementation of Dijkstra's Algorithm\n\n```python\nimport heapq\n\ndef dijkstra(graph, start):\n    \"\"\"\n    Find the shortest path from a start node to all other reachable nodes in a weighted graph.\n\n    Args:\n        graph (dict): A dictionary where keys are nodes and values are lists of tuples.\n  ",
+      "error": null
+    },
+    {
+      "id": "algo-bt-011",
+      "category": "algorithms",
+      "topic": "backtracking",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.38,
+        "overall": 0.843
+      },
+      "has_test_code": true,
+      "duration_ms": 291189,
+      "tokens_eval": 729,
+      "response_preview": "### Solving the N-Queens Puzzle\n\nThe N-Queens puzzle is a classic backtracking problem where the goal is to place `n` queens on an `n x n` chessboard such that no two queens attack each other. A valid solution must ensure that no two queens are in the same row, column, or diagonal.\n\n---\n\n### Approac",
+      "error": null
+    },
+    {
+      "id": "algo-seg-012",
+      "category": "algorithms",
+      "topic": "segment_tree",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": true,
+      "duration_ms": 190551,
+      "tokens_eval": 869,
+      "response_preview": "### Implementation of `SegmentTree` Class\n\n```python\nclass SegmentTree:\n    def __init__(self, data):\n        self.n = len(data)\n        self.size = 1\n        while self.size < self.n:\n            self.size <<= 1\n        self.tree = [0] * (2 * self.size)\n        self.build(data)\n\n    def build(self,",
+      "error": null
+    },
+    {
+      "id": "algo-bit-013",
+      "category": "algorithms",
+      "topic": "bit_manipulation",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.43,
+        "overall": 0.857
+      },
+      "has_test_code": true,
+      "duration_ms": 208065,
+      "tokens_eval": 780,
+      "response_preview": "### Bit Manipulation Functions\n\n```python\ndef count_set_bits(n: int) -> int:\n    \"\"\"\n    Count the number of 1-bits in the binary representation of a number.\n    \n    Args:\n        n (int): The input number.\n        \n    Returns:\n        int: The number of 1-bits.\n        \n    Example:\n        >>> c",
+      "error": null
+    },
+    {
+      "id": "algo-astar-014",
+      "category": "algorithms",
+      "topic": "a_star",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.875,
+        "explanation": 0.43,
+        "overall": 0.861
+      },
+      "has_test_code": true,
+      "duration_ms": 335914,
+      "tokens_eval": 1288,
+      "response_preview": "### A* Pathfinding Algorithm\n\nA* is a powerful pathfinding algorithm that combines the best of **Dijkstra's algorithm** (which guarantees the shortest path in a weighted graph) and **greedy best-first search** (which uses a heuristic to guide the search toward the goal). It uses a **priority queue**",
+      "error": null
+    },
+    {
+      "id": "algo-bloom-015",
+      "category": "algorithms",
+      "topic": "bloom_filter",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.475,
+        "overall": 0.625
+      },
+      "has_test_code": true,
+      "duration_ms": 311116,
+      "tokens_eval": 1823,
+      "response_preview": "# Bloom Filter Implementation\n\nA **Bloom Filter** is a probabilistic data structure used to test whether an element is a member of a set. It has two important properties:\n\n- **False positives are possible**, but **false negatives are not**.\n- It is **space-efficient** and **fast** for membership tes",
+      "error": null
+    },
+    {
+      "id": "pat-single-001",
+      "category": "design_patterns",
+      "topic": "singleton",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.405,
+        "overall": 0.881
+      },
+      "has_test_code": true,
+      "duration_ms": 184871,
+      "tokens_eval": 580,
+      "response_preview": "### Implementation of the Singleton Pattern Using a Decorator\n\n```python\ndef singleton(cls):\n    \"\"\"\n    A decorator that ensures a class is a singleton.\n    It stores the instance in a dictionary and returns the same instance\n    every time the class is instantiated.\n    \"\"\"\n    instances = {}\n\n   ",
+      "error": null
+    },
+    {
+      "id": "pat-factory-002",
+      "category": "design_patterns",
+      "topic": "factory",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.26,
+        "overall": 0.852
+      },
+      "has_test_code": true,
+      "duration_ms": 174083,
+      "tokens_eval": 439,
+      "response_preview": "```python\nfrom abc import ABC, abstractmethod\nfrom typing import Any\n\n\nclass Shape(ABC):\n    @abstractmethod\n    def area(self) -> float:\n        pass\n\n\nclass Circle(Shape):\n    def __init__(self, radius: float):\n        self.radius = radius\n\n    def area(self) -> float:\n        return 3.14159 * (se",
+      "error": null
+    },
+    {
+      "id": "pat-observer-003",
+      "category": "design_patterns",
+      "topic": "observer",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.714,
+        "explanation": 0.35,
+        "overall": 0.813
+      },
+      "has_test_code": true,
+      "duration_ms": 202237,
+      "tokens_eval": 655,
+      "response_preview": "### Observer Pattern: `EventEmitter` Class\n\n```python\nfrom typing import Callable, Dict, List, Any\nfrom collections import defaultdict\n\n\nclass EventEmitter:\n    def __init__(self):\n        self._listeners: Dict[str, List[Callable]] = defaultdict(list)\n\n    def on(self, event: str, callback: Callable",
+      "error": null
+    },
+    {
+      "id": "pat-strategy-004",
+      "category": "design_patterns",
+      "topic": "strategy",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.33,
+        "overall": 0.866
+      },
+      "has_test_code": true,
+      "duration_ms": 186620,
+      "tokens_eval": 806,
+      "response_preview": "```python\nfrom abc import ABC, abstractmethod\nfrom typing import Optional\n\n\nclass CompressionStrategy(ABC):\n    @abstractmethod\n    def compress(self, data: str) -> str:\n        pass\n\n    @abstractmethod\n    def decompress(self, data: str) -> str:\n        pass\n\n\nclass RunLengthEncoding(CompressionSt",
+      "error": null
+    },
+    {
+      "id": "pat-command-005",
+      "category": "design_patterns",
+      "topic": "command",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": true,
+      "duration_ms": 245464,
+      "tokens_eval": 1119,
+      "response_preview": "### Implementation of the Command Pattern with Undo/Redo\n\n```python\nfrom typing import List, Optional\nfrom abc import ABC, abstractmethod\n\n\nclass Document:\n    \"\"\"A simple text document that can be modified by commands.\"\"\"\n\n    def __init__(self):\n        self._text = \"\"\n\n    @property\n    def text(",
+      "error": null
+    },
+    {
+      "id": "pat-di-006",
+      "category": "design_patterns",
+      "topic": "dependency_injection",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.61
+      },
+      "has_test_code": true,
+      "duration_ms": 262627,
+      "tokens_eval": 1203,
+      "response_preview": "# Dependency Injection in Python\n\n## Overview\n\nDependency Injection (DI) is a design pattern that allows you to decouple the creation of objects from their usage. This makes your code more testable, maintainable, and flexible. In Python, we can implement a simple DI container that registers interfac",
+      "error": null
+    },
+    {
+      "id": "pat-state-007",
+      "category": "design_patterns",
+      "topic": "state_machine",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 0.6,
+        "explanation": 0.27,
+        "overall": 0.534
+      },
+      "has_test_code": true,
+      "duration_ms": 174088,
+      "tokens_eval": 448,
+      "response_preview": "```python\nfrom enum import Enum\nfrom typing import Optional\n\n\nclass State(Enum):\n    RED = \"red\"\n    YELLOW = \"yellow\"\n    GREEN = \"green\"\n\n\nclass TrafficLight:\n    def __init__(self):\n        self._current_state = State.RED\n        self._wait_time = {\n            State.RED: 30,\n            State.YE",
+      "error": null
+    },
+    {
+      "id": "pat-builder-008",
+      "category": "design_patterns",
+      "topic": "builder",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.857,
+        "explanation": 0.33,
+        "overall": 0.837
+      },
+      "has_test_code": true,
+      "duration_ms": 249793,
+      "tokens_eval": 941,
+      "response_preview": "```python\nfrom typing import List, Optional, Dict, Any\nimport re\n\n\nclass QueryBuilder:\n    def __init__(self):\n        self._columns: List[str] = []\n        self._table: Optional[str] = None\n        self._where_conditions: List[str] = []\n        self._order_by: List[str] = []\n        self._limit: Op",
+      "error": null
+    },
+    {
+      "id": "pat-adapter-009",
+      "category": "design_patterns",
+      "topic": "adapter",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.833,
+        "explanation": 0.3,
+        "overall": 0.557
+      },
+      "has_test_code": true,
+      "duration_ms": 154922,
+      "tokens_eval": 351,
+      "response_preview": "### Implementation of the Adapter Pattern\n\n```python\n# Legacy class with an outdated method\nclass OldPaymentGateway:\n    def make_payment(self, amount_cents):\n        # Simulate a payment process\n        if amount_cents <= 0:\n            raise ValueError(\"Amount must be positive\")\n        print(f\"Pa",
+      "error": null
+    },
+    {
+      "id": "pat-visitor-010",
+      "category": "design_patterns",
+      "topic": "visitor",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.4,
+        "overall": 0.834
+      },
+      "has_test_code": false,
+      "duration_ms": 280403,
+      "tokens_eval": 1194,
+      "response_preview": "### Implementation of the Visitor Pattern for an AST\n\n```python\nfrom abc import ABC, abstractmethod\nfrom typing import Any\n\n\n# Abstract Syntax Tree Node Classes\nclass ASTNode(ABC):\n    @abstractmethod\n    def accept(self, visitor: 'Visitor') -> Any:\n        pass\n\n\nclass NumberNode(ASTNode):\n    def ",
+      "error": null
+    },
+    {
+      "id": "sys-pool-001",
+      "category": "systems",
+      "topic": "connection_pool",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.34,
+        "overall": 0.598
+      },
+      "has_test_code": true,
+      "duration_ms": 294623,
+      "tokens_eval": 733,
+      "response_preview": "```python\nimport threading\nimport queue\nimport time\nimport logging\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')\n\nclass ConnectionPool:\n    def __init__(self, max_size=10):\n        self.max_size = max_size\n        self._available_con",
+      "error": null
+    },
+    {
+      "id": "sys-rate-002",
+      "category": "systems",
+      "topic": "rate_limiter",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.3,
+        "overall": 0.86
+      },
+      "has_test_code": true,
+      "duration_ms": 167365,
+      "tokens_eval": 474,
+      "response_preview": "```python\nimport time\n\nclass RateLimiter:\n    def __init__(self, rate: float, capacity: float):\n        \"\"\"\n        Initialize the token bucket rate limiter.\n\n        :param rate: Number of tokens to be refilled per second.\n        :param capacity: Maximum number of tokens the bucket can hold (burst",
+      "error": null
+    },
+    {
+      "id": "sys-lru-003",
+      "category": "systems",
+      "topic": "lru_cache",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 0.889,
+        "explanation": 0.38,
+        "overall": 0.614
+      },
+      "has_test_code": true,
+      "duration_ms": 175018,
+      "tokens_eval": 843,
+      "response_preview": "### Implementation of LRU Cache with O(1) Get and Put\n\n```python\nclass Node:\n    def __init__(self, key, value):\n        self.key = key\n        self.value = value\n        self.prev = None\n        self.next = None\n\n\nclass LRUCache:\n    def __init__(self, capacity):\n        self.capacity = capacity\n  ",
+      "error": null
+    },
+    {
+      "id": "sys-circuit-004",
+      "category": "systems",
+      "topic": "circuit_breaker",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.37,
+        "overall": 0.604
+      },
+      "has_test_code": true,
+      "duration_ms": 375869,
+      "tokens_eval": 1920,
+      "response_preview": "```python\nimport time\nimport threading\nfrom enum import Enum\nfrom typing import Callable, Any, Optional, TypeVar, Type\nfrom dataclasses import dataclass, field\n\nT = TypeVar('T')\n\n\nclass CircuitState(Enum):\n    CLOSED = \"closed\"\n    OPEN = \"open\"\n    HALF_OPEN = \"half_open\"\n\n\n@dataclass\nclass Circuit",
+      "error": null
+    },
+    {
+      "id": "sys-retry-005",
+      "category": "systems",
+      "topic": "retry_backoff",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.876
+      },
+      "has_test_code": true,
+      "duration_ms": 194145,
+      "tokens_eval": 584,
+      "response_preview": "```python\nimport time\nimport logging\nimport functools\n\n# Configure logging\nlogging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')\nlogger = logging.getLogger(__name__)\n\ndef retry(max_retries: int = 3, base_delay: float = 1.0, backoff_factor: float = 2.0):\n    \"\"\"\n",
+      "error": null
+    },
+    {
+      "id": "sys-pubsub-006",
+      "category": "systems",
+      "topic": "pub_sub",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.571
+      },
+      "has_test_code": true,
+      "duration_ms": 285949,
+      "tokens_eval": 874,
+      "response_preview": "```python\nimport threading\nimport queue\nfrom typing import Callable, Any, Dict, List, Set, Optional\nfrom collections import defaultdict\n\n\nclass MessageBroker:\n    def __init__(self):\n        self._subscribers: Dict[str, Set[Callable[[Any], None]]] = defaultdict(set)\n        self._lock = threading.Lo",
+      "error": null
+    },
+    {
+      "id": "sys-scheduler-007",
+      "category": "systems",
+      "topic": "task_scheduler",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 0.833,
+        "explanation": 0.3,
+        "overall": 0.587
+      },
+      "has_test_code": true,
+      "duration_ms": 215918,
+      "tokens_eval": 600,
+      "response_preview": "```python\nimport heapq\nfrom typing import Callable, Any, List, Tuple, Optional\nfrom dataclasses import dataclass\nfrom enum import Enum\n\n\nclass TaskResult(Enum):\n    SUCCESS = \"success\"\n    FAILURE = \"failure\"\n\n\n@dataclass\nclass Task:\n    priority: int\n    task_fn: Callable[[], Any]\n    result: Any =",
+      "error": null
+    },
+    {
+      "id": "sys-async-pool-008",
+      "category": "systems",
+      "topic": "async_worker_pool",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 258113,
+      "tokens_eval": 1230,
+      "response_preview": "```python\nimport asyncio\nfrom typing import Any, Callable, Coroutine, Optional, TypeVar, Generic\nfrom collections import deque\nfrom dataclasses import dataclass\n\nT = TypeVar(\"T\")\n\n\n@dataclass\nclass TaskResult(Generic[T]):\n    \"\"\"Container for a task result with status and value.\"\"\"\n    result: T\n   ",
+      "error": null
+    },
+    {
+      "id": "sys-hash-009",
+      "category": "systems",
+      "topic": "consistent_hashing",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.425,
+        "overall": 0.885
+      },
+      "has_test_code": false,
+      "duration_ms": 271895,
+      "tokens_eval": 1003,
+      "response_preview": "### Implementation of `ConsistentHash` with Virtual Nodes\n\n```python\nimport hashlib\nimport bisect\n\nclass ConsistentHash:\n    def __init__(self, num_virtual_nodes=150):\n        self.num_virtual_nodes = num_virtual_nodes\n        self.ring = []  # Sorted list of (hash_value, node_id)\n        self.node_",
+      "error": null
+    },
+    {
+      "id": "sys-2pc-010",
+      "category": "systems",
+      "topic": "two_phase_commit",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 255394,
+      "tokens_eval": 1464,
+      "response_preview": "### Simplified Two-Phase Commit Protocol\n\nThe **Two-Phase Commit (2PC)** protocol is a fundamental distributed consensus algorithm used to ensure **atomicity** in distributed transactions. It guarantees that all participants either **commit** or **abort** a transaction, even in the presence of failu",
+      "error": null
+    },
+    {
+      "id": "web-rest-001",
+      "category": "web",
+      "topic": "rest_api",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 284119,
+      "tokens_eval": 1088,
+      "response_preview": "### RESTful API Design for a Todo List Application\n\n---\n\n#### **Endpoints**\n\n| Method | Path | Description | Request Body | Response Body | Status Codes |\n|--------|------|-------------|--------------|----------------|--------------|\n| `GET` | `/todos` | Get all todos | None | List of todos | `200 O",
+      "error": null
+    },
+    {
+      "id": "web-jwt-002",
+      "category": "web",
+      "topic": "jwt",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.425,
+        "overall": 0.615
+      },
+      "has_test_code": true,
+      "duration_ms": 294056,
+      "tokens_eval": 1271,
+      "response_preview": "### JWT Authentication Implementation\n\nBelow is a manual implementation of JWT (JSON Web Token) authentication in Python. This implementation includes:\n\n- `create_token(payload, secret, expires_in=3600)`: Creates a JWT token.\n- `verify_token(token, secret)`: Verifies the token and returns the payloa",
+      "error": null
+    },
+    {
+      "id": "web-sql-003",
+      "category": "web",
+      "topic": "sql_injection",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.35,
+        "overall": 0.824
+      },
+      "has_test_code": false,
+      "duration_ms": 156455,
+      "tokens_eval": 670,
+      "response_preview": "## SQL Injection Vulnerabilities\n\n### What is SQL Injection?\n\nSQL injection is a security vulnerability that occurs when user input is not properly sanitized and is directly inserted into an SQL query. This allows an attacker to manipulate the query logic, potentially leading to data leakage, data c",
+      "error": null
+    },
+    {
+      "id": "web-pagination-004",
+      "category": "web",
+      "topic": "pagination",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.2,
+        "concept_coverage": 1.0,
+        "explanation": 0.38,
+        "overall": 0.636
+      },
+      "has_test_code": true,
+      "duration_ms": 216445,
+      "tokens_eval": 594,
+      "response_preview": "```python\nfrom typing import List, Dict, Optional, Any\nimport json\n\n\ndef paginate(items: List[Dict[str, Any]], cursor: Optional[str], page_size: int) -> Dict[str, Any]:\n    \"\"\"\n    Paginate a sorted list of items using cursor-based pagination.\n\n    Args:\n        items: A sorted list of items (dicts ",
+      "error": null
+    },
+    {
+      "id": "web-ws-005",
+      "category": "web",
+      "topic": "websocket",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": false,
+      "duration_ms": 433285,
+      "tokens_eval": 1354,
+      "response_preview": "## WebSocket Protocol Overview\n\nWebSocket is a full-duplex communication protocol over a single TCP connection. It allows both the client and server to send messages to each other independently, without waiting for the other to initiate a request.\n\n### Key Concepts:\n\n- **Handshake**: WebSocket start",
+      "error": null
+    },
+    {
+      "id": "web-cache-006",
+      "category": "web",
+      "topic": "caching_strategies",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 0.1,
+        "concept_coverage": 1.0,
+        "explanation": 0.455,
+        "overall": 0.621
+      },
+      "has_test_code": true,
+      "duration_ms": 257466,
+      "tokens_eval": 1258,
+      "response_preview": "### Cache-Aside (Lazy Loading) Pattern\n\nThe **cache-aside** pattern is a common caching strategy where the cache and the database (or source of truth) are kept in sync manually. The cache is not automatically updated when the source changes, but it is updated when the cache is accessed (on a cache m",
+      "error": null
+    },
+    {
+      "id": "web-idempotent-007",
+      "category": "web",
+      "topic": "idempotent_api",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.455,
+        "overall": 0.845
+      },
+      "has_test_code": false,
+      "duration_ms": 230930,
+      "tokens_eval": 884,
+      "response_preview": "### Why Idempotency Matters in API Design\n\nIdempotency ensures that **repeating the same request multiple times has the same effect as doing it once**. This is critical in distributed systems, especially when:\n\n- Network failures or retries may cause duplicate requests.\n- Clients may resend requests",
+      "error": null
+    },
+    {
+      "id": "web-graphql-008",
+      "category": "web",
+      "topic": "graphql",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.875,
+        "explanation": 0.45,
+        "overall": 0.85
+      },
+      "has_test_code": false,
+      "duration_ms": 381921,
+      "tokens_eval": 1840,
+      "response_preview": "## GraphQL vs REST: A Comparison\n\n### **REST (Representational State Transfer)**\n- **Request-Response Model**: Each request is independent and returns a fixed set of data.\n- **Resource-Oriented**: URLs map to resources (e.g., `/users/1/posts`).\n- **HTTP Methods**: GET, POST, PUT, DELETE map to CRUD ",
+      "error": null
+    },
+    {
+      "id": "web-oauth-009",
+      "category": "web",
+      "topic": "oauth2",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.45,
+        "overall": 0.89
+      },
+      "has_test_code": false,
+      "duration_ms": 398787,
+      "tokens_eval": 1254,
+      "response_preview": "### OAuth2 Authorization Code Flow: Step-by-Step\n\nOAuth2 Authorization Code flow is the most secure and widely used flow for web applications. It involves the following **four main parties**:\n\n- **User**: The person who wants to access a protected resource.\n- **Client App**: The application that wan",
+      "error": null
+    },
+    {
+      "id": "web-rate-010",
+      "category": "web",
+      "topic": "rate_limiting",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.375,
+        "overall": 0.875
+      },
+      "has_test_code": false,
+      "duration_ms": 217470,
+      "tokens_eval": 571,
+      "response_preview": "```python\nfrom functools import wraps\nfrom flask import request, jsonify\nfrom collections import defaultdict\nfrom time import time\n\n# Dictionary to store request counts per IP address\nrequest_counts = defaultdict(list)\n\ndef rate_limit(max_requests: int, window_seconds: int):\n    \"\"\"\n    Flask middle",
+      "error": null
+    },
+    {
+      "id": "test-fix-001",
+      "category": "testing",
+      "topic": "pytest_fixtures",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.667,
+        "explanation": 0.325,
+        "overall": 0.758
+      },
+      "has_test_code": false,
+      "duration_ms": 273781,
+      "tokens_eval": 620,
+      "response_preview": "```python\nimport pytest\n\nclass BankAccount:\n    def __init__(self, initial_balance=0):\n        if initial_balance < 0:\n            raise ValueError(\"Initial balance cannot be negative\")\n        self._balance = initial_balance\n\n    def deposit(self, amount):\n        if amount <= 0:\n            raise ",
+      "error": null
+    },
+    {
+      "id": "test-mock-002",
+      "category": "testing",
+      "topic": "mocking",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.833,
+        "explanation": 0.38,
+        "overall": 0.823
+      },
+      "has_test_code": false,
+      "duration_ms": 211896,
+      "tokens_eval": 756,
+      "response_preview": "```python\nimport unittest\nfrom unittest.mock import patch, Mock\nimport requests\n\ndef get_user_info(user_id):\n    \"\"\"\n    Fetches user information from an external API.\n\n    Args:\n        user_id (int): The ID of the user to fetch.\n\n    Returns:\n        dict: A dictionary containing user information.",
+      "error": null
+    },
+    {
+      "id": "test-prop-003",
+      "category": "testing",
+      "topic": "property_testing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.5,
+        "explanation": 0.375,
+        "overall": 0.715
+      },
+      "has_test_code": false,
+      "duration_ms": 265410,
+      "tokens_eval": 795,
+      "response_preview": "## Property-Based Testing with Hypothesis\n\nProperty-based testing is a testing technique where instead of writing specific test cases, you define **properties** that the code should satisfy for **all valid inputs**. Hypothesis is a Python library that automates the generation of test cases based on ",
+      "error": null
+    },
+    {
+      "id": "test-tdd-004",
+      "category": "testing",
+      "topic": "tdd",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 0.833,
+        "explanation": 0.425,
+        "overall": 0.852
+      },
+      "has_test_code": true,
+      "duration_ms": 252949,
+      "tokens_eval": 1141,
+      "response_preview": "## Test-Driven Development: Building a `Stack` Class\n\n### Step 1: Write the First Test (Red)\n\nWe start by writing a test for the `push` method. Since the `Stack` class doesn't exist yet, this test will fail — that's the \"Red\" phase of TDD.\n\n```python\nimport pytest\n\nclass TestStack:\n    def test_push",
+      "error": null
+    },
+    {
+      "id": "test-param-005",
+      "category": "testing",
+      "topic": "parametrize",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.375,
+        "overall": 0.875
+      },
+      "has_test_code": true,
+      "duration_ms": 167957,
+      "tokens_eval": 601,
+      "response_preview": "### Implementation of `is_palindrome(s)`\n\n```python\nimport re\n\ndef is_palindrome(s):\n    \"\"\"\n    Checks if a string is a palindrome, ignoring case and non-alphanumeric characters.\n\n    Args:\n        s (str): The input string to check.\n\n    Returns:\n        bool: True if the string is a palindrome, F",
+      "error": null
+    },
+    {
+      "id": "test-snapshot-006",
+      "category": "testing",
+      "topic": "snapshot_testing",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.571,
+        "explanation": 0.425,
+        "overall": 0.748
+      },
+      "has_test_code": false,
+      "duration_ms": 431546,
+      "tokens_eval": 1414,
+      "response_preview": "## Snapshot Testing: Overview\n\n**Snapshot testing** is a testing technique where you capture a \"snapshot\" of the expected output of a system and store it in a file. On subsequent runs, the system's output is compared against the stored snapshot. If it matches, the test passes. If it doesn't, the tes",
+      "error": null
+    },
+    {
+      "id": "test-async-007",
+      "category": "testing",
+      "topic": "testing_async",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.87
+      },
+      "has_test_code": false,
+      "duration_ms": 315615,
+      "tokens_eval": 1021,
+      "response_preview": "## Testing Async Python Code with pytest\n\n### 1. **Install Required Packages**\n\nBefore running the tests, ensure you have the necessary packages installed:\n\n```bash\npip install pytest pytest-asyncio pytest-mock aiohttp\n```\n\n### 2. **Async Function to Test**\n\n```python\n# src/data_fetcher.py\nimport ai",
+      "error": null
+    },
+    {
+      "id": "test-doubles-008",
+      "category": "testing",
+      "topic": "test_doubles",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.44,
+        "overall": 0.888
+      },
+      "has_test_code": false,
+      "duration_ms": 448339,
+      "tokens_eval": 1813,
+      "response_preview": "## Understanding Test Doubles: Mocks, Stubs, Fakes, Spies, and Dummies\n\nIn unit testing, **test doubles** are objects that replace real objects in a test. They help isolate the unit under test from its dependencies. Each type of test double has a specific purpose and behavior. Below, we explain each",
+      "error": null
+    },
+    {
+      "id": "db-window-001",
+      "category": "database",
+      "topic": "window_functions",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.35,
+        "overall": 0.347
+      },
+      "has_test_code": false,
+      "duration_ms": 345308,
+      "tokens_eval": 644,
+      "response_preview": "### 1) Rank Employees by Salary Within Each Department (Using `RANK`)\n\n```sql\nSELECT\n    id,\n    name,\n    department,\n    salary,\n    RANK() OVER (PARTITION BY department ORDER BY salary DESC) AS salary_rank\nFROM\n    employees;\n```\n\n**Explanation:**\n- `RANK()` assigns a rank to each row within a pa",
+      "error": null
+    },
+    {
+      "id": "db-normal-002",
+      "category": "database",
+      "topic": "normalization",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 0.875,
+        "explanation": 0.45,
+        "overall": 0.418
+      },
+      "has_test_code": false,
+      "duration_ms": 493233,
+      "tokens_eval": 1447,
+      "response_preview": "### **1. Unnormalized Table (Example: School System)**\n\n```sql\nCREATE TABLE SchoolData (\n    StudentID INT,\n    StudentName VARCHAR(100),\n    CourseName VARCHAR(100),\n    TeacherName VARCHAR(100),\n    Grade DECIMAL(3, 1),\n    CourseID INT,\n    TeacherID INT\n);\n```\n\n**Explanation:**\n- This table cont",
+      "error": null
+    },
+    {
+      "id": "db-lock-003",
+      "category": "database",
+      "topic": "locking",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.45,
+        "overall": 0.799
+      },
+      "has_test_code": false,
+      "duration_ms": 254493,
+      "tokens_eval": 1058,
+      "response_preview": "### Optimistic Locking with SQLite in Python\n\nOptimistic locking assumes that conflicts are rare and checks for them only when attempting to update a record. This is done by including a version number (or timestamp) in the database table. When updating, the version number is checked to ensure it has",
+      "error": null
+    },
+    {
+      "id": "db-index-004",
+      "category": "database",
+      "topic": "index_optimization",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.455,
+        "overall": 0.459
+      },
+      "has_test_code": false,
+      "duration_ms": 282838,
+      "tokens_eval": 1186,
+      "response_preview": "### B-tree Indexes: The Foundation of Database Performance\n\nA **B-tree index** is a self-balancing tree data structure that allows for efficient search, insertion, and deletion operations. It is the most common type of index in relational databases like PostgreSQL, MySQL, and SQLite. Each node in th",
+      "error": null
+    },
+    {
+      "id": "db-migration-005",
+      "category": "database",
+      "topic": "migrations",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.4,
+        "overall": 0.834
+      },
+      "has_test_code": false,
+      "duration_ms": 389858,
+      "tokens_eval": 1501,
+      "response_preview": "## Database Migration Patterns\n\n### Key Concepts\n\n- **Forward-only migrations**: Apply changes that cannot be undone (e.g., adding a column). Safe but harder to roll back.\n- **Reversible migrations**: Include both `up` and `down` functions. Useful for complex changes but require careful management.\n",
+      "error": null
+    },
+    {
+      "id": "db-acid-006",
+      "category": "database",
+      "topic": "acid",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.505,
+        "overall": 0.901
+      },
+      "has_test_code": false,
+      "duration_ms": 369108,
+      "tokens_eval": 1596,
+      "response_preview": "### ACID Properties\n\nACID is an acronym that stands for **Atomicity**, **Consistency**, **Isolation**, and **Durability**. These are the four key properties that ensure reliable processing of database transactions.\n\n---\n\n### 1. **Atomicity**\n\n**Definition**: A transaction is treated as a single unit",
+      "error": null
+    },
+    {
+      "id": "db-sharding-007",
+      "category": "database",
+      "topic": "sharding",
+      "difficulty": 5,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.475,
+        "overall": 0.895
+      },
+      "has_test_code": true,
+      "duration_ms": 338418,
+      "tokens_eval": 1036,
+      "response_preview": "### Database Sharding Strategies\n\nDatabase **sharding** is the process of horizontally partitioning a database into smaller, more manageable pieces called **shards**. Each shard contains a subset of the data and is stored on a separate server or cluster. Sharding improves scalability, performance, a",
+      "error": null
+    },
+    {
+      "id": "js-closure-001",
+      "category": "javascript",
+      "topic": "closures",
+      "difficulty": 1,
+      "scores": {
+        "code_validity": 0.3,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.43,
+        "overall": 0.55
+      },
+      "has_test_code": false,
+      "duration_ms": 210810,
+      "tokens_eval": 859,
+      "response_preview": "### JavaScript Closures: Understanding and Examples\n\nA **closure** in JavaScript is a function that has access to its own scope, the outer function's scope, and the global scope — even after the outer function has finished executing. Closures are a powerful feature that allows functions to \"remember",
+      "error": null
+    },
+    {
+      "id": "js-promise-002",
+      "category": "javascript",
+      "topic": "promises",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.1,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.32,
+        "overall": 0.432
+      },
+      "has_test_code": false,
+      "duration_ms": 270165,
+      "tokens_eval": 676,
+      "response_preview": "### 1. `retry(fn, maxRetries)` using Promises and `async/await`\n\n```javascript\n// Promise-based retry function\nfunction retry(fn, maxRetries) {\n  return new Promise((resolve, reject) => {\n    let attempt = 0;\n\n    function attemptFn() {\n      attempt++;\n      fn()\n        .then(resolve)\n        .cat",
+      "error": null
+    },
+    {
+      "id": "js-eventloop-003",
+      "category": "javascript",
+      "topic": "event_loop",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.35,
+        "overall": 0.87
+      },
+      "has_test_code": false,
+      "duration_ms": 250362,
+      "tokens_eval": 663,
+      "response_preview": "### JavaScript Event Loop: A Deep Dive\n\nJavaScript is a **single-threaded** language, but it uses an **event loop** to handle **asynchronous operations** without blocking the main thread. The event loop manages three queues:\n\n1. **Call Stack** — For synchronous execution.\n2. **Microtask Queue** — Fo",
+      "error": null
+    },
+    {
+      "id": "js-proto-004",
+      "category": "javascript",
+      "topic": "prototype_chain",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.455,
+        "overall": 0.507
+      },
+      "has_test_code": false,
+      "duration_ms": 502874,
+      "tokens_eval": 1393,
+      "response_preview": "### JavaScript Prototype Chain: How Inheritance Works Under the Hood\n\nJavaScript uses **prototypal inheritance**, which is different from classical inheritance. In prototypal inheritance, objects inherit properties and methods directly from other objects through a **prototype chain**.\n\n---\n\n## 🔍 1. ",
+      "error": null
+    },
+    {
+      "id": "ts-generics-005",
+      "category": "javascript",
+      "topic": "typescript_generics",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 0.3,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.32,
+        "overall": 0.437
+      },
+      "has_test_code": false,
+      "duration_ms": 278416,
+      "tokens_eval": 1024,
+      "response_preview": "```typescript\n// 1) Generic Result<T, E> type (similar to Rust's Result)\ntype Result<T, E = Error> = { status: 'success'; value: T } | { status: 'error'; error: E };\n\nclass Error {\n    constructor(public message: string) {}\n}\n\n// Example usage of Result\nfunction divide(a: number, b: number): Result<",
+      "error": null
+    },
+    {
+      "id": "ts-utility-006",
+      "category": "javascript",
+      "topic": "typescript_utility_types",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.43,
+        "overall": 0.502
+      },
+      "has_test_code": false,
+      "duration_ms": 502517,
+      "tokens_eval": 1508,
+      "response_preview": "## TypeScript Utility Types: Practical Use Cases and Transformations\n\nTypeScript provides a set of **utility types** that allow you to manipulate and transform types in powerful and expressive ways. Below, we explore each of the most commonly used utility types, along with **practical use cases** an",
+      "error": null
+    },
+    {
+      "id": "js-proxy-007",
+      "category": "javascript",
+      "topic": "proxy",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.3,
+        "test_passing": null,
+        "concept_coverage": 0.714,
+        "explanation": 0.43,
+        "overall": 0.459
+      },
+      "has_test_code": false,
+      "duration_ms": 373976,
+      "tokens_eval": 1390,
+      "response_preview": "## JavaScript Proxy and Reflect: Advanced Object Manipulation\n\nJavaScript's `Proxy` and `Reflect` APIs allow you to intercept and customize operations on objects. This is powerful for validation, logging, reactivity, and other metaprogramming patterns.\n\n---\n\n## 1. Validation Proxy (Type-Checking Pro",
+      "error": null
+    },
+    {
+      "id": "js-streams-008",
+      "category": "javascript",
+      "topic": "node_streams",
+      "difficulty": 4,
+      "scores": {
+        "code_validity": 0.2,
+        "test_passing": null,
+        "concept_coverage": 1.0,
+        "explanation": 0.43,
+        "overall": 0.502
+      },
+      "has_test_code": false,
+      "duration_ms": 370411,
+      "tokens_eval": 1087,
+      "response_preview": "# Node.js Streams: Efficient Data Flow in Memory-Constrained Environments\n\n## Why Streams?\n\nStreams process data **incrementally**, one chunk at a time. This is critical for:\n\n- Large files (e.g., 10GB log files)\n- Real-time data (e.g., live video, sensor data)\n- Network data (e.g., downloading/uplo",
+      "error": null
+    },
+    {
+      "id": "sec-hash-001",
+      "category": "security",
+      "topic": "password_hashing",
+      "difficulty": 2,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": null,
+        "concept_coverage": 0.857,
+        "explanation": 0.485,
+        "overall": 0.851
+      },
+      "has_test_code": false,
+      "duration_ms": 434786,
+      "tokens_eval": 1013,
+      "response_preview": "## Why You Should Never Store Plaintext Passwords\n\nStoring passwords in plaintext is a catastrophic security vulnerability. If an attacker gains access to your database, they can immediately see all user passwords and use them to impersonate users, reset passwords, and access sensitive data. Even if",
+      "error": null
+    },
+    {
+      "id": "sec-hmac-002",
+      "category": "security",
+      "topic": "hmac",
+      "difficulty": 3,
+      "scores": {
+        "code_validity": 1.0,
+        "test_passing": 1.0,
+        "concept_coverage": 1.0,
+        "explanation": 0.4,
+        "overall": 0.88
+      },
+      "has_test_code": true,
+      "duration_ms": 428179,
+      "tokens_eval": 1021,
+      "response_preview": "### HMAC and Its Role in Message Authentication\n\n**HMAC (Hash-based Message Authentication Code)** is a cryptographic mechanism used to verify both the **integrity** and **authenticity** of a message. It uses a **secret key** and a **cryptographic hash function** (like SHA-256) to produce a **signat",
+      "error": null
+    },
+    {
+      "id": "sec-xss-003",
+      "category": "security",
+      "topic": "xss_prevention",
+      "difficulty": 2,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A404EF79B0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "sec-timing-004",
+      "category": "security",
+      "topic": "timing_attacks",
+      "difficulty": 4,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A4380>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "sec-random-005",
+      "category": "security",
+      "topic": "secure_random",
+      "difficulty": 2,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A49E0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "sec-csrf-006",
+      "category": "security",
+      "topic": "csrf",
+      "difficulty": 3,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A5040>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-docker-001",
+      "category": "devops",
+      "topic": "dockerfile",
+      "difficulty": 1,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A404EF7BD0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-12factor-002",
+      "category": "devops",
+      "topic": "twelve_factor",
+      "difficulty": 2,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A5150>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-logging-003",
+      "category": "devops",
+      "topic": "structured_logging",
+      "difficulty": 2,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A4AF0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-feature-004",
+      "category": "devops",
+      "topic": "feature_flags",
+      "difficulty": 3,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A4490>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-deploy-005",
+      "category": "devops",
+      "topic": "deployment",
+      "difficulty": 4,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A4053A56A0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    },
+    {
+      "id": "ops-git-006",
+      "category": "devops",
+      "topic": "git_branching",
+      "difficulty": 2,
+      "error": "HTTPConnectionPool(host='localhost', port=11435): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000002A404EF7CE0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "scores": {
+        "code_validity": 0,
+        "test_passing": 0,
+        "concept_coverage": 0,
+        "explanation": 0,
+        "overall": 0
+      },
+      "duration_ms": 0,
+      "response_preview": ""
+    }
+  ]
+}

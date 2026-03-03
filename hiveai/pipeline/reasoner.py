@@ -21,18 +21,18 @@ def parse_json_response(text):
 
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError, TypeError):
         match = re.search(r'\[.*\]', text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             try:
                 return json.loads(match.group())
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 pass
         return []
 
