@@ -9,11 +9,11 @@ One-command training:
 What's new in v5:
     - Dense Qwen3.5-9B base (no MoE, no expert patching, no pruning)
     - 9B active params per token (3x more than pruned 35B-A3B's 3B active)
-    - Aggressive LoRA: r=64, 7 target modules (attn + MLP), DoRA
+    - Aggressive LoRA: r=32, 7 target modules (attn + MLP), DoRA
     - KL-Anchored SFT (from v4) — prevents catastrophic forgetting
     - Combined dataset: ~3500+ pairs from v1-v4 + specialty (prepare_v5_data.py)
     - 3 epochs (dense benefits from repetition)
-    - Effective batch size 16 (batch=2, grad_accum=8)
+    - Effective batch size 16 (Unsloth: batch=2×grad_accum=8; fallback: batch=1×16)
     - NEFTune + curriculum ordering + Hive oversampling
     - All v3 infrastructure: system optimizer, heartbeat, checkpoints, CUDA tuning
 """
@@ -54,14 +54,17 @@ BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen3.5-9b")
 # ---------------------------------------------------------------------------
 # v5 Training Configuration — Aggressive Dense LoRA
 # ---------------------------------------------------------------------------
-MAX_SEQ_LENGTH = 4096
+MAX_SEQ_LENGTH = 2048     # 2048 with FA2 + CCE + tiled MLP: ~85% VRAM on 16GB.
+                          # Without FA2: 2048/1536 hit 97% (attention is O(seq²) without FA2).
+                          # Requires: flash-attn, cut-cross-entropy, unsloth_tiled_mlp=True
+SMOKE_SEQ_LENGTH = 512    # Shorter for smoke tests — catches same shape/VRAM errors 4x faster
 
 LORA_CONFIG = {
-    "r": 64,                          # UP from 32 — dense has VRAM room
-    "lora_alpha": 128,                # 2x rank for stable scaling
+    "r": 16,                          # 16 — DoRA at r=16 matches LoRA at r=32 quality; saves ~330MB VRAM
+    "lora_alpha": 32,                 # 2x rank for stable scaling
     "target_modules": [
         "q_proj", "k_proj", "v_proj", "o_proj",   # attention (proven in v3)
-        "gate_proj", "up_proj", "down_proj",        # MLP layers (NEW for dense)
+        "gate_proj", "up_proj", "down_proj",        # MLP layers (dense model)
     ],
     "lora_dropout": 0.0,
     "bias": "none",
@@ -69,8 +72,8 @@ LORA_CONFIG = {
 }
 
 TRAINING_CONFIG = {
-    "per_device_train_batch_size": 2,      # UP from 1 (9B uses ~6.5GB vs ~11GB for MoE)
-    "gradient_accumulation_steps": 8,      # Effective batch = 16
+    "per_device_train_batch_size": 1,      # 248K vocab + seq=2048 — batch=1 mandatory
+    "gradient_accumulation_steps": 16,     # Effective batch = 16; FA2 keeps VRAM under 90%
     "num_train_epochs": 3,                 # UP from 1 (dense benefits from repetition)
     "learning_rate": 1.5e-4,               # Slightly lower than 2e-4 for more modules
     "warmup_ratio": 0.03,                  # 3% warmup
@@ -95,12 +98,14 @@ KL_CONFIG = {
 # ---------------------------------------------------------------------------
 # System Optimizer (from train_v3.py — hardware auto-detection)
 # ---------------------------------------------------------------------------
-def optimize_system():
-    """Auto-detect hardware and maximize system resources for training."""
+def optimize_system_pre_load():
+    """Pre-model-load optimizations. CRITICAL: Do NOT call torch.cuda.get_device_*()
+    here — initializing the CUDA primary context before BnB model loading causes
+    'CUDA driver error: out of memory' on WSL2/16GB GPUs."""
     import psutil
 
     logger.info("=" * 60)
-    logger.info("  System Auto-Optimizer")
+    logger.info("  System Auto-Optimizer (pre-load)")
     logger.info("=" * 60)
     optimizations = []
 
@@ -109,19 +114,6 @@ def optimize_system():
     ram_avail = psutil.virtual_memory().available / (1024**3)
     logger.info(f"  CPU: {cpu_count} cores")
     logger.info(f"  RAM: {ram_total:.1f}GB total, {ram_avail:.1f}GB available")
-
-    try:
-        import torch
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name(0)
-            vram_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-            capability = torch.cuda.get_device_capability(0)
-            logger.info(f"  GPU: {gpu_name} ({vram_total:.1f}GB VRAM, "
-                        f"compute {capability[0]}.{capability[1]})")
-        else:
-            capability = (0, 0)
-    except Exception:
-        capability = (0, 0)
 
     # Unload ALL Ollama models to free GPU VRAM
     try:
@@ -155,7 +147,7 @@ def optimize_system():
     except (psutil.AccessDenied, OSError):
         pass
 
-    # PyTorch thread pools
+    # PyTorch thread pools (does NOT init CUDA)
     try:
         import torch
         torch.set_num_threads(min(cpu_count, 8))
@@ -164,35 +156,26 @@ def optimize_system():
     except Exception:
         pass
 
-    # CUDA optimizations
-    try:
-        import torch
-        if torch.cuda.is_available() and capability[0] >= 8:
-            torch.backends.cuda.matmul.allow_tf32 = True
-            torch.backends.cudnn.allow_tf32 = True
-            torch.set_float32_matmul_precision("high")  # TF32 for ALL matmuls
-            optimizations.append("TF32 enabled (high precision)")
-        if hasattr(torch.backends.cuda, "flash_sdp_enabled"):
-            torch.backends.cuda.enable_flash_sdp(True)
-            torch.backends.cuda.enable_mem_efficient_sdp(True)
-            optimizations.append("Flash SDP enabled")
-        os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
-        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-        # Reduce CUDA memory fragmentation (huge win for long training runs)
-        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-        optimizations.append("CUDA expandable segments")
-    except Exception:
-        pass
+    # Env vars only — no CUDA context init
+    os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    optimizations.append("CUDA env vars set")
 
-    # Check for cut_cross_entropy (saves ~2GB VRAM, no quality loss)
+    # Check for available VRAM optimizations (import only, no CUDA init)
+    try:
+        import flash_attn  # noqa: F401
+        optimizations.append(f"flash_attn v{flash_attn.__version__} (O(seq) attention memory)")
+    except ImportError:
+        logger.warning("  flash-attn NOT installed — attention uses O(seq²) memory")
+
     try:
         import cut_cross_entropy  # noqa: F401
         os.environ["CUT_CROSS_ENTROPY"] = "1"
-        optimizations.append("cut_cross_entropy available")
+        optimizations.append(f"cut_cross_entropy v{cut_cross_entropy.__version__} (logits tensor eliminated)")
     except ImportError:
-        pass
+        logger.warning("  cut_cross_entropy NOT installed — 248K vocab will materialize ~1GB logits")
 
-    # GC tuning
     import gc
     gc.set_threshold(700, 10, 5)
 
@@ -201,17 +184,86 @@ def optimize_system():
     return optimizations
 
 
+def optimize_system_post_load():
+    """Post-model-load CUDA optimizations. Safe to call after BnB quantization."""
+    import torch
+    optimizations = []
+
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        vram_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        capability = torch.cuda.get_device_capability(0)
+        logger.info(f"  GPU: {gpu_name} ({vram_total:.1f}GB VRAM, "
+                    f"compute {capability[0]}.{capability[1]})")
+
+        if capability[0] >= 8:
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+            optimizations.append("TF32 enabled")
+        if hasattr(torch.backends.cuda, "flash_sdp_enabled"):
+            torch.backends.cuda.enable_flash_sdp(True)
+            torch.backends.cuda.enable_mem_efficient_sdp(True)
+            optimizations.append("Flash SDP enabled")
+
+    if optimizations:
+        logger.info(f"  Post-load: {', '.join(optimizations)}")
+
+
 # ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
-def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
+def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
+             skip_unsloth: bool = False, step_timeout: int = 0,
+             seq_length_override: int = 0):
     """Train LoRA v5 on Qwen3.5-9B dense model."""
     import torch
     import torch.nn.functional as F
+
+    # CRITICAL: Disable CUDA graphs before any torch.compile call.
+    # BnB 4-bit dequantization creates temporary tensors with non-deterministic
+    # lifetimes, which breaks CUDA graph recording/replay.
+    os.environ.setdefault("TORCHINDUCTOR_USE_CUDAGRAPHS", "0")
+
+    # Persist Triton compilation cache so Unsloth kernels don't recompile every run
+    os.environ.setdefault("TRITON_CACHE_DIR", os.path.join(PROJECT_ROOT, ".triton_cache"))
+
+    # CRITICAL: Import Unsloth BEFORE transformers/peft/trl!
+    # Unsloth patches these libraries for 2x speed + 70% less VRAM.
+    # Importing them first means patches don't apply → OOM on model loading.
+    FastLanguageModel = None
+    if not skip_unsloth:
+        try:
+            from unsloth import FastLanguageModel as _FLM
+            FastLanguageModel = _FLM
+            logger.info("Unsloth imported first (patches applied to transformers/peft/trl)")
+        except ImportError:
+            logger.warning("Unsloth not installed — using standard transformers path")
+
+    # --- Sequence length selection ---
+    # 248K vocab makes logits massive, but cut_cross_entropy + tiled MLP eliminate
+    # the bottleneck. seq=2048 now fits on 16GB with these optimizations.
+    if seq_length_override > 0:
+        seq_length = seq_length_override
+        logger.info(f"Sequence length: {seq_length} (--seq-length override)")
+    elif max_steps > 0:
+        seq_length = SMOKE_SEQ_LENGTH
+        logger.info(f"Smoke test: seq_length={seq_length} (reduced from {MAX_SEQ_LENGTH})")
+    else:
+        seq_length = MAX_SEQ_LENGTH  # 2048: FA2 + CCE + tiled MLP fit on 16GB
+        logger.info(f"Sequence length: {seq_length}")
+
+    if max_steps > 0:
+        if step_timeout <= 0:
+            step_timeout = 300  # 5 min per step default in test mode
+
+    # Now safe to import transformers/peft (Unsloth patches already applied)
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
     from peft import LoraConfig, TaskType, get_peft_model
     from datasets import load_dataset
-    from trl import SFTTrainer, SFTConfig
+    # NOTE: SFTTrainer/SFTConfig imported AFTER model loads (see below).
+    # TRL's SFTTrainer.__init__ isinstance() check compares against the *patched*
+    # class, so a pre-patch SFTConfig instance fails.
     from transformers import TrainerCallback
     import psutil
 
@@ -233,7 +285,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
                 f"{eff_batch} effective, "
                 f"epochs={TRAINING_CONFIG['num_train_epochs']}, "
                 f"lr={TRAINING_CONFIG['learning_rate']}")
-    logger.info(f"  Context:     {MAX_SEQ_LENGTH} tokens")
+    logger.info(f"  Context:     {seq_length} tokens")
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
                 f"(lambda={KL_CONFIG['lambda']}, seq_limit={KL_CONFIG['seq_limit']})")
@@ -254,15 +306,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
     use_unsloth = False
     load_start = time.time()
 
-    try:
-        from unsloth import FastLanguageModel
-        logger.info("Unsloth detected — using FastLanguageModel for 2x speed + 70% less VRAM")
+    def _load_with_unsloth():
+        nonlocal use_unsloth
+        logger.info("Using Unsloth FastLanguageModel for 2x speed + 70% less VRAM")
 
-        # Unsloth handles quantization internally
         unsloth_model_name = model_path
-        # Check for pre-quantized Unsloth model
         if os.path.basename(model_path) == "qwen3.5-9b":
-            # Try local path first, then Unsloth HF model
             if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
                 unsloth_model_name = model_path
                 logger.info(f"  Using local weights: {unsloth_model_name}")
@@ -270,21 +319,24 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
                 unsloth_model_name = "unsloth/Qwen3.5-9B"
                 logger.info(f"  Using Unsloth HF model: {unsloth_model_name}")
 
-        model, tokenizer = FastLanguageModel.from_pretrained(
+        _model, _tokenizer = FastLanguageModel.from_pretrained(
             model_name=unsloth_model_name,
-            max_seq_length=MAX_SEQ_LENGTH,
+            max_seq_length=seq_length,
             dtype=torch.bfloat16,
             load_in_4bit=True,
             trust_remote_code=True,
+            unsloth_tiled_mlp=True,  # Tile MLP activations: ~0.5-1GB VRAM savings
         )
         use_unsloth = True
-        load_time = time.time() - load_start
-        logger.info(f"Model loaded via Unsloth in {load_time:.0f}s")
+        logger.info(f"Model loaded via Unsloth in {time.time() - load_start:.0f}s")
 
-    except Exception as e:
-        logger.warning(f"Unsloth not available ({e}), falling back to standard transformers+PEFT")
+        # Qwen3.5 is multimodal — Unsloth may return Processor instead of Tokenizer
+        if not hasattr(_tokenizer, "encode") and hasattr(_tokenizer, "tokenizer"):
+            logger.info(f"Extracting tokenizer from processor ({type(_tokenizer).__name__})")
+            _tokenizer = _tokenizer.tokenizer
+        return _model, _tokenizer
 
-        # Use local path if available, otherwise HF model ID
+    def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
             load_path = "Qwen/Qwen3.5-9B"
@@ -296,20 +348,45 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
         )
-
         logger.info(f"Loading tokenizer from {load_path}...")
-        tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
-
+        _tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
         logger.info(f"Loading Qwen3.5-9B with BnB 4-bit (dense, ~6.5GB VRAM)...")
-        model = AutoModelForCausalLM.from_pretrained(
+        # Use flash_attention_2 if available (O(seq) memory vs O(seq²))
+        attn_impl = "eager"
+        try:
+            import flash_attn  # noqa: F401
+            attn_impl = "flash_attention_2"
+        except ImportError:
+            pass
+        _model = AutoModelForCausalLM.from_pretrained(
             load_path,
             quantization_config=bnb_config,
-            device_map={"": 0},   # All on GPU 0 — 9B fits easily at 4-bit
+            device_map={"": 0},
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
+            attn_implementation=attn_impl,
         )
-        load_time = time.time() - load_start
-        logger.info(f"Model loaded via standard transformers in {load_time:.0f}s")
+        logger.info(f"Model loaded via standard transformers in {time.time() - load_start:.0f}s")
+        return _model, _tokenizer
+
+    if skip_unsloth or FastLanguageModel is None:
+        logger.info("Unsloth SKIPPED — using standard transformers+PEFT path")
+        model, tokenizer = _load_standard()
+    else:
+        try:
+            model, tokenizer = _load_with_unsloth()
+        except Exception as e:
+            logger.warning(f"Unsloth loading failed ({e}), falling back to standard transformers+PEFT")
+            # Clean up any partial CUDA allocations from failed Unsloth load
+            torch.cuda.empty_cache()
+            import gc; gc.collect()
+            model, tokenizer = _load_standard()
+
+    # Import TRL — AFTER Unsloth loads (if used) to get patched classes
+    from trl import SFTTrainer, SFTConfig  # noqa: E402
+
+    # Now safe to init CUDA context (model already loaded + quantized)
+    optimize_system_post_load()
 
     vram_alloc = torch.cuda.memory_allocated() / 1e9
     vram_reserved = torch.cuda.memory_reserved() / 1e9
@@ -387,32 +464,16 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
         if n_cast:
             logger.info(f"Cast {n_cast} LoRA adapter params float32 -> bf16")
 
-    # ── torch.compile for normalization layers ──
-    USE_COMPILE = os.environ.get("HIVE_TORCH_COMPILE", "1") == "1"
-    if USE_COMPILE:
-        try:
-            base_model = model
-            for attr in ("base_model", "model", "model"):
-                if hasattr(base_model, attr):
-                    base_model = getattr(base_model, attr)
-            layers = getattr(base_model, "layers", None)
-            if layers is None and hasattr(base_model, "language_model"):
-                layers = getattr(base_model.language_model, "layers", None)
-            if layers is not None:
-                compiled = 0
-                for layer in layers:
-                    for norm_name in ("input_layernorm", "post_attention_layernorm"):
-                        norm = getattr(layer, norm_name, None)
-                        if norm is not None:
-                            try:
-                                setattr(layer, norm_name,
-                                        torch.compile(norm, mode="reduce-overhead"))
-                                compiled += 1
-                            except Exception:
-                                pass
-                logger.info(f"torch.compile: {compiled} norm layers compiled")
-        except Exception as e:
-            logger.warning(f"torch.compile skipped: {e}")
+    # ── torch.compile ──
+    # DISABLED for all paths:
+    # - Unsloth: uses own Triton kernels (torch.compile is redundant)
+    # - Standard + BnB 4-bit: transformers 5.2.0 raises ValueError
+    #   "You cannot fine-tune quantized model with torch.compile()"
+    # - BnB dequantization + CUDA graphs = crash (tensor lifetime mismatch)
+    if use_unsloth:
+        logger.info("torch.compile: skipped (Unsloth provides its own Triton kernels)")
+    else:
+        logger.info("torch.compile: skipped (BnB 4-bit incompatible with torch.compile in transformers 5.2.0)")
 
     # ── Load and format dataset ──
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
@@ -447,7 +508,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
 
             # Truncate if too long (preserve EOS)
             n_tokens = len(tokenizer.encode(text))
-            if n_tokens > MAX_SEQ_LENGTH:
+            if n_tokens > seq_length:
                 overhead_messages = [
                     {"role": "system", "content": CODING_SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
@@ -461,7 +522,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
                 except Exception:
                     overhead_tokens = n_tokens - len(tokenizer.encode(out))
 
-                budget = MAX_SEQ_LENGTH - overhead_tokens - 1
+                budget = seq_length - overhead_tokens - 1
                 out_tokens = tokenizer.encode(out, add_special_tokens=False)[:budget]
                 truncated_out = tokenizer.decode(out_tokens, skip_special_tokens=False)
 
@@ -482,10 +543,22 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
 
         if n_truncated > 0:
             logger.info(f"  format_prompt: truncated {n_truncated}/{len(texts)} "
-                        f"to fit {MAX_SEQ_LENGTH} tokens")
+                        f"to fit {seq_length} tokens")
         return {"text": texts}
 
     dataset = dataset.map(format_prompt, batched=True)
+
+    # Trim dataset for smoke tests — no point tokenizing 2500+ pairs for 3 steps
+    if max_steps > 0:
+        batch_size_est = TRAINING_CONFIG["per_device_train_batch_size"]
+        grad_accum_est = TRAINING_CONFIG["gradient_accumulation_steps"]
+        needed = batch_size_est * grad_accum_est * max_steps * 2  # 2x safety
+        needed = max(needed, 64)  # minimum 64 samples
+        if len(dataset) > needed:
+            dataset = dataset.select(range(needed))
+            logger.info(f"Smoke test: trimmed dataset to {len(dataset)} samples "
+                        f"(from {pair_count})")
+
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
     sample = dataset[0]["text"]
@@ -495,20 +568,71 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
     logger.info(f"First 400 chars:\n{sample[:400]}")
 
     # ── KL-Anchored Loss Setup ──
+    # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
+    # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
+    # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
+    # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
     kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
+    def _chunked_log_probs(model_arg, inputs, label_slice, kl_slice, with_grad):
+        """
+        Get per-token log-probs for last kl_slice positions WITHOUT materializing
+        the full seq×vocab logit tensor.
+
+        Strategy: run backbone (Qwen3_5Model) over full seq for correct attention
+        context, then apply lm_head only to the last kl_slice hidden states.
+        Peak logit tensor: kl_slice × vocab × 2 bytes ≈ 240MB (vs 970MB for full seq).
+
+        Works with CCE (we never touch outputs.logits from the SFT pass).
+        Works with PEFT/LoRA/Unsloth: disable_adapter_layers() gates all adapters.
+        """
+        # Navigate to backbone (Qwen3_5Model) and lm_head under PEFT wrapper.
+        # PEFT layout: PeftModel → .base_model (LoraModel) → .model (Qwen3_5ForCausalLM)
+        #              Qwen3_5ForCausalLM → .model (Qwen3_5Model backbone) + .lm_head
+        try:
+            causal_lm = model_arg.base_model.model   # Qwen3_5ForCausalLM
+            backbone = causal_lm.model               # Qwen3_5Model
+            lm_head = causal_lm.lm_head
+        except AttributeError:
+            backbone = model_arg.model               # Non-PEFT fallback
+            lm_head = model_arg.lm_head
+
+        ctx = torch.enable_grad() if with_grad else torch.no_grad()
+        with ctx:
+            hidden_out = backbone(
+                input_ids=inputs.get("input_ids"),
+                attention_mask=inputs.get("attention_mask"),
+                use_cache=False,
+            )
+            # Slice BEFORE lm_head: kl_slice × 4096 → kl_slice × 248K
+            hidden_slice = hidden_out.last_hidden_state[:, -kl_slice:, :].contiguous()
+            del hidden_out
+
+            logits_slice = lm_head(hidden_slice)   # [B, kl_slice, vocab] ~240MB
+            del hidden_slice
+
+            lse = torch.logsumexp(logits_slice, dim=-1)
+            sel = torch.gather(
+                logits_slice, dim=-1, index=label_slice.unsqueeze(-1)
+            ).squeeze(-1)
+            log_prob = sel - lse
+            del logits_slice, lse, sel
+
+        return log_prob
+
     def compute_loss_with_kl(self_trainer, model_arg, inputs,
                               return_outputs=False, num_items_in_batch=None, **kwargs):
+        import gc
         parent_kwargs = {}
         if num_items_in_batch is not None:
             parent_kwargs["num_items_in_batch"] = num_items_in_batch
 
+        # Phase 1: Normal SFT forward pass (CCE — no logits materialized)
         result = _original_compute_loss(
             self_trainer, model_arg, inputs,
             return_outputs=True, **parent_kwargs, **kwargs,
         )
-
         if isinstance(result, tuple):
             sft_loss, outputs = result
         else:
@@ -516,36 +640,59 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
             outputs = None
 
         kl_loss_val = 0.0
-        if (use_kl and KL_CONFIG["lambda"] > 0
-                and not kl_state["disabled"] and outputs is not None):
-            tuned_logits = outputs.logits
-            kl_slice = min(tuned_logits.shape[1], KL_CONFIG["seq_limit"])
+        if use_kl and KL_CONFIG["lambda"] > 0 and not kl_state["disabled"]:
+            labels = inputs.get("labels", inputs.get("input_ids"))
+            kl_slice = min(labels.shape[1], KL_CONFIG["seq_limit"])
+            label_slice = labels[:, -kl_slice:].clone()
+            ignore_mask = label_slice < 0
+            label_slice[ignore_mask] = 0
 
             try:
-                with torch.no_grad():
-                    model_arg.disable_adapter_layers()
-                    ref_outputs = model_arg(**inputs)
-                    ref_logits = ref_outputs.logits[:, -kl_slice:, :].detach()
-                    model_arg.enable_adapter_layers()
+                gc.collect()
+                torch.cuda.empty_cache()
 
-                kl_loss = F.kl_div(
-                    F.log_softmax(
-                        tuned_logits[:, -kl_slice:, :] / KL_CONFIG["temperature"],
-                        dim=-1,
-                    ),
-                    F.log_softmax(ref_logits / KL_CONFIG["temperature"], dim=-1),
-                    reduction="batchmean",
-                    log_target=True,
-                ) * (KL_CONFIG["temperature"] ** 2)
+                # Phase 2a: Tuned log-probs via chunked backbone+lm_head
+                # (adapters ON, with_grad=True so KL loss flows into LoRA grads)
+                tuned_log_prob = _chunked_log_probs(
+                    model_arg, inputs, label_slice, kl_slice, with_grad=True
+                )
+                torch.cuda.empty_cache()
+
+                # Phase 2b: Reference log-probs (adapters OFF, no_grad)
+                model_arg.disable_adapter_layers()
+                try:
+                    ref_log_prob = _chunked_log_probs(
+                        model_arg, inputs, label_slice, kl_slice, with_grad=False
+                    )
+                finally:
+                    model_arg.enable_adapter_layers()
+                torch.cuda.empty_cache()
+
+                # Phase 3: k3 KL estimator — O(seq_len) memory, not O(seq×vocab)
+                log_ratio = tuned_log_prob - ref_log_prob.detach()
+                ratio = torch.exp(log_ratio)
+                kl_per_token = (ratio - 1) - log_ratio
+                kl_per_token[ignore_mask] = 0.0
+                n_valid = (~ignore_mask).sum().clamp(min=1)
+                kl_loss = kl_per_token.sum() / n_valid
 
                 kl_loss_val = kl_loss.item()
                 sft_loss = sft_loss + KL_CONFIG["lambda"] * kl_loss
+
+                del tuned_log_prob, ref_log_prob, log_ratio, ratio, kl_per_token
+                torch.cuda.empty_cache()
 
             except torch.cuda.OutOfMemoryError:
                 model_arg.enable_adapter_layers()
                 torch.cuda.empty_cache()
                 if not kl_state["disabled"]:
-                    logger.warning("KL anchoring OOM — disabling for rest of training")
+                    logger.warning("KL chunked OOM — disabling for rest of training")
+                    kl_state["disabled"] = True
+            except Exception as e:
+                model_arg.enable_adapter_layers()
+                torch.cuda.empty_cache()
+                if not kl_state["disabled"]:
+                    logger.warning(f"KL chunked error ({type(e).__name__}: {e}) — disabling")
                     kl_state["disabled"] = True
 
         kl_state["last_kl"] = kl_loss_val
@@ -563,6 +710,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
     class V5LoggingCallback(TrainerCallback):
         def __init__(self):
             self._start_time = time.time()
+            self._step_start = time.time()
+            self._step_timeout = step_timeout
 
         def on_log(self, args, state, control, logs=None, **kwargs):
             if logs is None:
@@ -572,6 +721,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
             loss = logs.get("loss", logs.get("train_loss"))
             lr = logs.get("learning_rate")
             elapsed = time.time() - self._start_time
+            step_time = time.time() - self._step_start
             eta_s = (elapsed / max(step, 1)) * (total - step) if step > 0 else 0
 
             parts = [f"Step {step}/{total}"]
@@ -582,21 +732,38 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
                 parts.append(f"kl={kl_state['last_kl']:.4f}")
             if lr is not None:
                 parts.append(f"lr={lr:.2e}")
+            parts.append(f"step_time={step_time:.1f}s")
             parts.append(f"elapsed={elapsed/3600:.1f}h")
             parts.append(f"ETA={eta_s/3600:.1f}h")
             logger.info(" | ".join(parts))
             sys.stderr.flush()
 
+        def on_step_begin(self, args, state, control, **kwargs):
+            self._step_start = time.time()
+
         def on_step_end(self, args, state, control, **kwargs):
-            if state.global_step % 10 == 0:
-                torch.cuda.empty_cache()
+            step_elapsed = time.time() - self._step_start
+            logger.info(f"  Step {state.global_step} completed in {step_elapsed:.1f}s")
+
+            # Step timeout — kill training if a step takes way too long
+            if self._step_timeout > 0 and step_elapsed > self._step_timeout:
+                logger.error(f"STEP TIMEOUT: step {state.global_step} took "
+                             f"{step_elapsed:.0f}s > {self._step_timeout}s limit. "
+                             f"Stopping training.")
+                control.should_training_stop = True
+
+            # NOTE: Do NOT call torch.cuda.empty_cache() during training!
+            # It returns blocks to the driver, causing fragmentation on re-allocation.
+            # With expandable_segments:True, the caching allocator handles this better.
             if state.global_step % 50 == 0 and state.global_step > 0:
                 self._log_memory(state.global_step)
 
         def on_train_begin(self, args, state, control, **kwargs):
             self._start_time = time.time()
+            self._step_start = time.time()
             self._log_memory(0)
-            logger.info(f"Training started: {state.max_steps} total steps")
+            logger.info(f"Training started: {state.max_steps} total steps"
+                        + (f" (step timeout: {self._step_timeout}s)" if self._step_timeout else ""))
 
         def _log_memory(self, step):
             try:
@@ -619,9 +786,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
 
     # Heartbeat thread
     _heartbeat_stop = threading.Event()
+    _hb_interval = 30 if max_steps > 0 else 300  # 30s for smoke tests, 5min for full
     def _heartbeat():
         n = 0
-        while not _heartbeat_stop.wait(300):
+        while not _heartbeat_stop.wait(_hb_interval):
             n += 1
             try:
                 import psutil as _ps
@@ -638,13 +806,29 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
     batch_size = TRAINING_CONFIG["per_device_train_batch_size"]
     grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
     if use_unsloth:
-        batch_size = 4   # UP from 2 — Unsloth frees enough VRAM
-        grad_accum = 4   # Keep effective batch = 16
+        batch_size = 1    # Qwen3.5 248K vocab → logits are 1GB/sample, batch=2 OOMs even w/ Unsloth
+        grad_accum = 16   # Keep effective batch = 16
         logger.info(f"Unsloth VRAM savings: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
 
     # Packing: concatenate short sequences to fill context window (30-50% speedup)
-    use_packing = True
+    # WARNING: Packing without flash_attention_2/3 causes cross-contamination.
+    # Unsloth handles packing internally (may skip for vision-language models).
+    # Standard path: disable packing unless flash attention is available.
+    if use_unsloth:
+        use_packing = True  # Unsloth handles this safely
+    else:
+        # Check for flash attention support
+        try:
+            model_config = getattr(model, "config", None)
+            if model_config is None:
+                model_config = getattr(getattr(model, "base_model", model), "config", None)
+            attn_impl = getattr(model_config, "_attn_implementation", "eager")
+            use_packing = attn_impl in ("flash_attention_2", "flash_attention_3")
+        except Exception:
+            use_packing = False
+        if not use_packing:
+            logger.warning("Packing DISABLED — no flash attention (would cause cross-contamination)")
     logger.info(f"Sequence packing: {'ON' if use_packing else 'OFF'}")
 
     sft_kwargs = dict(
@@ -666,18 +850,20 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
         disable_tqdm=True,
         gradient_checkpointing=True,
         optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
-        dataloader_num_workers=2,
+        dataloader_num_workers=0 if max_steps > 0 else 2,
         dataloader_pin_memory=True,
-        dataloader_persistent_workers=True,
-        dataloader_prefetch_factor=2,
+        dataloader_persistent_workers=False if max_steps > 0 else True,
+        dataloader_prefetch_factor=None if max_steps > 0 else 2,
         dataloader_drop_last=True,
         logging_first_step=True,
         save_total_limit=3,
         skip_memory_metrics=True,
         dataset_text_field="text",
-        max_length=MAX_SEQ_LENGTH,
+        max_length=seq_length,
         packing=use_packing,
         neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
+        torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
+                                          # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
     )
     if max_steps > 0:
         sft_kwargs["max_steps"] = max_steps
@@ -749,7 +935,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True):
         "training_config": TRAINING_CONFIG,
         "kl_config": KL_CONFIG if use_kl else None,
         "kl_disabled_during_training": kl_state["disabled"],
-        "max_seq_length": MAX_SEQ_LENGTH,
+        "max_seq_length": seq_length,
         "system_prompt": "CODING_SYSTEM_PROMPT (hiveai.llm.prompts)",
         "format": "ChatML via tokenizer.apply_chat_template",
         "eos_token": tokenizer.eos_token,
@@ -789,9 +975,27 @@ if __name__ == "__main__":
                         help="Smoke test: stop after N steps")
     parser.add_argument("--no-kl", action="store_true",
                         help="Disable KL-anchored SFT")
+    parser.add_argument("--no-unsloth", action="store_true",
+                        help="Skip Unsloth (standard transformers path). "
+                             "Auto-enabled in --test mode for fast startup.")
+    parser.add_argument("--force-unsloth", action="store_true",
+                        help="Force Unsloth even in --test mode (slow: Triton JIT)")
     parser.add_argument("--model", type=str, default=None,
                         help="Override base model path")
+    parser.add_argument("--seq-length", type=int, default=0,
+                        help="Override max sequence length (default: 1024 for 16GB, "
+                             "2048 for 24GB+, 512 for smoke tests)")
+    parser.add_argument("--step-timeout", type=int, default=0,
+                        help="Kill training if a single step exceeds N seconds "
+                             "(default: 300 in --test mode, 0=disabled otherwise)")
     args = parser.parse_args()
+
+    # In --test mode, auto-skip Unsloth unless --force-unsloth.
+    # Unsloth's Triton JIT compilation takes 15+ minutes — the standard
+    # transformers+PEFT path catches the exact same shape/VRAM/config errors.
+    if args.test and not args.force_unsloth:
+        args.no_unsloth = True
+        logger.info("Test mode: auto-skipping Unsloth (use --force-unsloth to override)")
 
     model_path = args.model or BASE_MODEL
 
@@ -806,5 +1010,7 @@ if __name__ == "__main__":
                       "--local-dir models/qwen3.5-9b")
         sys.exit(1)
 
-    optimize_system()
-    train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl)
+    optimize_system_pre_load()
+    train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
+             skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
+             seq_length_override=args.seq_length)

@@ -49,6 +49,12 @@
         <div class="label">Domain Models</div>
     </div>
     {% endif %}
+    {% if miner_status is defined and miner_status %}
+    <div class="stat-card">
+        <div class="number" id="stat-mined-today">{{ miner_status.stats.mined_today }}</div>
+        <div class="label">Mined Today</div>
+    </div>
+    {% endif %}
 </div>
 
 <div class="card">
@@ -305,6 +311,7 @@ async function refreshStats() {
             'stat-published-books': s.published_books,
             'stat-eligible-teachings': s.eligible_teachings,
             'stat-lora-crystals': s.lora_crystals,
+            'stat-mined-today': s.mined_today,
         };
         for (const [id, val] of Object.entries(map)) {
             const el = document.getElementById(id);

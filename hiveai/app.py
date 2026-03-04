@@ -152,6 +152,102 @@ _backfill_thread = threading.Thread(target=_background_backfill, daemon=True)
 _backfill_thread.start()
 
 
+def _auto_improve_worker():
+    """Background worker: periodically check for accumulated auto-verified pairs
+    and trigger micro-training when enough are available."""
+    import time as _time
+    _time.sleep(30)  # Wait for app startup
+
+    _logger = logging.getLogger("hiveai.auto_improve")
+
+    while True:
+        try:
+            from hiveai.config import AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_CHECK_INTERVAL, AUTO_IMPROVE_MIN_PAIRS
+            if not AUTO_IMPROVE_ENABLED:
+                _time.sleep(AUTO_IMPROVE_CHECK_INTERVAL)
+                continue
+
+            _db = SessionLocal()
+            try:
+                auto_count = _db.query(TrainingPair).filter(
+                    TrainingPair.source == "auto_verified",
+                    TrainingPair.is_eligible == True,
+                    TrainingPair.lora_version == None,
+                ).count()
+
+                if auto_count >= AUTO_IMPROVE_MIN_PAIRS:
+                    _logger.info(f"Auto-improve: {auto_count} verified pairs ready, triggering micro-training")
+
+                    from hiveai.lora.trainer import train_lora, MIN_PAIRS_MICRO
+
+                    output_dir = os.path.join(WORKSPACE, "loras", "training_data")
+                    os.makedirs(output_dir, exist_ok=True)
+                    ts = int(_time.time())
+                    micro_path = os.path.join(output_dir, f"auto_improve_{ts}.jsonl")
+
+                    # Export eligible unused pairs as Alpaca-format JSONL
+                    pairs = _db.query(TrainingPair).filter(
+                        TrainingPair.is_eligible == True,
+                        TrainingPair.quality >= 0.70,
+                        TrainingPair.lora_version == None,
+                    ).order_by(TrainingPair.quality.desc()).all()
+
+                    if len(pairs) >= MIN_PAIRS_MICRO:
+                        with open(micro_path, "w", encoding="utf-8") as f:
+                            for p in pairs:
+                                f.write(json.dumps({
+                                    "instruction": p.instruction,
+                                    "output": p.response,
+                                }, ensure_ascii=False) + "\n")
+
+                        adapter_dir = os.path.join(WORKSPACE, "loras", f"auto_improve_{ts}")
+
+                        def _run_micro():
+                            tdb = SessionLocal()
+                            try:
+                                train_lora(micro_path, adapter_dir, f"auto-{ts}",
+                                           db=tdb, force_micro=True)
+                            except Exception as exc:
+                                logging.getLogger("hiveai.auto_improve").error(f"Auto micro-training failed: {exc}")
+                            finally:
+                                tdb.close()
+
+                        threading.Thread(target=_run_micro, daemon=True).start()
+                        _logger.info(f"Auto-improve: micro-training started ({len(pairs)} pairs)")
+                    else:
+                        _logger.debug(f"Auto-improve: only {len(pairs)} eligible pairs, need {MIN_PAIRS_MICRO}")
+                else:
+                    _logger.debug(f"Auto-improve: {auto_count} auto-verified pairs, need {AUTO_IMPROVE_MIN_PAIRS}")
+
+            finally:
+                _db.close()
+
+        except Exception as exc:
+            logging.getLogger("hiveai.auto_improve").error(f"Auto-improve worker error: {exc}")
+
+        _time.sleep(AUTO_IMPROVE_CHECK_INTERVAL)
+
+
+try:
+    from hiveai.config import AUTO_IMPROVE_ENABLED as _ai_enabled
+    if _ai_enabled:
+        _auto_improve_thread = threading.Thread(target=_auto_improve_worker, daemon=True)
+        _auto_improve_thread.start()
+        logging.getLogger(__name__).info("Auto-improve background worker started")
+except Exception:
+    pass
+
+# --- Multi-Source Miner Background Worker ---
+try:
+    from hiveai.config import MULTI_MINER_ENABLED
+    if MULTI_MINER_ENABLED:
+        from hiveai.lora.miner import start_miner
+        _miner_worker = start_miner()
+        logging.getLogger(__name__).info("Multi-source miner background worker started")
+except Exception as _miner_err:
+    logging.getLogger(__name__).warning(f"Multi-source miner failed to start: {_miner_err}")
+
+
 @app.route("/health")
 def health_check():
     """Detailed health check endpoint for monitoring and diagnostics."""
@@ -277,6 +373,13 @@ def dashboard():
                 extra["molora_domains"] = get_available_domains()
         except Exception:
             pass
+        try:
+            from hiveai.config import MULTI_MINER_ENABLED
+            if MULTI_MINER_ENABLED:
+                from hiveai.lora.miner import get_miner_status
+                extra["miner_status"] = get_miner_status()
+        except Exception:
+            pass
 
         return render_template("dashboard.html", jobs=jobs, books=books, stats=stats, **extra)
     finally:
@@ -298,6 +401,14 @@ def api_stats():
             "eligible_teachings": db.query(TrainingPair).filter(TrainingPair.is_eligible == True).count(),
             "lora_crystals": db.query(LoraVersion).count(),
         }
+        try:
+            from hiveai.config import MULTI_MINER_ENABLED
+            if MULTI_MINER_ENABLED:
+                from hiveai.lora.miner import get_miner_status
+                ms = get_miner_status()
+                stats["mined_today"] = ms.get("stats", {}).get("mined_today", 0)
+        except Exception:
+            pass
         return jsonify(stats)
     finally:
         db.close()
@@ -790,6 +901,14 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
         except Exception as e:
             logging.getLogger(__name__).debug(f"Code verification skipped: {e}")
 
+        # Auto-improve: stage verified-working responses as training pairs
+        auto_staged = None
+        if verified_meta and verified_meta.get("failed", 1) == 0 and verified_meta.get("passed", 0) > 0:
+            try:
+                auto_staged = _auto_stage_verified_pair(message, response, verification, db)
+            except Exception:
+                pass
+
         learning_info = {"active": False, "topic": None, "job_id": None}
 
         if "KNOWLEDGE_GAP:" in response:
@@ -832,6 +951,8 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
         }
         if verified_meta:
             result["verified"] = verified_meta
+        if auto_staged:
+            result["auto_staged"] = auto_staged
 
         # MoLoRA domain info (if enabled)
         try:
@@ -941,6 +1062,14 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                                     "failed": verification["failed"],
                                 }
                                 yield f"event: verification\ndata: {json.dumps(v_data)}\n\n"
+                                # Auto-improve: stage verified pairs
+                                if verification["failed"] == 0 and verification["passed"] > 0:
+                                    try:
+                                        staged = _auto_stage_verified_pair(message, full, verification, db)
+                                        if staged:
+                                            yield f"event: auto_staged\ndata: {json.dumps(staged)}\n\n"
+                                    except Exception:
+                                        pass
                     except Exception:
                         pass
 
@@ -964,6 +1093,117 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
     return Response(generate(), content_type="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# Auto-Improvement — stage verified chat responses as training pairs
+# ---------------------------------------------------------------------------
+
+def _auto_stage_verified_pair(user_message, ai_response, verification, db):
+    """
+    Auto-stage a chat response as a training pair if ALL code blocks pass verification.
+
+    Returns dict with pair_id and quality, or None if not staged.
+    """
+    import hashlib
+    from hiveai.config import (
+        AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_MIN_BLOCKS,
+        AUTO_IMPROVE_QUALITY_BONUS, MIN_TRAINING_QUALITY,
+    )
+
+    if not AUTO_IMPROVE_ENABLED:
+        return None
+
+    if not verification or verification.get("total_blocks", 0) < AUTO_IMPROVE_MIN_BLOCKS:
+        return None
+
+    # Strict: ALL blocks must pass — no partial credit
+    if verification.get("failed", 1) > 0 or verification.get("timed_out", 1) > 0:
+        return None
+    if verification.get("passed", 0) == 0:
+        return None
+
+    logger = logging.getLogger("hiveai.auto_improve")
+    try:
+        from hiveai.lora.distiller import _score_quality
+        quality = _score_quality(user_message, ai_response)
+
+        # Execution bonus: all code blocks passed sandbox verification
+        quality = min(quality + AUTO_IMPROVE_QUALITY_BONUS, 1.0)
+
+        if quality < MIN_TRAINING_QUALITY:
+            logger.debug(f"Auto-stage skipped: quality {quality:.3f} < {MIN_TRAINING_QUALITY}")
+            return None
+
+        # Dedup check
+        from hiveai.lora.dedup import is_duplicate, add_to_cache
+        if is_duplicate(user_message, db, quality=quality):
+            logger.debug("Auto-stage skipped: duplicate detected")
+            return None
+
+        # Create training pair
+        pair = TrainingPair(
+            source="auto_verified",
+            topic="chat_auto_improve",
+            instruction=user_message,
+            response=ai_response,
+            quality=quality,
+            is_eligible=True,
+            metadata_json=json.dumps({
+                "verification": {
+                    "total_blocks": verification["total_blocks"],
+                    "passed": verification["passed"],
+                    "pass_rate": verification.get("overall_pass_rate", 1.0),
+                },
+                "source_type": "chat_auto_improve",
+            }),
+        )
+        # Embed instruction for dedup cache
+        try:
+            embedding = embed_text(user_message)
+            pair.embedding = embedding
+        except Exception:
+            embedding = None
+
+        db.add(pair)
+        db.flush()
+
+        # Create ChatFeedback record for lineage tracking
+        msg_hash = hashlib.sha256(user_message.encode()).hexdigest()
+        feedback = ChatFeedback(
+            message_hash=msg_hash,
+            user_message=user_message,
+            ai_response=ai_response,
+            rating="auto",
+            staged_pair_id=pair.id,
+            auto_staged=True,
+            verification_json=json.dumps({
+                "total_blocks": verification["total_blocks"],
+                "passed": verification["passed"],
+                "failed": verification["failed"],
+                "timed_out": verification.get("timed_out", 0),
+                "overall_pass_rate": verification.get("overall_pass_rate", 1.0),
+            }),
+        )
+        db.add(feedback)
+        db.commit()
+
+        # Update dedup cache
+        if embedding:
+            add_to_cache(embedding, quality=quality)
+
+        logger.info(f"Auto-staged training pair id={pair.id} quality={quality:.3f} "
+                     f"blocks={verification['total_blocks']} passed={verification['passed']}")
+
+        return {"pair_id": pair.id, "quality": round(quality, 3)}
+
+    except Exception as e:
+        logger.debug(f"Auto-staging skipped: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1063,6 +1303,86 @@ def chat_feedback():
         return jsonify({"error": str(e)}), 500
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Auto-Improvement status API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/auto-improve/status", methods=["GET"])
+def auto_improve_status():
+    """Return auto-improvement pipeline status."""
+    from hiveai.config import AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_MIN_PAIRS
+
+    db = SessionLocal()
+    try:
+        auto_pending = db.query(TrainingPair).filter(
+            TrainingPair.source == "auto_verified",
+            TrainingPair.is_eligible == True,
+            TrainingPair.lora_version == None,
+        ).count()
+
+        total_auto = db.query(TrainingPair).filter(
+            TrainingPair.source == "auto_verified",
+        ).count()
+
+        used_auto = db.query(TrainingPair).filter(
+            TrainingPair.source == "auto_verified",
+            TrainingPair.lora_version != None,
+        ).count()
+
+        recent = db.query(ChatFeedback).filter(
+            ChatFeedback.auto_staged == True,
+        ).order_by(ChatFeedback.created_at.desc()).limit(10).all()
+
+        return jsonify({
+            "enabled": AUTO_IMPROVE_ENABLED,
+            "pending_pairs": auto_pending,
+            "total_auto_pairs": total_auto,
+            "used_in_training": used_auto,
+            "threshold": AUTO_IMPROVE_MIN_PAIRS,
+            "ready_for_training": auto_pending >= AUTO_IMPROVE_MIN_PAIRS,
+            "recent_stagings": [
+                {
+                    "id": r.id,
+                    "user_message_preview": r.user_message[:100] if r.user_message else "",
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "pair_id": r.staged_pair_id,
+                }
+                for r in recent
+            ],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Multi-Source Miner API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/miner/status", methods=["GET"])
+def miner_status():
+    """Multi-source miner status — per-provider stats, rates, health."""
+    try:
+        from hiveai.lora.miner import get_miner_status
+        return jsonify(get_miner_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/miner/toggle", methods=["POST"])
+def miner_toggle():
+    """Pause/resume the multi-source miner."""
+    try:
+        from hiveai.lora.miner import toggle_miner
+        body = request.get_json(silent=True) or {}
+        paused = body.get("paused", True)
+        result = toggle_miner(paused)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ---------------------------------------------------------------------------

@@ -1108,6 +1108,7 @@
             let buffer = '';
             let verificationData = null;
             let domainData = null;
+            let autoStagedData = null;
             streamEl = createStreamingMessage();
 
             while (true) {
@@ -1130,6 +1131,9 @@
                     if (line.startsWith('event: domain')) {
                         continue;
                     }
+                    if (line.startsWith('event: auto_staged')) {
+                        continue;
+                    }
                     if (line.startsWith('event: error')) {
                         continue;
                     }
@@ -1148,6 +1152,9 @@
                             }
                             if (payload.domain) {
                                 domainData = payload.domain;
+                            }
+                            if (payload.pair_id !== undefined && payload.quality !== undefined) {
+                                autoStagedData = payload;
                             }
                             if (payload.full_response) {
                                 rawText = payload.full_response;
@@ -1200,6 +1207,14 @@
                         vBadge.textContent = '\u2717 Code blocks have issues (' + verificationData.failed + ' failed)';
                     }
                     streamEl.msgDiv.appendChild(vBadge);
+                    // Auto-learned badge (appended after verification badge)
+                    if (autoStagedData) {
+                        const aBadge = document.createElement('span');
+                        aBadge.style.cssText = 'margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.7em;display:inline-block;background:#1a2a1a;color:#6ee7b7;opacity:0.85;';
+                        aBadge.textContent = '\u{1F9E0} Auto-learned';
+                        vBadge.style.display = 'inline-block';
+                        vBadge.appendChild(aBadge);
+                    }
                 }
                 // Add domain badge (MoLoRA)
                 if (domainData) {

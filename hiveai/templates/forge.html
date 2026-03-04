@@ -253,6 +253,34 @@
     </div>
 </div>
 
+<!-- Multi-Source Miner -->
+<div class="forge-card" id="miner-card" style="display: none;">
+    <h2>Multi-Source Knowledge Miner</h2>
+    <div id="miner-providers" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.6rem; margin-top: 0.8rem;">
+    </div>
+    <div style="margin-top: 1rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+        <div class="forge-stat-card" style="flex: 1; min-width: 110px;">
+            <div class="number" id="miner-today">0</div>
+            <div class="label">Mined Today</div>
+        </div>
+        <div class="forge-stat-card" style="flex: 1; min-width: 110px;">
+            <div class="number" id="miner-eligible">0</div>
+            <div class="label">Eligible</div>
+        </div>
+        <div class="forge-stat-card" style="flex: 1; min-width: 110px;">
+            <div class="number" id="miner-rate">0</div>
+            <div class="label">Pairs/Hour</div>
+        </div>
+        <div class="forge-stat-card" style="flex: 1; min-width: 110px;">
+            <div class="number" id="miner-errors">0</div>
+            <div class="label">Errors</div>
+        </div>
+    </div>
+    <div style="margin-top: 0.8rem;">
+        <button class="btn-forge" id="miner-toggle-btn" onclick="toggleMiner()">Pause Miner</button>
+    </div>
+</div>
+
 <!-- Progress to Forge -->
 <div class="forge-card">
     <h2>⚗️ Path to the Forge</h2>
@@ -871,10 +899,51 @@ async function exportBrain(versionId) {
     }
 }
 
+// --- Multi-Source Miner ---
+async function loadMinerStatus() {
+    try {
+        const resp = await fetch('/api/miner/status');
+        const data = await resp.json();
+        if (!data.enabled) return;
+
+        document.getElementById('miner-card').style.display = 'block';
+        document.getElementById('miner-today').textContent = data.stats.total_generated;
+        document.getElementById('miner-eligible').textContent = data.stats.total_eligible;
+        document.getElementById('miner-rate').textContent = Math.round(data.stats.pairs_per_hour || 0);
+        document.getElementById('miner-errors').textContent = data.stats.errors;
+
+        const btn = document.getElementById('miner-toggle-btn');
+        btn.textContent = data.paused ? 'Resume Miner' : 'Pause Miner';
+
+        const container = document.getElementById('miner-providers');
+        container.innerHTML = (data.providers || []).filter(p => p.api_key_set).map(p =>
+            '<div style="padding:0.5rem 0.7rem;background:' + (p.available ? 'rgba(74,222,128,0.06)' : 'rgba(239,68,68,0.06)') +
+            ';border:1px solid ' + (p.available ? '#4ade80' : '#ef4444') + ';border-radius:4px;">' +
+            '<div style="font-weight:700;color:' + (p.available ? '#86efac' : '#fca5a5') + ';">' + p.name + '</div>' +
+            '<div style="font-size:0.78em;color:#b87333;">' +
+            p.calls_today + '/' + (p.daily_limit || '\u221e') + ' calls &middot; ' + p.pairs_generated + ' pairs</div></div>'
+        ).join('');
+    } catch (e) { /* miner not enabled */ }
+}
+
+async function toggleMiner() {
+    const btn = document.getElementById('miner-toggle-btn');
+    const pausing = btn.textContent.includes('Pause');
+    try {
+        await fetch('/api/miner/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paused: pausing }),
+        });
+        btn.textContent = pausing ? 'Resume Miner' : 'Pause Miner';
+    } catch (e) { console.error('Toggle miner failed:', e); }
+}
+
 // Load teachings, mining status, and adapters on page load
 loadTeachings();
 loadMiningStatus();
+loadMinerStatus();
 refreshAdapters();
-pollInterval = setInterval(() => { loadTeachings(); loadMiningStatus(); }, 10000);
+pollInterval = setInterval(() => { loadTeachings(); loadMiningStatus(); loadMinerStatus(); }, 10000);
 </script>
 {% endblock %}

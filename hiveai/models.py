@@ -358,9 +358,11 @@ class ChatFeedback(Base):
     message_hash = Column(String(64), nullable=False)   # SHA-256 of user question
     user_message = Column(Text, nullable=False)
     ai_response = Column(Text, nullable=False)
-    rating = Column(String(10), nullable=False)         # "up" or "down"
+    rating = Column(String(10), nullable=False)         # "up", "down", or "auto"
     correction = Column(Text, nullable=True)            # user's corrected answer
     staged_pair_id = Column(Integer, ForeignKey("training_pairs.id"), nullable=True)
+    verification_json = Column(Text, nullable=True)    # sandbox execution results JSON
+    auto_staged = Column(Boolean, default=False)       # True if auto-staged (not user feedback)
     created_at = Column(DateTime, default=utcnow)
 
     __table_args__ = (
@@ -399,6 +401,8 @@ def _migrate_add_columns(engine):
         ("lora_versions", "merge_cycle", "INTEGER DEFAULT 0"),
         ("lora_versions", "merged_base_path", "VARCHAR(500)"),
         ("lora_versions", "parent_version_id", "INTEGER"),
+        ("chat_feedback", "verification_json", "TEXT"),
+        ("chat_feedback", "auto_staged", "BOOLEAN DEFAULT 0"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

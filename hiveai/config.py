@@ -40,7 +40,7 @@ OPENROUTER_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENROUTER_API_KEY", "")
 LLM_BACKEND = os.environ.get("LLM_BACKEND", "auto")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL_REASONING = os.environ.get("OLLAMA_MODEL_REASONING", "qwen3:14b")
-OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3:8b")
+OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3.5:9b")
 
 # llama-server — used for LoRA adapter models that Ollama can't load natively.
 # Set LLAMA_SERVER_MODELS to a comma-separated list of model names that should
@@ -119,6 +119,26 @@ CHAT_VERIFY_CODE = os.environ.get("CHAT_VERIFY_CODE", "true").lower() in ("1", "
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
 MOLORA_DEFAULT_DOMAIN = os.environ.get("MOLORA_DEFAULT_DOMAIN", "general")
 
+# --- Auto-Improvement (self-learning from verified chat responses) ---
+AUTO_IMPROVE_ENABLED = os.environ.get("AUTO_IMPROVE_ENABLED", "true").lower() in ("1", "true", "yes")
+AUTO_IMPROVE_MIN_BLOCKS = int(os.environ.get("AUTO_IMPROVE_MIN_BLOCKS", "1"))
+AUTO_IMPROVE_QUALITY_BONUS = float(os.environ.get("AUTO_IMPROVE_QUALITY_BONUS", "0.05"))
+AUTO_IMPROVE_CHECK_INTERVAL = int(os.environ.get("AUTO_IMPROVE_CHECK_INTERVAL", "300"))
+AUTO_IMPROVE_MIN_PAIRS = int(os.environ.get("AUTO_IMPROVE_MIN_PAIRS", "20"))
+
+# --- Multi-Source Miner (mine training pairs from free AI APIs) ---
+MULTI_MINER_ENABLED = os.environ.get("MULTI_MINER_ENABLED", "false").lower() in ("1", "true", "yes")
+MINER_INTERVAL_SECONDS = int(os.environ.get("MINER_INTERVAL_SECONDS", "5"))
+MINER_DAILY_TARGET = int(os.environ.get("MINER_DAILY_TARGET", "1000"))
+MINER_STARTUP_DELAY = int(os.environ.get("MINER_STARTUP_DELAY", "30"))
+MINER_REFINE_ENABLED = os.environ.get("MINER_REFINE_ENABLED", "false").lower() in ("1", "true", "yes")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+CEREBRAS_API_KEY = os.environ.get("CEREBRAS_API_KEY", "")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
+HF_API_KEY = os.environ.get("HF_API_KEY", "")
+
 # --- DBC (Decentralized Brain Collective) ---
 DBC_ENABLED = os.environ.get("DBC_ENABLED", "false").lower() in ("1", "true", "yes")
 DBC_ACCOUNT = os.environ.get("DBC_ACCOUNT", "")
@@ -192,6 +212,25 @@ def validate_config():
             "Ollama can't serve LoRA models — fast model calls will fail."
         )
 
+    # Auto-improve config checks
+    if AUTO_IMPROVE_ENABLED and not CHAT_VERIFY_CODE:
+        warnings.append("AUTO_IMPROVE_ENABLED=true but CHAT_VERIFY_CODE=false — auto-improve requires code verification")
+
+    # Multi-miner config checks
+    if MULTI_MINER_ENABLED:
+        _miner_keys = sum(1 for env in [
+            "GEMINI_API_KEY", "AI_INTEGRATIONS_OPENROUTER_API_KEY",
+            "GROQ_API_KEY", "CEREBRAS_API_KEY", "DEEPSEEK_API_KEY",
+            "MISTRAL_API_KEY", "HF_API_KEY"
+        ] if os.environ.get(env))
+        if _miner_keys == 0:
+            warnings.append(
+                "MULTI_MINER_ENABLED=true but no provider API keys are set. "
+                "The miner will only use local Ollama as fallback."
+            )
+        else:
+            logger.info(f"[CONFIG] Multi-miner: {_miner_keys} provider(s) configured")
+
     # DBC config checks
     if DBC_ENABLED:
         if not DBC_ACCOUNT:
@@ -208,6 +247,7 @@ def validate_config():
 
     if not warnings:
         logger.info(f"[CONFIG] Validated OK — backend={LLM_BACKEND}, db={DB_BACKEND}, "
-                     f"profile={HARDWARE_PROFILE}, verify_code={CHAT_VERIFY_CODE}")
+                     f"profile={HARDWARE_PROFILE}, verify_code={CHAT_VERIFY_CODE}, "
+                     f"auto_improve={AUTO_IMPROVE_ENABLED}")
 
     return warnings
