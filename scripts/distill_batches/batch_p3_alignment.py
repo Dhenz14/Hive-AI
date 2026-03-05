@@ -1,23 +1,23 @@
-"""P3 Batch: AI alignment techniques — Constitutional AI, SPIN, online DPO, reward modeling, synthetic data."""
+"""P3 Batch: AI alignment techniques -- Constitutional AI, SPIN, online DPO, reward modeling, synthetic data."""
 
 PAIRS = [
     (
         "constitutional AI and RLAIF alignment technique",
-        "Explain Constitutional AI (CAI) and RLAIF in depth — how AI feedback replaces human labelers in the alignment pipeline, the critique-revision-ranking loop, and how to implement CAI programmatically in Python. Compare the costs and quality trade-offs between RLAIF and traditional RLHF approaches, including common pitfalls and best practices for production deployment.",
-        """## Constitutional AI and RLAIF: Aligning Models Without Human Labelers
+        "Explain Constitutional AI (CAI) and RLAIF in depth -- how AI feedback replaces human labelers in the alignment pipeline, the critique-revision-ranking loop, and how to implement CAI programmatically in Python. Compare the costs and quality trade-offs between RLAIF and traditional RLHF approaches, including common pitfalls and best practices for production deployment.",
+        '''## Constitutional AI and RLAIF: Aligning Models Without Human Labelers
 
 ### The Core Problem with RLHF
 
 Reinforcement Learning from Human Feedback (RLHF) is the dominant alignment paradigm, but it has a critical bottleneck: **human labelers are expensive, slow, inconsistent, and difficult to scale**. A single round of preference labeling for a frontier model can cost $500K+ and take weeks. Worse, human annotators disagree with each other 20-30% of the time on subjective judgments, introducing noise into the reward signal.
 
-Constitutional AI (CAI), introduced by Anthropic in 2022, addresses this by replacing human feedback with AI feedback — a technique called **Reinforcement Learning from AI Feedback (RLAIF)**. The key insight is that a language model can critique and revise its own outputs against a set of written principles (the "constitution"), producing preference data without any human in the loop.
+Constitutional AI (CAI), introduced by Anthropic in 2022, addresses this by replacing human feedback with AI feedback -- a technique called **Reinforcement Learning from AI Feedback (RLAIF)**. The key insight is that a language model can critique and revise its own outputs against a set of written principles (the "constitution"), producing preference data without any human in the loop.
 
 ### How the Critique-Revision-Ranking Pipeline Works
 
 The CAI pipeline has two distinct phases:
 
-- **Phase 1 — Supervised Learning (SL-CAI):** The model generates responses, then critiques and revises them according to constitutional principles. The revised outputs become the supervised fine-tuning data.
-- **Phase 2 — Reinforcement Learning (RL-CAI):** The model generates pairs of responses, an AI judge ranks them according to the constitution, and these AI-generated preferences train a reward model for PPO.
+- **Phase 1 -- Supervised Learning (SL-CAI):** The model generates responses, then critiques and revises them according to constitutional principles. The revised outputs become the supervised fine-tuning data.
+- **Phase 2 -- Reinforcement Learning (RL-CAI):** The model generates pairs of responses, an AI judge ranks them according to the constitution, and these AI-generated preferences train a reward model for PPO.
 
 The constitution itself is a set of natural language principles like: "Choose the response that is most helpful while being harmless" or "Prefer the answer that does not encourage illegal activity." Each principle addresses a specific failure mode. The beauty is that **you can modify alignment behavior by editing text, not retraining from scratch**.
 
@@ -97,7 +97,7 @@ DEFAULT_CONSTITUTION = [
 ]
 ```
 
-This defines the constitution as structured data — each principle has both a critique prompt and a revision prompt. The weights allow you to prioritize certain principles (e.g., harmlessness weighted higher than helpfulness). Now implement the critique-revision loop:
+This defines the constitution as structured data -- each principle has both a critique prompt and a revision prompt. The weights allow you to prioritize certain principles (e.g., harmlessness weighted higher than helpfulness). Now implement the critique-revision loop:
 
 ```python
 class ConstitutionalAIPipeline:
@@ -119,7 +119,7 @@ class ConstitutionalAIPipeline:
             )
             return response.choices[0].message.content
         except Exception as e:
-            # Log and return empty — don't crash the pipeline
+            # Log and return empty -- don't crash the pipeline
             print(f"[CAI] Model call failed: {e}")
             return ""
 
@@ -230,7 +230,7 @@ async def generate_preference_dataset(
         for result in results:
             if isinstance(result, dict):
                 dataset.append(result)
-            # Skip exceptions — log them but don't crash the pipeline
+            # Skip exceptions -- log them but don't crash the pipeline
 
     return dataset
 
@@ -270,9 +270,9 @@ The trade-offs between RLAIF and RLHF are nuanced:
 - **Cost**: RLAIF is 10-20x cheaper per preference label. Human labeling costs $1-5 per comparison; API-based AI labeling costs $0.05-0.20. However, RLAIF requires a strong base model as judge, which has its own costs.
 - **Speed**: RLAIF can generate 100K preference pairs in hours. Human labeling the same volume takes weeks to months, even with a large annotation team.
 - **Consistency**: AI judges are deterministic at low temperature. Human annotators show 20-30% inter-annotator disagreement. Consequently, RLAIF produces cleaner reward model training signal.
-- **Ceiling quality**: This is where RLHF still wins. Human experts catch subtle errors and cultural nuances that AI judges miss. For frontier model alignment, a hybrid approach works best — AI feedback for bulk data, human feedback for hard cases.
-- **Pitfall — constitutional drift**: If your constitution is poorly written, the AI judge will consistently reward the wrong behaviors. Best practice: start with Anthropic's published principles and iterate based on failure analysis.
-- **Pitfall — self-reinforcing bias**: Because the same model family generates, critiques, and judges, biases can amplify. Although using a different model as judge helps, the fundamental limitation remains.
+- **Ceiling quality**: This is where RLHF still wins. Human experts catch subtle errors and cultural nuances that AI judges miss. For frontier model alignment, a hybrid approach works best -- AI feedback for bulk data, human feedback for hard cases.
+- **Pitfall -- constitutional drift**: If your constitution is poorly written, the AI judge will consistently reward the wrong behaviors. Best practice: start with Anthropic's published principles and iterate based on failure analysis.
+- **Pitfall -- self-reinforcing bias**: Because the same model family generates, critiques, and judges, biases can amplify. Although using a different model as judge helps, the fundamental limitation remains.
 
 ### Performance Considerations for Production
 
@@ -284,19 +284,19 @@ Another best practice is **margin-based filtering**: only keep preference pairs 
 
 - **Constitutional AI replaces human labelers** with a set of written principles that an AI uses to critique, revise, and rank model outputs, dramatically reducing alignment cost
 - **The critique-revision loop** iteratively improves responses across multiple principles, and the number of rounds directly trades off quality against API cost
-- **RLAIF is 10-20x cheaper** than RLHF and far faster, but human feedback still provides higher ceiling quality for frontier models — use a hybrid approach
+- **RLAIF is 10-20x cheaper** than RLHF and far faster, but human feedback still provides higher ceiling quality for frontier models -- use a hybrid approach
 - **Common mistakes include** poorly written constitutions, insufficient pair diversity, and ignoring confidence margins when filtering preference data
 - **Production systems must** batch API calls, filter by ranking margin, and use different model families for generation vs. judging to avoid self-reinforcing bias
-"""
+'''
     ),
     (
         "SPIN self-play fine-tuning for language models",
-        "Explain SPIN (Self-Play Fine-Tuning) in detail — how the model plays against itself to improve without human preference data, the discriminator-generator dynamic, convergence properties, and when to stop training. Provide a complete PyTorch implementation with training loop, loss functions, and practical guidance on hyperparameters and common pitfalls.",
-        """## SPIN: Self-Play Fine-Tuning for Language Model Alignment
+        "Explain SPIN (Self-Play Fine-Tuning) in detail -- how the model plays against itself to improve without human preference data, the discriminator-generator dynamic, convergence properties, and when to stop training. Provide a complete PyTorch implementation with training loop, loss functions, and practical guidance on hyperparameters and common pitfalls.",
+        '''## SPIN: Self-Play Fine-Tuning for Language Model Alignment
 
 ### The Core Idea: Model as Both Player and Opponent
 
-Self-Play Fine-Tuning (SPIN), introduced by Chen et al. (2024), is an elegant alignment method that requires **no human preference labels at all** — only a dataset of high-quality demonstrations. The key insight is borrowed from game theory: a model can improve by playing against a previous version of itself, similar to how AlphaGo improved through self-play.
+Self-Play Fine-Tuning (SPIN), introduced by Chen et al. (2024), is an elegant alignment method that requires **no human preference labels at all** -- only a dataset of high-quality demonstrations. The key insight is borrowed from game theory: a model can improve by playing against a previous version of itself, similar to how AlphaGo improved through self-play.
 
 The setup works as follows. You have two players: a **generator** (the current model being trained) and a **discriminator** (the model from the previous iteration). The generator tries to produce text that the discriminator cannot distinguish from real human-written demonstrations. The discriminator tries to tell apart real demonstrations from generated text. Because both roles are played by the same model architecture, this creates a minimax game that converges when the generator perfectly matches the target data distribution.
 
@@ -307,7 +307,7 @@ The theoretical foundation is a two-player zero-sum game. Let p_data be the dist
 - **Generator objective**: Produce completions that are indistinguishable from real data
 - **Discriminator objective**: Maximize the log-probability gap between real and generated data
 
-The loss function is derived from a separation objective: the model should assign higher probability to real demonstrations than to its own generations. Consequently, at the Nash equilibrium, p_theta = p_data — the model's distribution perfectly matches the data distribution.
+The loss function is derived from a separation objective: the model should assign higher probability to real demonstrations than to its own generations. Consequently, at the Nash equilibrium, p_theta = p_data -- the model's distribution perfectly matches the data distribution.
 
 This is fundamentally different from DPO or RLHF because **there is no preference data**. You only need (prompt, good_response) pairs, not (prompt, chosen, rejected) triples. This makes SPIN applicable when you have expert demonstrations but no comparative judgments.
 
@@ -330,7 +330,7 @@ logger = logging.getLogger(__name__)
 class SPINConfig:
     """Configuration for SPIN training."""
     model_name: str = "meta-llama/Llama-2-7b-chat-hf"
-    learning_rate: float = 5e-7       # Very low LR — critical for stability
+    learning_rate: float = 5e-7       # Very low LR -- critical for stability
     beta: float = 0.1                  # Temperature for the logit difference
     lambda_reg: float = 0.1            # Regularization toward reference model
     max_iterations: int = 3            # Number of self-play iterations
@@ -466,7 +466,7 @@ def _compute_sequence_logprobs(
     shift_labels = labels[:, 1:].contiguous()
     shift_mask = attention_mask[:, 1:].contiguous()
 
-    # Mask out prompt tokens — only score the response
+    # Mask out prompt tokens -- only score the response
     response_mask = shift_mask.clone()
     response_mask[:, :prompt_length] = 0
 
@@ -526,7 +526,7 @@ class SPINTrainer:
         Run the full SPIN self-play training procedure.
 
         Best practice: monitor the logit gap between real and generated.
-        When it stops increasing, the model has converged — further
+        When it stops increasing, the model has converged -- further
         iterations will not help and may cause overfitting.
         """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -600,37 +600,37 @@ class SPINTrainer:
 
 SPIN has a provable fixed point: training converges when the model's distribution matches the target data distribution. In practice, this means:
 
-- **Iteration 1** gives the largest improvement — typically 60-70% of the total gain
+- **Iteration 1** gives the largest improvement -- typically 60-70% of the total gain
 - **Iteration 2** gives diminishing but meaningful returns
 - **Iteration 3+** often shows minimal improvement, and continuing can cause overfitting
 
-The convergence signal is the **logit gap** between real and generated data. When this gap stops increasing, the model can no longer distinguish its own outputs from the training data — it has reached equilibrium. Although running more iterations is tempting, pushing past convergence degrades performance because the model starts memorizing training examples rather than learning the distribution.
+The convergence signal is the **logit gap** between real and generated data. When this gap stops increasing, the model can no longer distinguish its own outputs from the training data -- it has reached equilibrium. Although running more iterations is tempting, pushing past convergence degrades performance because the model starts memorizing training examples rather than learning the distribution.
 
 ### Trade-offs and Practical Guidance
 
-- **Advantage over DPO/RLHF**: No preference labels needed — only demonstrations. This makes SPIN ideal when you have expert outputs but no comparative judgments.
-- **Learning rate is critical**: Use 5e-7 to 1e-6 — much lower than standard SFT. Higher rates cause catastrophic forgetting because the self-play signal is subtle.
+- **Advantage over DPO/RLHF**: No preference labels needed -- only demonstrations. This makes SPIN ideal when you have expert outputs but no comparative judgments.
+- **Learning rate is critical**: Use 5e-7 to 1e-6 -- much lower than standard SFT. Higher rates cause catastrophic forgetting because the self-play signal is subtle.
 - **Batch size matters**: Larger effective batch sizes (32+) stabilize the logit gap estimation. Use gradient accumulation if GPU memory is limited.
-- **Common pitfall — data quality**: SPIN converges to match the training data distribution. If your demonstrations are noisy or inconsistent, the model will faithfully reproduce that noise. Therefore, invest heavily in data quality before running SPIN.
-- **Common pitfall — prompt masking**: Forgetting to mask prompt tokens in the loss computation causes the model to overfit on prompt patterns rather than learning response quality.
+- **Common pitfall -- data quality**: SPIN converges to match the training data distribution. If your demonstrations are noisy or inconsistent, the model will faithfully reproduce that noise. Therefore, invest heavily in data quality before running SPIN.
+- **Common pitfall -- prompt masking**: Forgetting to mask prompt tokens in the loss computation causes the model to overfit on prompt patterns rather than learning response quality.
 
 ### Key Takeaways
 
-- **SPIN uses self-play** to align models using only demonstration data — no human preference labels required — making it uniquely suited for domains where expert outputs exist but comparative judgments are expensive
+- **SPIN uses self-play** to align models using only demonstration data -- no human preference labels required -- making it uniquely suited for domains where expert outputs exist but comparative judgments are expensive
 - **The minimax game** between generator and discriminator has a provable Nash equilibrium at p_theta = p_data, providing theoretical convergence guarantees
-- **Iteration 1 captures most gains** (60-70%), and training should stop when the logit gap between real and generated data plateaus — typically after 2-3 iterations
-- **Critical hyperparameters** are learning rate (5e-7 to 1e-6), beta (0.05-0.2), and effective batch size (32+) — getting these wrong causes either divergence or overfitting
+- **Iteration 1 captures most gains** (60-70%), and training should stop when the logit gap between real and generated data plateaus -- typically after 2-3 iterations
+- **Critical hyperparameters** are learning rate (5e-7 to 1e-6), beta (0.05-0.2), and effective batch size (32+) -- getting these wrong causes either divergence or overfitting
 - **Data quality is paramount** because SPIN converges to match the training distribution exactly, amplifying any noise or inconsistency in the demonstrations
-"""
+'''
     ),
     (
         "online DPO iterative alignment with rejection sampling",
-        "Explain online DPO and iterative alignment in depth — how online DPO differs from offline DPO, the process of generating new preference data during training, the exploration-exploitation tradeoff, rejection sampling strategies, and a complete implementation using the TRL library. Include practical advice on when to use online vs offline DPO and common pitfalls to avoid in production alignment pipelines.",
-        """## Online DPO and Iterative Alignment: Closing the Distribution Gap
+        "Explain online DPO and iterative alignment in depth -- how online DPO differs from offline DPO, the process of generating new preference data during training, the exploration-exploitation tradeoff, rejection sampling strategies, and a complete implementation using the TRL library. Include practical advice on when to use online vs offline DPO and common pitfalls to avoid in production alignment pipelines.",
+        '''## Online DPO and Iterative Alignment: Closing the Distribution Gap
 
 ### The Problem with Offline DPO
 
-Standard Direct Preference Optimization (DPO) is an **offline** method: you collect a static dataset of (prompt, chosen, rejected) triples, train the model once, and ship it. This is simple but has a fundamental flaw — **distribution shift**. The preference data was generated by a different model (the SFT model or a previous checkpoint), so the policy being trained never sees feedback on its own outputs.
+Standard Direct Preference Optimization (DPO) is an **offline** method: you collect a static dataset of (prompt, chosen, rejected) triples, train the model once, and ship it. This is simple but has a fundamental flaw -- **distribution shift**. The preference data was generated by a different model (the SFT model or a previous checkpoint), so the policy being trained never sees feedback on its own outputs.
 
 Consequently, offline DPO often produces models that are well-calibrated on training prompts but behave unpredictably on out-of-distribution inputs. The model learns to avoid specific bad responses it saw during training, but it does not learn a general principle for what makes responses good. Research from Meta and Google has shown that online DPO closes this gap, producing models that generalize 15-25% better on held-out evaluations.
 
@@ -659,7 +659,7 @@ Not all generated pairs are equally useful for training. **Rejection sampling** 
 
 - **Best-of-N sampling**: Generate N responses per prompt, score all of them, keep the highest and lowest as the preference pair. Larger N gives better pairs but costs more compute.
 - **Margin filtering**: Only keep pairs where the reward gap between chosen and rejected exceeds a threshold. Low-margin pairs are ambiguous and add noise.
-- **Diversity filtering**: Avoid keeping pairs that are too similar — if the chosen and rejected responses differ by only a few tokens, the training signal is too weak.
+- **Diversity filtering**: Avoid keeping pairs that are too similar -- if the chosen and rejected responses differ by only a few tokens, the training signal is too weak.
 
 ### Implementation with TRL
 
@@ -682,7 +682,7 @@ class OnlineDPOConfig:
     model_name: str = "meta-llama/Llama-2-7b-chat-hf"
     reward_model_name: str = "OpenAssistant/reward-model-deberta-v3-large"
     num_iterations: int = 5
-    num_candidates: int = 8        # Best-of-N — generate this many per prompt
+    num_candidates: int = 8        # Best-of-N -- generate this many per prompt
     min_reward_margin: float = 0.5  # Reject pairs with smaller margin
     temperature_start: float = 1.0
     temperature_end: float = 0.7
@@ -740,7 +740,7 @@ class OnlineDPOPipeline:
 
     The pipeline alternates between generating new preference pairs
     from the current policy and running DPO training updates. This
-    eliminates distribution shift — the most common pitfall of
+    eliminates distribution shift -- the most common pitfall of
     offline DPO.
     """
 
@@ -796,7 +796,7 @@ class OnlineDPOPipeline:
 
         Best practice: use margin filtering to avoid noisy pairs.
         A common mistake is keeping all pairs regardless of reward
-        gap — this adds noise that degrades DPO training.
+        gap -- this adds noise that degrades DPO training.
         """
         if len(candidates) < 2:
             return None
@@ -861,7 +861,7 @@ class OnlineDPOPipeline:
             pref_dataset = self.generate_preference_dataset(prompts, iteration)
 
             if len(pref_dataset) < self.config.batch_size:
-                logger.warning("Too few valid pairs — skipping iteration")
+                logger.warning("Too few valid pairs -- skipping iteration")
                 continue
 
             # Step 2: Run DPO training on the fresh data
@@ -911,7 +911,7 @@ The choice depends on your constraints:
 
 ### Common Pitfalls to Avoid
 
-- **Reward model quality**: Online DPO is only as good as your reward model. If the reward model has blind spots, online DPO will exploit them — this is a form of Goodhart's law. Best practice: use an ensemble of reward models.
+- **Reward model quality**: Online DPO is only as good as your reward model. If the reward model has blind spots, online DPO will exploit them -- this is a form of Goodhart's law. Best practice: use an ensemble of reward models.
 - **KL divergence explosion**: Without proper beta tuning, the policy can drift too far from the reference model. Monitor KL divergence and increase beta if it exceeds 10-15 nats.
 - **Temperature too low**: Setting temperature below 0.5 during generation produces near-identical candidates, making rejection sampling useless. Although low temperature gives higher individual quality, you need diversity for meaningful preference pairs.
 - **Not refreshing the reference model**: In iterative online DPO, the reference model should be the initial SFT model, not the previous iteration. Using a moving reference creates a compounding drift.
@@ -919,20 +919,20 @@ The choice depends on your constraints:
 ### Key Takeaways
 
 - **Online DPO eliminates distribution shift** by generating preference data from the current policy, producing models that generalize 15-25% better than offline DPO on out-of-distribution inputs
-- **Rejection sampling with margin filtering** is essential for data quality — keep only pairs where the reward gap exceeds a threshold (typically 0.3-0.5)
+- **Rejection sampling with margin filtering** is essential for data quality -- keep only pairs where the reward gap exceeds a threshold (typically 0.3-0.5)
 - **Temperature annealing** (1.0 to 0.7 over iterations) balances exploration and exploitation, avoiding both local optima and wasted compute
 - **The hybrid approach** (offline DPO first, then online iterations) provides the best cost-quality tradeoff for most production scenarios
 - **Monitor KL divergence** carefully and use reward model ensembles to prevent Goodhart's law exploitation in the online setting
-"""
+'''
     ),
     (
         "reward model training from preference data alignment",
-        "Explain how to train a reward model from human preference data for RLHF alignment — covering the Bradley-Terry preference model, calibration techniques, over-optimization and Goodhart's law, ensemble reward models, and a complete code implementation in PyTorch. Include best practices for production reward model training, common pitfalls, and how to diagnose reward model failures.",
-        """## Reward Model Training: The Backbone of RLHF Alignment
+        "Explain how to train a reward model from human preference data for RLHF alignment -- covering the Bradley-Terry preference model, calibration techniques, over-optimization and Goodhart's law, ensemble reward models, and a complete code implementation in PyTorch. Include best practices for production reward model training, common pitfalls, and how to diagnose reward model failures.",
+        '''## Reward Model Training: The Backbone of RLHF Alignment
 
 ### Why Reward Models Matter
 
-The reward model (RM) is the most critical component in the RLHF pipeline, yet it receives the least attention. A flawed reward model does not just produce mediocre alignment — it actively teaches the policy model to exploit weaknesses, producing outputs that score high on the reward signal but are actually worse by human judgment. This is **Goodhart's law** applied to AI alignment: "When a measure becomes a target, it ceases to be a good measure."
+The reward model (RM) is the most critical component in the RLHF pipeline, yet it receives the least attention. A flawed reward model does not just produce mediocre alignment -- it actively teaches the policy model to exploit weaknesses, producing outputs that score high on the reward signal but are actually worse by human judgment. This is **Goodhart's law** applied to AI alignment: "When a measure becomes a target, it ceases to be a good measure."
 
 Training a robust reward model requires understanding the mathematical foundations, calibration challenges, and failure modes. Because every dollar spent on reward model quality multiplies through the entire alignment pipeline, getting this right is the highest-leverage investment in RLHF.
 
@@ -1027,7 +1027,7 @@ class RewardModel(nn.Module):
         Compute scalar reward for each sequence in the batch.
 
         Common mistake: using the [CLS] token position instead of the
-        last real token. For decoder-only models, there is no [CLS] —
+        last real token. For decoder-only models, there is no [CLS] --
         use the last non-padding token instead.
         """
         outputs = self.backbone(
@@ -1103,7 +1103,7 @@ def compute_reward_loss(
 
     The margin_target parameter adds a soft constraint that the reward
     difference between chosen and rejected should approximate a target
-    value. This helps with calibration — without it, rewards can drift
+    value. This helps with calibration -- without it, rewards can drift
     to arbitrary scale, which causes instability in downstream PPO.
     """
     device = next(model.parameters()).device
@@ -1121,7 +1121,7 @@ def compute_reward_loss(
 
     # Bradley-Terry loss (with optional label smoothing)
     if label_smoothing > 0:
-        # Smooth toward 50/50 — handles noisy human labels
+        # Smooth toward 50/50 -- handles noisy human labels
         target = torch.ones_like(reward_diff) * (1.0 - label_smoothing)
         bt_loss = F.binary_cross_entropy_with_logits(
             reward_diff, target
@@ -1173,7 +1173,7 @@ class RewardModelTrainer:
 
         Best practice: always hold out 10-20% of preference data for
         validation. The most dangerous failure mode is a reward model
-        that has high training accuracy but poor generalization — this
+        that has high training accuracy but poor generalization -- this
         leads to severe over-optimization during PPO.
         """
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -1304,7 +1304,7 @@ The most insidious problem in reward model training is **over-optimization**: th
 
 - The reward model is a **proxy** for human judgment, not a perfect measure
 - The policy optimizer (PPO) is powerful enough to find adversarial inputs that maximize the proxy while diverging from the true objective
-- Longer training amplifies this divergence — there is a sweet spot after which more RL training makes the model worse
+- Longer training amplifies this divergence -- there is a sweet spot after which more RL training makes the model worse
 
 Mitigation strategies include:
 
@@ -1316,20 +1316,20 @@ Mitigation strategies include:
 ### Key Takeaways
 
 - **The Bradley-Terry model** is the standard framework for reward modeling, converting pairwise preferences into scalar rewards through a logistic model with loss L = -log(sigmoid(r_chosen - r_rejected))
-- **Calibration is critical** — without magnitude regularization and margin targets, reward scores drift to arbitrary scales that destabilize downstream PPO training
+- **Calibration is critical** -- without magnitude regularization and margin targets, reward scores drift to arbitrary scales that destabilize downstream PPO training
 - **Goodhart's law is the primary failure mode**: the policy will exploit any weakness in the reward model, so use ensembles, KL penalties, and conservative reward estimation to mitigate
 - **Always hold out 10-20% of preference data** for validation, and monitor the train-val accuracy gap to detect overfitting early
 - **Common pitfalls include** using the wrong token position for reward extraction, neglecting label smoothing for noisy annotations, and training too many epochs on small preference datasets
-"""
+'''
     ),
     (
         "synthetic data generation alignment pipeline Evol-Instruct",
-        "Explain synthetic data generation for AI alignment in depth — covering Evol-Instruct, Self-Instruct, and WizardLM methodologies, quality filtering with LLM-as-judge, decontamination against benchmark leakage, and building a complete production-grade synthetic data pipeline. Include Python code implementations, practical advice on costs and scaling, and common pitfalls to avoid.",
-        """## Synthetic Data Generation for Alignment: Building Data Factories
+        "Explain synthetic data generation for AI alignment in depth -- covering Evol-Instruct, Self-Instruct, and WizardLM methodologies, quality filtering with LLM-as-judge, decontamination against benchmark leakage, and building a complete production-grade synthetic data pipeline. Include Python code implementations, practical advice on costs and scaling, and common pitfalls to avoid.",
+        '''## Synthetic Data Generation for Alignment: Building Data Factories
 
 ### Why Synthetic Data Is the Future of Alignment
 
-The alignment bottleneck is not algorithms — it is data. Human-generated preference data costs $2-10 per example, takes weeks to collect, and is inconsistent across annotators. Meanwhile, models like GPT-4 and Claude can generate thousands of high-quality instruction-response pairs per hour at $0.01-0.10 each. The quality gap between synthetic and human data has narrowed dramatically, and for many domains, **synthetic data now matches or exceeds human-written data quality**.
+The alignment bottleneck is not algorithms -- it is data. Human-generated preference data costs $2-10 per example, takes weeks to collect, and is inconsistent across annotators. Meanwhile, models like GPT-4 and Claude can generate thousands of high-quality instruction-response pairs per hour at $0.01-0.10 each. The quality gap between synthetic and human data has narrowed dramatically, and for many domains, **synthetic data now matches or exceeds human-written data quality**.
 
 Three methodologies dominate synthetic data generation for alignment: Self-Instruct (Wang et al., 2023), Evol-Instruct (Xu et al., 2023), and WizardLM's evolution framework. Each uses different strategies to generate diverse, high-quality instruction-following data. Understanding their trade-offs is essential for building production data pipelines.
 
@@ -1342,7 +1342,7 @@ Self-Instruct starts with a small seed set of human-written (instruction, respon
 3. **Instance generation**: The model produces input-output pairs for each instruction
 4. **Filtering**: Rouge-L overlap removes near-duplicates
 
-The key limitation is **diversity collapse** — after several generations, the model produces increasingly similar instructions. Evol-Instruct addresses this directly.
+The key limitation is **diversity collapse** -- after several generations, the model produces increasingly similar instructions. Evol-Instruct addresses this directly.
 
 ### Evol-Instruct: Controlled Complexity Evolution
 
@@ -1552,7 +1552,7 @@ class EvolInstructEngine:
 
 ### Quality Filtering with LLM-as-Judge
 
-Raw synthetic data contains noise — irrelevant responses, hallucinations, incomplete answers. **LLM-as-judge** filtering scores each pair and removes low-quality examples. This is the single most impactful step in the pipeline.
+Raw synthetic data contains noise -- irrelevant responses, hallucinations, incomplete answers. **LLM-as-judge** filtering scores each pair and removes low-quality examples. This is the single most impactful step in the pipeline.
 
 ```python
 class LLMJudge:
@@ -1616,7 +1616,7 @@ Return ONLY a JSON object: {{"score": <number>, "reason": "<brief explanation>"}
 
 ### Decontamination: Preventing Benchmark Leakage
 
-A critical but often neglected step is **decontamination** — ensuring your synthetic data does not contain examples from evaluation benchmarks. If training data overlaps with test sets (MMLU, HumanEval, GSM8K, etc.), your eval numbers are inflated and meaningless.
+A critical but often neglected step is **decontamination** -- ensuring your synthetic data does not contain examples from evaluation benchmarks. If training data overlaps with test sets (MMLU, HumanEval, GSM8K, etc.), your eval numbers are inflated and meaningless.
 
 ```python
 class Decontaminator:
@@ -1767,17 +1767,17 @@ For production synthetic data generation, the cost breakdown per 10K final pairs
 - **Judge scoring**: ~20K API calls at $0.03 each = $600
 - **Total**: ~$2,200 for 10K high-quality pairs
 
-Compare this to human annotation at $5 per pair: $50,000 for the same volume. Synthetic data is **20x cheaper** even when accounting for the quality filtering loss. However, the trade-off is ceiling quality — for safety-critical domains, human review of the filtered synthetic data is still a best practice.
+Compare this to human annotation at $5 per pair: $50,000 for the same volume. Synthetic data is **20x cheaper** even when accounting for the quality filtering loss. However, the trade-off is ceiling quality -- for safety-critical domains, human review of the filtered synthetic data is still a best practice.
 
 For throughput, the bottleneck is API rate limits. With async concurrency of 10-20 requests and a rate limit of 500 RPM, you can generate approximately 1,000 final pairs per hour. Scaling beyond this requires multiple API keys or self-hosted models.
 
 ### Key Takeaways
 
 - **Evol-Instruct systematically evolves** seed instructions along complexity dimensions (deepening, widening, concretizing, reasoning), producing a natural difficulty curriculum that Self-Instruct alone cannot achieve
-- **LLM-as-judge filtering** is the single highest-impact step — it typically removes 40-60% of generated pairs, and the quality threshold should be calibrated on a held-out human-evaluated set
+- **LLM-as-judge filtering** is the single highest-impact step -- it typically removes 40-60% of generated pairs, and the quality threshold should be calibrated on a held-out human-evaluated set
 - **Decontamination is non-negotiable** for any dataset used in evaluation-facing models; use n-gram overlap checking against all benchmarks you plan to evaluate on
 - **Cost is approximately $0.20-0.25 per final high-quality pair** using GPT-4 class models, which is 20x cheaper than human annotation at comparable quality
 - **Common pitfalls include** diversity collapse (mitigated by in-breadth evolution), benchmark contamination (mitigated by n-gram decontamination), and insufficient quality filtering (mitigated by setting the judge threshold above 7.0)
-"""
+'''
     ),
 ]

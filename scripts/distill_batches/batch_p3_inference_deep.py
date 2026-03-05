@@ -1,5 +1,5 @@
 """
-Batch P3 — Deep LLM Inference & Serving: PagedAttention, speculative decoding,
+Batch P3 -- Deep LLM Inference & Serving: PagedAttention, speculative decoding,
 quantization techniques, KV cache optimization, structured output generation.
 Each pair targets >0.80 quality score.
 """
@@ -13,7 +13,7 @@ PAIRS = [
         "memory waste reduction, and how it achieves 2-4x throughput improvement over "
         "naive serving implementations. Show a Python implementation of the core algorithm "
         "with proper error handling and testing.",
-        """\
+        '''\
 ## vLLM PagedAttention: Virtual Memory for KV Caches
 
 ### The Memory Problem in LLM Serving
@@ -30,7 +30,7 @@ In production, naive KV cache management achieves only **20-40% memory utilizati
 
 ### How PagedAttention Works
 
-PagedAttention applies the operating system concept of **virtual memory with paging** to KV cache management. Instead of allocating one contiguous block per request, it divides the KV cache into fixed-size **blocks** (typically 16 tokens each) and maps them through a **block table** — analogous to a page table in virtual memory.
+PagedAttention applies the operating system concept of **virtual memory with paging** to KV cache management. Instead of allocating one contiguous block per request, it divides the KV cache into fixed-size **blocks** (typically 16 tokens each) and maps them through a **block table** -- analogous to a page table in virtual memory.
 
 ```
 Naive approach:
@@ -51,7 +51,7 @@ Because blocks are non-contiguous, there is **zero external fragmentation**. Int
 
 ```python
 """
-PagedAttention KV cache manager — simplified implementation
+PagedAttention KV cache manager -- simplified implementation
 demonstrating the core block allocation and mapping logic.
 """
 import math
@@ -133,7 +133,7 @@ class BlockAllocator:
     def allocate(self) -> PhysicalBlock:
         \"\"\"Allocate a single physical block from the free list.\"\"\"
         if not self.free_blocks:
-            raise MemoryError("No free KV cache blocks available — OOM")
+            raise MemoryError("No free KV cache blocks available -- OOM")
         block_id = self.free_blocks.pop()
         block = self.blocks[block_id]
         block.ref_count = 1
@@ -356,12 +356,12 @@ def test_paged_kv_cache():
     fork_table = manager.fork_sequence(src_seq_id=0, dst_seq_id=1)
     assert fork_table.num_blocks == table.num_blocks + 2  # +2 from appended tokens
 
-    # Free original — shared blocks should NOT return to free pool yet
+    # Free original -- shared blocks should NOT return to free pool yet
     freed = manager.free_sequence(seq_id=0)
     stats = manager.get_utilization_stats()
     assert stats["active_sequences"] == 1  # fork still active
 
-    # Free fork — now all blocks return
+    # Free fork -- now all blocks return
     manager.free_sequence(seq_id=1)
     assert manager.allocator.num_free == initial_free
     print("All PagedAttention tests passed.")
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 - **Common mistake**: pre-allocating max-length contiguous buffers per request, which is the single biggest throughput killer in naive serving
 - **Best practice**: use block sizes of 16-32 tokens; smaller blocks waste memory on metadata, larger blocks increase internal fragmentation
 - The trade-off is a small indirection overhead (~1-3%) on each attention kernel, which is negligible compared to the throughput gain in production
-"""
+'''
     ),
 
     # --- 2. Speculative Decoding ---
@@ -389,7 +389,7 @@ if __name__ == "__main__":
         "Cover the acceptance/rejection verification mechanism, how to choose draft model size, "
         "implementation with Hugging Face transformers pipeline, and analyze when speculative "
         "decoding helps versus hurts latency. Include working Python code with error handling.",
-        """\
+        '''\
 ## Speculative Decoding: Trading Cheap Tokens for Faster Inference
 
 ### Why Autoregressive Decoding Is Slow
@@ -402,8 +402,8 @@ Speculative decoding exploits this insight: if we can **verify multiple tokens i
 
 The idea is deceptively simple:
 
-1. A small **draft model** (e.g., 1B parameters) generates K candidate tokens autoregressively — this is fast because the draft model is small
-2. The large **target model** runs a single forward pass on all K candidates simultaneously — this is efficient because parallel verification is compute-bound
+1. A small **draft model** (e.g., 1B parameters) generates K candidate tokens autoregressively -- this is fast because the draft model is small
+2. The large **target model** runs a single forward pass on all K candidates simultaneously -- this is efficient because parallel verification is compute-bound
 3. We **accept** draft tokens that the target model agrees with (up to the first rejection point) and **reject** the rest
 4. We always get at least 1 token per target model call (the correction token), and on average get 2-4 tokens
 
@@ -416,7 +416,7 @@ Speedup:                ~4x fewer target model forward passes
 
 ### Mathematical Foundation
 
-The acceptance probability for token $i$ is based on comparing the draft and target distributions. Given draft distribution $q(x)$ and target distribution $p(x)$, token $x$ sampled from $q$ is accepted with probability $\min(1, p(x)/q(x))$. This is a modified rejection sampling scheme that **provably produces the exact same distribution** as sampling directly from the target model — there is zero quality loss.
+The acceptance probability for token $i$ is based on comparing the draft and target distributions. Given draft distribution $q(x)$ and target distribution $p(x)$, token $x$ sampled from $q$ is accepted with probability $\min(1, p(x)/q(x))$. This is a modified rejection sampling scheme that **provably produces the exact same distribution** as sampling directly from the target model -- there is zero quality loss.
 
 ```python
 """
@@ -489,7 +489,7 @@ class SpeculativeDecoder:
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
                 torch.cuda.empty_cache()
-                logger.error("OOM during forward pass — try reducing batch or sequence length")
+                logger.error("OOM during forward pass -- try reducing batch or sequence length")
             raise
 
     @torch.no_grad()
@@ -555,7 +555,7 @@ class SpeculativeDecoder:
                 accepted.append(correction)
                 return accepted, i  # stop at first rejection
 
-        # All K tokens accepted — bonus: sample one more from target
+        # All K tokens accepted -- bonus: sample one more from target
         final_probs = F.softmax(
             target_logits[K] / max(temperature, 1e-8), dim=-1
         )
@@ -646,7 +646,7 @@ The trade-off in draft model selection is critical: a larger draft model has a h
 | 1/10 (7B / 70B)     | 70-85%                 | 2.5-3.5x          |
 | 1/4 (7B / 30B)      | 75-90%                 | 1.5-2.0x           |
 
-A common mistake is choosing a draft model from a completely different model family. Because acceptance depends on distribution alignment, a Llama-1B draft for a Llama-70B target will accept far more tokens than a GPT2-small draft for the same target, even though GPT2-small is smaller. The **best practice** is to use a model from the same family — ideally a distilled or pruned version of the target.
+A common mistake is choosing a draft model from a completely different model family. Because acceptance depends on distribution alignment, a Llama-1B draft for a Llama-70B target will accept far more tokens than a GPT2-small draft for the same target, even though GPT2-small is smaller. The **best practice** is to use a model from the same family -- ideally a distilled or pruned version of the target.
 
 ### When Speculative Decoding Helps vs. Hurts
 
@@ -696,14 +696,14 @@ if __name__ == "__main__":
 
 ### Key Takeaways
 
-- **Speculative decoding produces the exact same output distribution** as standard decoding — it is a pure latency optimization with zero quality loss
+- **Speculative decoding produces the exact same output distribution** as standard decoding -- it is a pure latency optimization with zero quality loss
 - The core mechanism is **draft-then-verify**: a small model proposes K tokens, the large model checks them all in one parallel forward pass
 - Acceptance rate depends on how well the draft and target distributions align; consequently, **same-family draft models** outperform cross-family ones
 - The best practice is to use K=4-8 speculative tokens with a draft model that is 5-10x smaller than the target
-- Common pitfall: applying speculative decoding when the target model is already compute-bound (high batch sizes) — the overhead of the draft model adds latency instead of saving it
+- Common pitfall: applying speculative decoding when the target model is already compute-bound (high batch sizes) -- the overhead of the draft model adds latency instead of saving it
 - In production, monitor the acceptance rate and dynamically adjust K: if acceptance drops below 40%, reduce K or switch to standard decoding
 - The performance sweet spot is **large models (70B+) with low temperature on long-form generation**, where 2-3x latency reduction is typical
-"""
+'''
     ),
 
     # --- 3. Quantization Techniques Deep Dive ---
@@ -714,12 +714,12 @@ if __name__ == "__main__":
         "Explain calibration data importance, mixed-precision strategies, and compare quality "
         "loss across methods. Include Python code for implementing quantization with proper "
         "error handling, type hints, and evaluation methodology.",
-        """\
+        '''\
 ## LLM Quantization Deep Dive: GPTQ, AWQ, and GGUF K-Quants
 
 ### Why Quantization Matters for Inference
 
-A 70B parameter model in FP16 requires **140 GB** of memory — more than two A100-80GB GPUs. Quantization reduces this by representing weights with fewer bits. At 4-bit quantization, the same model fits in **~35 GB**, running on a single GPU. However, not all 4-bit quantization methods are equal. The difference between a naive round-to-nearest 4-bit and a sophisticated method like GPTQ can be the difference between unusable garbage and near-FP16 quality.
+A 70B parameter model in FP16 requires **140 GB** of memory -- more than two A100-80GB GPUs. Quantization reduces this by representing weights with fewer bits. At 4-bit quantization, the same model fits in **~35 GB**, running on a single GPU. However, not all 4-bit quantization methods are equal. The difference between a naive round-to-nearest 4-bit and a sophisticated method like GPTQ can be the difference between unusable garbage and near-FP16 quality.
 
 ### GPTQ: Layer-Wise Optimal Quantization
 
@@ -732,7 +732,7 @@ The algorithm processes the weight matrix **one column at a time**:
 3. Distribute the error across all remaining columns (j+1 to N) using the inverse Hessian
 4. Move to column $j+1$
 
-This requires the **Hessian matrix** $H = X^T X$ where $X$ is the layer's input activations on calibration data. The Hessian captures which weights are most sensitive — consequently, errors on insensitive weights are distributed to avoid perturbing sensitive ones.
+This requires the **Hessian matrix** $H = X^T X$ where $X$ is the layer's input activations on calibration data. The Hessian captures which weights are most sensitive -- consequently, errors on insensitive weights are distributed to avoid perturbing sensitive ones.
 
 ```python
 """
@@ -881,7 +881,7 @@ def gptq_quantize_layer(
 
 ### AWQ: Activation-Aware Weight Quantization
 
-AWQ takes a different approach than GPTQ. Instead of compensating for errors post-quantization, AWQ **scales important weights up before quantization** so that rounding errors affect them less. The insight is that only ~1% of weights are "salient" — they correspond to channels with large activation magnitudes. Quantization errors on these weights cause disproportionate output degradation.
+AWQ takes a different approach than GPTQ. Instead of compensating for errors post-quantization, AWQ **scales important weights up before quantization** so that rounding errors affect them less. The insight is that only ~1% of weights are "salient" -- they correspond to channels with large activation magnitudes. Quantization errors on these weights cause disproportionate output degradation.
 
 ```python
 def awq_find_salient_channels(
@@ -961,9 +961,9 @@ GGUF (GPT-Generated Unified Format) used by llama.cpp implements **mixed-precisi
 - **Q4_K_M** (recommended default): 4.5 bits/weight average. Uses 4-bit with 6-bit scales. Excellent quality-to-size ratio
 - **Q5_K_M**: 5.5 bits/weight. Nearly indistinguishable from FP16 for most tasks
 - **Q3_K_M**: 3.5 bits/weight. Noticeable quality loss on reasoning tasks, but acceptable for creative writing
-- **Q2_K**: 2.6 bits/weight. Significant degradation — only suitable for very large models (70B+) where the per-parameter loss is offset by having more parameters
+- **Q2_K**: 2.6 bits/weight. Significant degradation -- only suitable for very large models (70B+) where the per-parameter loss is offset by having more parameters
 
-The "K" in K-quant stands for the importance-aware allocation: within each block, more important weights get more bits. The "M" suffix means "medium" — a balance between the "S" (small/aggressive) and "L" (large/conservative) variants.
+The "K" in K-quant stands for the importance-aware allocation: within each block, more important weights get more bits. The "M" suffix means "medium" -- a balance between the "S" (small/aggressive) and "L" (large/conservative) variants.
 
 ### Calibration Data: The Hidden Quality Factor
 
@@ -973,7 +973,7 @@ A common pitfall in quantization is using poor calibration data. The calibration
 - Use 128-512 samples from a diverse dataset (e.g., C4, WikiText, or your production data)
 - Match the sequence length to your deployment use case
 - **Avoid** using the evaluation dataset for calibration (data leakage)
-- For domain-specific models, calibrate on domain data — a coding model calibrated on code will quantize better than one calibrated on Wikipedia
+- For domain-specific models, calibrate on domain data -- a coding model calibrated on code will quantize better than one calibrated on Wikipedia
 
 ```python
 def compare_quantization_methods(
@@ -1055,11 +1055,11 @@ if __name__ == "__main__":
 
 - **GPTQ uses the inverse Hessian** to optimally redistribute quantization errors across weights, achieving near-FP16 quality at 4-bit; however, it requires 1-4 hours of calibration compute
 - **AWQ identifies and protects the ~1% of salient channels** (those with large activations), which is simpler than GPTQ but equally effective, and often better at 3-bit and below
-- **GGUF K-quants use mixed-precision block quantization** where important weights within each 256-weight block receive more bits — the Q4_K_M type is the best practice for most deployments
+- **GGUF K-quants use mixed-precision block quantization** where important weights within each 256-weight block receive more bits -- the Q4_K_M type is the best practice for most deployments
 - **Calibration data quality is a hidden bottleneck**: using domain-matched calibration data reduces perplexity degradation by 20-40% compared to random data
-- Common mistake: evaluating quantized models only on perplexity. Production quality depends on task-specific metrics — a model with slightly worse perplexity may perform better on your specific use case
+- Common mistake: evaluating quantized models only on perplexity. Production quality depends on task-specific metrics -- a model with slightly worse perplexity may perform better on your specific use case
 - The trade-off between GPTQ and AWQ is calibration time versus extreme-low-bit quality: for 4-bit, both are excellent; for 2-3 bit, AWQ typically wins
-"""
+'''
     ),
 
     # --- 4. KV Cache Optimization ---
@@ -1070,7 +1070,7 @@ if __name__ == "__main__":
         "sliding window attention. Show the memory math for each approach, implement these "
         "optimizations in Python with type annotations and error handling, and compare their "
         "production trade-offs.",
-        """\
+        '''\
 ## KV Cache Optimization: Making Inference Memory-Efficient
 
 ### The KV Cache Memory Problem
@@ -1086,7 +1086,7 @@ For Llama-2-70B (80 layers, 64 heads, 128 head_dim, FP16):
 = 2 * 80 * 64 * 128 * 2 = 2,621,440 bytes = 2.5 MB per token
 ```
 
-At a 4096-token context, that is **10 GB per request**. Serving 8 concurrent requests requires **80 GB** just for KV cache — already exceeding a single A100's memory. This is why KV cache optimization is the single most important factor in inference throughput.
+At a 4096-token context, that is **10 GB per request**. Serving 8 concurrent requests requires **80 GB** just for KV cache -- already exceeding a single A100's memory. This is why KV cache optimization is the single most important factor in inference throughput.
 
 ### Multi-Query Attention (MQA) vs Grouped-Query Attention (GQA)
 
@@ -1198,7 +1198,7 @@ class SlidingWindowKVCache:
     window. However, because transformer layers are stacked, information
     from early tokens propagates through intermediate representations.
     With a 4096-token window and 32 layers, effective context is much
-    larger than 4096 tokens — although long-range retrieval degrades.
+    larger than 4096 tokens -- although long-range retrieval degrades.
     \"\"\"
 
     def __init__(
@@ -1243,7 +1243,7 @@ class SlidingWindowKVCache:
                 self.k_cache[layer_idx, :, :effective_len, :],
                 self.v_cache[layer_idx, :, :effective_len, :],
             )
-        # Full window — return in correct order (oldest first)
+        # Full window -- return in correct order (oldest first)
         start = self.position % self.window_size
         indices = [(start + i) % self.window_size for i in range(self.window_size)]
         return (
@@ -1330,7 +1330,7 @@ class KVCacheCompressor:
 
     Research shows that KV cache can be quantized to INT4 or even INT2
     with minimal quality loss because attention weights are concentrated
-    on a few key tokens — the long tail of low-attention tokens tolerates
+    on a few key tokens -- the long tail of low-attention tokens tolerates
     heavy quantization.
     \"\"\"
 
@@ -1438,13 +1438,13 @@ if __name__ == "__main__":
 
 ### Key Takeaways
 
-- **KV cache is the primary memory bottleneck** in LLM serving — for a 70B model, it consumes 2.5 MB per token per request, which is why capacity planning math is essential
+- **KV cache is the primary memory bottleneck** in LLM serving -- for a 70B model, it consumes 2.5 MB per token per request, which is why capacity planning math is essential
 - **GQA is the current best practice**: sharing KV heads across query head groups gives 4-8x memory reduction with <0.1 perplexity loss. MQA pushes further but risks quality degradation on attention-heavy tasks
-- **Sliding window attention** caps memory at O(window_size) instead of O(seq_len), although the trade-off is losing direct attention to early tokens — information must propagate through layer stacking
+- **Sliding window attention** caps memory at O(window_size) instead of O(seq_len), although the trade-off is losing direct attention to early tokens -- information must propagate through layer stacking
 - **Prefix caching** is a production must-have: when 90% of requests share a system prompt, you avoid recomputing its KV cache on every request, cutting first-token latency by 40-60%
-- **KV cache compression** (INT4/INT2) provides an additional 2-4x reduction because attention is concentrated on a few key tokens — the long tail of low-importance tokens tolerates aggressive quantization
+- **KV cache compression** (INT4/INT2) provides an additional 2-4x reduction because attention is concentrated on a few key tokens -- the long tail of low-importance tokens tolerates aggressive quantization
 - Common pitfall: optimizing only one dimension. The best production systems combine GQA + prefix caching + sliding window + KV compression for maximum throughput per GPU dollar
-"""
+'''
     ),
 
     # --- 5. Structured Output Generation ---
@@ -1455,7 +1455,7 @@ if __name__ == "__main__":
         "implementation, regex-constrained decoding, and practical usage of the outlines "
         "and guidance libraries. Include working Python implementations with error handling, "
         "type annotations, and testing code.",
-        """\
+        '''\
 ## Structured Output Generation: Guaranteed Valid LLM Output
 
 ### Why Prompting Is Not Enough
@@ -1465,7 +1465,7 @@ Asking an LLM to "respond in valid JSON" works 90-95% of the time. For a demo, t
 - The model's probability distribution includes tokens that break the format
 - Temperature and sampling randomness can select low-probability format-breaking tokens
 - Long outputs accumulate small probability deviations until structure breaks down
-- Different models have different format adherence rates — consequently, swapping models breaks your pipeline
+- Different models have different format adherence rates -- consequently, swapping models breaks your pipeline
 
 **Constrained decoding** solves this by modifying the token sampling process itself: at each step, only tokens that maintain valid structure receive non-zero probability. The model literally cannot produce invalid output.
 
@@ -1772,7 +1772,7 @@ class GBNFGrammar:
 
     GBNF (GGML BNF) is a variant of BNF notation that llama.cpp uses
     for grammar-guided generation. It supports character classes,
-    repetition, and alternation — powerful enough to express JSON
+    repetition, and alternation -- powerful enough to express JSON
     schemas, SQL queries, function call formats, and more.
 
     Example GBNF for JSON:
@@ -1803,7 +1803,7 @@ class GBNFGrammar:
     def validate_token(self, token: str, rule_name: str, position: int) -> bool:
         \"\"\"
         Check if a token is valid at the given position in a rule.
-        This is a simplified check — production implementations use
+        This is a simplified check -- production implementations use
         pre-compiled state machines for efficiency.
         \"\"\"
         if rule_name not in self.rules:
@@ -1988,7 +1988,7 @@ def test_structured_output():
     # Test constrained generation simulation
     vocab = {0: "{", 1: "}", 2: '"', 3: "a", 4: ":", 5: " ", 6: "1"}
     test_fsm = JSONFiniteStateMachine()
-    # Simulate 1 step — only '{' and '[' should be valid at START
+    # Simulate 1 step -- only '{' and '[' should be valid at START
     valid = TokenMaskGenerator(vocabulary=vocab).get_valid_token_ids(test_fsm)
     assert 0 in valid, "Token '{' should be valid at START state"
     assert 1 not in valid, "Token '}' should NOT be valid at START state"
@@ -2017,21 +2017,21 @@ The trade-off between the two: outlines is better for simple schemas and high-th
 
 Constrained decoding adds overhead at each token generation step:
 
-- **FSM/DFA transition**: O(1) per token — negligible
-- **Token masking**: O(V) where V is vocabulary size — typically 32K-128K operations. This takes 0.1-1ms, which is 1-5% of a typical token generation time
+- **FSM/DFA transition**: O(1) per token -- negligible
+- **Token masking**: O(V) where V is vocabulary size -- typically 32K-128K operations. This takes 0.1-1ms, which is 1-5% of a typical token generation time
 - **Index building** (one-time): building the char-to-token index takes 10-100ms at startup
 
 A common pitfall is applying character-level constraints to a byte-pair-encoded vocabulary without accounting for multi-character tokens. A token like `"true"` (4 characters as one token) must be validated by simulating all 4 FSM transitions, not just checking the first character. Libraries like outlines handle this correctly; naive implementations often do not.
 
 ### Key Takeaways
 
-- **Constrained decoding guarantees valid output** by masking invalid tokens at sampling time — the model can only generate structurally correct text, with zero quality loss on content
+- **Constrained decoding guarantees valid output** by masking invalid tokens at sampling time -- the model can only generate structurally correct text, with zero quality loss on content
 - **FSM-based approaches** convert output schemas into state machines; at each step, only tokens that advance the FSM to a valid state receive non-zero probability
 - **Regex-to-DFA compilation** (used by outlines) is the most efficient approach: O(1) state transitions, pre-computed token masks, and microsecond-level overhead per token
 - **GBNF grammars** (used by llama.cpp) express constraints in a BNF-like notation, supporting complex nested structures including recursive patterns
 - **Best practice**: use outlines for JSON/regex constraints in Python serving, GBNF for llama.cpp deployments, and guidance for complex multi-step outputs
-- Common mistake: implementing character-level constraints without handling multi-character BPE tokens — always validate entire tokens against the constraint automaton
+- Common mistake: implementing character-level constraints without handling multi-character BPE tokens -- always validate entire tokens against the constraint automaton
 - The trade-off is minimal: 1-5% overhead per token for 100% structural validity, which eliminates retry loops and parsing failures in production
-"""
+'''
     ),
 ]

@@ -1,5 +1,5 @@
 """
-Batch P4 — Microservices: service mesh, API gateway, service discovery,
+Batch P4 -- Microservices: service mesh, API gateway, service discovery,
 distributed tracing, resilience patterns.
 Each pair targets >0.80 quality score.
 """
@@ -8,18 +8,18 @@ PAIRS = [
     # --- 1. Service Mesh with Istio/Envoy ---
     (
         "service_mesh_istio_envoy",
-        "Explain the service mesh architecture with Istio and Envoy sidecar proxies — how the "
+        "Explain the service mesh architecture with Istio and Envoy sidecar proxies -- how the "
         "data plane and control plane work together, mTLS certificate rotation, traffic management "
         "with VirtualService and DestinationRule, circuit breaking configuration, and canary "
         "deployments with weight-based routing. Include complete YAML manifests and debugging strategies.",
-        r"""
+        '''
 # Service Mesh with Istio and Envoy: Complete Production Guide
 
 ## Why Service Meshes Exist
 
 In a microservices architecture with hundreds of services, every service needs **mutual TLS**,
 **retries**, **circuit breaking**, **observability**, and **traffic management**. Implementing
-these cross-cutting concerns inside each application is a **common mistake** — it couples
+these cross-cutting concerns inside each application is a **common mistake** -- it couples
 infrastructure logic to business code, duplicates effort across languages, and creates
 inconsistency. A service mesh solves this by moving networking concerns into the infrastructure
 layer.
@@ -37,8 +37,8 @@ security and observability layer regardless of the application language or frame
 │  │  Container    │◀───│  (iptables redirect)│◀── Network│
 │  └──────────────┘    └──────────────────┘              │
 │                                                         │
-│  Traffic flow: App → localhost:port → iptables →        │
-│  Envoy (15001) → upstream Envoy → upstream App          │
+│  Traffic flow: App -> localhost:port -> iptables ->        │
+│  Envoy (15001) -> upstream Envoy -> upstream App          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -49,7 +49,7 @@ Istio separates into two distinct layers:
 **Data Plane (Envoy proxies):** The fleet of sidecar proxies that intercept all traffic.
 Each Envoy instance handles connection pooling, load balancing, health checking, TLS
 termination, and telemetry collection. Because Envoy is written in C++ and uses an
-event-driven architecture, it adds **less than 1ms p99 latency** per hop — a trade-off
+event-driven architecture, it adds **less than 1ms p99 latency** per hop -- a trade-off
 that is almost always worth the observability and security gains.
 
 **Control Plane (istiod):** A single binary that combines Pilot (traffic management),
@@ -69,11 +69,11 @@ spec:
     # Enable access logging for debugging
     accessLogFile: /dev/stdout
     accessLogEncoding: JSON
-    # Strict mTLS — reject plaintext connections
+    # Strict mTLS -- reject plaintext connections
     defaultConfig:
       holdApplicationUntilProxyStarts: true  # Prevent race conditions
     enableAutoMtls: true
-    # Outbound traffic policy — REGISTRY_ONLY blocks unknown external calls
+    # Outbound traffic policy -- REGISTRY_ONLY blocks unknown external calls
     outboundTrafficPolicy:
       mode: REGISTRY_ONLY
   components:
@@ -108,7 +108,7 @@ spec:
 ## mTLS and Certificate Rotation
 
 Istio's **Citadel** (now part of istiod) acts as a Certificate Authority. It issues SPIFFE
-identity certificates to each workload, enabling **zero-trust networking** — every connection
+identity certificates to each workload, enabling **zero-trust networking** -- every connection
 is authenticated and encrypted. This is therefore one of the strongest arguments for a
 service mesh, because it eliminates an entire class of lateral-movement attacks.
 
@@ -232,11 +232,11 @@ spec:
 ## Canary Deployment Workflow
 
 A production canary deployment with Istio follows a **progressive delivery** pattern.
-The trade-off here is between deployment speed and risk mitigation — you want to catch
+The trade-off here is between deployment speed and risk mitigation -- you want to catch
 regressions early without slowing down releases excessively.
 
 ```yaml
-# Progressive canary: 5% → 25% → 50% → 100%
+# Progressive canary: 5% -> 25% -> 50% -> 100%
 # Step 1: Initial canary at 5%
 apiVersion: networking.istio.io/v1beta1
 kind: VirtualService
@@ -277,7 +277,7 @@ spec:
 #   sum(rate(istio_requests_total{
 #     destination_service="payment-service.production.svc.cluster.local",
 #     destination_version="v2"
-#   }[5m])) < 0.01  # Less than 1% error rate → safe to promote
+#   }[5m])) < 0.01  # Less than 1% error rate -> safe to promote
 ```
 
 ## Debugging Service Mesh Issues
@@ -307,32 +307,32 @@ kubectl logs <pod> -c istio-proxy -f
 ## Summary and Key Takeaways
 
 - **Best practice**: Start with `PERMISSIVE` mTLS during migration, then switch to `STRICT`
-  once all services have sidecars — this avoids breaking existing plaintext communication.
+  once all services have sidecars -- this avoids breaking existing plaintext communication.
 - The **sidecar proxy pattern** moves cross-cutting concerns out of application code, however
   it adds operational complexity. You need to understand Envoy internals for debugging.
 - **Circuit breaking** via `outlierDetection` prevents cascading failures, but setting
   `maxEjectionPercent` too high can cause all instances to be ejected during widespread issues.
 - **Canary deployments** with weight-based routing give precise control, therefore reducing
   blast radius. Automate promotion decisions with error-rate metrics from Prometheus.
-- A **pitfall** of service meshes is sidecar resource consumption — each Envoy proxy uses
+- A **pitfall** of service meshes is sidecar resource consumption -- each Envoy proxy uses
   50-100MB of memory. For clusters with thousands of pods, consider ambient mesh (sidecar-less)
   mode introduced in Istio 1.18+.
 - Always set `holdApplicationUntilProxyStarts: true` to prevent application startup race
   conditions where the app tries to make network calls before Envoy is ready.
 - For **observability**, enable access logging in JSON format and integrate with Prometheus
-  for metrics collection — Envoy exposes detailed upstream and downstream connection metrics
+  for metrics collection -- Envoy exposes detailed upstream and downstream connection metrics
   that are invaluable for capacity planning and incident response.
-"""
+'''
     ),
 
     # --- 2. API Gateway Patterns ---
     (
         "api_gateway_patterns_go",
-        "Design and implement a production API gateway in Go with middleware chaining — covering "
+        "Design and implement a production API gateway in Go with middleware chaining -- covering "
         "rate limiting with token bucket and sliding window algorithms, JWT authentication with "
         "RBAC, request/response transformation, circuit breaking, request logging, and graceful "
         "shutdown. Show the complete implementation with proper error handling and unit tests.",
-        r"""
+        '''
 # API Gateway Patterns: Complete Production Implementation in Go
 
 ## Why Build a Custom API Gateway?
@@ -343,13 +343,13 @@ routing logic**, **custom authentication flows**, or **tight integration** with 
 service discovery. The trade-off is increased maintenance burden versus complete control
 over behavior and performance.
 
-A **best practice** is to structure the gateway as a **middleware chain** — each concern
+A **best practice** is to structure the gateway as a **middleware chain** -- each concern
 (auth, rate limiting, logging, circuit breaking) is an independent middleware that wraps
 the next handler. This follows the decorator pattern and makes each piece independently
 testable.
 
 ```
-Request → RateLimit → Auth → CircuitBreaker → Transform → Proxy → Response
+Request -> RateLimit -> Auth -> CircuitBreaker -> Transform -> Proxy -> Response
               ↓          ↓          ↓              ↓          ↓
            429 Too    401/403    503 Open       Modified    Backend
             Many    Unauthorized  Circuit       Request     Response
@@ -358,7 +358,7 @@ Request → RateLimit → Auth → CircuitBreaker → Transform → Proxy → Re
 ## Core Gateway Framework with Middleware Chain
 
 ```go
-// gateway.go — Core framework with middleware chaining
+// gateway.go -- Core framework with middleware chaining
 package gateway
 
 import (
@@ -376,7 +376,7 @@ import (
 )
 
 // Middleware is a function that wraps an http.Handler.
-// This is the fundamental building block — every cross-cutting
+// This is the fundamental building block -- every cross-cutting
 // concern implements this signature.
 type Middleware func(http.Handler) http.Handler
 
@@ -461,17 +461,17 @@ func (g *Gateway) ListenAndServe() error {
 }
 ```
 
-## Rate Limiting Middleware — Token Bucket per Client
+## Rate Limiting Middleware -- Token Bucket per Client
 
 Rate limiting is essential for protecting backends from abuse. The **token bucket**
 algorithm provides smooth rate limiting with burst support. A **common mistake** is
-implementing rate limiting per-server instead of using a distributed store — this
+implementing rate limiting per-server instead of using a distributed store -- this
 means a client can multiply their limit by the number of gateway instances. However,
 for many workloads, per-instance limiting is an acceptable trade-off that avoids Redis
 dependency.
 
 ```go
-// ratelimit.go — Token bucket rate limiter with per-client tracking
+// ratelimit.go -- Token bucket rate limiter with per-client tracking
 package gateway
 
 import (
@@ -535,7 +535,7 @@ func NewRateLimiterStore(maxTokens, refillRate float64) *RateLimiterStore {
 		maxTokens:  maxTokens,
 		refillRate: refillRate,
 	}
-	// Periodic cleanup of stale buckets to prevent memory leaks —
+	// Periodic cleanup of stale buckets to prevent memory leaks --
 	// this is a pitfall that many implementations miss.
 	go store.cleanup()
 	return store
@@ -614,7 +614,7 @@ func extractClientIP(r *http.Request) string {
 ## JWT Authentication Middleware with RBAC
 
 ```go
-// auth.go — JWT validation with role-based access control
+// auth.go -- JWT validation with role-based access control
 package gateway
 
 import (
@@ -659,7 +659,7 @@ type AuthConfig struct {
 
 // AuthMiddleware creates JWT authentication middleware with RBAC.
 // A common mistake is validating only the signature without checking
-// expiration, issuer, and audience — all three are essential.
+// expiration, issuer, and audience -- all three are essential.
 func AuthMiddleware(cfg AuthConfig) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -740,7 +740,7 @@ func checkPermission(r *http.Request, claims *Claims, perms []RoutePermission) b
 		}
 		return false // Matched route but no role
 	}
-	return true // No permission rule matched — allow by default
+	return true // No permission rule matched -- allow by default
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -753,7 +753,7 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 ## Circuit Breaker Middleware
 
 ```go
-// circuitbreaker.go — Per-backend circuit breaker
+// circuitbreaker.go -- Per-backend circuit breaker
 package gateway
 
 import (
@@ -902,7 +902,7 @@ func TestTokenBucket_AllowAndRefill(t *testing.T) {
 	// Should allow first two requests (burst capacity)
 	if !tb.Allow() { t.Fatal("expected first request allowed") }
 	if !tb.Allow() { t.Fatal("expected second request allowed") }
-	// Third should be rejected — bucket empty
+	// Third should be rejected -- bucket empty
 	if tb.Allow() { t.Fatal("expected third request rejected") }
 
 	// Wait for refill
@@ -926,7 +926,7 @@ func TestCircuitBreaker_TripsAndRecovers(t *testing.T) {
 	if !cb.Allow() { t.Fatal("should allow in half-open") }
 
 	cb.RecordSuccess()
-	cb.RecordSuccess() // halfOpenMax reached → closed
+	cb.RecordSuccess() // halfOpenMax reached -> closed
 	if !cb.Allow() { t.Fatal("should be closed after recovery") }
 }
 
@@ -960,34 +960,34 @@ func TestRateLimitMiddleware_RejectsExcess(t *testing.T) {
 - **Middleware chaining** is the **best practice** for API gateways because it separates
   concerns, enables independent testing, and allows flexible composition per route group.
 - **Token bucket** rate limiting provides smooth rate enforcement with burst support. However,
-  per-instance limiters multiply the effective limit by the number of gateway replicas —
+  per-instance limiters multiply the effective limit by the number of gateway replicas --
   therefore use Redis-backed distributed counting for strict limits.
 - **JWT authentication** must validate signature, expiration, issuer, AND audience. A
   **common mistake** is skipping audience validation, which allows tokens intended for other
   services to be accepted.
 - **Circuit breakers** prevent cascading failures by fast-failing when a backend is unhealthy.
   The trade-off is between sensitivity (low threshold) and stability (avoiding flapping).
-- **Graceful shutdown** is critical — without it, in-flight requests get killed during
+- **Graceful shutdown** is critical -- without it, in-flight requests get killed during
   deployments, causing user-visible errors. Always handle SIGTERM with a shutdown deadline.
 - A **pitfall** with reverse proxies is not setting appropriate timeouts. Without read/write
   timeouts, a slow client can hold connections indefinitely, exhausting gateway resources.
-"""
+'''
     ),
 
     # --- 3. Service Discovery and Health Checking ---
     (
         "service_discovery_health_checking",
-        "Explain service discovery in microservices using Consul and etcd — client-side versus "
+        "Explain service discovery in microservices using Consul and etcd -- client-side versus "
         "server-side discovery, service registration with automatic deregistration, health check "
         "strategies including TCP/HTTP/gRPC checks, graceful degradation when the registry is "
         "unavailable, and DNS-based discovery. Show a complete Go implementation with automatic "
         "registration, health checking, and load-balanced client with fallback.",
-        r"""
+        '''
 # Service Discovery and Health Checking: Building Reliable Microservices
 
 ## The Service Discovery Problem
 
-In a microservices architecture, services are **ephemeral** — they scale up and down, move
+In a microservices architecture, services are **ephemeral** -- they scale up and down, move
 between hosts, and get replaced during deployments. Hardcoding IP addresses is therefore
 impossible. Service discovery solves this by providing a dynamic registry where services
 register themselves and clients look up healthy instances.
@@ -1005,11 +1005,11 @@ simpler for clients but adds latency and a potential single point of failure.
 
 ```
 Client-Side Discovery:
-  Client → Registry (lookup) → Client selects instance → Direct call to instance
+  Client -> Registry (lookup) -> Client selects instance -> Direct call to instance
   Pro: No extra hop, flexible LB     Con: Client complexity
 
 Server-Side Discovery:
-  Client → Load Balancer → Registry (lookup) → LB forwards to instance
+  Client -> Load Balancer -> Registry (lookup) -> LB forwards to instance
   Pro: Simple clients                Con: Extra hop, LB is SPOF
 ```
 
@@ -1020,7 +1020,7 @@ checking, DNS interface, and a service mesh (Consul Connect). It uses the Raft c
 protocol and supports multi-datacenter federation.
 
 **etcd** is a distributed key-value store (used by Kubernetes internally) that provides
-strong consistency via Raft. It is lower-level than Consul — you build service discovery
+strong consistency via Raft. It is lower-level than Consul -- you build service discovery
 on top of its watch and lease primitives. A trade-off here is that etcd gives you more
 flexibility but requires more implementation effort.
 
@@ -1038,7 +1038,7 @@ API               | HTTP + DNS       | gRPC + HTTP
 ## Go Implementation: Service Registry Abstraction
 
 ```go
-// registry.go — Service registry abstraction with Consul and etcd backends
+// registry.go -- Service registry abstraction with Consul and etcd backends
 package discovery
 
 import (
@@ -1074,7 +1074,7 @@ type HealthCheckConfig struct {
 	Interval time.Duration // How often to check
 	Timeout  time.Duration // Per-check timeout
 	// DeregisterAfter controls automatic cleanup of crashed services.
-	// This is critical — without it, dead instances linger in the registry,
+	// This is critical -- without it, dead instances linger in the registry,
 	// causing clients to route traffic to black holes.
 	DeregisterAfter time.Duration
 }
@@ -1095,7 +1095,7 @@ type Registry interface {
 ## Consul-Based Registry Implementation
 
 ```go
-// consul_registry.go — Consul implementation of the Registry interface
+// consul_registry.go -- Consul implementation of the Registry interface
 package discovery
 
 import (
@@ -1121,7 +1121,7 @@ func NewConsulRegistry(addr string, logger *slog.Logger) (*ConsulRegistry, error
 	if err != nil {
 		return nil, fmt.Errorf("consul client creation failed: %w", err)
 	}
-	// Verify connectivity — a common mistake is skipping this and
+	// Verify connectivity -- a common mistake is skipping this and
 	// discovering the connection issue only when the first request fails.
 	_, err = client.Agent().Self()
 	if err != nil {
@@ -1258,13 +1258,13 @@ func (r *ConsulRegistry) Watch(ctx context.Context, serviceName string) (<-chan 
 
 ## Load-Balanced Client with Fallback
 
-A **pitfall** of service discovery is blindly trusting the registry — if Consul goes down,
+A **pitfall** of service discovery is blindly trusting the registry -- if Consul goes down,
 your entire system stops discovering services. **Best practice** is to cache the last-known
 healthy instances and fall back to the cache when the registry is unavailable. This is
 graceful degradation: the system works with slightly stale data rather than failing completely.
 
 ```go
-// client.go — Discovery-aware HTTP client with caching and fallback
+// client.go -- Discovery-aware HTTP client with caching and fallback
 package discovery
 
 import (
@@ -1311,12 +1311,12 @@ func (c *DiscoveryClient) Resolve(ctx context.Context, serviceName string) (stri
 		c.cache[serviceName] = instances
 		c.cacheTime[serviceName] = time.Now()
 		c.cacheMu.Unlock()
-		// Random load balancing — simple but effective for uniform instances
+		// Random load balancing -- simple but effective for uniform instances
 		chosen := instances[rand.Intn(len(instances))]
 		return chosen.Endpoint(), nil
 	}
 
-	// Fallback to cache — graceful degradation
+	// Fallback to cache -- graceful degradation
 	c.cacheMu.RLock()
 	cached, hasCached := c.cache[serviceName]
 	cachedAt := c.cacheTime[serviceName]
@@ -1355,7 +1355,7 @@ func (c *DiscoveryClient) Do(ctx context.Context, serviceName, method, path stri
 ## Automatic Registration with Lifecycle Management
 
 ```go
-// lifecycle.go — Automatic registration and graceful deregistration
+// lifecycle.go -- Automatic registration and graceful deregistration
 package discovery
 
 import (
@@ -1369,7 +1369,7 @@ import (
 )
 
 // ServiceLifecycle manages automatic registration and deregistration.
-// This pattern ensures services always deregister cleanly, even on crash —
+// This pattern ensures services always deregister cleanly, even on crash --
 // because the DeregisterAfter health check timeout serves as a safety net.
 type ServiceLifecycle struct {
 	registry Registry
@@ -1430,7 +1430,7 @@ func (sl *ServiceLifecycle) Run(ctx context.Context) error {
 		sl.logger.Info("context cancelled")
 	}
 
-	// Deregister on shutdown — best practice for clean removal
+	// Deregister on shutdown -- best practice for clean removal
 	if err := sl.registry.Deregister(ctx, sl.instance.ID); err != nil {
 		sl.logger.Error("deregistration failed", "error", err)
 		return err
@@ -1455,7 +1455,7 @@ func getOutboundIP() (string, error) {
 - **Client-side discovery** eliminates a network hop but couples clients to the registry.
   **Server-side discovery** is simpler but adds latency. Choose based on your latency
   requirements and team capabilities.
-- **Always set `DeregisterAfter`** on health checks — this is a **pitfall** that causes
+- **Always set `DeregisterAfter`** on health checks -- this is a **pitfall** that causes
   dead instances to linger in the registry forever, sending traffic to endpoints that
   will never respond.
 - **Cache discovery results** and fall back to stale data when the registry is unavailable.
@@ -1469,21 +1469,21 @@ func getOutboundIP() (string, error) {
   `/health` endpoint that verifies database connectivity, cache availability, and other
   critical dependencies.
 - DNS-based discovery (Consul DNS interface or CoreDNS with etcd) is the simplest
-  integration path — applications resolve service names via DNS without any SDK. However,
+  integration path -- applications resolve service names via DNS without any SDK. However,
   DNS TTL caching can cause stale results, which is a significant pitfall in environments
   with frequent scaling events.
-"""
+'''
     ),
 
     # --- 4. Distributed Tracing with OpenTelemetry ---
     (
         "distributed_tracing_opentelemetry",
-        "Explain distributed tracing with OpenTelemetry in Python — how context propagation works "
+        "Explain distributed tracing with OpenTelemetry in Python -- how context propagation works "
         "across HTTP and gRPC service boundaries, span creation with attributes and events, baggage "
         "for cross-service metadata, sampling strategies including probability and rate-limiting "
         "samplers, and exporter configuration for Jaeger and OTLP. Show complete Python instrumentation "
         "for a multi-service application with manual and automatic instrumentation.",
-        r"""
+        '''
 # Distributed Tracing with OpenTelemetry: Complete Python Instrumentation Guide
 
 ## Why Distributed Tracing Matters
@@ -1491,8 +1491,8 @@ func getOutboundIP() (string, error) {
 In a monolithic application, a stack trace tells you exactly what happened. In microservices,
 a single user request might traverse **10+ services**, making it impossible to debug with
 logs alone. Distributed tracing solves this by assigning a **trace ID** to each request and
-propagating it across every service boundary. Each service creates **spans** — timed
-operations with metadata — that form a tree showing the complete request lifecycle.
+propagating it across every service boundary. Each service creates **spans** -- timed
+operations with metadata -- that form a tree showing the complete request lifecycle.
 
 The **trade-off** with tracing is overhead versus visibility. Every span adds serialization,
 context propagation, and export costs. Therefore, production systems use **sampling** to
@@ -1513,7 +1513,7 @@ User Request (trace_id: abc123)
 
 ## OpenTelemetry Core Concepts
 
-OpenTelemetry (OTel) is the **industry standard** for observability instrumentation —
+OpenTelemetry (OTel) is the **industry standard** for observability instrumentation --
 it is vendor-neutral, supports traces, metrics, and logs, and has SDKs for every major
 language. The key components are:
 
@@ -1528,7 +1528,7 @@ language. The key components are:
 ## Setting Up the TracerProvider
 
 ```python
-# tracing_setup.py — OpenTelemetry configuration for production
+# tracing_setup.py -- OpenTelemetry configuration for production
 """
 Production-ready OpenTelemetry setup with OTLP export, batch processing,
 and configurable sampling. This module should be initialized once at
@@ -1601,7 +1601,7 @@ def init_tracing(
     once at application startup.
 
     A common mistake is calling this multiple times or after spans
-    have already been created — this causes lost or duplicated spans.
+    have already been created -- this causes lost or duplicated spans.
 
     Args:
         service_name: Logical name of this service (e.g., 'payment-service').
@@ -1638,7 +1638,7 @@ def init_tracing(
     # Configure exporters
     endpoint = otlp_endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "localhost:4317")
     otlp_exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
-    # BatchSpanProcessor batches and exports asynchronously —
+    # BatchSpanProcessor batches and exports asynchronously --
     # this is critical because synchronous export blocks request handling.
     provider.add_span_processor(
         BatchSpanProcessor(
@@ -1655,7 +1655,7 @@ def init_tracing(
     # Set global provider and propagators
     trace.set_tracer_provider(provider)
 
-    # W3C TraceContext + Baggage propagation — industry standard
+    # W3C TraceContext + Baggage propagation -- industry standard
     set_global_textmap(CompositePropagator([
         TraceContextTextMapPropagator(),
         W3CBaggagePropagator(),
@@ -1667,7 +1667,7 @@ def init_tracing(
 ## Manual Span Instrumentation
 
 ```python
-# order_service.py — Manual instrumentation with spans, attributes, events
+# order_service.py -- Manual instrumentation with spans, attributes, events
 """
 Demonstrates manual span creation with rich metadata, error recording,
 and context propagation between internal function calls.
@@ -1719,7 +1719,7 @@ def create_order(customer_id: str, items: list) -> Order:
             "order.item_count": len(items),
         },
     ) as span:
-        # Set baggage — propagates to all downstream services
+        # Set baggage -- propagates to all downstream services
         # Use baggage for cross-cutting metadata like tenant ID
         ctx = baggage.set_baggage("customer.tier", "premium")
         token = attach(ctx)
@@ -1821,10 +1821,10 @@ def _process_payment(customer_id: str, amount: float) -> str:
 Context propagation is the mechanism that links spans across service boundaries. The
 **W3C TraceContext** standard defines two HTTP headers: `traceparent` (trace ID, span ID,
 flags) and `tracestate` (vendor-specific data). A **pitfall** is forgetting to propagate
-context in custom HTTP clients — this breaks the trace chain and creates orphaned spans.
+context in custom HTTP clients -- this breaks the trace chain and creates orphaned spans.
 
 ```python
-# propagation.py — Cross-service context propagation for HTTP and gRPC
+# propagation.py -- Cross-service context propagation for HTTP and gRPC
 """
 Shows how to inject and extract trace context across HTTP and gRPC
 service boundaries, ensuring traces are connected end-to-end.
@@ -1845,7 +1845,7 @@ class TracedHTTPClient:
     HTTP client that automatically propagates trace context.
 
     A common mistake is using a plain HTTP client that does not inject
-    trace headers — this breaks the distributed trace and makes it
+    trace headers -- this breaks the distributed trace and makes it
     impossible to correlate spans across services.
     """
 
@@ -1960,7 +1960,7 @@ def traced_flask_app():
 ## Sampling Strategies for Production
 
 ```python
-# sampling.py — Custom sampling strategies
+# sampling.py -- Custom sampling strategies
 """
 Production sampling must balance cost against debuggability.
 These strategies show how to implement intelligent sampling
@@ -1988,7 +1988,7 @@ class ErrorBiasedSampler(Sampler):
     at low rates to reduce cost.
 
     The trade-off is that latency analysis on sampled data may be
-    biased — because errors tend to be slower, oversampling them
+    biased -- because errors tend to be slower, oversampling them
     skews p99 latency metrics.
     """
 
@@ -2034,10 +2034,10 @@ class ErrorBiasedSampler(Sampler):
 - **Context propagation** via W3C TraceContext headers is the glue that connects spans
   across services. A **common mistake** is using custom HTTP clients without injecting
   trace headers, which creates orphaned spans.
-- **BatchSpanProcessor** is essential for production — the **pitfall** of using
+- **BatchSpanProcessor** is essential for production -- the **pitfall** of using
   SimpleSpanProcessor is that it exports synchronously, blocking request handling and
   adding latency to every instrumented operation.
-- **ParentBased sampling** is **best practice** because it ensures trace completeness —
+- **ParentBased sampling** is **best practice** because it ensures trace completeness --
   if a parent is sampled, all children are sampled too. Without it, traces have random
   gaps that make debugging impossible.
 - **Baggage** propagates metadata (tenant ID, feature flags, customer tier) across service
@@ -2049,23 +2049,23 @@ class ErrorBiasedSampler(Sampler):
 - **Error-biased sampling** captures 100% of errors while sampling successes at low rates.
   This is the best strategy for most production systems because it preserves debugging
   capability while minimizing export volume and storage costs.
-"""
+'''
     ),
 
     # --- 5. Resilience Patterns ---
     (
         "resilience_patterns_python",
-        "Implement the five core resilience patterns for microservices in Python — circuit breaker "
+        "Implement the five core resilience patterns for microservices in Python -- circuit breaker "
         "with state machine and half-open probing, bulkhead with semaphore-based isolation, retry "
         "with exponential backoff and decorrelated jitter, timeout with context deadlines, and "
         "fallback with graceful degradation. Show how to compose all five patterns together into "
         "a resilient service caller with complete type hints, tests, and production configuration.",
-        r"""
+        '''
 # Resilience Patterns for Microservices: Complete Python Implementation
 
 ## Why Resilience Patterns Matter
 
-In a distributed system, **failure is not exceptional — it is routine**. Networks partition,
+In a distributed system, **failure is not exceptional -- it is routine**. Networks partition,
 services crash, databases slow down, and deployments introduce bugs. Without resilience
 patterns, a single failing dependency can cascade through the entire system, turning a
 partial outage into a total one. This is known as a **cascading failure**, and it is the
@@ -2074,7 +2074,7 @@ most dangerous failure mode in microservices.
 The five core resilience patterns work together as layers of defense:
 
 ```
-Request → Timeout → Retry → Circuit Breaker → Bulkhead → Fallback → Response
+Request -> Timeout -> Retry -> Circuit Breaker -> Bulkhead -> Fallback -> Response
             ↓         ↓          ↓               ↓          ↓
          Cancel    Retry with   Fast-fail      Limit      Degraded
          after     backoff +    when backend   concurrent response
@@ -2090,11 +2090,11 @@ struggling service.
 
 The circuit breaker prevents repeated calls to a failing service. It has three states:
 **CLOSED** (normal), **OPEN** (failing, fast-reject), and **HALF_OPEN** (testing recovery).
-This is analogous to an electrical circuit breaker — it "trips" when failures exceed a
+This is analogous to an electrical circuit breaker -- it "trips" when failures exceed a
 threshold, protecting both the caller and the downstream service.
 
 ```python
-# circuit_breaker.py — State machine circuit breaker with monitoring
+# circuit_breaker.py -- State machine circuit breaker with monitoring
 """
 Production circuit breaker implementation with configurable thresholds,
 half-open probing, and event callbacks for monitoring integration.
@@ -2249,7 +2249,7 @@ the entire vessel. The **semaphore-based** approach limits concurrent calls to e
 dependency independently.
 
 ```python
-# bulkhead.py — Semaphore-based bulkhead isolation
+# bulkhead.py -- Semaphore-based bulkhead isolation
 """
 Limits concurrent calls to a dependency, preventing a slow service
 from consuming all threads/connections and starving other services.
@@ -2335,13 +2335,13 @@ class Bulkhead:
 
 ## Pattern 3: Retry with Exponential Backoff and Jitter
 
-Retry compensates for **transient** failures — network blips, brief overloads, temporary
+Retry compensates for **transient** failures -- network blips, brief overloads, temporary
 database locks. However, naive retry (immediate, fixed interval) causes **thundering herd**
 problems where all clients retry simultaneously, overwhelming the recovering service.
 The solution is **exponential backoff with decorrelated jitter**.
 
 ```python
-# retry.py — Retry with exponential backoff and decorrelated jitter
+# retry.py -- Retry with exponential backoff and decorrelated jitter
 """
 Retries transient failures with increasing delays and randomization
 to prevent thundering herd on recovery.
@@ -2362,7 +2362,7 @@ class RetryConfig:
     Best practice: Always set a max_delay cap. Without it, exponential
     backoff can grow to minutes or hours, making the system unresponsive.
     Decorrelated jitter (Jitter.DECORRELATED) is preferred over full jitter
-    because it provides better spread — see AWS Architecture Blog on this.
+    because it provides better spread -- see AWS Architecture Blog on this.
     """
     max_attempts: int = 3
     base_delay: float = 0.1          # Initial delay in seconds
@@ -2419,7 +2419,7 @@ class Retry:
     Retry mechanism with configurable backoff and jitter strategies.
 
     A pitfall is retrying non-idempotent operations (POST creating
-    a resource) — this can cause duplicate side effects. Only retry
+    a resource) -- this can cause duplicate side effects. Only retry
     operations that are safe to repeat, or use idempotency keys.
     """
 
@@ -2455,11 +2455,11 @@ class Retry:
 
 Timeouts prevent indefinite waiting for slow responses. Without timeouts, a slow dependency
 can hold threads/connections until the caller's resources are exhausted. This pattern is
-**deceptively simple** — the common mistake is setting only a per-request timeout without
+**deceptively simple** -- the common mistake is setting only a per-request timeout without
 considering the total time budget across retries.
 
 ```python
-# timeout.py — Timeout pattern with context deadline propagation
+# timeout.py -- Timeout pattern with context deadline propagation
 """
 Enforces time limits on operations using threading. For async code,
 use asyncio.wait_for instead. This implementation supports deadline
@@ -2558,11 +2558,11 @@ class Timeout:
 ## Pattern 5: Fallback
 
 Fallback provides a degraded response when the primary path fails. This is the **last line
-of defense** — when circuit breaker trips, retries exhaust, or timeout fires, the fallback
+of defense** -- when circuit breaker trips, retries exhaust, or timeout fires, the fallback
 returns cached data, a default value, or a simplified response rather than an error.
 
 ```python
-# fallback.py — Fallback with graceful degradation strategies
+# fallback.py -- Fallback with graceful degradation strategies
 """
 Provides degraded responses when the primary operation fails.
 Supports cached fallback, default values, and custom fallback functions.
@@ -2666,7 +2666,7 @@ Circuit Breaker wraps Retry, then Bulkhead wraps Circuit Breaker, and Fallback w
 everything.
 
 ```python
-# resilient_caller.py — Composing all five patterns
+# resilient_caller.py -- Composing all five patterns
 """
 Composes circuit breaker, bulkhead, retry, timeout, and fallback into
 a single resilient caller that protects against cascading failures.
@@ -2706,11 +2706,11 @@ class ResilientCaller:
     """
     Composes all five resilience patterns into a single callable.
 
-    The composition order is critical — each layer handles a different
+    The composition order is critical -- each layer handles a different
     failure mode, and the order determines which pattern "sees" the
     failure first:
 
-        Fallback → Bulkhead → CircuitBreaker → Retry → Timeout → func
+        Fallback -> Bulkhead -> CircuitBreaker -> Retry -> Timeout -> func
 
     Therefore:
     - Timeout ensures individual calls don't hang
@@ -2734,8 +2734,8 @@ class ResilientCaller:
         """
         Execute a function through all five resilience layers.
 
-        The call flows through: fallback → bulkhead → circuit breaker →
-        retry → timeout → actual function.
+        The call flows through: fallback -> bulkhead -> circuit breaker ->
+        retry -> timeout -> actual function.
         """
         def with_timeout():
             return self._timeout.call(func, *args, **kwargs)
@@ -2762,7 +2762,7 @@ def create_payment_caller() -> ResilientCaller:
     - Retry 3x: Transient network errors are common in cloud environments
     - Circuit breaker trips at 5 failures: Prevents retry storms
     - Bulkhead 20 concurrent: Payment service can handle 50 RPS, and we
-      are one of four callers, so 50/4 ≈ 12, with 60% headroom = 20
+      are one of four callers, so 50/4 ~= 12, with 60% headroom = 20
     - Fallback: Return cached payment status for idempotent reads
     """
     return ResilientCaller(
@@ -2794,7 +2794,7 @@ def create_payment_caller() -> ResilientCaller:
 ## Tests for All Patterns
 
 ```python
-# test_resilience.py — Tests verifying all five patterns
+# test_resilience.py -- Tests verifying all five patterns
 """
 Tests for circuit breaker, bulkhead, retry, timeout, and fallback
 patterns, plus their composition in ResilientCaller.
@@ -2991,17 +2991,17 @@ class TestResilientCaller:
 - **Bulkhead** isolates resource consumption per dependency. **Best practice**: size each
   bulkhead based on the downstream service's capacity divided by the number of callers.
 - **Retry with decorrelated jitter** handles transient failures without thundering herd.
-  A **pitfall** is retrying non-idempotent operations — always verify idempotency before
+  A **pitfall** is retrying non-idempotent operations -- always verify idempotency before
   enabling retries on mutating endpoints.
 - **Timeout** prevents indefinite blocking. Use **deadline propagation** to ensure nested
   calls respect the parent's remaining time budget. A **common mistake** is setting per-call
   timeouts without considering the total budget across retries (3 retries x 5s timeout = 15s
   total, which may exceed the SLA).
 - **Fallback** provides graceful degradation as the last line of defense. However, it can
-  mask real failures — therefore always monitor and alert on fallback activation rates.
+  mask real failures -- therefore always monitor and alert on fallback activation rates.
 - **Composition order matters**: Fallback(Bulkhead(CircuitBreaker(Retry(Timeout(func))))).
   Each layer handles a different failure mode, and incorrect ordering (e.g., retry outside
   circuit breaker) can cause harmful behavior like retry storms against a known-broken backend.
-"""
+'''
     ),
 ]

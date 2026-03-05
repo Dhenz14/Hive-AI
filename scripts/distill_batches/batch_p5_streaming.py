@@ -1,5 +1,5 @@
 """
-Batch P5 — Streaming & Real-Time Data Processing
+Batch P5 -- Streaming & Real-Time Data Processing
 Covers: Apache Flink, CDC with Debezium, ClickHouse real-time analytics,
 message queue comparison (Kafka/RabbitMQ/NATS/Pulsar), stream processing patterns.
 Target quality: >0.80 per v5 scorer.
@@ -10,7 +10,7 @@ PAIRS = [
     (
         "streaming/flink-event-time-windowing",
         "Explain Apache Flink stream processing in depth including event time versus processing time semantics, watermark generation strategies and their trade-offs, windowing approaches such as tumbling sliding and session windows, exactly-once processing guarantees with checkpointing and barriers, and provide complete Python and Java code examples demonstrating real-world Flink pipelines.",
-        r"""# Apache Flink Stream Processing: Event Time, Watermarks, and Exactly-Once Semantics
+        '''# Apache Flink Stream Processing: Event Time, Watermarks, and Exactly-Once Semantics
 
 ## Why Flink Stands Apart in Stream Processing
 
@@ -335,14 +335,14 @@ Flink operators maintain **keyed state** (per-key values, lists, maps) and **ope
 - **Exactly-once semantics** require both Flink checkpointing (Chandy-Lamport barriers) and sink-side two-phase commit for end-to-end guarantees
 - **Late data handling** via allowed lateness and side outputs is a best practice that prevents silent data loss and enables monitoring of upstream ordering issues
 - **RocksDB state backend** with incremental checkpointing is the production default because it decouples state size from heap memory and reduces checkpoint I/O
-"""
+'''
     ),
 
     # --- 2. Change Data Capture (CDC) with Debezium ---
     (
         "streaming/cdc-debezium-patterns",
         "Explain Change Data Capture architecture with Debezium including log-based CDC versus trigger-based approaches, the Debezium connector architecture with Kafka Connect, the transactional outbox pattern for reliable event publishing, handling schema evolution in CDC pipelines, and provide a complete Python consumer implementation that processes CDC events with idempotent writes.",
-        r"""# Change Data Capture with Debezium: Reliable Event Streams from Database Changes
+        '''# Change Data Capture with Debezium: Reliable Event Streams from Database Changes
 
 ## Why CDC Matters for Event-Driven Systems
 
@@ -787,14 +787,14 @@ Monitor the difference between `source.ts_ms` (when the change happened in the d
 - **Schema evolution** requires planning: prefer additive-only changes, use Schema Registry compatibility checks, and consider SMTs to decouple database schema from event schema
 - **Monitor replication slots** aggressively -- an inactive slot can fill your database disk within hours during high write load; set `max_slot_wal_keep_size` and alert on inactive slots
 - The combination of CDC + outbox + idempotent consumers provides **effectively-exactly-once** end-to-end semantics without requiring distributed transactions
-"""
+'''
     ),
 
     # --- 3. Real-Time Analytics with ClickHouse ---
     (
         "streaming/clickhouse-realtime-analytics",
         "Explain how to build a real-time analytics system with ClickHouse including materialized views for continuous aggregation, AggregatingMergeTree and ReplacingMergeTree engine selection, table design for time-series and event data, query optimization techniques, and provide a complete Python ingestion pipeline with batch inserts and error handling.",
-        r"""# Real-Time Analytics with ClickHouse: Materialized Views and Specialized Table Engines
+        '''# Real-Time Analytics with ClickHouse: Materialized Views and Specialized Table Engines
 
 ## Why ClickHouse for Real-Time Analytics
 
@@ -1140,14 +1140,14 @@ ClickHouse supports `PREWHERE` clauses that filter rows before reading all colum
 - **ReplacingMergeTree** handles CDC-style upserts but only deduplicates during asynchronous merges; use `FINAL` or `argMax` patterns for consistent reads, understanding the performance trade-off
 - **Batch inserts are mandatory**: ClickHouse creates one data part per INSERT, and too many small inserts trigger "too many parts" errors; buffer events and flush in batches of 10,000+
 - Align `ORDER BY` keys with query filter patterns for granule skipping, use `LowCardinality` for low-cardinality string columns, and partition by time for efficient range scans
-"""
+'''
     ),
 
     # --- 4. Message Queue Comparison ---
     (
         "streaming/message-queue-comparison",
         "Compare Kafka, RabbitMQ, NATS, and Apache Pulsar as message queue and streaming platforms, covering their architecture differences, partitioning versus routing models, delivery guarantees, throughput and latency characteristics, when to choose each tool, and provide Python producer and consumer code examples for all four systems.",
-        r"""# Message Queue Comparison: Kafka vs RabbitMQ vs NATS vs Pulsar
+        '''# Message Queue Comparison: Kafka vs RabbitMQ vs NATS vs Pulsar
 
 ## Why Choosing the Right Messaging System Matters
 
@@ -1639,14 +1639,14 @@ class PulsarEventConsumer:
 - **Pulsar** uniquely separates compute and storage, enabling independent scaling and tiered storage; choose it when you need both queue and streaming patterns with multi-tenancy
 - The **partitioning vs routing** distinction is fundamental: Kafka/Pulsar partition for throughput, RabbitMQ/NATS route for flexibility -- this trade-off shapes every aspect of your consumer architecture
 - **No system is universally best**: evaluate against your specific requirements for replay, latency, routing complexity, operational capacity, and scaling patterns before committing
-"""
+'''
     ),
 
     # --- 5. Stream Processing Patterns ---
     (
         "streaming/stream-processing-patterns",
         "Explain essential stream processing patterns including windowed aggregation with tumbling and sliding windows, complex event processing for pattern detection, exactly-once semantics implementation strategies, late data and out-of-order event handling, and provide complete Python implementations with a lightweight stream processing framework demonstrating each pattern.",
-        r"""# Stream Processing Patterns: Windowed Aggregation, CEP, Exactly-Once, and Late Data Handling
+        '''# Stream Processing Patterns: Windowed Aggregation, CEP, Exactly-Once, and Late Data Handling
 
 ## Why Patterns Matter More Than Frameworks
 
@@ -2559,6 +2559,6 @@ The key insight is that these patterns are **orthogonal**: you can mix and match
 - **Late data handling** must be a first-class concern: use allowed lateness for bounded updates, side outputs for excessively late events, and retractions to notify downstream consumers of corrected results
 - **Watermark management** is the single most impactful tuning parameter: too tight and you lose late data, too loose and you increase end-to-end latency; monitor watermark lag as a key operational metric
 - These patterns are **composable and framework-agnostic**: understanding them at the pattern level means you can implement in Flink, Kafka Streams, or custom Python depending on scale requirements
-"""
+'''
     ),
 ]

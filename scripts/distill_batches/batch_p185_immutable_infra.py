@@ -75,15 +75,15 @@ class PackerTemplateGenerator:
         build_block = self._build_block(spec)
         variables = self._variables(spec)
 
-        return f'''{variables}
+        return f"""{variables}
 
 {source_block}
 
 {build_block}
-'''
+"""
 
     def _variables(self, spec: ImageSpec) -> str:
-        return f'''variable "app_version" {{
+        return f"""variable "app_version" {{
   type    = string
   default = "{spec.app_version}"
 }}
@@ -97,7 +97,7 @@ variable "region" {{
   type    = string
   default = "{spec.region}"
 }}
-'''
+"""
 
     def _aws_source(self, spec: ImageSpec) -> str:
         ami_name = f"{spec.name}-{spec.version}-{{{{timestamp}}}}"
@@ -106,7 +106,7 @@ variable "region" {{
             regions = ", ".join(f'"{r}"' for r in spec.copy_regions)
             copy_regions = f'  ami_regions = [{regions}]'
 
-        return f'''source "amazon-ebs" "{spec.name}" {{
+        return f"""source "amazon-ebs" "{spec.name}" {{
   ami_name      = "{ami_name}"
   instance_type = "{spec.instance_type}"
   region        = var.region
@@ -135,22 +135,22 @@ variable "region" {{
     delete_on_termination = true
   }}
 }}
-'''
+"""
 
     def _build_block(self, spec: ImageSpec) -> str:
         provisioners = []
 
         # System update
-        provisioners.append('''  provisioner "shell" {
+        provisioners.append("""  provisioner "shell" {
     inline = [
       "sudo apt-get update -y",
       "sudo apt-get upgrade -y",
       "sudo apt-get install -y curl jq unzip"
     ]
-  }''')
+  }""")
 
         # Application deployment
-        provisioners.append(f'''  provisioner "shell" {{
+        provisioners.append(f"""  provisioner "shell" {{
     inline = [
       "sudo mkdir -p /opt/{spec.app_name}",
       "sudo chown ubuntu:ubuntu /opt/{spec.app_name}"
@@ -167,15 +167,15 @@ variable "region" {{
       "tar xzf /tmp/{spec.app_name}.tar.gz -C /opt/{spec.app_name}",
       "rm /tmp/{spec.app_name}.tar.gz"
     ]
-  }}''')
+  }}""")
 
         # CIS hardening
-        provisioners.append('''  provisioner "shell" {
+        provisioners.append("""  provisioner "shell" {
     script = "scripts/harden.sh"
-  }''')
+  }""")
 
         # Validation with Goss
-        provisioners.append('''  provisioner "file" {
+        provisioners.append("""  provisioner "file" {
     source      = "tests/goss.yaml"
     destination = "/tmp/goss.yaml"
   }
@@ -186,25 +186,25 @@ variable "region" {{
       "chmod +x /usr/local/bin/goss",
       "goss -g /tmp/goss.yaml validate --format documentation"
     ]
-  }''')
+  }""")
 
         # Cleanup
-        provisioners.append('''  provisioner "shell" {
+        provisioners.append("""  provisioner "shell" {
     inline = [
       "sudo apt-get clean",
       "sudo rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*",
       "sudo truncate -s 0 /var/log/*.log",
       "history -c"
     ]
-  }''')
+  }""")
 
         prov_str = "\\n\\n".join(provisioners)
-        return f'''build {{
+        return f"""build {{
   sources = ["source.amazon-ebs.{spec.name}"]
 
 {prov_str}
 }}
-'''
+"""
 
 
 class PackerOrchestrator:
@@ -244,58 +244,12 @@ class PackerOrchestrator:
 
         # Build
         build_result = subprocess.run(
-            [self.packer_path, "build",
-             "-machine-readable", "-color=false",
-             str(template_path)],
-            capture_output=True, text=True, cwd=str(build_dir), timeout=3600)
-
-        duration = time.monotonic() - start
-
-        if build_result.returncode != 0:
-            return BuildResult(spec=spec, success=False, ami_id="",
-                duration_seconds=duration, error=build_result.stderr[-500:])
-
-        ami_id = self._extract_ami(build_result.stdout)
-        logger.info("Built AMI %s for %s in %.0fs", ami_id, spec.name, duration)
-
-        return BuildResult(spec=spec, success=True, ami_id=ami_id,
-            duration_seconds=duration, validation_passed=True)
-
-    def _extract_ami(self, output: str) -> str:
-        for line in output.splitlines():
-            if "ami-" in line:
-                for part in line.split():
-                    if part.startswith("ami-"):
-                        return part.strip(",").strip()
-        return ""
-
-    def cleanup_old_amis(self, name: str, keep_count: int = 3,
-                          region: str = "us-east-1") -> list[str]:
-        """Deregister old AMIs, keeping the most recent N."""
-        result = subprocess.run([
-            "aws", "ec2", "describe-images",
-            "--owners", "self", "--region", region,
-            "--filters", f"Name=tag:Name,Values={name}",
-            "--query", "Images | sort_by(@, &CreationDate)",
-            "--output", "json",
-        ], capture_output=True, text=True, timeout=30)
-
-        images = json.loads(result.stdout) if result.returncode == 0 else []
-        to_delete = images[:-keep_count] if len(images) > keep_count else []
-
-        deleted = []
-        for img in to_delete:
-            ami_id = img["ImageId"]
-            subprocess.run([
-                "aws", "ec2", "deregister-image",
-                "--image-id", ami_id, "--region", region,
-            ], capture_output=True, text=True)
-            deleted.append(ami_id)
-            logger.info("Deregistered old AMI: %s", ami_id)
-        return deleted
-```
-
-## Key Patterns
+            [self.packer_path, "build",'''
+    ),
+    (
+        "--image-id",
+        "], capture_output=True, text=True) deleted.append(ami_id) logger.info('Deregistered old AMI: %s', ami_id) return deleted",
+        '''## Key Patterns
 
 - **Configuration baking**: All software and config baked into the image at build time, not at boot
 - **CIS hardening**: Security hardening scripts run during build, validated with Goss tests
@@ -479,60 +433,12 @@ class BlueGreenDeployer:
 
     def _update_launch_template(self, slot: DeploymentSlot, ami_id: str):
         asg = self._asg_name(slot)
-        subprocess.run([
-            "aws", "ec2", "create-launch-template-version",
-            "--launch-template-name", f"{asg}-lt",
-            "--source-version", "$Latest",
-            "--launch-template-data", json.dumps({"ImageId": ami_id}),
-            "--region", self.config.region,
-        ], capture_output=True, text=True, check=True)
-
-    def _scale_asg(self, slot: DeploymentSlot, desired: int):
-        asg = self._asg_name(slot)
-        subprocess.run([
-            "aws", "autoscaling", "update-auto-scaling-group",
-            "--auto-scaling-group-name", asg,
-            "--desired-capacity", str(desired),
-            "--min-size", str(min(desired, self.config.min_size)),
-            "--max-size", str(self.config.max_size),
-            "--region", self.config.region,
-        ], capture_output=True, text=True, check=True)
-
-    def _wait_for_healthy(self, slot: DeploymentSlot, timeout: int) -> bool:
-        tg_arn = self._tg_arn(slot)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            result = subprocess.run([
-                "aws", "elbv2", "describe-target-health",
-                "--target-group-arn", tg_arn,
-                "--region", self.config.region,
-                "--output", "json",
-            ], capture_output=True, text=True)
-            data = json.loads(result.stdout) if result.returncode == 0 else {}
-            targets = data.get("TargetHealthDescriptions", [])
-            healthy = sum(1 for t in targets if t.get("TargetHealth", {}).get("State") == "healthy")
-            total = len(targets)
-            if total > 0 and healthy / total >= self.config.min_healthy_percent:
-                return True
-            logger.info("Health: %d/%d healthy, waiting...", healthy, total)
-            time.sleep(self.config.health_check_interval)
-        return False
-
-    def _switch_listener(self, slot: DeploymentSlot):
-        tg_arn = self._tg_arn(slot)
-        subprocess.run([
-            "aws", "elbv2", "modify-listener",
-            "--listener-arn", self.config.listener_arn,
-            "--default-actions", json.dumps([{
-                "Type": "forward",
-                "TargetGroupArn": tg_arn,
-            }]),
-            "--region", self.config.region,
-        ], capture_output=True, text=True, check=True)
-
-    def _validate_environment(self, slot: DeploymentSlot) -> bool:
-        # Send test requests to the target group directly
-        time.sleep(10)
+        subprocess.run(['''
+    ),
+    (
+        "--region",
+        "], capture_output=True, text=True, check=True) def _validate_environment(self, slot: DeploymentSlot) -> bool:",
+        '''time.sleep(10)
         return self._wait_for_healthy(slot, self.config.validation_seconds)
 
     def _verify_traffic(self, slot: DeploymentSlot) -> bool:
@@ -540,24 +446,12 @@ class BlueGreenDeployer:
 
     def _get_current_ami(self) -> str:
         asg = self._asg_name(self._current_slot)
-        result = subprocess.run([
-            "aws", "autoscaling", "describe-auto-scaling-groups",
-            "--auto-scaling-group-names", asg,
-            "--region", self.config.region, "--output", "json",
-        ], capture_output=True, text=True)
-        data = json.loads(result.stdout) if result.returncode == 0 else {}
-        groups = data.get("AutoScalingGroups", [])
-        if groups:
-            lt = groups[0].get("LaunchTemplate", {})
-            return lt.get("LaunchTemplateId", "")
-        return ""
-
-    def _rollback(self, failed_slot: DeploymentSlot, deployment_id: str):
-        logger.warning("[%s] Rolling back: scaling down %s", deployment_id, failed_slot.value)
-        self._scale_asg(failed_slot, 0)
-```
-
-## Key Patterns
+        result = subprocess.run(['''
+    ),
+    (
+        "--region",
+        "], capture_output=True, text=True) data = json.loads(result.stdout) if result.returncode == 0 else {} groups = data.get('AutoScalingGroups', []) if groups: lt = groups[0].get('LaunchTemplate', {}) return lt.get('LaunchTemplateId', '') return def _rollback(self, failed_slot: DeploymentSlot, deployment_id: str): logger.warning('[%s] Rolling back: scaling down %s', deployment_id, failed_slot.value) self._scale_asg(failed_slot, 0)",
+        '''## Key Patterns
 
 - **Zero-downtime switching**: ALB listener rule change is atomic -- traffic shifts instantly
 - **Health-gated promotion**: New environment must pass health checks before receiving traffic
@@ -636,16 +530,12 @@ class ConfigBaker:
     """Resolves and bakes configuration into image artifacts."""
 
     def __init__(self):
-        self._resolvers = {
-            "static": self._resolve_static,
-            "ssm": self._resolve_ssm,
-            "env": self._resolve_env,
-        }
-
-    def bake(self, spec: ConfigSpec) -> BakedConfig:
-        """Resolve all layers and write config files."""
-        # Merge layers by priority
-        merged = {}
+        self._resolvers = {'''
+    ),
+    (
+        "env",
+        "} def bake(self, spec: ConfigSpec) -> BakedConfig:",
+        '''merged = {}
         for layer in sorted(spec.layers, key=lambda l: l.priority):
             resolved = self._resolvers[layer.source](layer)
             merged.update(resolved)
@@ -701,16 +591,12 @@ class ConfigBaker:
         for key, ssm_path in layer.values.items():
             if isinstance(ssm_path, str) and ssm_path.startswith("/"):
                 try:
-                    result = subprocess.run([
-                        "aws", "ssm", "get-parameter",
-                        "--name", ssm_path, "--with-decryption",
-                        "--query", "Parameter.Value", "--output", "text",
-                    ], capture_output=True, text=True, timeout=10)
-                    if result.returncode == 0:
-                        resolved[key] = result.stdout.strip()
-                    else:
-                        # Defer to boot time
-                        resolved[key] = f"ssm://{ssm_path}"
+                    result = subprocess.run(['''
+    ),
+    (
+        "--query",
+        "], capture_output=True, text=True, timeout=10) if result.returncode == 0: resolved[key] = result.stdout.strip() else:",
+        '''resolved[key] = f"ssm://{ssm_path}"
                 except Exception:
                     resolved[key] = f"ssm://{ssm_path}"
             else:
@@ -978,15 +864,12 @@ class InstanceReplacer:
 
         # Terminate
         logger.info("Terminating %s", instance.instance_id)
-        subprocess.run([
-            "aws", "autoscaling", "terminate-instance-in-auto-scaling-group",
-            "--instance-id", instance.instance_id,
-            "--should-decrement-desired-capacity", "false",
-            "--region", config.region,
-        ], capture_output=True, text=True, check=True)
-
-        # Wait for replacement to become healthy
-        if not self._wait_for_new_healthy(config, config.health_check_timeout):
+        subprocess.run(['''
+    ),
+    (
+        "--region",
+        "], capture_output=True, text=True, check=True)",
+        '''if not self._wait_for_new_healthy(config, config.health_check_timeout):
             logger.error("New instance failed health checks")
             return False
 
@@ -997,73 +880,12 @@ class InstanceReplacer:
         return True
 
     def _get_instances(self, config: ReplacementConfig) -> list[InstanceInfo]:
-        result = subprocess.run([
-            "aws", "autoscaling", "describe-auto-scaling-groups",
-            "--auto-scaling-group-names", config.asg_name,
-            "--region", config.region, "--output", "json",
-        ], capture_output=True, text=True)
-        data = json.loads(result.stdout)
-        instances = []
-        for group in data.get("AutoScalingGroups", []):
-            for inst in group.get("Instances", []):
-                instances.append(InstanceInfo(
-                    instance_id=inst["InstanceId"],
-                    ami_id="", availability_zone=inst["AvailabilityZone"],
-                    launch_time=datetime.now(timezone.utc),
-                    state=InstanceState.HEALTHY,
-                    health_status=inst.get("HealthStatus", "unknown")))
-        return instances
-
-    def _create_batches(self, instances: list[InstanceInfo],
-                         batch_size: int) -> list[list[InstanceInfo]]:
-        return [instances[i:i + batch_size]
-                for i in range(0, len(instances), batch_size)]
-
-    def _update_launch_template(self, config: ReplacementConfig):
-        subprocess.run([
-            "aws", "ec2", "create-launch-template-version",
-            "--launch-template-name", f"{config.asg_name}-lt",
-            "--source-version", "$Latest",
-            "--launch-template-data", json.dumps({"ImageId": config.new_ami_id}),
-            "--region", config.region,
-        ], capture_output=True, text=True, check=True)
-
-    def _rollback_launch_template(self, config: ReplacementConfig):
-        logger.warning("Rolling back launch template for %s", config.asg_name)
-
-    def _deregister_from_target_group(self, config: ReplacementConfig,
-                                       instance_id: str):
-        subprocess.run([
-            "aws", "elbv2", "deregister-targets",
-            "--target-group-arn", config.target_group_arn,
-            "--targets", json.dumps([{"Id": instance_id}]),
-            "--region", config.region,
-        ], capture_output=True, text=True)
-
-    def _wait_for_new_healthy(self, config: ReplacementConfig,
-                               timeout: int) -> bool:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            result = subprocess.run([
-                "aws", "elbv2", "describe-target-health",
-                "--target-group-arn", config.target_group_arn,
-                "--region", config.region, "--output", "json",
-            ], capture_output=True, text=True)
-            data = json.loads(result.stdout) if result.returncode == 0 else {}
-            targets = data.get("TargetHealthDescriptions", [])
-            healthy = sum(1 for t in targets
-                          if t.get("TargetHealth", {}).get("State") == "healthy")
-            total = len(targets)
-            if total > 0 and healthy / total >= config.min_healthy_percent:
-                return True
-            time.sleep(10)
-        return False
-
-    def _verify_instance_healthy(self, config: ReplacementConfig) -> bool:
-        return self._wait_for_new_healthy(config, 60)
-```
-
-## Key Patterns
+        result = subprocess.run(['''
+    ),
+    (
+        "--region",
+        "], capture_output=True, text=True) data = json.loads(result.stdout) if result.returncode == 0 else {} targets = data.get('TargetHealthDescriptions', []) healthy = sum(1 for t in targets if t.get('TargetHealth', {}).get('State') == 'healthy') total = len(targets) if total > 0 and healthy / total >= config.min_healthy_percent: return True time.sleep(10) return False def _verify_instance_healthy(self, config: ReplacementConfig) -> bool: return self._wait_for_new_healthy(config, 60)",
+        '''## Key Patterns
 
 - **Canary-then-rolling**: Replace one instance first, validate thoroughly, then continue rolling
 - **Connection draining**: Instances deregistered from target group and drained before termination
@@ -1203,124 +1025,20 @@ class ImageTestOrchestrator:
                 logger.info("Cleaned up test instance %s", instance_id)
 
     def _launch_instance(self, config: ImageTestConfig) -> str:
-        cmd = [
-            "aws", "ec2", "run-instances",
-            "--image-id", config.ami_id,
-            "--instance-type", config.instance_type,
-            "--region", config.region,
-            "--count", "1",
-            "--tag-specifications",
-            f'ResourceType=instance,Tags=[{{Key=Name,Value=image-test-{config.ami_id}}},'
-            f'{{Key=Purpose,Value=image-testing}}]',
-            "--output", "json",
-        ]
-        if config.subnet_id:
-            cmd.extend(["--subnet-id", config.subnet_id])
-        if config.security_group_id:
-            cmd.extend(["--security-group-ids", config.security_group_id])
-        if config.key_name:
-            cmd.extend(["--key-name", config.key_name])
-
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        instance_id = data["Instances"][0]["InstanceId"]
-
-        # Wait for running state
-        subprocess.run([
-            "aws", "ec2", "wait", "instance-running",
-            "--instance-ids", instance_id, "--region", config.region,
-        ], capture_output=True, text=True, timeout=300)
-        return instance_id
-
-    def _get_instance_ip(self, instance_id: str) -> str:
-        result = subprocess.run([
-            "aws", "ec2", "describe-instances",
-            "--instance-ids", instance_id,
-            "--query", "Reservations[0].Instances[0].PrivateIpAddress",
-            "--output", "text", "--region", self.region,
-        ], capture_output=True, text=True)
-        return result.stdout.strip()
-
-    def _wait_for_ssh(self, ip: str, user: str, timeout: int = 180):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            result = subprocess.run(
-                ["ssh", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=no",
-                 f"{user}@{ip}", "echo", "ready"],
-                capture_output=True, text=True, timeout=10)
-            if result.returncode == 0:
-                return
-            time.sleep(5)
-        raise TimeoutError(f"SSH not available on {ip} after {timeout}s")
-
-    def _run_test(self, test: TestSpec, ip: str, user: str) -> TestResult:
-        start = time.monotonic()
-        try:
-            if test.test_type == "goss":
-                return self._run_goss(test, ip, user, start)
-            elif test.test_type == "inspec":
-                return self._run_inspec(test, ip, user, start)
-            elif test.test_type == "script":
-                return self._run_script(test, ip, user, start)
-            else:
-                return TestResult(name=test.name, passed=False,
-                    duration_seconds=0, output=f"Unknown test type: {test.test_type}")
-        except Exception as e:
-            return TestResult(name=test.name, passed=False,
-                duration_seconds=time.monotonic() - start, output=str(e))
-
-    def _run_goss(self, test: TestSpec, ip: str, user: str, start: float) -> TestResult:
-        # Copy goss file and run
-        subprocess.run(["scp", "-o", "StrictHostKeyChecking=no",
+        cmd = ['''
+    ),
+    (
+        "--output",
+        "], capture_output=True, text=True) return result.stdout.strip() def _wait_for_ssh(self, ip: str, user: str, timeout: int = 180): deadline = time.monotonic() + timeout while time.monotonic() < deadline: result = subprocess.run( ['ssh', '-o', 'ConnectTimeout=5', '-o', 'StrictHostKeyChecking=no' f'{user}@{ip}', 'echo', 'ready'] capture_output=True, text=True, timeout=10) if result.returncode == 0: return time.sleep(5) raise TimeoutError(f'SSH not available on {ip} after {timeout}s') def _run_test(self, test: TestSpec, ip: str, user: str) -> TestResult: start = time.monotonic() try: if test.test_type == 'goss': return self._run_goss(test, ip, user, start) elif test.test_type == 'inspec': return self._run_inspec(test, ip, user, start) elif test.test_type == 'script': return self._run_script(test, ip, user, start) else: return TestResult(name=test.name, passed=False duration_seconds=0, output=f'Unknown test type: {test.test_type}') except Exception as e: return TestResult(name=test.name, passed=False duration_seconds=time.monotonic() - start, output=str(e)) def _run_goss(self, test: TestSpec, ip: str, user: str, start: float) -> TestResult:",
+        '''subprocess.run(["scp", "-o", "StrictHostKeyChecking=no",
             test.source, f"{user}@{ip}:/tmp/goss.yaml"],
             capture_output=True, text=True, check=True, timeout=30)
-        result = subprocess.run([
-            "ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}",
-            "goss", "-g", "/tmp/goss.yaml", "validate", "--format", "json",
-        ], capture_output=True, text=True, timeout=test.timeout)
-
-        duration = time.monotonic() - start
-        try:
-            data = json.loads(result.stdout)
-            failed = data.get("summary", {}).get("failed-count", 0)
-            failures = [r["summary-line"] for r in data.get("results", [])
-                       if r.get("successful") is False]
-            return TestResult(name=test.name, passed=failed == 0,
-                duration_seconds=duration, output=result.stdout, failures=failures)
-        except json.JSONDecodeError:
-            return TestResult(name=test.name, passed=result.returncode == 0,
-                duration_seconds=duration, output=result.stdout + result.stderr)
-
-    def _run_inspec(self, test: TestSpec, ip: str, user: str, start: float) -> TestResult:
-        result = subprocess.run([
-            "inspec", "exec", test.source,
-            "-t", f"ssh://{user}@{ip}",
-            "--reporter", "json",
-        ], capture_output=True, text=True, timeout=test.timeout)
-        duration = time.monotonic() - start
-        return TestResult(name=test.name, passed=result.returncode == 0,
-            duration_seconds=duration, output=result.stdout[:2000])
-
-    def _run_script(self, test: TestSpec, ip: str, user: str, start: float) -> TestResult:
-        subprocess.run(["scp", "-o", "StrictHostKeyChecking=no",
-            test.source, f"{user}@{ip}:/tmp/test.sh"],
-            capture_output=True, text=True, check=True, timeout=30)
-        result = subprocess.run([
-            "ssh", "-o", "StrictHostKeyChecking=no", f"{user}@{ip}",
-            "bash", "/tmp/test.sh",
-        ], capture_output=True, text=True, timeout=test.timeout)
-        duration = time.monotonic() - start
-        return TestResult(name=test.name, passed=result.returncode == 0,
-            duration_seconds=duration, output=result.stdout + result.stderr)
-
-    def _terminate_instance(self, instance_id: str):
-        subprocess.run([
-            "aws", "ec2", "terminate-instances",
-            "--instance-ids", instance_id, "--region", self.region,
-        ], capture_output=True, text=True)
-```
-
-## Key Patterns
+        result = subprocess.run(['''
+    ),
+    (
+        "--instance-ids",
+        "], capture_output=True, text=True)",
+        '''## Key Patterns
 
 - **Ephemeral test instances**: Temporary instances launched, tested, and terminated automatically
 - **Multi-layer testing**: Goss for unit tests, InSpec for compliance, custom scripts for integration

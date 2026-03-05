@@ -1,5 +1,5 @@
 """
-Batch P6 — RAG Systems Deep Dive
+Batch P6 -- RAG Systems Deep Dive
 Covers: chunking strategies, hybrid retrieval, reranking, evaluation, agentic RAG.
 Target quality: >0.80 per v5 scorer.
 """
@@ -8,7 +8,7 @@ PAIRS = [
     (
         "rag/chunking-strategies",
         "Explain advanced document chunking strategies for RAG systems including fixed-size, semantic, recursive, and document-structure-aware chunking, covering the impact of chunk size on retrieval quality, overlap strategies, and provide a Python implementation of a production chunking pipeline with metadata preservation, chunk deduplication, and quality scoring for different document types.",
-        r"""# Document Chunking for RAG: Beyond Naive Splitting
+        '''# Document Chunking for RAG: Beyond Naive Splitting
 
 ## Why Chunking Strategy Matters
 
@@ -24,7 +24,7 @@ Split every N tokens/characters with optional overlap. Simple but breaks sentenc
 
 ### 2. Recursive Character Splitting
 
-Split by paragraph first, then sentence, then word — recursively breaking at natural boundaries. Better than fixed-size but still unaware of document structure.
+Split by paragraph first, then sentence, then word -- recursively breaking at natural boundaries. Better than fixed-size but still unaware of document structure.
 
 ### 3. Semantic Chunking
 
@@ -235,7 +235,7 @@ class SemanticChunker:
     # similar embeddings. A significant drop in cosine similarity
     # between consecutive sentences indicates a topic boundary.
     #
-    # This produces chunks that are semantically coherent — each
+    # This produces chunks that are semantically coherent -- each
     # chunk discusses one topic, making retrieval more precise.
     #
     # Trade-off: requires running the embedding model during chunking,
@@ -593,25 +593,25 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **No single chunk size is optimal** for all use cases — the right strategy depends on document type, query patterns, and embedding model context window
-- **Semantic chunking** (embedding-similarity-based) produces the most coherent chunks but requires running the embedding model during ingestion — a good trade-off for high-quality RAG
-- **Structure-aware chunking** leverages the author's logical organization and preserves **hierarchical context** (parent headers) — best for technical documentation
-- **Chunk overlap** (10-20% of chunk size) prevents information loss at chunk boundaries but increases storage requirements — always worth the cost for Q&A systems
-- **Deduplication** is essential when processing document revisions or overlapping sources — near-duplicate chunks waste embedding storage and return redundant retrieval results
-"""
+- **No single chunk size is optimal** for all use cases -- the right strategy depends on document type, query patterns, and embedding model context window
+- **Semantic chunking** (embedding-similarity-based) produces the most coherent chunks but requires running the embedding model during ingestion -- a good trade-off for high-quality RAG
+- **Structure-aware chunking** leverages the author's logical organization and preserves **hierarchical context** (parent headers) -- best for technical documentation
+- **Chunk overlap** (10-20% of chunk size) prevents information loss at chunk boundaries but increases storage requirements -- always worth the cost for Q&A systems
+- **Deduplication** is essential when processing document revisions or overlapping sources -- near-duplicate chunks waste embedding storage and return redundant retrieval results
+'''
     ),
     (
         "rag/hybrid-retrieval",
         "Explain hybrid retrieval for RAG systems combining dense vector search with sparse lexical search, covering BM25 and dense embedding fusion strategies, reciprocal rank fusion, learned sparse representations like SPLADE, and provide a Python implementation of a complete hybrid retrieval pipeline with configurable fusion weights, query expansion, and retrieval evaluation metrics.",
-        r"""# Hybrid Retrieval: Combining Dense and Sparse Search
+        '''# Hybrid Retrieval: Combining Dense and Sparse Search
 
 ## Why Hybrid Beats Either Alone
 
-Dense retrieval (embedding-based) excels at **semantic matching** — finding documents that mean the same thing even with different words. But it struggles with **exact term matching** — a query for "error code E1234" will miss documents containing that exact code if the embedding doesn't capture it.
+Dense retrieval (embedding-based) excels at **semantic matching** -- finding documents that mean the same thing even with different words. But it struggles with **exact term matching** -- a query for "error code E1234" will miss documents containing that exact code if the embedding doesn't capture it.
 
 Sparse retrieval (BM25/TF-IDF) excels at **exact matching** and **rare terms** but fails on **synonyms and paraphrasing**. A query for "how to fix memory leaks" won't match documents about "resolving heap exhaustion."
 
-**Hybrid retrieval** combines both, achieving **5-15% better recall** than either method alone across standard benchmarks (BEIR, MTEB). This improvement compounds downstream — better retrieval means better LLM answers.
+**Hybrid retrieval** combines both, achieving **5-15% better recall** than either method alone across standard benchmarks (BEIR, MTEB). This improvement compounds downstream -- better retrieval means better LLM answers.
 
 ## Fusion Strategies
 
@@ -1037,23 +1037,23 @@ if __name__ == "__main__":
 
 - **Hybrid retrieval consistently outperforms** either dense or sparse alone by 5-15% on recall metrics, because each method catches what the other misses
 - **Reciprocal Rank Fusion** is the recommended default fusion strategy because it operates on ranks (not scores), making it robust to the different score distributions of BM25 and cosine similarity
-- For **exact term matching** (error codes, API names, product IDs), sparse retrieval is essential — dense embeddings often fail to capture exact string matches
+- For **exact term matching** (error codes, API names, product IDs), sparse retrieval is essential -- dense embeddings often fail to capture exact string matches
 - **Query expansion** (adding synonyms or LLM-generated paraphrases to the query) can further boost recall by 5-10%, especially for sparse retrieval
 - **Evaluation is non-negotiable**: track Recall@K, MRR, and NDCG with a labeled dataset to make data-driven decisions about fusion weights and retrieval parameters
-"""
+'''
     ),
     (
         "rag/reranking-pipelines",
         "Explain reranking in RAG pipelines including cross-encoder rerankers, ColBERT late interaction, LLM-based reranking, and provide a Python implementation of a multi-stage retrieval pipeline with initial retrieval, cross-encoder reranking, diversity-aware selection, and context window packing for optimal LLM prompt construction.",
-        r"""# Reranking: The Second Stage of RAG Retrieval
+        '''# Reranking: The Second Stage of RAG Retrieval
 
 ## Why Reranking Matters
 
-First-stage retrieval (BM25 or dense) is optimized for **recall** — casting a wide net to find candidate documents. But these candidates are roughly ordered. A **cross-encoder reranker** takes these candidates and produces much more accurate relevance scores by jointly encoding the query and each document together.
+First-stage retrieval (BM25 or dense) is optimized for **recall** -- casting a wide net to find candidate documents. But these candidates are roughly ordered. A **cross-encoder reranker** takes these candidates and produces much more accurate relevance scores by jointly encoding the query and each document together.
 
 **The numbers**: Adding a cross-encoder reranker typically improves **NDCG@10 by 10-25%** over first-stage retrieval alone. This is one of the highest-impact improvements you can make to a RAG pipeline.
 
-**Why not use cross-encoders for first-stage retrieval?** Because cross-encoders score one (query, document) pair at a time — scoring 1 million documents would require 1 million forward passes. First-stage retrieval narrows to ~100 candidates, making cross-encoder scoring practical.
+**Why not use cross-encoders for first-stage retrieval?** Because cross-encoders score one (query, document) pair at a time -- scoring 1 million documents would require 1 million forward passes. First-stage retrieval narrows to ~100 candidates, making cross-encoder scoring practical.
 
 ## Multi-Stage Pipeline
 
@@ -1249,7 +1249,7 @@ class ContextWindowPacker:
     # Pack selected documents into the LLM's context window optimally.
     #
     # Challenges:
-    # 1. Documents may exceed the context window — need truncation
+    # 1. Documents may exceed the context window -- need truncation
     # 2. More relevant documents should get more space
     # 3. Document order affects LLM attention (lost-in-the-middle effect)
     #
@@ -1442,28 +1442,28 @@ if __name__ == "__main__":
 
 | Stage | Candidates | Scoring Quality | Latency Added |
 |-------|-----------|----------------|---------------|
-| **BM25 + Dense** | 1M → 100 | Rough ranking | 10-50ms |
-| **Cross-encoder** | 100 → 20 | High-quality relevance | 50-200ms |
-| **MMR diversity** | 20 → 5 | Diverse + relevant | <1ms |
-| **Context packing** | 5 → prompt | Optimized for LLM | <1ms |
+| **BM25 + Dense** | 1M -> 100 | Rough ranking | 10-50ms |
+| **Cross-encoder** | 100 -> 20 | High-quality relevance | 50-200ms |
+| **MMR diversity** | 20 -> 5 | Diverse + relevant | <1ms |
+| **Context packing** | 5 -> prompt | Optimized for LLM | <1ms |
 
 ## Key Takeaways
 
-- **Cross-encoder reranking** improves NDCG@10 by 10-25% over first-stage retrieval alone — it's the single highest-impact addition to a RAG pipeline
-- **Maximal Marginal Relevance** ensures the LLM receives diverse context rather than five paraphrases of the same information — set lambda=0.5-0.7 for balanced relevance and diversity
-- The **lost-in-the-middle effect** means LLMs attend more to the beginning and end of context — place the most relevant documents at these positions
+- **Cross-encoder reranking** improves NDCG@10 by 10-25% over first-stage retrieval alone -- it's the single highest-impact addition to a RAG pipeline
+- **Maximal Marginal Relevance** ensures the LLM receives diverse context rather than five paraphrases of the same information -- set lambda=0.5-0.7 for balanced relevance and diversity
+- The **lost-in-the-middle effect** means LLMs attend more to the beginning and end of context -- place the most relevant documents at these positions
 - **Context window packing** should allocate space proportionally to document relevance and always reserve budget for the LLM's answer generation
-- The full multi-stage pipeline adds ~100-300ms latency but improves answer quality significantly — this trade-off is almost always worthwhile for production RAG systems
-"""
+- The full multi-stage pipeline adds ~100-300ms latency but improves answer quality significantly -- this trade-off is almost always worthwhile for production RAG systems
+'''
     ),
     (
         "rag/evaluation-frameworks",
         "Explain RAG system evaluation methodologies including component-level metrics (retrieval recall, context relevance, answer faithfulness), end-to-end evaluation with RAGAS framework, human evaluation protocols, and provide a Python implementation of a complete RAG evaluation suite with automated scoring, regression detection, and A/B testing support.",
-        r"""# RAG Evaluation: Measuring What Matters
+        '''# RAG Evaluation: Measuring What Matters
 
 ## The RAG Evaluation Challenge
 
-RAG systems have multiple failure modes, and each requires different evaluation: (1) **retrieval failure** — the right documents aren't found, (2) **context relevance failure** — retrieved documents are irrelevant to the query, (3) **faithfulness failure** — the LLM generates information not in the context (hallucination), (4) **answer completeness failure** — the answer is correct but misses important information.
+RAG systems have multiple failure modes, and each requires different evaluation: (1) **retrieval failure** -- the right documents aren't found, (2) **context relevance failure** -- retrieved documents are irrelevant to the query, (3) **faithfulness failure** -- the LLM generates information not in the context (hallucination), (4) **answer completeness failure** -- the answer is correct but misses important information.
 
 Evaluating only the final answer quality misses the root cause of failures. **Component-level evaluation** identifies which stage needs improvement.
 
@@ -1858,21 +1858,21 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **Component-level evaluation** (retrieval, context, faithfulness, answer) identifies the root cause of failures — evaluating only the final answer hides where the pipeline is broken
-- **Faithfulness** is the most critical metric for production RAG because hallucinated answers erode user trust — target >0.85 for production systems
-- **LLM-as-judge** evaluation is practical and correlates well (0.8+) with human evaluation for most metrics — but calibrate with human labels on a sample before trusting it fully
+- **Component-level evaluation** (retrieval, context, faithfulness, answer) identifies the root cause of failures -- evaluating only the final answer hides where the pipeline is broken
+- **Faithfulness** is the most critical metric for production RAG because hallucinated answers erode user trust -- target >0.85 for production systems
+- **LLM-as-judge** evaluation is practical and correlates well (0.8+) with human evaluation for most metrics -- but calibrate with human labels on a sample before trusting it fully
 - **Regression detection** should run on every RAG system change (new embedding model, chunk size change, prompt modification) with a fixed evaluation set
-- Build a **golden evaluation dataset** of 50-200 query-answer pairs with ground truth contexts — this is the most important investment for long-term RAG quality improvement
-"""
+- Build a **golden evaluation dataset** of 50-200 query-answer pairs with ground truth contexts -- this is the most important investment for long-term RAG quality improvement
+'''
     ),
     (
         "rag/agentic-rag",
         "Explain agentic RAG architectures where the LLM agent dynamically decides when and how to retrieve information, covering self-RAG with reflection, adaptive retrieval with query routing, iterative retrieval with follow-up queries, and provide a Python implementation of a complete agentic RAG system with tool use, retrieval planning, answer verification, and fallback strategies.",
-        r"""# Agentic RAG: Self-Directing Retrieval Systems
+        '''# Agentic RAG: Self-Directing Retrieval Systems
 
 ## Beyond Static Retrieval
 
-Traditional RAG follows a fixed pattern: retrieve → stuff context → generate. **Agentic RAG** makes the LLM an active participant in the retrieval process — it decides **when** to retrieve, **what** to search for, **whether** the results are sufficient, and **when** to stop and answer.
+Traditional RAG follows a fixed pattern: retrieve -> stuff context -> generate. **Agentic RAG** makes the LLM an active participant in the retrieval process -- it decides **when** to retrieve, **what** to search for, **whether** the results are sufficient, and **when** to stop and answer.
 
 **Why this matters**: Not every query needs retrieval (factual questions the LLM knows), some queries need multiple retrievals (complex, multi-faceted questions), and some need retrieval from different sources (code vs docs vs web). A static pipeline handles none of these cases well.
 
@@ -1925,10 +1925,10 @@ class QueryRouter:
     # Routes queries to appropriate retrieval sources.
     #
     # Different queries need different retrieval strategies:
-    # - Factual questions → knowledge base
-    # - Code questions → code search
-    # - Recent events → web search
-    # - Complex questions → multiple sources + decomposition
+    # - Factual questions -> knowledge base
+    # - Code questions -> code search
+    # - Recent events -> web search
+    # - Complex questions -> multiple sources + decomposition
 
     def __init__(self, llm_fn: Callable[[str], str]) -> None:
         self.llm = llm_fn
@@ -2255,11 +2255,11 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **Agentic RAG** makes the LLM an active participant in retrieval — it decides when to retrieve, what to search for, and whether more information is needed
+- **Agentic RAG** makes the LLM an active participant in retrieval -- it decides when to retrieve, what to search for, and whether more information is needed
 - **Query routing** directs different query types to appropriate sources (knowledge base, code search, web) rather than searching everything blindly
-- **Self-verification** with follow-up retrieval catches incomplete answers before they reach the user — this iterative refinement significantly improves answer quality for complex queries
+- **Self-verification** with follow-up retrieval catches incomplete answers before they reach the user -- this iterative refinement significantly improves answer quality for complex queries
 - The **cost-quality trade-off** is real: agentic RAG uses 2-6x more LLM calls than static RAG, so it should be reserved for complex queries where the quality improvement justifies the cost
 - **Fallback strategies** are essential: if the agent can't find sufficient information after max iterations, it should clearly communicate what it knows and what it couldn't find, rather than hallucinating
-"""
+'''
     ),
 ]

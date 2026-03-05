@@ -1,5 +1,5 @@
 """
-Batch P2 — Databases: DuckDB, ClickHouse, CockroachDB, Turso/libSQL, vector databases.
+Batch P2 -- Databases: DuckDB, ClickHouse, CockroachDB, Turso/libSQL, vector databases.
 Each pair targets >0.80 quality score via: 1200+ words, 3+ code blocks with functions/
 imports/type hints/error handling/tests, reasoning markers, 4+ headers, summary section.
 """
@@ -12,12 +12,12 @@ PAIRS = [
         "Show how to build a complete data pipeline using DuckDB with Python, covering Parquet "
         "ingestion, window functions, spatial queries, and integration with pandas and Arrow. "
         "Include performance benchmarks and explain the columnar storage engine internals.",
-        """\
+        '''\
 # DuckDB: The Embedded Analytical Database Replacing Pandas
 
 ## Why DuckDB Matters
 
-DuckDB is an **in-process analytical database** — think SQLite but for OLAP (analytics)
+DuckDB is an **in-process analytical database** -- think SQLite but for OLAP (analytics)
 instead of OLTP (transactions). The reason it's disrupting the data engineering space is
 simple: it runs analytical queries 10-100x faster than pandas on a single laptop, because
 it uses a columnar vectorized execution engine instead of row-by-row Python interpretation.
@@ -26,13 +26,13 @@ it uses a columnar vectorized execution engine instead of row-by-row Python inte
 1. **Columnar storage**: Data is stored column-by-column, so aggregations only read needed columns
 2. **Vectorized execution**: Processes batches of 2048 values at once (not one row at a time)
 3. **Morsel-driven parallelism**: Automatically parallelizes across CPU cores
-4. **Zero-copy integration**: Reads Parquet, CSV, Arrow, JSON directly — no ETL needed
-5. **In-process**: No server, no network overhead, no configuration — just `import duckdb`
+4. **Zero-copy integration**: Reads Parquet, CSV, Arrow, JSON directly -- no ETL needed
+5. **In-process**: No server, no network overhead, no configuration -- just `import duckdb`
 
 ## Complete Data Pipeline
 
 ```python
-"""DuckDB analytics pipeline — from raw data to insights."""
+"""DuckDB analytics pipeline -- from raw data to insights."""
 import duckdb
 import pandas as pd
 import pyarrow as pa
@@ -68,14 +68,14 @@ def ingest_parquet_files(
     pattern: str = "data/events_*.parquet"
 ) -> int:
     \"\"\"
-    Ingest Parquet files using glob pattern — DuckDB reads them directly.
+    Ingest Parquet files using glob pattern -- DuckDB reads them directly.
 
     This is dramatically faster than pd.read_parquet() because DuckDB:
     - Pushes filters down to the Parquet reader (predicate pushdown)
     - Only reads needed columns (projection pushdown)
     - Handles partitioned datasets automatically
     \"\"\"
-    # Create table directly from Parquet files — no intermediate DataFrame
+    # Create table directly from Parquet files -- no intermediate DataFrame
     con.execute(f\"\"\"
         CREATE OR REPLACE TABLE events AS
         SELECT * FROM read_parquet('{pattern}',
@@ -93,11 +93,11 @@ def analyze_with_window_functions(
     min_events: int = 5
 ) -> pd.DataFrame:
     \"\"\"
-    Advanced analytics using window functions — the killer feature of SQL analytics.
+    Advanced analytics using window functions -- the killer feature of SQL analytics.
 
     Window functions are the reason SQL beats pandas for analytics: they compute
     aggregates across related rows WITHOUT collapsing the result set. In pandas,
-    you'd need groupby + transform + merge — three operations with intermediate copies.
+    you'd need groupby + transform + merge -- three operations with intermediate copies.
     \"\"\"
     result = con.execute(f\"\"\"
         WITH user_sessions AS (
@@ -203,7 +203,7 @@ def export_to_arrow(
     query: str
 ) -> pa.Table:
     \"\"\"
-    Export query results as Apache Arrow table — zero-copy when possible.
+    Export query results as Apache Arrow table -- zero-copy when possible.
 
     Arrow integration is critical because it enables zero-copy data exchange
     between DuckDB, pandas, polars, and ML frameworks. The data stays in
@@ -236,7 +236,7 @@ def generate_test_data(n_rows: int = 10_000_000) -> pd.DataFrame:
 
 
 def benchmark_pandas(df: pd.DataFrame) -> float:
-    \"\"\"Pandas approach: groupby + agg + merge — typical pandas workflow.\"\"\"
+    \"\"\"Pandas approach: groupby + agg + merge -- typical pandas workflow.\"\"\"
     start = time.perf_counter()
 
     # Revenue by user and category with running totals
@@ -257,7 +257,7 @@ def benchmark_pandas(df: pd.DataFrame) -> float:
 
 
 def benchmark_duckdb(df: pd.DataFrame) -> float:
-    \"\"\"DuckDB approach: SQL on the DataFrame directly — no copy needed.\"\"\"
+    \"\"\"DuckDB approach: SQL on the DataFrame directly -- no copy needed.\"\"\"
     start = time.perf_counter()
 
     # DuckDB can query pandas DataFrames directly (zero-copy via Arrow)
@@ -310,10 +310,10 @@ Why columnar is faster for analytics:
 
 Row storage (SQLite, PostgreSQL):           Columnar storage (DuckDB):
 ┌────────┬─────┬────────┬──────┐           ┌────────────────────────┐
-│ user_id│event│ amount │ date │           │ user_id: [1,2,3,4,5]  │ ← one array
-├────────┼─────┼────────┼──────┤           │ event: [v,c,p,v,p]    │ ← one array
-│    1   │  v  │  49.99 │ Jan1 │           │ amount: [49.99, ...]   │ ← one array
-│    2   │  c  │  29.99 │ Jan1 │           │ date: [Jan1, ...]      │ ← one array
+│ user_id│event│ amount │ date │           │ user_id: [1,2,3,4,5]  │ <- one array
+├────────┼─────┼────────┼──────┤           │ event: [v,c,p,v,p]    │ <- one array
+│    1   │  v  │  49.99 │ Jan1 │           │ amount: [49.99, ...]   │ <- one array
+│    2   │  c  │  29.99 │ Jan1 │           │ date: [Jan1, ...]      │ <- one array
 │    3   │  p  │ 149.99 │ Jan2 │           └────────────────────────┘
 │    4   │  v  │  19.99 │ Jan2 │
 │    5   │  p  │  89.99 │ Jan3 │           For SUM(amount): reads ONE array
@@ -379,7 +379,7 @@ def test_zero_copy_arrow_roundtrip(con):
     \"\"\"Arrow export should preserve data types and values.\"\"\"
     arrow_table = con.execute("SELECT * FROM events LIMIT 100").fetch_arrow_table()
     assert arrow_table.num_rows == 100
-    # Roundtrip: Arrow → DuckDB → Arrow should be lossless
+    # Roundtrip: Arrow -> DuckDB -> Arrow should be lossless
     con.register("arrow_data", arrow_table)
     count = con.execute("SELECT count(*) FROM arrow_data").fetchone()[0]
     assert count == 100
@@ -389,7 +389,7 @@ def test_zero_copy_arrow_roundtrip(con):
 
 DuckDB is the right choice when you need fast analytics on local data (CSV, Parquet, JSON)
 without setting up infrastructure. However, it's not a replacement for PostgreSQL or MySQL
-for transactional workloads — it's optimized for read-heavy analytical queries, not for
+for transactional workloads -- it's optimized for read-heavy analytical queries, not for
 concurrent writes. The trade-off is clear: use DuckDB for analysis, use a proper OLTP
 database for your application's primary data store, and use tools like dbt to bridge them.
 
@@ -397,8 +397,8 @@ The performance advantage comes from three things working together: columnar sto
 cache-friendly sequential scans, vectorized execution processes thousands of values per CPU
 instruction, and morsel-driven parallelism automatically distributes work across all cores.
 This is why a single-threaded pandas script on 10M rows takes 4 seconds while DuckDB finishes
-in 0.2 seconds — it's not magic, it's better data structures and algorithms.
-"""
+in 0.2 seconds -- it's not magic, it's better data structures and algorithms.
+'''
     ),
 
     # --- 2. ClickHouse Real-Time Analytics ---
@@ -408,7 +408,7 @@ in 0.2 seconds — it's not magic, it's better data structures and algorithms.
         "billions of rows, and build a production real-time analytics system including table design, "
         "materialized views, data ingestion, and query optimization. Show Python and SQL examples "
         "with type hints and error handling.",
-        """\
+        '''\
 # ClickHouse: Sub-Second Queries on Billions of Rows
 
 ## Architecture Overview
@@ -417,7 +417,7 @@ ClickHouse is a **column-oriented OLAP database** designed for real-time analyti
 massive datasets. It achieves sub-second query performance on billions of rows through:
 
 1. **Columnar storage with compression**: Only reads needed columns, compresses 5-20x
-2. **Sparse primary index**: Not B-tree — uses sorted data + sparse marks for fast scans
+2. **Sparse primary index**: Not B-tree -- uses sorted data + sparse marks for fast scans
 3. **Vectorized execution**: Processes columns in batches using SIMD instructions
 4. **Parallel processing**: Automatically uses all CPU cores for every query
 5. **Materialized views**: Pre-aggregate data at insert time for instant dashboards
@@ -425,7 +425,7 @@ massive datasets. It achieves sub-second query performance on billions of rows t
 **Key insight**: ClickHouse's sparse index is fundamentally different from PostgreSQL's B-tree.
 Instead of indexing every row, it stores one index entry per ~8192 rows (a "granule").
 Because data is sorted by the primary key, finding a range only needs to identify which
-granules to scan — then the columnar scan is extremely fast within those granules.
+granules to scan -- then the columnar scan is extremely fast within those granules.
 
 ## MergeTree Engine Family
 
@@ -433,7 +433,7 @@ granules to scan — then the columnar scan is extremely fast within those granu
 -- The MergeTree is ClickHouse's workhorse engine
 -- Understanding the engine choice is critical for performance
 
--- 1. MergeTree — base engine, append-only with background merges
+-- 1. MergeTree -- base engine, append-only with background merges
 CREATE TABLE events (
     event_date Date,
     event_time DateTime64(3),  -- millisecond precision
@@ -453,7 +453,7 @@ ENGINE = MergeTree()
 PARTITION BY toYYYYMM(event_date)   -- Monthly partitions for efficient drops
 ORDER BY (event_type, country, user_id, event_time)
 -- Why this order?
--- 1. event_type: most common filter, low cardinality → best compression
+-- 1. event_type: most common filter, low cardinality -> best compression
 -- 2. country: second most common filter, low cardinality
 -- 3. user_id: enables user-level queries within filtered data
 -- 4. event_time: enables range scans within user data
@@ -462,7 +462,7 @@ SETTINGS
     index_granularity = 8192,         -- Rows per granule (default, rarely change)
     min_bytes_for_wide_part = 0;      -- Always use wide format for better compression
 
--- 2. ReplacingMergeTree — deduplication on merge (eventual consistency)
+-- 2. ReplacingMergeTree -- deduplication on merge (eventual consistency)
 CREATE TABLE user_profiles (
     user_id UInt64,
     updated_at DateTime64(3),
@@ -475,7 +475,7 @@ ORDER BY user_id;
 -- IMPORTANT: dedup happens at merge time, NOT at query time
 -- Use FINAL keyword to get deduplicated results: SELECT * FROM user_profiles FINAL
 
--- 3. AggregatingMergeTree — pre-aggregated materialized views
+-- 3. AggregatingMergeTree -- pre-aggregated materialized views
 CREATE TABLE daily_stats (
     event_date Date,
     event_type LowCardinality(String),
@@ -489,7 +489,7 @@ ENGINE = AggregatingMergeTree()
 ORDER BY (event_date, event_type, country);
 ```
 
-## Materialized Views — The Performance Multiplier
+## Materialized Views -- The Performance Multiplier
 
 ```sql
 -- Materialized views in ClickHouse are INSERT triggers, not stored queries.
@@ -497,7 +497,7 @@ ORDER BY (event_date, event_type, country);
 -- This is the secret to real-time dashboards: queries hit pre-aggregated data.
 
 -- Source: raw events (billions of rows)
--- Target: daily_stats (millions of rows — 1000x reduction)
+-- Target: daily_stats (millions of rows -- 1000x reduction)
 CREATE MATERIALIZED VIEW daily_stats_mv TO daily_stats AS
 SELECT
     toDate(event_time) AS event_date,
@@ -510,7 +510,7 @@ SELECT
 FROM events
 GROUP BY event_date, event_type, country;
 
--- Query the materialized view — instant response on pre-aggregated data
+-- Query the materialized view -- instant response on pre-aggregated data
 SELECT
     event_date,
     event_type,
@@ -527,7 +527,7 @@ ORDER BY event_date DESC, revenue DESC;
 **Why `-State()` and `-Merge()` functions?** Because the materialized view stores
 *intermediate aggregate states*, not final values. This allows ClickHouse to further
 aggregate across partitions or time ranges without losing accuracy. A `uniqState` stores
-a HyperLogLog sketch that can be merged with other sketches — you can't do that with
+a HyperLogLog sketch that can be merged with other sketches -- you can't do that with
 a pre-computed count.
 
 ## Production Python Client
@@ -629,7 +629,7 @@ class ClickHouseAnalytics:
                 logger.info(f"Inserted batch of {len(rows)} events")
             except Exception as exc:
                 logger.error(f"Batch insert failed: {exc}")
-                # Don't lose the batch — retry logic
+                # Don't lose the batch -- retry logic
                 for attempt in range(self.config.max_retries):
                     try:
                         time.sleep(2 ** attempt)  # Exponential backoff
@@ -711,7 +711,7 @@ GROUP BY event_type;
 
 -- Common optimization patterns:
 
--- 1. PREWHERE — ClickHouse-specific: filter BEFORE decompressing other columns
+-- 1. PREWHERE -- ClickHouse-specific: filter BEFORE decompressing other columns
 SELECT * FROM events
 PREWHERE event_type = 'purchase'  -- Filters on just this column first
 WHERE revenue > 100 AND country = 'US';
@@ -725,7 +725,7 @@ SELECT
     count() * 10 AS estimated_count,  -- Scale up by inverse sample rate
     avg(revenue) AS avg_revenue        -- Averages don't need scaling
 FROM events
-SAMPLE 0.1  -- Read 10% of data — 10x faster
+SAMPLE 0.1  -- Read 10% of data -- 10x faster
 GROUP BY event_type;
 
 -- 3. Use LowCardinality for string columns with < 10K distinct values
@@ -736,26 +736,26 @@ GROUP BY event_type;
 ## Key Takeaways
 
 ClickHouse excels at real-time analytics on append-heavy workloads (logs, events, metrics).
-However, it's not suitable for transactional workloads — it has no row-level UPDATE/DELETE
+However, it's not suitable for transactional workloads -- it has no row-level UPDATE/DELETE
 in the traditional sense (mutations are heavy background operations). The trade-off is clear:
 ClickHouse sacrifices write flexibility for read performance that's 10-100x faster than
 PostgreSQL on analytical queries.
 
 For production deployments, the most common mistake is inserting data in small batches.
 Because ClickHouse creates a new "part" for each INSERT, thousands of small inserts create
-thousands of parts that must be merged — this causes the "too many parts" error. Always
+thousands of parts that must be merged -- this causes the "too many parts" error. Always
 buffer inserts and write in batches of 10K-1M rows.
-"""
+'''
     ),
 
     # --- 3. CockroachDB Distributed SQL ---
     (
         "cockroachdb_distributed_sql",
-        "Explain CockroachDB's distributed SQL architecture — how it provides serializable "
+        "Explain CockroachDB's distributed SQL architecture -- how it provides serializable "
         "isolation across regions, the Raft consensus mechanism, range-based sharding, and "
         "multi-region deployment patterns. Show a production Go application with proper "
         "transaction handling, connection pooling, and follower reads.",
-        """\
+        '''\
 # CockroachDB: Distributed SQL with Serializable Isolation
 
 ## Why CockroachDB?
@@ -804,16 +804,16 @@ Each range is ~512MB. CockroachDB automatically splits and rebalances.
 ```
 Write: INSERT INTO users (id, name) VALUES (1500, 'Alice')
 
-1. SQL layer determines key: /users/1500 → falls in Range 2
+1. SQL layer determines key: /users/1500 -> falls in Range 2
 2. Route to Range 2's leaseholder (node2)
 3. Leaseholder proposes write to Raft group:
-   node2 → PROPOSE → node3, node4
-4. Majority (2 of 3) acknowledge → write is COMMITTED
+   node2 -> PROPOSE -> node3, node4
+4. Majority (2 of 3) acknowledge -> write is COMMITTED
 5. Leaseholder responds to client: "success"
 
 Latency = network round-trip to get majority acknowledgment
   Same datacenter: ~2-5ms (fast)
-  Cross-region: ~50-200ms (slow — this is the consistency cost)
+  Cross-region: ~50-200ms (slow -- this is the consistency cost)
 ```
 
 ### How Reads Work (Leaseholder)
@@ -823,7 +823,7 @@ Read: SELECT * FROM users WHERE id = 1500
 
 1. Route to Range 2's leaseholder (node2)
 2. Leaseholder has the most recent data (guaranteed by lease)
-3. Read directly from local storage — no consensus needed
+3. Read directly from local storage -- no consensus needed
 4. Response: ~1-3ms (same datacenter)
 
 Optimization: Follower reads (stale reads from any replica)
@@ -922,7 +922,7 @@ func NewUserStore(ctx context.Context, cfg DBConfig) (*UserStore, error) {
         return nil, fmt.Errorf("parsing connection string: %w", err)
     }
 
-    // Connection pool settings — critical for production
+    // Connection pool settings -- critical for production
     poolConfig.MaxConns = cfg.MaxConns           // Default: 10
     poolConfig.MinConns = cfg.MinConns           // Keep warm connections
     poolConfig.MaxConnLifetime = cfg.MaxConnLifetime  // Rotate connections
@@ -948,7 +948,7 @@ func NewUserStore(ctx context.Context, cfg DBConfig) (*UserStore, error) {
 //
 // CockroachDB uses optimistic concurrency control. Under high contention,
 // transactions may get "serialization failure" errors (SQLSTATE 40001).
-// The correct response is to RETRY the entire transaction — not just the
+// The correct response is to RETRY the entire transaction -- not just the
 // failed statement. This function handles that pattern.
 func (s *UserStore) ExecuteInTx(
     ctx context.Context,
@@ -1010,7 +1010,7 @@ func (s *UserStore) CreateUser(ctx context.Context, user *User) error {
 // Follower reads are critical for multi-region deployments because they
 // avoid cross-region hops to the leaseholder. The trade-off is that data
 // may be up to 4.8 seconds stale (configurable). For read-heavy dashboards
-// and user profiles, this latency reduction (200ms → 5ms) is worth it.
+// and user profiles, this latency reduction (200ms -> 5ms) is worth it.
 func (s *UserStore) GetUserFollowerRead(
     ctx context.Context,
     userID string,
@@ -1119,20 +1119,20 @@ CockroachDB handles cross-region distribution natively, while Aurora requires ma
 read-replica promotion for failover. However, single-region write latency is higher
 because of the Raft consensus overhead (~2-5ms vs ~1ms for PostgreSQL).
 
-For most applications, the performance difference is negligible — the consistency guarantee
+For most applications, the performance difference is negligible -- the consistency guarantee
 (serializable isolation by default, not just read-committed) prevents entire classes of
 concurrency bugs that plague PostgreSQL deployments running at lower isolation levels.
-"""
+'''
     ),
 
     # --- 4. Turso/libSQL Edge Database ---
     (
         "turso_libsql_edge_database",
-        "Explain Turso and libSQL — how they extend SQLite for edge computing with replication, "
+        "Explain Turso and libSQL -- how they extend SQLite for edge computing with replication, "
         "embedded replicas, and multi-tenant architecture. Build a production edge application "
         "using Turso with TypeScript, showing connection management, embedded replicas for "
         "offline-first, batch transactions, and vector search capabilities.",
-        """\
+        '''\
 # Turso / libSQL: SQLite at the Edge with Replication
 
 ## What is libSQL / Turso?
@@ -1142,19 +1142,19 @@ replication, ALTER TABLE extensions, remote database access, and vector search. 
 the managed platform built on libSQL that distributes your database to 30+ edge locations.
 
 **The core insight**: SQLite is the fastest database for reads (no network hop, no protocol
-overhead) — but it's single-file, single-writer, no replication. libSQL fixes these
+overhead) -- but it's single-file, single-writer, no replication. libSQL fixes these
 limitations while keeping SQLite's performance for reads.
 
 ```
 Traditional database:
-  User → Network → Load Balancer → Network → Database Server → Disk
+  User -> Network -> Load Balancer -> Network -> Database Server -> Disk
   Latency: 20-200ms
 
 Turso embedded replica:
-  User → Network → Edge Server → Local SQLite file
+  User -> Network -> Edge Server -> Local SQLite file
   Latency: 0.5-2ms (for reads)
 
-  Writes: Edge → Turso Primary → Replicate to all edges
+  Writes: Edge -> Turso Primary -> Replicate to all edges
   Write latency: 50-100ms (acceptable for most apps)
 ```
 
@@ -1176,7 +1176,7 @@ Turso embedded replica:
 ┌──────────────┐
 │ Your App     │
 │ ┌──────────┐ │
-│ │ Embedded │ │  ← Local SQLite file synced from Turso
+│ │ Embedded │ │  <- Local SQLite file synced from Turso
 │ │ Replica  │ │    Reads: instant (local file)
 │ └──────────┘ │    Writes: sent to primary, then synced back
 └──────────────┘
@@ -1212,7 +1212,7 @@ interface User {
  * - Embedded replica: complex, eventually consistent reads, near-zero read latency
  *
  * For server-side apps, use embedded replicas. For serverless/edge functions,
- * use remote-only (because the function is ephemeral — no persistent file).
+ * use remote-only (because the function is ephemeral -- no persistent file).
  */
 class TursoDatabase {
   private client: Client;
@@ -1220,7 +1220,7 @@ class TursoDatabase {
 
   constructor(config: TursoConfig) {
     if (config.syncUrl) {
-      // Embedded replica mode — local SQLite file synced from Turso
+      // Embedded replica mode -- local SQLite file synced from Turso
       this.client = createClient({
         url: "file:local-replica.db",  // Local file path
         syncUrl: config.syncUrl,        // Remote primary URL
@@ -1228,7 +1228,7 @@ class TursoDatabase {
         syncInterval: config.syncInterval ?? 60,
       });
     } else {
-      // Remote-only mode — all queries go to Turso servers
+      // Remote-only mode -- all queries go to Turso servers
       this.client = createClient({
         url: config.url,
         authToken: config.authToken,
@@ -1237,7 +1237,7 @@ class TursoDatabase {
   }
 
   /**
-   * Initialize schema — idempotent, safe to run on every startup.
+   * Initialize schema -- idempotent, safe to run on every startup.
    * This is the recommended pattern because Turso doesn't have migration tools
    * built-in, so your app should handle schema evolution.
    */
@@ -1293,7 +1293,7 @@ class TursoDatabase {
   }
 
   /**
-   * Batch operations — execute multiple statements in a single round-trip.
+   * Batch operations -- execute multiple statements in a single round-trip.
    *
    * This is critical for Turso performance because each remote call has
    * network latency. Batching 10 operations into one call reduces latency
@@ -1312,7 +1312,7 @@ class TursoDatabase {
   }
 
   /**
-   * Vector similarity search — find users with similar embeddings.
+   * Vector similarity search -- find users with similar embeddings.
    *
    * libSQL supports vector search natively via the vector_distance_cos function.
    * This eliminates the need for a separate vector database (Pinecone, Weaviate)
@@ -1350,7 +1350,7 @@ class TursoDatabase {
   }
 
   /**
-   * Multi-tenant pattern — database per tenant.
+   * Multi-tenant pattern -- database per tenant.
    *
    * Turso supports database-per-tenant architecture because creating
    * databases is cheap ($0 for inactive databases). This provides:
@@ -1371,7 +1371,7 @@ class TursoDatabase {
   }
 
   /**
-   * Force sync for embedded replicas — pull latest changes from primary.
+   * Force sync for embedded replicas -- pull latest changes from primary.
    */
   async sync(): Promise<void> {
     await this.client.sync();
@@ -1395,7 +1395,7 @@ describe("TursoDatabase", () => {
   let db: TursoDatabase;
 
   beforeAll(async () => {
-    // Use in-memory for tests — no Turso account needed
+    // Use in-memory for tests -- no Turso account needed
     db = new TursoDatabase({ url: "file::memory:", authToken: "" });
     await db.initialize();
   });
@@ -1441,19 +1441,19 @@ sub-millisecond read latency from embedded replicas is a compelling advantage.
 
 The multi-tenant database-per-tenant pattern is particularly powerful because it eliminates
 the complexity of row-level security while providing natural data isolation. This is why
-Turso is gaining adoption in SaaS platforms — each customer gets their own edge-replicated
+Turso is gaining adoption in SaaS platforms -- each customer gets their own edge-replicated
 database for the cost of storage alone.
-"""
+'''
     ),
 
     # --- 5. Vector Databases and Semantic Search ---
     (
         "vector_database_semantic_search",
-        "Explain vector database internals — how HNSW and IVF indexes work, why cosine similarity "
+        "Explain vector database internals -- how HNSW and IVF indexes work, why cosine similarity "
         "is used for text embeddings, and build a production semantic search system using pgvector "
         "with Python. Cover index tuning, hybrid search (vector + full-text), and common pitfalls "
         "like embedding model choice and dimensionality reduction.",
-        """\
+        '''\
 # Vector Databases: Semantic Search from Index Internals to Production
 
 ## Why Vector Search Matters
@@ -1461,10 +1461,10 @@ database for the cost of storage alone.
 Traditional search matches **keywords**. Vector search matches **meaning**. When a user
 searches "how to fix a memory leak," keyword search requires the document to contain those
 exact words. Vector search finds documents about "debugging heap allocation," "GC tuning,"
-or "valgrind profiling" — because their embedding vectors are close in semantic space.
+or "valgrind profiling" -- because their embedding vectors are close in semantic space.
 
-**How it works**: Text → Embedding model → Dense vector (768-3072 floats) → Store in
-vector index → Query with another vector → Find nearest neighbors.
+**How it works**: Text -> Embedding model -> Dense vector (768-3072 floats) -> Store in
+vector index -> Query with another vector -> Find nearest neighbors.
 
 ## Index Internals: HNSW vs IVF
 
@@ -1482,11 +1482,11 @@ Layer 0 (dense):   A─B─C─D─E─F─G─H─I─J─K─L
 Search algorithm:
 1. Enter at top layer, find closest node (few comparisons)
 2. Drop to next layer, continue searching from that node
-3. Repeat until bottom layer — find exact nearest neighbors
+3. Repeat until bottom layer -- find exact nearest neighbors
 
 Performance:
-  Build time:  O(N × log(N)) — slow to build
-  Query time:  O(log(N)) — very fast
+  Build time:  O(N x log(N)) -- slow to build
+  Query time:  O(log(N)) -- very fast
   Memory:      HIGH (graph edges stored in RAM)
   Accuracy:    HIGH (90-99% recall achievable)
 
@@ -1504,24 +1504,24 @@ IVF partitions vectors into clusters using k-means:
 Step 1: Cluster vectors into K centroids (training phase)
   ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
   │ C1   │ │ C2   │ │ C3   │ │ C4   │
-  │ •••  │ │ ••   │ │ ••••│ │ •••  │
+  │ ***  │ │ **   │ │ ****│ │ ***  │
   └──────┘ └──────┘ └──────┘ └──────┘
 
 Step 2: At query time, find closest centroids, then search within those clusters
   Query: q
-  1. Compare q to all centroids → C2 and C3 are closest
+  1. Compare q to all centroids -> C2 and C3 are closest
   2. Search all vectors in C2 and C3 only
   3. Skip C1 and C4 entirely
 
 Performance:
-  Build time:  O(N × K) — fast for k-means
-  Query time:  O(N/K × nprobe) — depends on clusters searched
+  Build time:  O(N x K) -- fast for k-means
+  Query time:  O(N/K x nprobe) -- depends on clusters searched
   Memory:      LOW (just centroid locations)
   Accuracy:    MODERATE (depends on nprobe parameter)
 
 Parameters:
-  nlist (K): Number of clusters — sqrt(N) is a good default
-  nprobe: Clusters to search — more = accurate but slower
+  nlist (K): Number of clusters -- sqrt(N) is a good default
+  nprobe: Clusters to search -- more = accurate but slower
 ```
 
 ### When to Use Which
@@ -1625,7 +1625,7 @@ class SemanticSearch:
             from sentence_transformers import SentenceTransformer
             self._embedding_model = SentenceTransformer(self.config.embedding_model)
 
-        # Normalize for cosine similarity — critical for correct distance metrics
+        # Normalize for cosine similarity -- critical for correct distance metrics
         embedding = self._embedding_model.encode(text, normalize_embeddings=True)
         return embedding
 
@@ -1666,7 +1666,7 @@ class SemanticSearch:
 
         Why hybrid? Vector search captures semantic meaning but misses exact keywords.
         Full-text search matches exact terms but misses semantic equivalents.
-        Combining both gives the best retrieval quality — this is the approach used
+        Combining both gives the best retrieval quality -- this is the approach used
         by production RAG systems.
 
         The trade-off in weight tuning:
@@ -1683,7 +1683,7 @@ class SemanticSearch:
 
             results = await conn.fetch(f\"\"\"
                 WITH vector_results AS (
-                    -- Vector similarity search (cosine distance → similarity)
+                    -- Vector similarity search (cosine distance -> similarity)
                     SELECT
                         id,
                         1 - (embedding <=> $1::vector) AS vector_score
@@ -1701,7 +1701,7 @@ class SemanticSearch:
                     LIMIT $2 * 3
                 ),
                 combined AS (
-                    -- Reciprocal Rank Fusion (RRF) — robust combination method
+                    -- Reciprocal Rank Fusion (RRF) -- robust combination method
                     SELECT
                         COALESCE(v.id, t.id) AS id,
                         COALESCE(v.vector_score, 0) * {vector_weight} +
@@ -1763,7 +1763,7 @@ embedding = model.encode(text, normalize_embeddings=True)  # correct
 
 # PITFALL 3: Searching too many dimensions
 # 3072-dim embeddings from large models are expensive to index and search
-# SOLUTION: Use Matryoshka embeddings — truncate to lower dimensions
+# SOLUTION: Use Matryoshka embeddings -- truncate to lower dimensions
 # Most models maintain 95% quality at 256-512 dims for similarity search
 truncated = embedding[:512]  # Matryoshka truncation
 truncated = truncated / np.linalg.norm(truncated)  # Re-normalize
@@ -1772,7 +1772,7 @@ truncated = truncated / np.linalg.norm(truncated)  # Re-normalize
 ## Key Takeaways
 
 For most applications, **pgvector in PostgreSQL** is the best starting point because
-it keeps your vector data alongside your relational data — no separate infrastructure.
+it keeps your vector data alongside your relational data -- no separate infrastructure.
 Dedicated vector databases (Pinecone, Weaviate, Qdrant) make sense only at scale (>10M
 vectors) or when you need specialized features like multi-tenancy, real-time indexing, or
 advanced filtering. The trade-off is operational complexity versus feature richness.
@@ -1780,6 +1780,6 @@ advanced filtering. The trade-off is operational complexity versus feature richn
 Hybrid search (vector + full-text) consistently outperforms either approach alone in
 production RAG systems, because real queries contain both semantic intent and specific
 keywords. The vector_weight/text_weight ratio should be tuned on your specific data.
-"""
+'''
     ),
 ]

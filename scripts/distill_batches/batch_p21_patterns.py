@@ -1,10 +1,10 @@
+"""p21 patterns"""
+
 PAIRS = [
     (
         "architecture/saga-pattern",
-        r"""Explain the Saga pattern for distributed transactions including choreography vs orchestration, compensating transactions, failure handling, idempotency requirements, and implementing sagas with an event-driven approach. Include Python examples.""",
-        r"""## Saga Pattern: Managing Distributed Transactions Without 2PC
-
-In microservice architectures, a single business operation often spans multiple services. Traditional ACID transactions don't work across service boundaries. Sagas break a transaction into a sequence of local transactions, each with a compensating action for rollback.
+        "Explain the Saga pattern for distributed transactions including choreography vs orchestration, compensating transactions, failure handling, idempotency requirements, and implementing sagas with an event-driven approach. Include Python examples.",
+        '''In microservice architectures, a single business operation often spans multiple services. Traditional ACID transactions don't work across service boundaries. Sagas break a transaction into a sequence of local transactions, each with a compensating action for rollback.
 
 ### Choreography: Event-Driven Sagas
 
@@ -36,9 +36,9 @@ class SagaEvent:
 
 # Order Creation Saga (Choreography):
 # 1. OrderService: Create order (PENDING)
-# 2. PaymentService: Reserve payment → OrderPaymentReserved
-# 3. InventoryService: Reserve stock → OrderStockReserved
-# 4. OrderService: Confirm order → OrderConfirmed
+# 2. PaymentService: Reserve payment -> OrderPaymentReserved
+# 3. InventoryService: Reserve stock -> OrderStockReserved
+# 4. OrderService: Confirm order -> OrderConfirmed
 #
 # Compensation on failure:
 # If InventoryService fails: PaymentService releases payment
@@ -54,167 +54,12 @@ class OrderSagaParticipant:
             await self.reserve_payment(
                 order_id=event.data["order_id"],
                 amount=event.data["total"],
-                customer_id=event.data["customer_id"],
-            )
-            await self.publish(SagaEvent(
-                saga_id=event.saga_id,
-                event_type="PaymentReserved",
-                service="payment",
-                data={"order_id": event.data["order_id"], "payment_id": "pay-123"},
-            ))
-        except InsufficientFundsError:
-            await self.publish(SagaEvent(
-                saga_id=event.saga_id,
-                event_type="PaymentFailed",
-                service="payment",
-                data={"order_id": event.data["order_id"], "reason": "insufficient_funds"},
-            ))
-
-    async def handle_payment_failed(self, event: SagaEvent):
-        """OrderService handles PaymentFailed — compensate."""
-        await self.cancel_order(event.data["order_id"])
-        await self.publish(SagaEvent(
-            saga_id=event.saga_id,
-            event_type="OrderCancelled",
-            service="order",
-            data=event.data,
-        ))
-```
-
-### Orchestration: Central Coordinator
-
-A saga orchestrator manages the sequence and compensation:
-
-```python
-from dataclasses import dataclass, field
-from typing import Callable
-
-
-@dataclass
-class SagaStep:
-    name: str
-    action: Callable  # The forward action
-    compensation: Callable  # The rollback action
-    completed: bool = False
-
-
-class SagaOrchestrator:
-    """Central saga coordinator that manages step execution."""
-
-    def __init__(self, saga_id: UUID = None):
-        self.saga_id = saga_id or uuid4()
-        self.steps: list[SagaStep] = []
-        self.completed_steps: list[SagaStep] = []
-        self.status = SagaStatus.STARTED
-
-    def add_step(self, name: str, action: Callable, compensation: Callable):
-        self.steps.append(SagaStep(name, action, compensation))
-
-    async def execute(self, context: dict) -> dict:
-        """Execute saga steps in order, compensate on failure."""
-        for step in self.steps:
-            try:
-                print(f"Executing step: {step.name}")
-                result = await step.action(context)
-                context.update(result or {})
-                step.completed = True
-                self.completed_steps.append(step)
-            except Exception as e:
-                print(f"Step {step.name} failed: {e}")
-                self.status = SagaStatus.COMPENSATING
-                await self._compensate(context)
-                self.status = SagaStatus.FAILED
-                raise SagaFailedError(
-                    f"Saga {self.saga_id} failed at {step.name}: {e}",
-                    compensated_steps=[s.name for s in self.completed_steps],
-                )
-
-        self.status = SagaStatus.COMPLETED
-        return context
-
-    async def _compensate(self, context: dict):
-        """Run compensating transactions in reverse order."""
-        for step in reversed(self.completed_steps):
-            try:
-                print(f"Compensating step: {step.name}")
-                await step.compensation(context)
-            except Exception as e:
-                # Compensation failure is serious — log and alert
-                print(f"CRITICAL: Compensation failed for {step.name}: {e}")
-                # In production: send to dead letter queue for manual resolution
-
-
-# Usage: Order Creation Saga
-async def create_order_saga(order_data: dict):
-    saga = SagaOrchestrator()
-
-    saga.add_step(
-        name="create_order",
-        action=lambda ctx: create_order(ctx),
-        compensation=lambda ctx: cancel_order(ctx["order_id"]),
-    )
-
-    saga.add_step(
-        name="reserve_payment",
-        action=lambda ctx: reserve_payment(ctx["order_id"], ctx["total"]),
-        compensation=lambda ctx: release_payment(ctx["payment_id"]),
-    )
-
-    saga.add_step(
-        name="reserve_inventory",
-        action=lambda ctx: reserve_inventory(ctx["order_id"], ctx["items"]),
-        compensation=lambda ctx: release_inventory(ctx["reservation_id"]),
-    )
-
-    saga.add_step(
-        name="confirm_order",
-        action=lambda ctx: confirm_order(ctx["order_id"]),
-        compensation=lambda ctx: None,  # No compensation needed (already confirmed)
-    )
-
-    return await saga.execute(order_data)
-```
-
-### Idempotent Operations
-
-Every saga step must be idempotent — safe to retry:
-
-```python
-class IdempotentSagaStep:
-    """Wrapper ensuring saga steps are idempotent."""
-
-    def __init__(self, store):
-        self.store = store  # Redis or database
-
-    async def execute_once(
-        self,
-        saga_id: UUID,
-        step_name: str,
-        action: Callable,
-        context: dict,
-    ) -> dict:
-        """Execute action only if not already completed."""
-        key = f"saga:{saga_id}:step:{step_name}"
-
-        # Check if already executed
-        existing = await self.store.get(key)
-        if existing:
-            return existing  # Return cached result
-
-        # Execute and record
-        result = await action(context)
-        await self.store.set(key, result, ttl=86400)  # 24h retention
-        return result
-```
-
-**Saga pattern guidelines**: (1) **Choreography** for simple sagas with few steps — each service is autonomous, (2) **Orchestration** for complex sagas with many steps — centralized control, easier to understand, (3) Every step MUST have a compensating transaction, (4) Every step MUST be idempotent — network retries will happen, (5) Compensation failures need manual resolution — have monitoring and dead-letter queues, (6) Prefer orchestration in practice — choreography becomes hard to trace as sagas grow."""
+                customer_id=event.data["customer_id"],'''
     ),
     (
         "architecture/outbox-pattern",
-        r"""Explain the Transactional Outbox pattern for reliable event publishing including the problem it solves (dual writes), implementation with polling and CDC, Debezium integration, and guaranteeing at-least-once delivery.""",
-        r"""## Transactional Outbox: Reliable Event Publishing Without Dual Writes
-
-The outbox pattern solves a fundamental problem in event-driven architectures: how to atomically update a database AND publish an event, when the database and message broker are separate systems.
+        "Explain the Transactional Outbox pattern for reliable event publishing including the problem it solves (dual writes), implementation with polling and CDC, Debezium integration, and guaranteeing at-least-once delivery.",
+        '''The outbox pattern solves a fundamental problem in event-driven architectures: how to atomically update a database AND publish an event, when the database and message broker are separate systems.
 
 ### The Dual Write Problem
 
@@ -228,16 +73,16 @@ async def create_order(order_data: dict):
     await message_broker.publish("order.created", order)
 
     # What if the app crashes between Step 1 and Step 2?
-    # → Order exists in DB but event never published
-    # → Downstream services never know about the order
+    # -> Order exists in DB but event never published
+    # -> Downstream services never know about the order
 
     # What if we reverse the order?
-    # → Event published but DB save fails
-    # → Downstream services process a phantom order
+    # -> Event published but DB save fails
+    # -> Downstream services process a phantom order
 
     # What if we use a transaction?
-    # → Database transaction can't span the message broker
-    # → They're different systems!
+    # -> Database transaction can't span the message broker
+    # -> They're different systems!
 ```
 
 ### The Outbox Pattern Solution
@@ -262,31 +107,12 @@ class OutboxRepository:
                 """INSERT INTO orders (id, customer_id, total, status)
                 VALUES ($1, $2, $3, 'created')
                 RETURNING *""",
-                uuid4(), order_data["customer_id"], order_data["total"],
-            )
-
-            # Step 2: Write event to outbox table (SAME transaction!)
-            await self.db.execute(
-                """INSERT INTO outbox
-                (id, aggregate_type, aggregate_id, event_type, payload, created_at)
-                VALUES ($1, $2, $3, $4, $5, $6)""",
-                uuid4(),
-                "Order",
-                order["id"],
-                "order.created",
-                json.dumps({
-                    "order_id": str(order["id"]),
-                    "customer_id": order_data["customer_id"],
-                    "total": float(order_data["total"]),
-                }),
-                datetime.now(timezone.utc),
-            )
-
-            return order
-        # Both writes succeed or both fail — ACID guarantees!
-
-
-# Outbox table schema:
+                uuid4(), order_data["customer_id"], order_data["total"],'''
+    ),
+    (
+        "total",
+        "}) datetime.now(timezone.utc) ) return order",
+        '''# Outbox table schema:
 # CREATE TABLE outbox (
 #     id UUID PRIMARY KEY,
 #     aggregate_type TEXT NOT NULL,
@@ -331,87 +157,26 @@ class OutboxRelay:
             WHERE published_at IS NULL
             ORDER BY created_at
             LIMIT 100
-            FOR UPDATE SKIP LOCKED""",
-        )
-
-        published = 0
-        for event in events:
-            try:
-                # Publish to message broker
-                await self.broker.publish(
-                    topic=event["event_type"],
-                    key=str(event["aggregate_id"]),
-                    value=event["payload"],
-                    headers={
-                        "event_id": str(event["id"]),
-                        "aggregate_type": event["aggregate_type"],
-                    },
-                )
-
-                # Mark as published
-                await self.db.execute(
+            FOR UPDATE SKIP LOCKED""",'''
+    ),
+    (
+        "aggregate_type",
+        "} )",
+        '''await self.db.execute(
                     "UPDATE outbox SET published_at = NOW() WHERE id = $1",
-                    event["id"],
-                )
-                published += 1
-
-            except Exception as e:
-                # Increment retry count, will be retried next poll
-                await self.db.execute(
-                    """UPDATE outbox SET retries = retries + 1
-                    WHERE id = $1""",
-                    event["id"],
-                )
-                print(f"Failed to publish event {event['id']}: {e}")
-
-        return published
-
-    async def cleanup(self, max_age_days: int = 7):
-        """Remove old published events."""
-        await self.db.execute(
-            """DELETE FROM outbox
-            WHERE published_at IS NOT NULL
-            AND published_at < NOW() - INTERVAL '%s days'""",
-            max_age_days,
-        )
-```
-
-### CDC-Based Outbox (Debezium)
-
-Change Data Capture reads the database's transaction log directly — no polling needed:
-
-```json
-// Debezium connector configuration
-{
-    "name": "outbox-connector",
-    "config": {
-        "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-        "database.hostname": "postgres",
-        "database.port": "5432",
-        "database.user": "debezium",
-        "database.password": "secret",
-        "database.dbname": "myapp",
-        "table.include.list": "public.outbox",
-        "transforms": "outbox",
-        "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
-        "transforms.outbox.table.field.event.id": "id",
-        "transforms.outbox.table.field.event.key": "aggregate_id",
-        "transforms.outbox.table.field.event.type": "event_type",
-        "transforms.outbox.table.field.event.payload": "payload",
-        "transforms.outbox.route.topic.replacement": "${routedByValue}",
-        "transforms.outbox.table.expand.json.payload": "true"
-    }
-}
-```
-
-```
+                    event["id"],'''
+    ),
+    (
+        "transforms",
+        "transforms.outbox.type': 'io.debezium.transforms.outbox.EventRouter' transforms.outbox.table.field.event.id': 'id' transforms.outbox.table.field.event.key': 'aggregate_id' transforms.outbox.table.field.event.type': 'event_type' transforms.outbox.table.field.event.payload': 'payload' transforms.outbox.route.topic.replacement': '${routedByValue}' transforms.outbox.table.expand.json.payload': 'true } }",
+        '''```
 CDC approach:
 
 Database WAL (Write-Ahead Log)
     │
-    └──→ Debezium reads WAL changes
+    └──-> Debezium reads WAL changes
             │
-            └──→ Publishes to Kafka topics
+            └──-> Publishes to Kafka topics
 
 Advantages over polling:
 1. Real-time: no polling delay
@@ -445,20 +210,18 @@ Outbox pattern guarantees:
      in the outbox and are published when it recovers
 ```
 
-**Outbox pattern rules**: (1) Always write to the outbox in the SAME transaction as the business data, (2) Consumers must be idempotent — at-least-once delivery means duplicates, (3) Use CDC (Debezium) for production if you need real-time and can manage the infrastructure, (4) Use polling for simpler setups — it's reliable and easy to debug, (5) Clean up published events periodically — the outbox table shouldn't grow unboundedly."""
+**Outbox pattern rules**: (1) Always write to the outbox in the SAME transaction as the business data, (2) Consumers must be idempotent -- at-least-once delivery means duplicates, (3) Use CDC (Debezium) for production if you need real-time and can manage the infrastructure, (4) Use polling for simpler setups -- it's reliable and easy to debug, (5) Clean up published events periodically -- the outbox table shouldn't grow unboundedly.'''
     ),
     (
         "architecture/event-driven-architecture",
-        r"""Explain event-driven architecture patterns including event notification, event-carried state transfer, event sourcing, CQRS integration, designing event schemas, event versioning, and choosing between sync and async communication.""",
-        r"""## Event-Driven Architecture: Patterns, Schema Design, and Communication Trade-offs
-
-Event-driven architecture (EDA) decouples services by having them communicate through events rather than direct API calls. The choice of event pattern dramatically affects system coupling, complexity, and data consistency.
+        "Explain event-driven architecture patterns including event notification, event-carried state transfer, event sourcing, CQRS integration, designing event schemas, event versioning, and choosing between sync and async communication.",
+        '''Event-driven architecture (EDA) decouples services by having them communicate through events rather than direct API calls. The choice of event pattern dramatically affects system coupling, complexity, and data consistency.
 
 ### Three Event Patterns
 
 ```python
 # 1. EVENT NOTIFICATION
-# "Something happened" — minimal data, consumer fetches details if needed
+# "Something happened" -- minimal data, consumer fetches details if needed
 # Low coupling, but causes "event chasing" (callback to source for data)
 
 class OrderCreatedNotification:
@@ -482,10 +245,10 @@ class OrderCreatedFull:
     total: float
     shipping_address: dict
     timestamp: str
-    # Consumer has everything it needs — no API calls back
+    # Consumer has everything it needs -- no API calls back
 
 # 3. EVENT SOURCING
-# "Here's the state change itself" — events ARE the data
+# "Here's the state change itself" -- events ARE the data
 # See CQRS/Event Sourcing section for details
 ```
 
@@ -500,86 +263,26 @@ import json
 
 @dataclass
 class EventEnvelope:
-    """Standard event envelope — consistent across all events."""
+    """Standard event envelope -- consistent across all events."""
     event_id: str = field(default_factory=lambda: str(uuid4()))
     event_type: str = ""
     event_version: int = 1
     source: str = ""  # Which service produced this
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    correlation_id: str = ""  # For tracing across services
-    causation_id: str = ""  # What caused this event
-    data: dict = field(default_factory=dict)  # Event payload
-    metadata: dict = field(default_factory=dict)  # Non-business context
-
-    def to_json(self) -> str:
-        return json.dumps(asdict(self), default=str)
-
-    @classmethod
-    def from_json(cls, raw: str) -> "EventEnvelope":
-        return cls(**json.loads(raw))
-
-
-# Good event naming:
-# Past tense: OrderCreated, PaymentProcessed, InventoryReserved
-# Domain language: not "OrderTableRowInserted"
-# Specific: OrderShipped, not OrderUpdated
-
-# Good event design principles:
-# 1. Events are IMMUTABLE — never change a published event
-# 2. Events are FACTS — something that already happened
-# 3. Include enough data for consumers to act without callbacks
-# 4. Include correlation_id for distributed tracing
-# 5. Version events from day 1
-```
-
-### Event Versioning
-
-```python
-class EventUpgrader:
-    """Handle event schema evolution without breaking consumers."""
-
-    def __init__(self):
-        self._upgraders = {}
-
-    def register(self, event_type: str, from_version: int, upgrader):
-        self._upgraders[(event_type, from_version)] = upgrader
-
-    def upgrade(self, event: EventEnvelope) -> EventEnvelope:
-        """Upgrade event to latest version."""
-        current = event.event_version
-        while (event.event_type, current) in self._upgraders:
-            upgrader = self._upgraders[(event.event_type, current)]
-            event = upgrader(event)
-            current += 1
-            event.event_version = current
-        return event
-
-
-# Register upgraders
-upgrader = EventUpgrader()
-
-# v1 → v2: Added customer_email to OrderCreated
-upgrader.register("order.created", 1, lambda e: EventEnvelope(
-    **{**asdict(e), "event_version": 2, "data": {
-        **e.data,
-        "customer_email": e.data.get("customer_email", "unknown@example.com"),
-    }}
-))
-
-# v2 → v3: Renamed "total" to "order_total"
-upgrader.register("order.created", 2, lambda e: EventEnvelope(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()'''
+    ),
+    (
+        "customer_email",
+        "}} ))",
+        '''upgrader.register("order.created", 2, lambda e: EventEnvelope(
     **{**asdict(e), "event_version": 3, "data": {
-        **{k: v for k, v in e.data.items() if k != "total"},
-        "order_total": e.data.get("total", e.data.get("order_total", 0)),
-    }}
-))
-
-
-# Versioning strategies:
-# 1. ADDITIVE CHANGES (backward compatible):
-#    Adding new fields — old consumers ignore them
+        **{k: v for k, v in e.data.items() if k != "total"},'''
+    ),
+    (
+        "order_total",
+        "}} ))",
+        '''# 1. ADDITIVE CHANGES (backward compatible):
+#    Adding new fields -- old consumers ignore them
 #    This is always safe and preferred
 #
 # 2. TRANSFORMATIVE CHANGES (breaking):
@@ -621,7 +324,7 @@ async def async_pattern(order_data: dict):
         event_type="order.created",
         data=asdict(order),
     ))
-    # Return immediately — don't wait for email, analytics, etc.
+    # Return immediately -- don't wait for email, analytics, etc.
     return order
 
 # Pros: Loose coupling, fault tolerance, scalability
@@ -648,6 +351,6 @@ async def hybrid_pattern(order_data: dict):
     return {"order_id": order.id, "status": "processing"}
 ```
 
-**EDA principles**: (1) Use fat events (event-carried state transfer) as the default — thin events cause event chasing, (2) Design event schemas carefully from day 1 — they're your public API, (3) Version all events and support upgrading old versions, (4) Use synchronous calls for queries and validation, async events for notifications and side effects, (5) Always include correlation_id for distributed tracing — debugging async systems without tracing is nearly impossible."""
+**EDA principles**: (1) Use fat events (event-carried state transfer) as the default -- thin events cause event chasing, (2) Design event schemas carefully from day 1 -- they're your public API, (3) Version all events and support upgrading old versions, (4) Use synchronous calls for queries and validation, async events for notifications and side effects, (5) Always include correlation_id for distributed tracing -- debugging async systems without tracing is nearly impossible.'''
     ),
 ]

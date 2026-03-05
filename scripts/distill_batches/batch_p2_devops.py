@@ -1,5 +1,5 @@
 """
-Batch P2 — DevOps: GitOps, Pulumi, platform engineering, observability.
+Batch P2 -- DevOps: GitOps, Pulumi, platform engineering, observability.
 """
 
 PAIRS = [
@@ -9,7 +9,7 @@ PAIRS = [
         "Explain GitOps principles and build a production ArgoCD setup with app-of-apps pattern, "
         "progressive delivery (canary/blue-green), secrets management, and multi-cluster deployment. "
         "Include the YAML manifests and explain why each design decision matters.",
-        """\
+        '''\
 # GitOps with ArgoCD: Production-Grade Continuous Delivery
 
 ## GitOps Principles
@@ -23,8 +23,8 @@ and applications**. The key principles:
 4. **Continuously reconciled**: Drift from desired state is automatically corrected
 
 **Why GitOps over CI/CD push?**
-- Push-based: CI pipeline has cluster credentials, pushes changes → security risk, no drift detection
-- Pull-based: ArgoCD lives IN the cluster, pulls from Git → no external credential exposure, continuous reconciliation
+- Push-based: CI pipeline has cluster credentials, pushes changes -> security risk, no drift detection
+- Pull-based: ArgoCD lives IN the cluster, pulls from Git -> no external credential exposure, continuous reconciliation
 
 ## Repository Structure
 
@@ -96,7 +96,7 @@ spec:
       - CreateNamespace=true
       - PrunePropagationPolicy=foreground
 
-# apps/production/api.yaml — managed by root app
+# apps/production/api.yaml -- managed by root app
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -126,7 +126,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-  # Health checks — ArgoCD waits for these before marking "Healthy"
+  # Health checks -- ArgoCD waits for these before marking "Healthy"
   ignoreDifferences:
     - group: apps
       kind: Deployment
@@ -137,7 +137,7 @@ spec:
 ## Progressive Delivery with Argo Rollouts
 
 ```yaml
-# base/api/rollout.yaml — replaces Deployment
+# base/api/rollout.yaml -- replaces Deployment
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
@@ -173,7 +173,7 @@ spec:
               memory: 512Mi
   strategy:
     canary:
-      # Traffic splitting — gradual rollout
+      # Traffic splitting -- gradual rollout
       steps:
         - setWeight: 5          # 5% traffic to canary
         - pause: {duration: 2m} # Wait 2 minutes
@@ -205,7 +205,7 @@ spec:
             canary-by-header: X-Canary
 
 ---
-# Analysis template — automated canary validation
+# Analysis template -- automated canary validation
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
@@ -291,7 +291,7 @@ spec:
 ## Multi-Cluster Deployment
 
 ```yaml
-# ArgoCD ApplicationSet — deploy to multiple clusters from one definition
+# ArgoCD ApplicationSet -- deploy to multiple clusters from one definition
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -331,14 +331,14 @@ spec:
    ApplicationSets are better for homogeneous deployments across clusters.
 
 3. **Argo Rollouts over native Deployments**: Deployments only support rolling updates.
-   Rollouts add canary, blue-green, and automated analysis — essential for production.
+   Rollouts add canary, blue-green, and automated analysis -- essential for production.
 
 4. **External Secrets over Sealed Secrets**: External Secrets supports rotation and pulls
    from existing secret managers. Sealed Secrets require re-encryption on key rotation.
 
 5. **Automated sync + selfHeal**: Without selfHeal, manual `kubectl` changes persist
    until next Git commit. With selfHeal, ArgoCD continuously enforces Git state.
-"""
+'''
     ),
 
     # --- 2. Pulumi Infrastructure as Code ---
@@ -347,7 +347,7 @@ spec:
         "Explain Pulumi's approach to Infrastructure as Code using real programming languages, "
         "compare it with Terraform's HCL approach, and build a production AWS infrastructure "
         "(VPC, ECS Fargate, RDS, CDN) in TypeScript with proper patterns.",
-        """\
+        '''\
 # Pulumi: Infrastructure as Code with Real Languages
 
 ## Why Pulumi over Terraform?
@@ -379,7 +379,7 @@ const environment = pulumi.getStack();  // "staging" or "production"
 const dbPassword = config.requireSecret("dbPassword");
 
 // ============================================================
-// VPC — using awsx for sensible defaults
+// VPC -- using awsx for sensible defaults
 // ============================================================
 const vpc = new awsx.ec2.Vpc("main", {
     cidrBlock: "10.0.0.0/16",
@@ -398,7 +398,7 @@ const vpc = new awsx.ec2.Vpc("main", {
 });
 
 // ============================================================
-// RDS PostgreSQL — in isolated subnet
+// RDS PostgreSQL -- in isolated subnet
 // ============================================================
 const dbSubnetGroup = new aws.rds.SubnetGroup("db", {
     subnetIds: vpc.isolatedSubnetIds,
@@ -617,12 +617,12 @@ describe("Production infrastructure", () => {
 
 ## Key Patterns
 
-1. **Stack-based environments**: `pulumi stack select staging` vs `production` — same code, different configs
+1. **Stack-based environments**: `pulumi stack select staging` vs `production` -- same code, different configs
 2. **ComponentResources**: Create reusable infrastructure classes (like a `DatabaseCluster` component)
-3. **Config secrets**: `pulumi config set --secret dbPassword xyz` — encrypted in state
-4. **Stack references**: Import outputs from other stacks (e.g., network stack → app stack)
+3. **Config secrets**: `pulumi config set --secret dbPassword xyz` -- encrypted in state
+4. **Stack references**: Import outputs from other stacks (e.g., network stack -> app stack)
 5. **Policy as Code**: `pulumi policy` to enforce rules (e.g., "all S3 buckets must be encrypted")
-"""
+'''
     ),
 
     # --- 3. Observability Stack ---
@@ -631,10 +631,10 @@ describe("Production infrastructure", () => {
         "Build a comprehensive observability stack using OpenTelemetry, covering the three pillars "
         "(traces, metrics, logs), auto-instrumentation, custom spans, correlation between signals, "
         "and a production Grafana dashboard setup. Show code in Python and Go.",
-        """\
+        '''\
 # Production Observability with OpenTelemetry
 
-## The Three Pillars — And Why Correlation Matters
+## The Three Pillars -- And Why Correlation Matters
 
 ```
                     Observability Pillars
@@ -650,18 +650,18 @@ describe("Production infrastructure", () => {
           └─────────────────────┼──────────────────────┘
                                 │
                     trace_id links all three
-                    (exemplars in metrics → traces)
-                    (trace_id in logs → trace context)
+                    (exemplars in metrics -> traces)
+                    (trace_id in logs -> trace context)
 ```
 
 **Without correlation**, you have three separate data silos. **With correlation**, you can:
-- See a spike in error rate metrics → click exemplar → see the exact trace → find the log with error details
+- See a spike in error rate metrics -> click exemplar -> see the exact trace -> find the log with error details
 - All connected by `trace_id`.
 
 ## Python: Full OTel Setup
 
 ```python
-# otel_setup.py — Initialize once at application startup
+# otel_setup.py -- Initialize once at application startup
 import logging
 from opentelemetry import trace, metrics
 from opentelemetry.sdk.trace import TracerProvider
@@ -683,7 +683,7 @@ from opentelemetry.propagators.b3 import B3MultiFormat
 def setup_observability(service_name: str, version: str, otlp_endpoint: str):
     """Initialize all three pillars of observability."""
 
-    # Shared resource — identifies this service in all telemetry
+    # Shared resource -- identifies this service in all telemetry
     resource = Resource.create({
         SERVICE_NAME: service_name,
         SERVICE_VERSION: version,
@@ -710,7 +710,7 @@ def setup_observability(service_name: str, version: str, otlp_endpoint: str):
     logger_provider.add_log_record_processor(
         BatchLogRecordProcessor(OTLPLogExporter(endpoint=otlp_endpoint))
     )
-    # Bridge Python logging → OTel logs (with trace context!)
+    # Bridge Python logging -> OTel logs (with trace context!)
     handler = LoggingHandler(logger_provider=logger_provider)
     logging.getLogger().addHandler(handler)
 
@@ -888,7 +888,7 @@ func CreateOrder(ctx context.Context, req OrderRequest) (*Order, error) {
     defer span.End()
     start := time.Now()
 
-    // Validate — child span
+    // Validate -- child span
     ctx, valSpan := tracer.Start(ctx, "ValidateOrder")
     if err := validate(req); err != nil {
         valSpan.RecordError(err)
@@ -897,7 +897,7 @@ func CreateOrder(ctx context.Context, req OrderRequest) (*Order, error) {
     }
     valSpan.End()
 
-    // Save to DB — auto-instrumented if using otelsql
+    // Save to DB -- auto-instrumented if using otelsql
     order, err := repo.Save(ctx, req)
     if err != nil {
         span.RecordError(err)
@@ -946,7 +946,7 @@ processors:
   servicegraph:
     metrics_exporter: prometheus
     latency_histogram_buckets: [1, 5, 10, 50, 100, 500, 1000]
-  # Tail sampling — keep all error traces, sample 10% of success
+  # Tail sampling -- keep all error traces, sample 10% of success
   tail_sampling:
     policies:
       - name: errors
@@ -986,12 +986,12 @@ service:
 
 ## Key Insights
 
-1. **Start with auto-instrumentation** — it covers HTTP, DB, gRPC with zero code changes
-2. **Add custom spans only where business logic matters** — don't over-instrument
-3. **Always propagate context** — pass `ctx` (Go) or use `contextvars` (Python) so child spans connect to parents
-4. **Use tail sampling in the collector** — sample 100% of errors, 10% of success. This saves storage while keeping debuggability
-5. **Exemplars connect metrics to traces** — a histogram data point links to the trace that generated it, enabling "click from dashboard to trace"
-"""
+1. **Start with auto-instrumentation** -- it covers HTTP, DB, gRPC with zero code changes
+2. **Add custom spans only where business logic matters** -- don't over-instrument
+3. **Always propagate context** -- pass `ctx` (Go) or use `contextvars` (Python) so child spans connect to parents
+4. **Use tail sampling in the collector** -- sample 100% of errors, 10% of success. This saves storage while keeping debuggability
+5. **Exemplars connect metrics to traces** -- a histogram data point links to the trace that generated it, enabling "click from dashboard to trace"
+'''
     ),
 
     # --- 4. Platform Engineering ---
@@ -1000,32 +1000,32 @@ service:
         "Explain the platform engineering approach, how to build an Internal Developer Platform (IDP), "
         "and show a complete Backstage-based developer portal with service catalog, templates, and "
         "self-service infrastructure provisioning.",
-        """\
+        '''\
 # Platform Engineering: Building an Internal Developer Platform
 
 ## What is Platform Engineering?
 
 Platform engineering is the discipline of building and maintaining an **Internal Developer
-Platform (IDP)** — a self-service layer that abstracts away infrastructure complexity so
+Platform (IDP)** -- a self-service layer that abstracts away infrastructure complexity so
 application developers can focus on business logic.
 
 ```
 Without platform engineering:
-  Developer → "I need a database" → Ticket to DevOps → 3 day wait → Config manually
+  Developer -> "I need a database" -> Ticket to DevOps -> 3 day wait -> Config manually
 
 With platform engineering:
-  Developer → Self-service portal → Click "New PostgreSQL" → Running in 5 minutes
+  Developer -> Self-service portal -> Click "New PostgreSQL" -> Running in 5 minutes
   (Platform team built the automation once, everyone uses it)
 ```
 
 ### The Platform Maturity Model
 
 ```
-Level 0: Manual         → kubectl apply, manual cloud console clicks
-Level 1: Scripted       → Shell scripts, basic CI/CD, shared runbooks
-Level 2: Self-service   → Templates, automated provisioning, service catalog
-Level 3: Optimized      → Golden paths, automated compliance, cost optimization
-Level 4: Intelligent    → AI-assisted troubleshooting, predictive scaling
+Level 0: Manual         -> kubectl apply, manual cloud console clicks
+Level 1: Scripted       -> Shell scripts, basic CI/CD, shared runbooks
+Level 2: Self-service   -> Templates, automated provisioning, service catalog
+Level 3: Optimized      -> Golden paths, automated compliance, cost optimization
+Level 4: Intelligent    -> AI-assisted troubleshooting, predictive scaling
 ```
 
 ## Backstage: The Open-Source IDP Framework
@@ -1039,7 +1039,7 @@ Backstage (by Spotify, now CNCF) provides three core features:
 ### Software Catalog Configuration
 
 ```yaml
-# catalog-info.yaml — lives in every service's repo
+# catalog-info.yaml -- lives in every service's repo
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
@@ -1110,7 +1110,7 @@ metadata:
   title: Create a New Microservice
   description: |
     Scaffolds a production-ready microservice with CI/CD, monitoring,
-    database, and Kubernetes deployment — all pre-configured.
+    database, and Kubernetes deployment -- all pre-configured.
   tags:
     - python
     - recommended
@@ -1118,7 +1118,7 @@ spec:
   owner: team-platform
   type: service
 
-  # Input form — the developer fills this out
+  # Input form -- the developer fills this out
   parameters:
     - title: Service Details
       required:
@@ -1165,7 +1165,7 @@ spec:
           enum: ["staging", "staging+production"]
           default: staging
 
-  # Actions — what happens when they click "Create"
+  # Actions -- what happens when they click "Create"
   steps:
     # 1. Fetch and render the template
     - id: fetch
@@ -1269,14 +1269,14 @@ but it's the recommended way that comes with full platform support:
 Golden Path for "Deploy a new API":
 1. Use the Backstage template (creates repo, CI/CD, monitoring, DB)
 2. Write business logic in the generated service
-3. Push to main → CI runs tests → ArgoCD deploys to staging
-4. Create PR to promote to production → automated canary rollout
+3. Push to main -> CI runs tests -> ArgoCD deploys to staging
+4. Create PR to promote to production -> automated canary rollout
 5. Monitoring dashboards auto-configured, alerts auto-created
 
 Deviation (allowed but unsupported):
-- Custom build system → You maintain it
-- Different monitoring stack → No automatic dashboards
-- Manual deployment → No rollback support
+- Custom build system -> You maintain it
+- Different monitoring stack -> No automatic dashboards
+- Manual deployment -> No rollback support
 ```
 
 ## Measuring Platform Success
@@ -1289,13 +1289,13 @@ The key metrics are from DORA (DevOps Research and Assessment):
 4. **Time to restore**: How fast to recover from incidents (Target: < 1 hour)
 
 Additional platform-specific metrics:
-- **Time to first deploy**: New developer → first production deploy (Target: < 1 day)
+- **Time to first deploy**: New developer -> first production deploy (Target: < 1 day)
 - **Self-service ratio**: % of infra requests handled without platform team involvement
 - **Template adoption**: % of new services using golden path templates
 - **Developer satisfaction**: Regular surveys (NPS-style)
 
 The goal of platform engineering is to make the right thing the easy thing. Developers
 should WANT to use the platform because it makes them faster, not because they're forced to.
-"""
+'''
     ),
 ]

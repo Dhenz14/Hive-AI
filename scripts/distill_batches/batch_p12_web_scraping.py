@@ -1,21 +1,14 @@
-"""
-Batch P12 — Web Scraping & Data Extraction
+"""Batch P12 -- Web Scraping & Data Extraction
 Covers: Playwright/headless browser automation, structured data extraction,
 anti-bot bypass techniques, large-scale crawl architecture, data pipeline
 from web to knowledge graph.
-Target quality: >0.80 per v5 scorer.
-"""
+Target quality: >0.80 per v5 scorer."""
 
 PAIRS = [
-    # --- 1. Playwright / Headless Browser Automation ---
     (
         "web-scraping/playwright-headless-browser-automation",
-        r"""Explain how to use Playwright for headless browser automation in web scraping scenarios, covering page interaction patterns, network interception and request modification, stealth techniques to avoid detection, session and cookie management, and parallel scraping with browser contexts, including production-ready Python code examples.""",
-        r"""# Playwright for Headless Browser Automation in Web Scraping
-
-## Why Playwright Over Raw HTTP
-
-When scraping modern web applications, a **common mistake** is reaching for `requests` or `httpx` as the first tool. Many sites today render content entirely via JavaScript -- single-page applications built with React, Vue, or Angular that return an empty `<div id="root"></div>` in the initial HTML. Because of this, you need a real browser engine to execute JavaScript and produce the final DOM. Playwright provides exactly that: a high-level API to control Chromium, Firefox, or WebKit from Python, Node.js, or .NET.
+        "Explain how to use Playwright for headless browser automation in web scraping scenarios, covering page interaction patterns, network interception and request modification, stealth techniques to avoid detection, session and cookie management, and parallel scraping with browser contexts, including production-ready Python code examples.",
+        '''When scraping modern web applications, a **common mistake** is reaching for `requests` or `httpx` as the first tool. Many sites today render content entirely via JavaScript -- single-page applications built with React, Vue, or Angular that return an empty `<div id="root"></div>` in the initial HTML. Because of this, you need a real browser engine to execute JavaScript and produce the final DOM. Playwright provides exactly that: a high-level API to control Chromium, Firefox, or WebKit from Python, Node.js, or .NET.
 
 However, Playwright is not simply "Selenium but newer." It was designed from the ground up for **reliability and speed**. It auto-waits for elements to be actionable before clicking, supports network interception at the protocol level, and can run multiple isolated browser contexts in a single browser process -- therefore dramatically reducing memory overhead compared to launching separate browser instances.
 
@@ -64,14 +57,12 @@ async def scrape_product_page(page: Page, url: str) -> dict[str, str]:
     price = await page.text_content("span.price-current")
     description = await page.text_content("div.product-description")
 
-    return {
-        "title": (title or "").strip(),
-        "price": (price or "").strip(),
-        "description": (description or "").strip(),
-    }
-```
-
-The **best practice** for waiting is to use `wait_for_selector` with a meaningful DOM element rather than arbitrary `time.sleep()` calls. Playwright's auto-wait mechanism handles most timing issues, but explicit waits on content selectors ensure you do not proceed until the data you need is actually rendered.
+    return {'''
+    ),
+    (
+        "description",
+        "}",
+        '''The **best practice** for waiting is to use `wait_for_selector` with a meaningful DOM element rather than arbitrary `time.sleep()` calls. Playwright's auto-wait mechanism handles most timing issues, but explicit waits on content selectors ensure you do not proceed until the data you need is actually rendered.
 
 ## Network Interception and Request Modification
 
@@ -133,157 +124,12 @@ async def scrape_with_interception(url: str) -> list[dict]:
 
     # Capture internal API calls the page makes
     await intercept_api_responses(
-        page, "/api/products", lambda d: captured_data.append(d)
-    )
-
-    await page.goto(url, wait_until="networkidle")
-    await browser.close()
-
-    return captured_data
-```
-
-This interception approach is significant **because** many modern SPAs fetch their data from internal JSON APIs. By capturing those responses directly, you bypass the need to parse the rendered DOM entirely -- the structured data is already in JSON format.
-
-## Stealth Techniques to Avoid Detection
-
-A major **pitfall** in browser-based scraping is detection by anti-bot systems. Headless browsers have telltale fingerprints that sites check for. The `playwright-stealth` plugin patches many of these signals.
-
-```python
-from playwright.async_api import async_playwright
-from typing import Any
-
-# Stealth configuration to mask headless browser fingerprints
-STEALTH_SCRIPTS: list[str] = [
-    # Override navigator.webdriver property
-    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});",
-    # Fake plugins array
-    "Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});",
-    # Fake languages
-    "Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});",
-    # Override chrome runtime to appear as a real browser
-    "window.chrome = { runtime: {} };",
-]
-
-
-async def create_stealth_context(
-    browser,
-    timezone: str = "America/New_York",
-    locale: str = "en-US",
-    color_scheme: str = "light",
-) -> BrowserContext:
-    # Create a browser context that mimics a real user
-    context = await browser.new_context(
-        viewport={"width": 1920, "height": 1080},
-        locale=locale,
-        timezone_id=timezone,
-        color_scheme=color_scheme,
-        permissions=["geolocation"],
-        geolocation={"latitude": 40.7128, "longitude": -74.0060},
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    )
-
-    # Inject stealth scripts before any page navigation
-    await context.add_init_script(script="\n".join(STEALTH_SCRIPTS))
-    return context
-
-
-async def save_and_restore_session(
-    context: BrowserContext,
-    storage_path: str = "session_state.json",
-) -> None:
-    # Persist cookies and local storage for session continuity
-    storage = await context.storage_state()
-    import json
-    from pathlib import Path
-    Path(storage_path).write_text(json.dumps(storage, indent=2))
-```
-
-## Parallel Scraping with Browser Contexts
-
-For throughput, Playwright supports multiple **browser contexts** within a single browser process. Each context has its own cookies, cache, and session state -- therefore acting like separate browser profiles without the overhead of separate processes.
-
-```python
-import asyncio
-from dataclasses import dataclass, field
-from typing import Optional
-
-@dataclass
-class ScrapeResult:
-    url: str
-    data: dict
-    success: bool
-    error: Optional[str] = None
-
-
-@dataclass
-class ParallelScraper:
-    max_concurrency: int = 5
-    results: list[ScrapeResult] = field(default_factory=list)
-    semaphore: Optional[asyncio.Semaphore] = None
-
-    def __post_init__(self) -> None:
-        self.semaphore = asyncio.Semaphore(self.max_concurrency)
-
-    async def scrape_url(
-        self, browser: Browser, url: str
-    ) -> ScrapeResult:
-        # Each URL gets its own isolated browser context
-        async with self.semaphore:
-            context = await browser.new_context(
-                viewport={"width": 1920, "height": 1080}
-            )
-            page = await context.new_page()
-            try:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                title = await page.title()
-                content = await page.text_content("body")
-                return ScrapeResult(
-                    url=url,
-                    data={"title": title, "text_length": len(content or "")},
-                    success=True,
-                )
-            except Exception as e:
-                return ScrapeResult(url=url, data={}, success=False, error=str(e))
-            finally:
-                await context.close()
-
-    async def run(self, urls: list[str]) -> list[ScrapeResult]:
-        pw = await async_playwright().start()
-        browser = await pw.chromium.launch(headless=True)
-
-        tasks = [self.scrape_url(browser, url) for url in urls]
-        self.results = await asyncio.gather(*tasks)
-
-        await browser.close()
-        return self.results
-```
-
-The semaphore-based approach is the **best practice** because launching too many concurrent contexts will exhaust system memory. Five to ten concurrent contexts is typically the sweet spot for a machine with 8-16 GB of RAM.
-
-## Summary and Key Takeaways
-
-- **Use Playwright when JavaScript rendering is required**; fall back to `httpx` for static pages because the resource overhead is significant.
-- **Network interception** is your best tool for both performance (blocking unnecessary assets) and data capture (intercepting internal API calls).
-- **Stealth techniques** should mask `navigator.webdriver`, fake plugin arrays, and set realistic viewport sizes, locales, and timezones. However, no stealth setup is undetectable -- pair it with proxy rotation and rate limiting.
-- **Browser contexts** let you run parallel scrapes in isolated sessions within a single browser process, therefore saving memory compared to multiple browser instances.
-- **Session persistence** via `storage_state()` allows you to save and restore cookies, enabling login-gated scraping across multiple runs.
-- The **trade-off** with Playwright is always resource consumption versus fidelity: it gives you pixel-perfect rendering but at the cost of significantly more CPU and memory than raw HTTP scraping.
-""",
+        page, "/api/products", lambda d: captured_data.append(d)'''
     ),
-
-    # --- 2. Structured Data Extraction ---
     (
         "web-scraping/structured-data-extraction-selectors-schema",
-        r"""Describe advanced techniques for structured data extraction from web pages using CSS selectors, XPath expressions, and schema-based extraction approaches, including handling dynamically loaded content, incremental crawling strategies, data validation with Pydantic models, and production Python examples with BeautifulSoup and lxml.""",
-        r"""# Structured Data Extraction: CSS Selectors, XPath, Schema-Based Parsing, and Incremental Crawling
-
-## The Core Challenge of Web Data Extraction
-
-Extracting structured data from HTML is fundamentally a **mapping problem**: you must transform an unstructured, presentation-oriented document into a typed, validated data record. A **common mistake** is writing fragile selectors that break whenever the site changes a CSS class name. Production-grade extraction requires layered strategies -- CSS selectors for speed, XPath for complex traversals, and schema-based validation to guarantee data quality.
+        "Describe advanced techniques for structured data extraction from web pages using CSS selectors, XPath expressions, and schema-based extraction approaches, including handling dynamically loaded content, incremental crawling strategies, data validation with Pydantic models, and production Python examples with BeautifulSoup and lxml.",
+        '''Extracting structured data from HTML is fundamentally a **mapping problem**: you must transform an unstructured, presentation-oriented document into a typed, validated data record. A **common mistake** is writing fragile selectors that break whenever the site changes a CSS class name. Production-grade extraction requires layered strategies -- CSS selectors for speed, XPath for complex traversals, and schema-based validation to guarantee data quality.
 
 The **best practice** is to treat extraction as a pipeline with three stages: (1) locate the data region on the page, (2) extract raw text or attribute values from specific elements, and (3) validate and transform the raw strings into typed fields. By separating these concerns, you build systems that are easier to debug and more resilient to HTML changes.
 
@@ -356,68 +202,12 @@ def extract_product_css(soup: BeautifulSoup) -> Optional[ProductRecord]:
         rating=rating,
         review_count=review_count,
         in_stock=in_stock,
-        categories=categories,
-    )
-```
-
-Notice how each selector uses a fallback pattern with commas: `"h1.product-title, h1[data-testid='product-name']"`. This is a **best practice** because sites often A/B test different class names, and having multiple selector options makes your extractor more resilient.
-
-## XPath for Complex Traversals with lxml
-
-XPath surpasses CSS selectors when you need to traverse upward (to a parent), select based on text content, or apply positional logic. The `lxml` library provides the fastest XPath implementation available in Python.
-
-```python
-from lxml import html
-from lxml.html import HtmlElement
-from typing import Optional, Any
-
-def extract_table_data_xpath(page_source: str) -> list[dict[str, Any]]:
-    # Extract data from complex HTML tables using XPath axes
-    tree: HtmlElement = html.fromstring(page_source)
-    rows: list[dict[str, Any]] = []
-
-    # Find table rows, skipping the header row
-    data_rows = tree.xpath(
-        "//table[contains(@class, 'data-table')]"
-        "/tbody/tr[not(contains(@class, 'header'))]"
-    )
-
-    for row in data_rows:
-        # Extract cells with text normalization
-        cells = row.xpath("./td")
-        if len(cells) < 4:
-            continue
-
-        # XPath text() gets direct text; .//text() gets all descendant text
-        name = " ".join(cells[0].xpath(".//text()")).strip()
-        value = " ".join(cells[1].xpath(".//text()")).strip()
-
-        # Use ancestor axis to find the section this table belongs to
-        section_header = row.xpath(
-            "ancestor::div[contains(@class, 'section')]"
-            "/preceding-sibling::h2[1]/text()"
-        )
-        section = section_header[0].strip() if section_header else "Unknown"
-
-        # Use following-sibling to check if there is an expansion row
-        detail_row = row.xpath(
-            "following-sibling::tr[1][contains(@class, 'detail-row')]"
-        )
-        detail_text = ""
-        if detail_row:
-            detail_text = " ".join(detail_row[0].xpath(".//text()")).strip()
-
-        rows.append({
-            "section": section,
-            "name": name,
-            "value": value,
-            "detail": detail_text,
-        })
-
-    return rows
-```
-
-The **trade-off** between CSS and XPath is readability versus power. CSS selectors are easier to write and read for simple cases, however XPath is indispensable when you need ancestor traversal, text-based matching (`contains(text(), 'Price')`), or positional predicates (`[position() > 1]`).
+        categories=categories,'''
+    ),
+    (
+        "detail",
+        "}) return rows",
+        '''The **trade-off** between CSS and XPath is readability versus power. CSS selectors are easier to write and read for simple cases, however XPath is indispensable when you need ancestor traversal, text-based matching (`contains(text(), 'Price')`), or positional predicates (`[position() > 1]`).
 
 ## Schema-Based Extraction with Pydantic Validation
 
@@ -530,18 +320,12 @@ async def paginated_api_scrape(
 - **Fallback selectors** (comma-separated CSS or `|`-joined XPath) provide resilience against site redesigns, therefore reducing maintenance burden.
 - A **common mistake** is parsing the entire page when you only need a small region. Use a container selector first to narrow the DOM subtree, then apply detailed selectors within that subtree. This approach also improves extraction speed because the parser traverses fewer nodes.
 - **Schema evolution** is inevitable when scraping long-running targets. Therefore, design your Pydantic models with optional fields and version identifiers so that older records remain valid when the site adds or removes data fields. Defensive extraction with graceful degradation is always preferable to hard failures that halt your entire pipeline.
-""",
+""",'''
     ),
-
-    # --- 3. Anti-Bot Bypass Techniques ---
     (
         "web-scraping/anti-bot-bypass-fingerprint-evasion-ethics",
-        r"""Discuss anti-bot bypass techniques for web scraping including browser fingerprint evasion methods, proxy rotation strategies and pool management, rate limiting and request throttling best practices, CAPTCHA handling strategies, and the ethical considerations and legal boundaries of automated data collection with Python examples.""",
-        r"""# Anti-Bot Bypass Techniques: Fingerprinting, Proxy Rotation, Rate Limiting, CAPTCHAs, and Ethics
-
-## Understanding the Anti-Bot Landscape
-
-Modern websites deploy sophisticated bot detection systems -- Cloudflare Bot Management, PerimeterX, DataDome, and Akamai Bot Manager are among the most common. These systems analyze dozens of signals: TLS fingerprints, JavaScript execution patterns, mouse movements, HTTP header ordering, and behavioral patterns across requests. A **common mistake** is thinking that simply rotating User-Agent strings is sufficient to evade detection. Modern systems look far deeper than that.
+        "Discuss anti-bot bypass techniques for web scraping including browser fingerprint evasion methods, proxy rotation strategies and pool management, rate limiting and request throttling best practices, CAPTCHA handling strategies, and the ethical considerations and legal boundaries of automated data collection with Python examples.",
+        '''Modern websites deploy sophisticated bot detection systems -- Cloudflare Bot Management, PerimeterX, DataDome, and Akamai Bot Manager are among the most common. These systems analyze dozens of signals: TLS fingerprints, JavaScript execution patterns, mouse movements, HTTP header ordering, and behavioral patterns across requests. A **common mistake** is thinking that simply rotating User-Agent strings is sufficient to evade detection. Modern systems look far deeper than that.
 
 However, it is critical to emphasize upfront that **ethical scraping** means respecting the site's terms of service, honoring `robots.txt`, and collecting only data you have a legitimate right to access. The techniques below are presented for educational purposes and for use cases where you have explicit authorization (your own sites, contractual agreements, or publicly available data with no restrictive ToS).
 
@@ -574,66 +358,12 @@ class BrowserFingerprint:
     def generate_realistic(cls) -> "BrowserFingerprint":
         # Generate a fingerprint that matches real-world browser distributions
         profiles = [
-            {
-                "user_agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "platform": "Win32",
-                "viewport_width": 1920,
-                "viewport_height": 1080,
-                "hardware_concurrency": 8,
-                "device_memory": 8,
-                "webgl_vendor": "Google Inc. (NVIDIA)",
-                "webgl_renderer": "ANGLE (NVIDIA, GeForce GTX 1660 SUPER)",
-            },
-            {
-                "user_agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-                "platform": "MacIntel",
-                "viewport_width": 2560,
-                "viewport_height": 1440,
-                "hardware_concurrency": 10,
-                "device_memory": 16,
-                "webgl_vendor": "Apple",
-                "webgl_renderer": "Apple M1 Pro",
-            },
-        ]
-
-        profile = random.choice(profiles)
-        timezones = ["America/New_York", "America/Chicago", "America/Los_Angeles",
-                      "Europe/London", "Europe/Berlin"]
-
-        return cls(
-            user_agent=profile["user_agent"],
-            viewport_width=profile["viewport_width"],
-            viewport_height=profile["viewport_height"],
-            timezone=random.choice(timezones),
-            locale="en-US",
-            platform=profile["platform"],
-            webgl_vendor=profile["webgl_vendor"],
-            webgl_renderer=profile["webgl_renderer"],
-            hardware_concurrency=profile["hardware_concurrency"],
-            device_memory=profile["device_memory"],
-        )
-
-    def to_playwright_context_options(self) -> dict:
-        # Convert fingerprint into Playwright context configuration
-        return {
-            "user_agent": self.user_agent,
-            "viewport": {"width": self.viewport_width, "height": self.viewport_height},
-            "locale": self.locale,
-            "timezone_id": self.timezone,
-            "color_scheme": "light",
-        }
-
-    def to_stealth_script(self) -> str:
-        # Generate JavaScript to inject that overrides detectable properties
-        return f"""
+            {'''
+    ),
+    (
+        "color_scheme",
+        "} def to_stealth_script(self) -> str:",
+        '''return f"""
         Object.defineProperty(navigator, 'webdriver', {{get: () => undefined}});
         Object.defineProperty(navigator, 'platform', {{get: () => '{self.platform}'}});
         Object.defineProperty(navigator, 'hardwareConcurrency', {{get: () => {self.hardware_concurrency}}});
@@ -766,71 +496,12 @@ class AdaptiveThrottler:
             # Gradually reduce delay after sustained success
             self.current_delay = max(
                 self.base_delay,
-                self.current_delay * self.recovery_factor
-            )
-            self.consecutive_successes = 0
-
-    def on_rate_limited(self, retry_after: Optional[float] = None) -> None:
-        # Back off exponentially on 429 or 503 responses
-        self.consecutive_successes = 0
-        if retry_after:
-            self.current_delay = min(self.max_delay, retry_after)
-        else:
-            self.current_delay = min(
-                self.max_delay,
-                self.current_delay * self.backoff_factor
-            )
-
-    def on_captcha(self) -> None:
-        # CAPTCHAs indicate aggressive detection -- slow down significantly
-        self.consecutive_successes = 0
-        self.current_delay = min(self.max_delay, self.current_delay * 4.0)
-```
-
-## CAPTCHA Handling Strategies
-
-CAPTCHAs are the last line of defense in anti-bot systems. There are several approaches, each with different **trade-offs**:
-
-1. **Avoidance** (preferred): Slow down, rotate fingerprints, and behave more like a real user so CAPTCHAs are not triggered.
-2. **CAPTCHA-solving services**: Services like 2Captcha or Anti-Captcha employ human solvers. These cost $1-3 per 1000 solves and add 10-30 seconds of latency.
-3. **Machine learning solvers**: For simple image CAPTCHAs, ML models can achieve 90%+ accuracy, however reCAPTCHA v3 and hCaptcha are designed to resist automated solving.
-
-## Ethical Considerations and Legal Boundaries
-
-This is perhaps the most important section. A **common mistake** among developers learning web scraping is ignoring the legal and ethical dimensions entirely.
-
-**Legal frameworks to be aware of:**
-- **CFAA (Computer Fraud and Abuse Act)**: In the US, accessing a computer system "without authorization" can be a federal crime. The hiQ v. LinkedIn case clarified that scraping publicly available data is generally permissible, however scraping behind a login wall without permission is risky.
-- **GDPR**: In Europe, scraping personal data (names, emails, profiles) triggers GDPR obligations. You need a lawful basis for processing.
-- **Terms of Service**: While ToS violations are typically civil (not criminal) matters, they can lead to lawsuits and injunctions.
-
-**Best practices for ethical scraping:**
-- Always check and respect `robots.txt`
-- Identify yourself with a descriptive User-Agent string when possible
-- Rate-limit requests to avoid degrading the target site
-- Do not scrape personal data without a legitimate purpose
-- Cache aggressively to minimize redundant requests
-- Contact site owners if you plan large-scale collection
-
-## Summary and Key Takeaways
-
-- **Fingerprint evasion** requires consistency: every property in your browser profile must be internally coherent. Mixing Chrome user agents with Firefox WebGL renderers is an immediate red flag.
-- **Proxy rotation** should use weighted selection based on success rates, with automatic banning and recovery for failed proxies.
-- **Adaptive throttling** with exponential backoff on rate limits is both ethical and practical -- it keeps you under detection thresholds.
-- **CAPTCHA avoidance** through behavioral mimicry is always preferable to solving. When solving is necessary, third-party human-solver services offer the best accuracy-to-cost ratio.
-- **Ethics and legality** must guide every scraping project. The fact that you *can* scrape something does not mean you *should*. Therefore, always start by reading the ToS and `robots.txt`, and consider whether the data is truly public and whether your collection serves a legitimate purpose.
-""",
+                self.current_delay * self.recovery_factor'''
     ),
-
-    # --- 4. Large-Scale Crawl Architecture ---
     (
         "web-scraping/large-scale-crawl-architecture-scrapy",
-        r"""Explain how to design and implement a large-scale web crawl architecture including URL frontier management with priority queues, politeness policies and domain-level throttling, distributed crawling with Scrapy and its extension points, content deduplication strategies using simhash and bloom filters, and robots.txt compliance handling in production systems.""",
-        r"""# Large-Scale Crawl Architecture: URL Frontiers, Politeness, Distributed Scrapy, Deduplication, and Robots.txt
-
-## The Complexity of Crawling at Scale
-
-A **common mistake** when scaling a web scraper is treating it as simply "more of the same" -- running more instances of a single-URL scraper. In reality, large-scale crawling introduces fundamentally different challenges: URL frontier management (which URLs to crawl next and in what order), per-domain politeness (not overwhelming any single server), deduplication (avoiding redundant downloads), and distributed coordination (splitting work across machines without conflicts).
+        "Explain how to design and implement a large-scale web crawl architecture including URL frontier management with priority queues, politeness policies and domain-level throttling, distributed crawling with Scrapy and its extension points, content deduplication strategies using simhash and bloom filters, and robots.txt compliance handling in production systems.",
+        '''A **common mistake** when scaling a web scraper is treating it as simply "more of the same" -- running more instances of a single-URL scraper. In reality, large-scale crawling introduces fundamentally different challenges: URL frontier management (which URLs to crawl next and in what order), per-domain politeness (not overwhelming any single server), deduplication (avoiding redundant downloads), and distributed coordination (splitting work across machines without conflicts).
 
 The architecture of a production crawler is therefore closer to a distributed systems problem than a simple scripting task. Google's original web crawler paper and the Mercator crawler design remain influential references, and frameworks like Scrapy, Heritrix, and StormCrawler implement many of these ideas.
 
@@ -910,48 +581,12 @@ class URLFrontier:
             url=normalized,
             domain=domain,
             depth=depth,
-            parent_url=parent,
-        )
-        heapq.heappush(self._domain_queues[domain], request)
-        self._total_size += 1
-        return True
-
-    def get_next(self) -> Optional[CrawlRequest]:
-        # Return the highest-priority URL from a domain that is not on cooldown
-        now = time.time()
-        best: Optional[CrawlRequest] = None
-        best_domain: Optional[str] = None
-
-        for domain, queue in self._domain_queues.items():
-            if not queue:
-                continue
-
-            last_fetch = self._domain_last_fetch.get(domain, 0.0)
-            if (now - last_fetch) < self.domain_delay:
-                continue  # Domain is on cooldown -- respect politeness
-
-            candidate = queue[0]
-            if best is None or candidate.priority < best.priority:
-                best = candidate
-                best_domain = domain
-
-        if best and best_domain:
-            heapq.heappop(self._domain_queues[best_domain])
-            self._domain_last_fetch[best_domain] = now
-            self._total_size -= 1
-            return best
-
-        return None
-
-    def stats(self) -> dict:
-        return {
-            "total_queued": self._total_size,
-            "domains_active": sum(1 for q in self._domain_queues.values() if q),
-            "urls_seen": len(self._seen_urls),
-        }
-```
-
-The **best practice** for frontier management at true web scale (millions of URLs) is to replace the in-memory `set` with a **Bloom filter** for the seen-URL check and use a persistent queue (Redis sorted sets or RocksDB) for the domain queues. However, the architecture remains the same.
+            parent_url=parent,'''
+    ),
+    (
+        "urls_seen",
+        "}",
+        '''The **best practice** for frontier management at true web scale (millions of URLs) is to replace the in-memory `set` with a **Bloom filter** for the seen-URL check and use a persistent queue (Redis sorted sets or RocksDB) for the domain queues. However, the architecture remains the same.
 
 ## Politeness Policies and Domain-Level Throttling
 
@@ -1034,22 +669,12 @@ import json
 
 class ProductSpider(scrapy.Spider):
     name = "product_spider"
-    custom_settings = {
-        "CONCURRENT_REQUESTS": 16,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 2,
-        "DOWNLOAD_DELAY": 1.5,
-        "RANDOMIZE_DOWNLOAD_DELAY": True,
-        "AUTOTHROTTLE_ENABLED": True,
-        "AUTOTHROTTLE_START_DELAY": 2.0,
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 4.0,
-        "ROBOTSTXT_OBEY": True,
-        "HTTPCACHE_ENABLED": True,
-        "HTTPCACHE_EXPIRATION_SECS": 86400,
-    }
-
-    def start_requests(self) -> Iterator[Request]:
-        # Seed URLs loaded from a frontier or configuration
-        seed_urls = [
+    custom_settings = {'''
+    ),
+    (
+        "HTTPCACHE_EXPIRATION_SECS",
+        "} def start_requests(self) -> Iterator[Request]:",
+        '''seed_urls = [
             "https://example.com/products?page=1",
             "https://example.com/products?page=2",
         ]
@@ -1067,16 +692,12 @@ class ProductSpider(scrapy.Spider):
             yield response.follow(next_page, callback=self.parse_listing, priority=8)
 
     def parse_product(self, response: Response) -> Iterator[dict]:
-        yield {
-            "url": response.url,
-            "title": response.css("h1::text").get("").strip(),
-            "price": response.css("span.price::text").get("").strip(),
-            "description": " ".join(response.css("div.description ::text").getall()).strip(),
-            "content_hash": hashlib.md5(response.body).hexdigest(),
-        }
-```
-
-## Content Deduplication with SimHash
+        yield {'''
+    ),
+    (
+        "content_hash",
+        "}",
+        '''## Content Deduplication with SimHash
 
 At scale, you will encounter duplicate and near-duplicate pages (pagination variants, URL parameters that do not change content, mirror sites). **Exact deduplication** with MD5/SHA256 catches identical pages, but **near-duplicate detection** requires locality-sensitive hashing. SimHash is the classic approach.
 
@@ -1152,18 +773,12 @@ class DuplicateDetector:
 - **Deduplication** requires both exact matching (SHA256) and near-duplicate detection (SimHash with Hamming distance). A **pitfall** is relying solely on URL deduplication, which misses content served at different URLs.
 - For truly distributed crawling, use **scrapy-redis** to share the URL frontier across multiple Scrapy instances, with Redis sorted sets providing both deduplication and priority ordering.
 - The overall **trade-off** in crawl architecture is between throughput and politeness. Aggressive crawling maximizes data collection speed but risks bans, legal action, and harm to target sites. Therefore, always err on the side of being too polite rather than too aggressive.
-""",
+""",'''
     ),
-
-    # --- 5. Data Pipeline from Web to Knowledge Graph ---
     (
         "web-scraping/web-data-to-knowledge-graph-pipeline",
-        r"""Explain how to build a complete data pipeline that transforms raw scraped web data into a knowledge graph, covering named entity extraction using spaCy and transformer models, relationship detection and triple extraction, schema mapping to ontologies like Schema.org, quality scoring and confidence metrics for extracted facts, and incremental update strategies for maintaining a living knowledge graph with Python examples.""",
-        r"""# Data Pipeline from Web to Knowledge Graph: Entity Extraction, Relationship Detection, Schema Mapping, and Quality Scoring
-
-## Why Build a Knowledge Graph from Web Data
-
-Raw scraped web data is a collection of unstructured text, HTML fragments, and metadata -- useful for search indexing but limited for reasoning, question answering, or data integration. A **knowledge graph** transforms this raw material into a structured network of entities and relationships that can be queried, reasoned over, and merged with other data sources.
+        "Explain how to build a complete data pipeline that transforms raw scraped web data into a knowledge graph, covering named entity extraction using spaCy and transformer models, relationship detection and triple extraction, schema mapping to ontologies like Schema.org, quality scoring and confidence metrics for extracted facts, and incremental update strategies for maintaining a living knowledge graph with Python examples.",
+        '''Raw scraped web data is a collection of unstructured text, HTML fragments, and metadata -- useful for search indexing but limited for reasoning, question answering, or data integration. A **knowledge graph** transforms this raw material into a structured network of entities and relationships that can be queried, reasoned over, and merged with other data sources.
 
 The **trade-off** is significant: building a knowledge graph from noisy web data requires substantial NLP infrastructure and careful quality management. However, the resulting structured representation enables capabilities that are impossible with raw text -- semantic search, multi-hop question answering, entity disambiguation, and automated fact-checking.
 
@@ -1236,19 +851,12 @@ class EntityExtractor:
 
     def _spacy_to_entity_type(self, label: str) -> Optional[EntityType]:
         # Map spaCy labels to our entity type enum
-        mapping = {
-            "PERSON": EntityType.PERSON,
-            "ORG": EntityType.ORGANIZATION,
-            "GPE": EntityType.LOCATION,
-            "LOC": EntityType.LOCATION,
-            "PRODUCT": EntityType.PRODUCT,
-            "DATE": EntityType.DATE,
-        }
-        return mapping.get(label)
-
-    def extract(self, text: str, source_url: str) -> list[ExtractedEntity]:
-        # Run NER on text and produce normalized entities
-        doc: Doc = self.nlp(text)
+        mapping = {'''
+    ),
+    (
+        "DATE",
+        "} return mapping.get(label) def extract(self, text: str, source_url: str) -> list[ExtractedEntity]:",
+        '''doc: Doc = self.nlp(text)
         entities: list[ExtractedEntity] = []
 
         for ent in doc.ents:
@@ -1299,55 +907,24 @@ class KnowledgeTriple:
     source_url: str
 
     def to_dict(self) -> dict:
-        return {
-            "subject_id": self.subject.entity_id,
-            "subject_name": self.subject.canonical_name,
-            "predicate": self.predicate,
-            "object_id": self.object_entity.entity_id,
-            "object_name": self.object_entity.canonical_name,
-            "confidence": self.confidence,
-            "evidence": self.evidence_sentence,
-            "source": self.source_url,
-        }
-
-
-class RelationExtractor:
-    # Extract relationships between entities in the same sentence
-
-    # Dependency-based patterns for common relationships
+        return {'''
+    ),
+    (
+        "source",
+        "} class RelationExtractor:",
+        '''# Dependency-based patterns for common relationships
     RELATION_PATTERNS: list[dict] = [
         {"dep_path": ["nsubj", "ROOT", "dobj"], "predicate": "acts_on"},
         {"dep_path": ["nsubj", "ROOT", "attr"], "predicate": "is_a"},
         {"dep_path": ["nsubj", "ROOT", "prep", "pobj"], "predicate": "related_to"},
     ]
 
-    VERB_TO_PREDICATE: dict[str, str] = {
-        "acquire": "acquired",
-        "acquires": "acquired",
-        "acquired": "acquired",
-        "found": "founded",
-        "founded": "founded",
-        "lead": "leads",
-        "leads": "leads",
-        "develop": "develops",
-        "develops": "develops",
-        "headquartered": "headquartered_in",
-        "located": "located_in",
-        "partner": "partners_with",
-        "invest": "invested_in",
-    }
-
-    def __init__(self, nlp) -> None:
-        self.nlp = nlp
-
-    def extract_from_sentence(
-        self,
-        sentence: str,
-        entities: list[ExtractedEntity],
-        source_url: str,
-    ) -> list[KnowledgeTriple]:
-        # Find entity pairs in the same sentence and determine their relationship
-        doc = self.nlp(sentence)
+    VERB_TO_PREDICATE: dict[str, str] = {'''
+    ),
+    (
+        "invest",
+        "} def __init__(self, nlp) -> None: self.nlp = nlp def extract_from_sentence( self sentence: str entities: list[ExtractedEntity] source_url: str ) -> list[KnowledgeTriple]:",
+        '''doc = self.nlp(sentence)
         triples: list[KnowledgeTriple] = []
 
         # Build entity span lookup
@@ -1405,57 +982,19 @@ from typing import Optional
 @dataclass
 class OntologyMapping:
     # Map extracted predicates and entity types to Schema.org vocabulary
-    predicate_map: dict[str, str] = field(default_factory=lambda: {
-        "acquired": "schema:acquiredFrom",
-        "founded": "schema:foundingDate",
-        "headquartered_in": "schema:location",
-        "located_in": "schema:containedInPlace",
-        "leads": "schema:employee",
-        "develops": "schema:creator",
-        "partners_with": "schema:sponsor",
-        "invested_in": "schema:funder",
-        "is_a": "rdf:type",
-    })
-
-    entity_type_map: dict[str, str] = field(default_factory=lambda: {
-        "PERSON": "schema:Person",
-        "ORG": "schema:Organization",
-        "GPE": "schema:Place",
-        "PRODUCT": "schema:Product",
-        "TECHNOLOGY": "schema:SoftwareApplication",
-    })
-
-    def map_triple(self, triple: KnowledgeTriple) -> dict:
-        # Convert a raw triple into Schema.org-compatible JSON-LD
-        predicate = self.predicate_map.get(triple.predicate, f"custom:{triple.predicate}")
+    predicate_map: dict[str, str] = field(default_factory=lambda: {'''
+    ),
+    (
+        "TECHNOLOGY",
+        "}) def map_triple(self, triple: KnowledgeTriple) -> dict:",
+        '''predicate = self.predicate_map.get(triple.predicate, f"custom:{triple.predicate}")
         subj_type = self.entity_type_map.get(
-            triple.subject.entity_type.value, "schema:Thing"
-        )
-        obj_type = self.entity_type_map.get(
-            triple.object_entity.entity_type.value, "schema:Thing"
-        )
-
-        return {
-            "@context": "https://schema.org",
-            "@type": "Statement",
-            "subject": {
-                "@type": subj_type,
-                "@id": f"entity:{triple.subject.entity_id}",
-                "name": triple.subject.canonical_name,
-            },
-            "predicate": predicate,
-            "object": {
-                "@type": obj_type,
-                "@id": f"entity:{triple.object_entity.entity_id}",
-                "name": triple.object_entity.canonical_name,
-            },
-            "confidence": triple.confidence,
-            "evidence": triple.evidence_sentence,
-            "source": triple.source_url,
-        }
-```
-
-## Quality Scoring and Confidence Metrics
+            triple.subject.entity_type.value, "schema:Thing"'''
+    ),
+    (
+        "source",
+        "}",
+        '''## Quality Scoring and Confidence Metrics
 
 Not all extracted facts are equally reliable. A **best practice** is to assign multi-dimensional quality scores that account for source reliability, extraction confidence, corroboration across sources, and recency.
 
@@ -1483,62 +1022,20 @@ class QualityScore:
             0.30 * self.extraction_confidence
             + 0.25 * self.source_authority
             + 0.25 * corroboration_factor
-            + 0.20 * freshness_decay
-        )
-        return round(min(1.0, max(0.0, score)), 4)
-
-    @property
-    def is_reliable(self) -> bool:
-        # A fact is considered reliable if its composite score exceeds a threshold
-        return self.composite_score >= 0.6
-
-
-class IncrementalGraphUpdater:
-    # Maintain a living knowledge graph with conflict resolution
-
-    def __init__(self) -> None:
-        # In production, this would be a graph database (Neo4j, Amazon Neptune)
-        self._triples: dict[str, dict] = {}  # keyed by (subj_id, pred, obj_id)
-        self._entity_registry: dict[str, dict] = {}
-
-    def _triple_key(self, triple: KnowledgeTriple) -> str:
-        return f"{triple.subject.entity_id}|{triple.predicate}|{triple.object_entity.entity_id}"
-
-    def upsert_triple(
-        self, triple: KnowledgeTriple, quality: QualityScore
-    ) -> str:
-        # Insert or update a triple, keeping the highest-quality version
-        key = self._triple_key(triple)
-
-        if key in self._triples:
-            existing = self._triples[key]
-            existing_score = existing["quality"].composite_score
-
-            if quality.composite_score > existing_score:
-                # New evidence is higher quality -- update
-                self._triples[key] = {
-                    "triple": triple.to_dict(),
-                    "quality": quality,
-                    "updated_at": datetime.utcnow().isoformat(),
-                    "version": existing.get("version", 1) + 1,
-                }
-                return "updated"
-            else:
-                # Increment corroboration even if not replacing
-                existing["quality"].corroboration_count += 1
+            + 0.20 * freshness_decay'''
+    ),
+    (
+        "version",
+        "} return 'updated else:",
+        '''existing["quality"].corroboration_count += 1
                 return "corroborated"
         else:
-            self._triples[key] = {
-                "triple": triple.to_dict(),
-                "quality": quality,
-                "updated_at": datetime.utcnow().isoformat(),
-                "version": 1,
-            }
-            return "inserted"
-
-    def decay_stale_facts(self, max_age_days: int = 180) -> int:
-        # Remove or flag facts that have not been re-confirmed recently
-        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+            self._triples[key] = {'''
+    ),
+    (
+        "version",
+        "} return 'inserted def decay_stale_facts(self, max_age_days: int = 180) -> int:",
+        '''cutoff = datetime.utcnow() - timedelta(days=max_age_days)
         removed = 0
         keys_to_remove = []
 
@@ -1556,17 +1053,12 @@ class IncrementalGraphUpdater:
     def get_stats(self) -> dict:
         total = len(self._triples)
         reliable = sum(
-            1 for r in self._triples.values() if r["quality"].is_reliable
-        )
-        return {
-            "total_triples": total,
-            "reliable_triples": reliable,
-            "entities": len(self._entity_registry),
-            "reliability_ratio": round(reliable / total, 3) if total else 0,
-        }
-```
-
-## Summary and Key Takeaways
+            1 for r in self._triples.values() if r["quality"].is_reliable'''
+    ),
+    (
+        "reliability_ratio",
+        "}",
+        '''## Summary and Key Takeaways
 
 - **Entity extraction** is the foundation of your knowledge graph. Use transformer-based NER models for accuracy and maintain a canonical name registry to merge variant mentions of the same entity.
 - **Relationship extraction** should be conservative. It is better to miss a true relationship than to assert a false one, therefore set confidence thresholds aggressively and corroborate across multiple sources.
@@ -1574,6 +1066,6 @@ class IncrementalGraphUpdater:
 - **Quality scoring** must be multi-dimensional: combine extraction confidence, source authority, cross-source corroboration, and temporal freshness into a composite score. Facts below the reliability threshold should be quarantined, not deleted.
 - **Incremental updates** with conflict resolution and freshness decay keep your graph alive. The **best practice** is to treat the graph as an append-mostly data structure where new evidence either corroborates or supersedes existing facts.
 - The overall **pitfall** to avoid is building a knowledge graph without a clear query use case. Start with the questions you want to answer, then design the schema and extraction pipeline to support those queries. A graph with perfect entity extraction but irrelevant predicates is useless.
-""",
+""",'''
     ),
 ]

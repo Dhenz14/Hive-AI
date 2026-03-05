@@ -1,10 +1,10 @@
+"""p19 python tooling"""
+
 PAIRS = [
     (
         "python/packaging-modern",
-        r"""Explain modern Python packaging with pyproject.toml including project metadata, dependency specification, build backends (setuptools, hatch, flit), optional dependencies, entry points, and publishing to PyPI. Include a complete pyproject.toml example.""",
-        r"""## Modern Python Packaging: pyproject.toml, Build Backends, and Publishing
-
-Python packaging has converged on `pyproject.toml` as the single configuration file replacing `setup.py`, `setup.cfg`, `MANIFEST.in`, and more. Understanding the modern approach eliminates packaging confusion.
+        "Explain modern Python packaging with pyproject.toml including project metadata, dependency specification, build backends (setuptools, hatch, flit), optional dependencies, entry points, and publishing to PyPI. Include a complete pyproject.toml example.",
+        '''Python packaging has converged on `pyproject.toml` as the single configuration file replacing `setup.py`, `setup.cfg`, `MANIFEST.in`, and more. Understanding the modern approach eliminates packaging confusion.
 
 ### Complete pyproject.toml
 
@@ -223,19 +223,17 @@ jobs:
         # Uses trusted publishing (no API token needed)
 ```
 
-**Packaging best practices**: (1) Use `pyproject.toml` for everything — no `setup.py`, `setup.cfg`, or `requirements.txt` for library metadata, (2) Use `src/` layout to prevent importing uninstalled code during tests, (3) Pin exact versions in `requirements.txt` for apps, use ranges in `pyproject.toml` for libraries, (4) Include `py.typed` marker for typed packages, (5) Use trusted publishing on PyPI (OIDC) instead of API tokens."""
+**Packaging best practices**: (1) Use `pyproject.toml` for everything -- no `setup.py`, `setup.cfg`, or `requirements.txt` for library metadata, (2) Use `src/` layout to prevent importing uninstalled code during tests, (3) Pin exact versions in `requirements.txt` for apps, use ranges in `pyproject.toml` for libraries, (4) Include `py.typed` marker for typed packages, (5) Use trusted publishing on PyPI (OIDC) instead of API tokens.'''
     ),
     (
         "python/cli-tools-development",
-        r"""Explain Python CLI tool development including argument parsing with argparse and click/typer, rich terminal output, configuration file handling, progress bars, interactive prompts, and packaging CLI tools for distribution.""",
-        r"""## Python CLI Tool Development: Arguments, Rich Output, and Distribution
-
-Well-crafted CLI tools are a pleasure to use. The difference between a script and a tool is error handling, help text, and user experience.
+        "Explain Python CLI tool development including argument parsing with argparse and click/typer, rich terminal output, configuration file handling, progress bars, interactive prompts, and packaging CLI tools for distribution.",
+        '''Well-crafted CLI tools are a pleasure to use. The difference between a script and a tool is error handling, help text, and user experience.
 
 ### Modern CLI with Typer
 
 ```python
-# cli.py — using Typer (built on Click, with type hints)
+# cli.py -- using Typer (built on Click, with type hints)
 import typer
 from pathlib import Path
 from typing import Optional
@@ -247,46 +245,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 app = typer.Typer(
     name="datactl",
     help="Data processing command-line tool",
-    add_completion=True,
-)
-console = Console()
-
-
-class OutputFormat(str, Enum):
-    json = "json"
-    csv = "csv"
-    table = "table"
-
-
-@app.command()
-def process(
-    input_file: Path = typer.Argument(
-        ...,
-        help="Input data file",
-        exists=True,
-        readable=True,
+    add_completion=True,'''
     ),
-    output: Optional[Path] = typer.Option(
-        None, "--output", "-o",
-        help="Output file (stdout if not specified)",
-    ),
-    format: OutputFormat = typer.Option(
-        OutputFormat.table,
-        "--format", "-f",
-        help="Output format",
-    ),
-    limit: int = typer.Option(
-        0, "--limit", "-l",
-        help="Limit number of rows (0 = no limit)",
-    ),
-    verbose: bool = typer.Option(
-        False, "--verbose", "-v",
-        help="Show detailed processing info",
-    ),
-):
-    """Process a data file and output results."""
-    if verbose:
-        console.print(f"[blue]Processing:[/blue] {input_file}")
+    (
+        "--format",
+        "help='Output format' ) limit: int = typer.Option( 0, '--limit', '-l' help='Limit number of rows (0 = no limit)' ) verbose: bool = typer.Option( False, '--verbose', '-v' help='Show detailed processing info' ) ):",
+        '''console.print(f"[blue]Processing:[/blue] {input_file}")
 
     with Progress(
         SpinnerColumn(),
@@ -422,28 +386,12 @@ from rich.prompt import Prompt, Confirm, IntPrompt
 def init():
     """Interactive project initialization."""
     name = Prompt.ask("Project name", default="my-project")
-    db_type = Prompt.ask(
+    db_type = Prompt.ask('''
+    ),
+    (
         "Database",
-        choices=["postgres", "sqlite", "mysql"],
-        default="postgres",
-    )
-    port = IntPrompt.ask("Server port", default=8000)
-    use_docker = Confirm.ask("Generate Docker files?", default=True)
-
-    console.print(f"\n[bold]Creating project:[/bold] {name}")
-    console.print(f"  Database: {db_type}")
-    console.print(f"  Port: {port}")
-    console.print(f"  Docker: {'Yes' if use_docker else 'No'}")
-
-    if Confirm.ask("\nProceed?"):
-        create_project(name, db_type, port, use_docker)
-        console.print("[green]Project created successfully![/green]")
-    else:
-        console.print("[yellow]Cancelled[/yellow]")
-        raise typer.Abort()
-```
-
-### Error Handling and Exit Codes
+        "choices=['postgres', 'sqlite', 'mysql'] default='postgres' ) port = IntPrompt.ask('Server port', default=8000) use_docker = Confirm.ask('Generate Docker files?', default=True) console.print(f'\n[bold]Creating project:[/bold] {name}') console.print(f'  Database: {db_type}') console.print(f'  Port: {port}') console.print(f'  Docker: {'Yes' if use_docker else 'No'}') if Confirm.ask('\nProceed?'): create_project(name, db_type, port, use_docker) console.print('[green]Project created successfully![/green]') else: console.print('[yellow]Cancelled[/yellow]') raise typer.Abort()",
+        '''### Error Handling and Exit Codes
 
 ```python
 import sys
@@ -480,14 +428,12 @@ def error_handler():
 # 130: Interrupted (Ctrl+C)
 ```
 
-**CLI tool best practices**: (1) Use Typer for new projects — type hints provide argument validation and help text automatically, (2) Rich console output for tables, progress bars, and colored messages, (3) Follow XDG base directory spec for config files (~/.config/appname/), (4) Always return meaningful exit codes — scripts need to check success/failure, (5) Support `--verbose` and `--quiet` flags — default to useful but not noisy output."""
+**CLI tool best practices**: (1) Use Typer for new projects -- type hints provide argument validation and help text automatically, (2) Rich console output for tables, progress bars, and colored messages, (3) Follow XDG base directory spec for config files (~/.config/appname/), (4) Always return meaningful exit codes -- scripts need to check success/failure, (5) Support `--verbose` and `--quiet` flags -- default to useful but not noisy output.'''
     ),
     (
         "python/regex-patterns",
-        r"""Explain practical regex patterns in Python including the re module, common patterns for validation (email, URL, IP), named groups, lookahead/lookbehind assertions, non-greedy matching, re.VERBOSE for readable patterns, and performance pitfalls.""",
-        r"""## Python Regex: Practical Patterns, Named Groups, and Performance
-
-Regular expressions are powerful but often misused. Understanding when to use them (and when not to) prevents both bugs and unmaintainable code.
+        "Explain practical regex patterns in Python including the re module, common patterns for validation (email, URL, IP), named groups, lookahead/lookbehind assertions, non-greedy matching, re.VERBOSE for readable patterns, and performance pitfalls.",
+        '''Regular expressions are powerful but often misused. Understanding when to use them (and when not to) prevents both bugs and unmaintainable code.
 
 ### Common Validation Patterns
 
@@ -498,58 +444,19 @@ from typing import Optional
 
 # Email validation (simplified but practical)
 EMAIL_PATTERN = re.compile(
-    r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-)
-
-# URL validation
-URL_PATTERN = re.compile(
-    r"^https?://"           # Protocol
-    r"[a-zA-Z0-9.-]+"      # Domain
-    r"(?:\.[a-zA-Z]{2,})"  # TLD
-    r"(?:/[^\s]*)?$"        # Path (optional)
-)
-
-# IPv4 address
-IPV4_PATTERN = re.compile(
-    r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}"
-    r"(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$"
-)
-
-# Semantic version
-SEMVER_PATTERN = re.compile(
-    r"^(?P<major>0|[1-9]\d*)\."
-    r"(?P<minor>0|[1-9]\d*)\."
-    r"(?P<patch>0|[1-9]\d*)"
-    r"(?:-(?P<prerelease>[a-zA-Z0-9.]+))?"
-    r"(?:\+(?P<build>[a-zA-Z0-9.]+))?$"
-)
-
-
-def validate_email(email: str) -> bool:
-    return EMAIL_PATTERN.match(email) is not None
-
-
-def parse_semver(version: str) -> Optional[dict]:
-    match = SEMVER_PATTERN.match(version)
-    if not match:
-        return None
-    return {
-        "major": int(match.group("major")),
-        "minor": int(match.group("minor")),
-        "patch": int(match.group("patch")),
-        "prerelease": match.group("prerelease"),
-        "build": match.group("build"),
-    }
-
-# parse_semver("1.2.3-beta.1+build.456")
-# {'major': 1, 'minor': 2, 'patch': 3, 'prerelease': 'beta.1', 'build': 'build.456'}
+    r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"'''
+    ),
+    (
+        "build",
+        "}",
+        '''# {'major': 1, 'minor': 2, 'patch': 3, 'prerelease': 'beta.1', 'build': 'build.456'}
 ```
 
 ### Named Groups and re.VERBOSE
 
 ```python
 # Complex patterns become readable with VERBOSE and named groups
-LOG_PATTERN = re.compile(r"""
+LOG_PATTERN = re.compile("""
     ^
     (?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})  # ISO timestamp
     \s+
@@ -573,7 +480,7 @@ def parse_log_line(line: str) -> Optional[dict]:
 
 
 # SQL-like query parser
-QUERY_PATTERN = re.compile(r"""
+QUERY_PATTERN = re.compile("""
     ^SELECT\s+
     (?P<columns>[*\w,\s]+)                          # Columns
     \s+FROM\s+
@@ -588,8 +495,8 @@ QUERY_PATTERN = re.compile(r"""
 ### Lookahead and Lookbehind
 
 ```python
-# Lookahead (?=...) — matches if followed by pattern, but doesn't consume
-# Lookbehind (?<=...) — matches if preceded by pattern
+# Lookahead (?=...) -- matches if followed by pattern, but doesn't consume
+# Lookbehind (?<=...) -- matches if preceded by pattern
 
 # Password strength: at least 8 chars, one upper, one lower, one digit
 STRONG_PASSWORD = re.compile(
@@ -597,147 +504,20 @@ STRONG_PASSWORD = re.compile(
     r"(?=.*[A-Z])"     # Lookahead: has uppercase
     r"(?=.*\d)"        # Lookahead: has digit
     r"(?=.*[!@#$%])"   # Lookahead: has special char
-    r".{8,}$"          # At least 8 characters
-)
-
-# Extract numbers NOT preceded by a minus sign (positive numbers only)
-POSITIVE_NUMBERS = re.compile(r"(?<!-)\b\d+\.?\d*\b")
-
-# Match word boundaries
-# Find "cat" as a whole word, not in "concatenate"
-WHOLE_WORD = re.compile(r"\bcat\b")
-
-# Negative lookahead: match "http" NOT followed by "s"
-INSECURE_URL = re.compile(r"http(?!s)://\S+")
-
-# Extract content between balanced quotes (handling escaped quotes)
-QUOTED_STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
-```
-
-### Non-Greedy Matching
-
-```python
-text = "<div>hello</div><div>world</div>"
-
-# Greedy (default): matches as MUCH as possible
-greedy = re.findall(r"<div>.*</div>", text)
-# ['<div>hello</div><div>world</div>']  — one match, everything
-
-# Non-greedy (?): matches as LITTLE as possible
-non_greedy = re.findall(r"<div>.*?</div>", text)
-# ['<div>hello</div>', '<div>world</div>']  — two matches
-
-# IMPORTANT: for HTML parsing, use a proper parser (BeautifulSoup, lxml)
-# Regex for HTML is fragile and breaks on nested tags, attributes, etc.
-```
-
-### Performance Pitfalls
-
-```python
-import re
-import time
-
-# PITFALL 1: Catastrophic backtracking
-# This pattern takes exponential time on certain inputs
-BAD_PATTERN = re.compile(r"(a+)+b")
-# Input "aaaaaaaaaaaaaaaaac" causes O(2^n) backtracking
-# because (a+)+ can split the a's in exponentially many ways
-
-# FIX: use atomic groups or possessive quantifiers (Python 3.11+)
-# Or rewrite: r"a+b" (simpler, no nested quantifiers)
-
-# PITFALL 2: Not compiling patterns used in loops
-# BAD:
-for line in lines:
-    match = re.search(r"\d{4}-\d{2}-\d{2}", line)  # Recompiles every time!
-
-# GOOD:
-DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-for line in lines:
-    match = DATE_RE.search(line)  # Uses compiled pattern
-
-# PITFALL 3: Using regex when string methods suffice
-# BAD:
-if re.search(r"^Error:", line):
-    pass
-
-# GOOD (faster):
-if line.startswith("Error:"):
-    pass
-
-# BAD:
-parts = re.split(r",", text)
-
-# GOOD (faster):
-parts = text.split(",")
-
-
-# Benchmark:
-def benchmark():
-    text = "2024-03-01 ERROR [auth] Login failed" * 1000
-
-    # Compiled regex
-    pattern = re.compile(r"(\d{4}-\d{2}-\d{2})")
-    start = time.perf_counter()
-    for _ in range(10000):
-        pattern.findall(text)
-    compiled_time = time.perf_counter() - start
-
-    # Uncompiled regex
-    start = time.perf_counter()
-    for _ in range(10000):
-        re.findall(r"(\d{4}-\d{2}-\d{2})", text)
-    uncompiled_time = time.perf_counter() - start
-
-    print(f"Compiled: {compiled_time:.3f}s")
-    print(f"Uncompiled: {uncompiled_time:.3f}s")
-    # Compiled is typically 2-5x faster in tight loops
-```
-
-### Substitution and Transformation
-
-```python
-# Replace with backreferences
-text = "John Smith, Jane Doe"
-swapped = re.sub(r"(\w+) (\w+)", r"\2, \1", text)
-# "Smith, John, Doe, Jane"
-
-# Replace with function
-def censor_email(match):
-    email = match.group(0)
-    user, domain = email.split("@")
-    return f"{user[0]}***@{domain}"
-
-text = "Contact alice@example.com or bob@test.org"
-censored = re.sub(r"\b[\w.]+@[\w.]+\b", censor_email, text)
-# "Contact a***@example.com or b***@test.org"
-
-# Named backreferences in substitution
-date_text = "2024-03-01"
-reformatted = re.sub(
-    r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})",
-    r"\g<month>/\g<day>/\g<year>",
-    date_text,
-)
-# "03/01/2024"
-```
-
-**Regex guidelines**: (1) Use string methods (`startswith`, `split`, `in`) when possible — they're faster and more readable, (2) Always compile patterns used more than once, (3) Use `re.VERBOSE` and named groups for complex patterns, (4) Avoid nested quantifiers `(a+)+` — they cause catastrophic backtracking, (5) For HTML/XML parsing, use a proper parser — regex is not the right tool."""
+    r".{8,}$"          # At least 8 characters'''
     ),
     (
         "python/unicode-text-processing",
-        r"""Explain Unicode handling in Python including string encoding/decoding, Unicode normalization forms (NFC, NFD), handling emoji and combining characters, locale-aware sorting, text sanitization, and common pitfalls with string length and comparison.""",
-        r"""## Unicode in Python: Encoding, Normalization, and Text Processing Pitfalls
-
-Python 3 strings are Unicode by default, but "it just works" hides complexity. Understanding Unicode is essential for internationalized applications, text processing, and preventing subtle bugs.
+        "Explain Unicode handling in Python including string encoding/decoding, Unicode normalization forms (NFC, NFD), handling emoji and combining characters, locale-aware sorting, text sanitization, and common pitfalls with string length and comparison.",
+        '''Python 3 strings are Unicode by default, but "it just works" hides complexity. Understanding Unicode is essential for internationalized applications, text processing, and preventing subtle bugs.
 
 ### Encoding and Decoding
 
 ```python
 # Python str = sequence of Unicode code points
 # bytes = sequence of raw bytes
-# Encoding: str → bytes (text → wire format)
-# Decoding: bytes → str (wire format → text)
+# Encoding: str -> bytes (text -> wire format)
+# Decoding: bytes -> str (wire format -> text)
 
 text = "Hello, 世界! 🌍"
 
@@ -788,7 +568,7 @@ print(nfc1 == nfc2)   # True!
 
 # NFC: Canonical Composition (most compact, recommended for storage)
 # NFD: Canonical Decomposition (separate base + combining chars)
-# NFKC: Compatibility Composition (ligatures → normal chars)
+# NFKC: Compatibility Composition (ligatures -> normal chars)
 # NFKD: Compatibility Decomposition
 
 # NFKC example: fullwidth characters and ligatures
@@ -857,75 +637,6 @@ def sanitize_text(text: str) -> str:
     # Step 2: Remove control characters (except newlines and tabs)
     text = "".join(
         c for c in text
-        if c in ("\n", "\t") or not unicodedata.category(c).startswith("C")
-    )
-
-    # Step 3: Normalize whitespace
-    text = re.sub(r"[^\S\n]+", " ", text)  # Collapse spaces (keep newlines)
-    text = text.strip()
-
-    return text
-
-
-def sanitize_filename(name: str) -> str:
-    """Make a string safe for use as a filename."""
-    # Normalize
-    name = unicodedata.normalize("NFKD", name)
-
-    # Remove non-ASCII characters
-    name = name.encode("ascii", "ignore").decode("ascii")
-
-    # Remove unsafe filename characters
-    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
-
-    # Collapse whitespace and dots
-    name = re.sub(r"\s+", "_", name)
-    name = re.sub(r"\.+", ".", name)
-
-    # Truncate
-    return name[:255] if name else "unnamed"
-
-
-def remove_accents(text: str) -> str:
-    """Remove diacritical marks (accents) from text."""
-    nfkd = unicodedata.normalize("NFKD", text)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
-# remove_accents("café résumé naïve")  →  "cafe resume naive"
-```
-
-### Locale-Aware Sorting
-
-```python
-import locale
-from functools import cmp_to_key
-
-
-# Python's default sort uses code point order:
-words = ["Ångström", "apple", "Zürich", "banana"]
-print(sorted(words))
-# ['apple', 'banana', 'Zürich', 'Ångström'] — wrong for humans!
-
-# Locale-aware sorting:
-locale.setlocale(locale.LC_ALL, "en_US.UTF-8")
-sorted_words = sorted(words, key=cmp_to_key(locale.strcoll))
-# ['Ångström', 'apple', 'banana', 'Zürich'] — correct!
-
-# For portable locale-aware sorting, use PyICU:
-# import icu
-# collator = icu.Collator.createInstance(icu.Locale("de_DE"))
-# sorted_words = sorted(words, key=collator.getSortKey)
-
-# Case-insensitive comparison (Unicode-aware)
-def case_insensitive_equal(a: str, b: str) -> bool:
-    """Unicode case-insensitive comparison."""
-    return a.casefold() == b.casefold()
-
-# casefold() handles special cases that lower() doesn't:
-print("ß".lower())     # "ß"
-print("ß".casefold())  # "ss"
-```
-
-**Unicode rules**: (1) Always normalize text (NFC) before storing, comparing, or using as keys, (2) `len()` counts code points, not visual characters — use grapheme clusters for user-perceived length, (3) Always specify encoding explicitly (`encoding="utf-8"`) when opening files, (4) Use `casefold()` not `lower()` for case-insensitive comparison, (5) Sanitize user input: remove control characters, normalize whitespace, handle combining characters."""
+        if c in ("\n", "\t") or not unicodedata.category(c).startswith("C")'''
     ),
 ]

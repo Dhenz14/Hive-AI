@@ -2,15 +2,15 @@ PAIRS = [
     (
         "kotlin/coroutines-structured-concurrency-flows",
         "Explain Kotlin coroutines internals including structured concurrency with CoroutineScope, SupervisorJob for failure isolation, Flow operators for reactive streams, and channel-based communication patterns with practical examples",
-        r"""# Kotlin Coroutines: Structured Concurrency and Reactive Streams
+        '''# Kotlin Coroutines: Structured Concurrency and Reactive Streams
 
 ## Coroutine Internals: Continuations and State Machines
 
-Kotlin coroutines are compiled into **state machines** by the compiler. Each `suspend` function is transformed into a function that takes a `Continuation<T>` parameter, with each suspension point becoming a state in a `when` block. This is critical to understand **because** it means coroutines have near-zero allocation overhead compared to threads — they're just objects on the heap.
+Kotlin coroutines are compiled into **state machines** by the compiler. Each `suspend` function is transformed into a function that takes a `Continuation<T>` parameter, with each suspension point becoming a state in a `when` block. This is critical to understand **because** it means coroutines have near-zero allocation overhead compared to threads -- they're just objects on the heap.
 
 ### Structured Concurrency Fundamentals
 
-**Structured concurrency** in Kotlin means every coroutine must have a parent scope, and the parent cannot complete until all children complete (or are cancelled). This prevents leaked coroutines — a problem that plagues callback-based async code. **Therefore**, `GlobalScope.launch` is almost always wrong in production code.
+**Structured concurrency** in Kotlin means every coroutine must have a parent scope, and the parent cannot complete until all children complete (or are cancelled). This prevents leaked coroutines -- a problem that plagues callback-based async code. **Therefore**, `GlobalScope.launch` is almost always wrong in production code.
 
 ```kotlin
 import kotlinx.coroutines.*
@@ -44,7 +44,7 @@ class UserRepository(
         // Fetch from API with timeout
         return withTimeout(5.seconds) {
             val user = apiClient.fetchUser(id)
-            // Background cache update — fire and forget within scope
+            // Background cache update -- fire and forget within scope
             repoScope.launch {
                 cache.put(id, user)
             }
@@ -53,7 +53,7 @@ class UserRepository(
     }
 
     suspend fun getUsersParallel(ids: List<String>): List<User> {
-        // coroutineScope creates a child scope — if ANY fetch fails,
+        // coroutineScope creates a child scope -- if ANY fetch fails,
         // ALL other fetches are cancelled (fail-fast)
         return coroutineScope {
             ids.map { id ->
@@ -119,7 +119,7 @@ data class Post(val id: String, val userId: String, val title: String)
 
 ### Flow: Reactive Streams Done Right
 
-Kotlin Flow is a **cold** reactive stream — it doesn't produce values until collected. This is the key **trade-off** versus channels (which are hot). Flows are sequential by default and respect structured concurrency, making them safer and more predictable.
+Kotlin Flow is a **cold** reactive stream -- it doesn't produce values until collected. This is the key **trade-off** versus channels (which are hot). Flows are sequential by default and respect structured concurrency, making them safer and more predictable.
 
 ```kotlin
 // --- Flow operators and patterns ---
@@ -127,7 +127,7 @@ Kotlin Flow is a **cold** reactive stream — it doesn't produce values until co
 class EventProcessor(
     private val apiClient: ApiClient,
 ) {
-    // Cold flow — only runs when collected
+    // Cold flow -- only runs when collected
     fun userActivityStream(userId: String): Flow<ActivityEvent> = flow {
         var cursor: String? = null
         while (currentCoroutineContext().isActive) {
@@ -157,7 +157,7 @@ class EventProcessor(
                 println("Processed: ${event.id}")
             }
             .catch { e ->
-                // Error handling — emits downstream, doesn't crash
+                // Error handling -- emits downstream, doesn't crash
                 // However, catch only handles upstream errors
                 println("Error in activity stream: $e")
                 emit(ProcessedEvent.error(e.message ?: "unknown"))
@@ -237,7 +237,7 @@ data class MetricsSnapshot(val activeUsers: Int = 0)
 
 ### Channel-Based Communication Patterns
 
-Channels are Kotlin's equivalent of Go channels — **hot** communication primitives for coroutines. The **pitfall** is forgetting to close channels, causing receiver coroutines to hang indefinitely.
+Channels are Kotlin's equivalent of Go channels -- **hot** communication primitives for coroutines. The **pitfall** is forgetting to close channels, causing receiver coroutines to hang indefinitely.
 
 ```kotlin
 // --- Channel patterns ---
@@ -335,22 +335,22 @@ suspend fun main() {
 
 ## Summary and Key Takeaways
 
-- **Structured concurrency** ensures all coroutines have a parent scope — use `coroutineScope` for fail-fast and `supervisorScope` for resilient parallel work
-- **SupervisorJob** prevents one child failure from cancelling siblings — essential for server-side request handling
+- **Structured concurrency** ensures all coroutines have a parent scope -- use `coroutineScope` for fail-fast and `supervisorScope` for resilient parallel work
+- **SupervisorJob** prevents one child failure from cancelling siblings -- essential for server-side request handling
 - A **common mistake** is catching `CancellationException` in a generic catch block, breaking cancellation propagation
 - Use **Flow** for cold streams, **SharedFlow** for hot multi-subscriber broadcasts, **StateFlow** for observable state
 - **`flowOn()`** shifts upstream execution context; **`buffer()`** decouples producer/consumer speeds
-- Channels are for **hot** coroutine-to-coroutine communication — always close channels to prevent hanging receivers
-- The **pitfall** of `GlobalScope.launch` is that it creates unstructured coroutines that outlive their intended lifecycle"""
+- Channels are for **hot** coroutine-to-coroutine communication -- always close channels to prevent hanging receivers
+- The **pitfall** of `GlobalScope.launch` is that it creates unstructured coroutines that outlive their intended lifecycle'''
     ),
     (
         "kotlin/dsl-builders-type-safe-metaprogramming",
         "Describe Kotlin DSL builder patterns including type-safe builders with receiver lambdas, @DslMarker annotation for scope control, reified generics for inline type operations, and practical DSLs for HTML generation and configuration",
-        r"""# Kotlin DSL Builders and Type-Safe Metaprogramming
+        '''# Kotlin DSL Builders and Type-Safe Metaprogramming
 
 ## The Power of Receiver Lambdas
 
-Kotlin's DSL capabilities stem from **lambda with receiver** — a function type where the lambda body executes in the context of a specified receiver object. This means you can call the receiver's methods without qualification, creating natural-looking domain-specific syntax. This is powerful **because** it combines compile-time type safety with the readability of internal DSLs.
+Kotlin's DSL capabilities stem from **lambda with receiver** -- a function type where the lambda body executes in the context of a specified receiver object. This means you can call the receiver's methods without qualification, creating natural-looking domain-specific syntax. This is powerful **because** it combines compile-time type safety with the readability of internal DSLs.
 
 ### Building a Type-Safe HTML DSL
 
@@ -528,7 +528,7 @@ fun html(init: HTML.() -> Unit): HTML {
     return html
 }
 
-// Usage — looks like a markup language but is fully type-safe
+// Usage -- looks like a markup language but is fully type-safe
 fun buildPage(): String {
     val page = html {
         head {
@@ -658,7 +658,7 @@ class FeatureFlags(private val flags: MutableSet<String>) {
 fun appConfig(init: AppConfig.() -> Unit): AppConfig =
     AppConfig().apply(init)
 
-// Usage — clean, readable configuration
+// Usage -- clean, readable configuration
 val config = appConfig {
     name = "MyService"
     version = "2.1.0"
@@ -829,22 +829,22 @@ val routes = router {
 
 ## Summary and Key Takeaways
 
-- **Lambda with receiver** (`T.() -> Unit`) is the foundation of Kotlin DSLs — it provides implicit `this` access for natural syntax
-- **@DslMarker** prevents scope leaking in nested builders — without it, inner lambdas can accidentally access outer receivers
+- **Lambda with receiver** (`T.() -> Unit`) is the foundation of Kotlin DSLs -- it provides implicit `this` access for natural syntax
+- **@DslMarker** prevents scope leaking in nested builders -- without it, inner lambdas can accidentally access outer receivers
 - A **common mistake** is forgetting `@DslMarker`, allowing nonsensical nesting like calling `head {}` inside a `div {}` builder
-- **Reified generics** with `inline` give runtime type access but increase bytecode — use for framework utilities, not everywhere
+- **Reified generics** with `inline` give runtime type access but increase bytecode -- use for framework utilities, not everywhere
 - The **trade-off** of DSL builders vs data classes: DSLs read better for complex configuration but add API surface and compile-time cost
-- **Validate eagerly** in `build()` methods — catching errors at construction time is far better than runtime surprises
-- **Delegated properties** (`ReadWriteProperty`) bridge DSL syntax with backing storage (attributes, maps, preferences)"""
+- **Validate eagerly** in `build()` methods -- catching errors at construction time is far better than runtime surprises
+- **Delegated properties** (`ReadWriteProperty`) bridge DSL syntax with backing storage (attributes, maps, preferences)'''
     ),
     (
         "kotlin/multiplatform-architecture-patterns",
         "Explain Kotlin Multiplatform architecture including expect/actual declarations, shared business logic with platform-specific implementations, KMP dependency injection, Compose Multiplatform UI sharing, and testing strategies for cross-platform code",
-        r"""# Kotlin Multiplatform Architecture Patterns
+        '''# Kotlin Multiplatform Architecture Patterns
 
 ## Sharing Code Across Platforms
 
-Kotlin Multiplatform (KMP) enables sharing business logic across Android, iOS, desktop, and web while keeping platform-specific code native. The key insight is the **expect/actual** mechanism: you declare an expected API in common code, then provide actual implementations per platform. This is fundamentally different from cross-platform UI frameworks **because** it doesn't try to abstract away the platform — it embraces platform strengths while sharing what benefits from sharing.
+Kotlin Multiplatform (KMP) enables sharing business logic across Android, iOS, desktop, and web while keeping platform-specific code native. The key insight is the **expect/actual** mechanism: you declare an expected API in common code, then provide actual implementations per platform. This is fundamentally different from cross-platform UI frameworks **because** it doesn't try to abstract away the platform -- it embraces platform strengths while sharing what benefits from sharing.
 
 ### expect/actual and Platform Abstraction
 
@@ -960,7 +960,7 @@ class AuthException(message: String) : Exception(message)
 
 ### Platform Implementations and DI
 
-Each platform provides **actual** implementations. The **pitfall** is duplicating logic across actuals — keep actuals thin and push shared logic into common code. **Therefore**, actuals should be simple wrappers around platform APIs.
+Each platform provides **actual** implementations. The **pitfall** is duplicating logic across actuals -- keep actuals thin and push shared logic into common code. **Therefore**, actuals should be simple wrappers around platform APIs.
 
 ```kotlin
 // --- Android actual (androidMain) ---
@@ -1178,7 +1178,7 @@ class AuthRepositoryTest {
 fun <T> runBlocking(block: suspend () -> T): T {
     var result: T? = null
     var exception: Throwable? = null
-    // Simplified — real impl uses kotlinx.coroutines.runBlocking
+    // Simplified -- real impl uses kotlinx.coroutines.runBlocking
     kotlinx.coroutines.runBlocking {
         try {
             result = block()
@@ -1194,19 +1194,19 @@ fun <T> runBlocking(block: suspend () -> T): T {
 
 ## Summary and Key Takeaways
 
-- **expect/actual** provides compile-time guarantees that all platforms implement required APIs — missing actuals are compile errors, not runtime crashes
-- Keep **actual implementations thin** — push business logic into common code, actuals should just wrap platform APIs
-- A **common mistake** is putting JSON parsing or validation in platform code — this belongs in `commonMain`
-- **Dependency injection** in KMP works best with a simple service locator or constructor injection — avoid platform-specific DI frameworks in common code
+- **expect/actual** provides compile-time guarantees that all platforms implement required APIs -- missing actuals are compile errors, not runtime crashes
+- Keep **actual implementations thin** -- push business logic into common code, actuals should just wrap platform APIs
+- A **common mistake** is putting JSON parsing or validation in platform code -- this belongs in `commonMain`
+- **Dependency injection** in KMP works best with a simple service locator or constructor injection -- avoid platform-specific DI frameworks in common code
 - **SharedViewModel** pattern with `StateFlow` enables reactive UI state management shared across platforms
 - The **trade-off** of KMP vs Flutter/React Native: KMP shares logic but keeps native UI, resulting in better platform feel but more UI code
-- Test **common code extensively** in `commonTest` — it runs on all platforms automatically, catching cross-platform issues early
-- The **pitfall** of KMP is the iOS interop learning curve — Swift/Kotlin bridging requires understanding of memory management differences"""
+- Test **common code extensively** in `commonTest` -- it runs on all platforms automatically, catching cross-platform issues early
+- The **pitfall** of KMP is the iOS interop learning curve -- Swift/Kotlin bridging requires understanding of memory management differences'''
     ),
     (
         "kotlin/arrow-functional-error-handling",
         "Explain Arrow library functional programming patterns in Kotlin including Either for typed error handling, Raise DSL for effect-based composition, Resource for safe acquisition and release, and Schedule for retry policies with practical service layer examples",
-        r"""# Arrow Functional Programming Patterns in Kotlin
+        '''# Arrow Functional Programming Patterns in Kotlin
 
 ## Why Arrow for Error Handling?
 
@@ -1290,23 +1290,23 @@ interface EmailService {
 
 ### Raise DSL: Elegant Error Composition
 
-The **Raise DSL** (Arrow 1.2+) solves the verbosity problem. Instead of manually wrapping/unwrapping `Either`, you write straight-line code and use `raise()` to signal errors — similar to exceptions but **type-safe** and tracked by the compiler. **Therefore**, you get the readability of exceptions with the safety of typed errors.
+The **Raise DSL** (Arrow 1.2+) solves the verbosity problem. Instead of manually wrapping/unwrapping `Either`, you write straight-line code and use `raise()` to signal errors -- similar to exceptions but **type-safe** and tracked by the compiler. **Therefore**, you get the readability of exceptions with the safety of typed errors.
 
 ```kotlin
 // --- Raise DSL for clean composition ---
 
 // context(Raise<DomainError>) marks a function as "may fail with DomainError"
-// This is the Arrow 1.2+ approach — replaces EitherEffect
+// This is the Arrow 1.2+ approach -- replaces EitherEffect
 
 class UserServiceRaise(
     private val repo: UserRepository,
     private val emailService: EmailService,
 ) {
-    // Raise context — reads like imperative code, but errors are tracked
+    // Raise context -- reads like imperative code, but errors are tracked
     // Trade-off: less boilerplate but requires understanding of context receivers
     context(arrow.core.raise.Raise<DomainError>)
     suspend fun createUser(request: CreateUserRequest): User {
-        // Validation — raise short-circuits like throw, but type-safe
+        // Validation -- raise short-circuits like throw, but type-safe
         ensure(request.name.length >= 2) {
             DomainError.ValidationError("name", "Must be at least 2 characters")
         }
@@ -1328,7 +1328,7 @@ class UserServiceRaise(
         )
         val saved = repo.save(user)
 
-        // Send welcome email — we might want this to be non-fatal
+        // Send welcome email -- we might want this to be non-fatal
         // Pitfall: raising here would roll back the user creation
         // Best practice: use Either for non-critical side effects
         val emailResult = arrow.core.raise.either<DomainError, Boolean> {
@@ -1361,7 +1361,7 @@ class UserServiceRaise(
 
     context(arrow.core.raise.Raise<DomainError>)
     suspend fun transferRole(fromId: String, toId: String, newRole: String): Pair<User, User> {
-        // Compose multiple Raise operations — any raise propagates up
+        // Compose multiple Raise operations -- any raise propagates up
         val fromUser = getActiveUser(fromId)
         val toUser = getActiveUser(toId)
 
@@ -1389,7 +1389,7 @@ suspend fun handleCreateUser(
     }
 }
 
-// HTTP layer — map errors to status codes
+// HTTP layer -- map errors to status codes
 suspend fun httpHandler(
     service: UserServiceRaise,
     request: CreateUserRequest,
@@ -1411,7 +1411,7 @@ suspend fun httpHandler(
 
 ### Resource Management and Retry Policies
 
-Arrow's **Resource** ensures deterministic cleanup (like Rust's RAII or Python's context managers), and **Schedule** provides composable retry policies — far more powerful than simple loop-and-sleep patterns.
+Arrow's **Resource** ensures deterministic cleanup (like Rust's RAII or Python's context managers), and **Schedule** provides composable retry policies -- far more powerful than simple loop-and-sleep patterns.
 
 ```kotlin
 // --- Resource for safe acquisition/release ---
@@ -1436,7 +1436,7 @@ data class FileHandle(val path: String) {
     suspend fun close() { closed = true }
 }
 
-// Resource composition — acquire in order, release in reverse
+// Resource composition -- acquire in order, release in reverse
 // Common mistake: releasing resources in wrong order (e.g., closing DB before file)
 suspend fun exportData(query: String, outputPath: String): String {
     // Using arrow.fx.coroutines.resource builder
@@ -1449,7 +1449,7 @@ suspend fun exportData(query: String, outputPath: String): String {
         release = { fh, _ -> fh.close() },
     )
 
-    // Compose resources — both are acquired, used, then released
+    // Compose resources -- both are acquired, used, then released
     return arrow.fx.coroutines.resource {
         val db = dbResource.bind()
         val file = fileResource.bind()
@@ -1517,19 +1517,19 @@ val Int.seconds get() = kotlin.time.Duration.Companion.seconds(this)
 
 ## Summary and Key Takeaways
 
-- **Either<Error, Success>** makes errors visible in type signatures — callers must handle every failure path at compile time
-- The **Raise DSL** eliminates Either boilerplate — write straight-line code with `raise()` for errors, compose naturally
-- A **common mistake** is using exceptions for expected business errors (validation, not found) — `Either` is for expected failures, exceptions for unexpected ones
-- **`ensure()`** and **`ensureNotNull()`** are the Raise equivalents of `require()` — they short-circuit with typed errors
-- **Resource** provides deterministic cleanup with cancellation safety — superior to `try-finally` in coroutine contexts
-- **Schedule** composes retry policies declaratively — exponential backoff, jitter, max retries, and logging in a single expression
-- The **pitfall** of Arrow is the learning curve — teams need to understand context receivers and functional composition
-- At HTTP boundaries, **fold** `Either` into status codes — keep domain errors clean and map to HTTP only at the edge"""
+- **Either<Error, Success>** makes errors visible in type signatures -- callers must handle every failure path at compile time
+- The **Raise DSL** eliminates Either boilerplate -- write straight-line code with `raise()` for errors, compose naturally
+- A **common mistake** is using exceptions for expected business errors (validation, not found) -- `Either` is for expected failures, exceptions for unexpected ones
+- **`ensure()`** and **`ensureNotNull()`** are the Raise equivalents of `require()` -- they short-circuit with typed errors
+- **Resource** provides deterministic cleanup with cancellation safety -- superior to `try-finally` in coroutine contexts
+- **Schedule** composes retry policies declaratively -- exponential backoff, jitter, max retries, and logging in a single expression
+- The **pitfall** of Arrow is the learning curve -- teams need to understand context receivers and functional composition
+- At HTTP boundaries, **fold** `Either` into status codes -- keep domain errors clean and map to HTTP only at the edge'''
     ),
     (
         "kotlin/testing-kotest-mockk-patterns",
         "Describe comprehensive Kotlin testing patterns using Kotest framework with property-based testing, MockK for coroutine mocking, test containers for integration testing, and snapshot testing for serialization verification",
-        r"""# Kotlin Testing Patterns: Kotest, MockK, and Beyond
+        '''# Kotlin Testing Patterns: Kotest, MockK, and Beyond
 
 ## Test Architecture for Kotlin Projects
 
@@ -1586,7 +1586,7 @@ data class Money(val amount: Long, val currency: String) {
 // --- Kotest BehaviorSpec for domain logic ---
 
 class EmailTest { // : BehaviorSpec({
-    // Given/When/Then style — great for business logic
+    // Given/When/Then style -- great for business logic
     fun testValidEmails() {
         // given("a valid email string") {
         val validEmails = listOf("user@example.com", "test+tag@domain.co", "A@B.C")
@@ -1847,7 +1847,7 @@ class OrderServiceTest { // : FunSpec({
 
 ### Snapshot Testing for Serialization
 
-A **best practice** for API development is snapshot testing — verifying that serialized output matches a known-good baseline. This catches accidental breaking changes to JSON contracts.
+A **best practice** for API development is snapshot testing -- verifying that serialized output matches a known-good baseline. This catches accidental breaking changes to JSON contracts.
 
 ```kotlin
 // --- Snapshot testing for JSON serialization ---
@@ -1936,11 +1936,11 @@ class SerializationSnapshotTest {
 ## Summary and Key Takeaways
 
 - **Kotest** provides Kotlin-idiomatic test styles (BehaviorSpec, FunSpec, StringSpec) with powerful matchers
-- **Property-based testing** finds edge cases humans miss — use for core domain logic where invariants must hold
-- A **common mistake** is not clearing MockK mocks between tests — use `clearAllMocks()` in `beforeTest`
-- **`coEvery`/`coVerify`** handle suspend functions natively — never use `every`/`verify` for coroutines
+- **Property-based testing** finds edge cases humans miss -- use for core domain logic where invariants must hold
+- A **common mistake** is not clearing MockK mocks between tests -- use `clearAllMocks()` in `beforeTest`
+- **`coEvery`/`coVerify`** handle suspend functions natively -- never use `every`/`verify` for coroutines
 - The **trade-off** of snapshot testing: catches accidental changes but requires maintenance when intentional changes occur
-- **`coVerifyOrder`** validates call ordering — critical for testing workflows like order→payment→save
-- The **pitfall** of over-mocking is that tests become coupled to implementation, not behavior — prefer testing outcomes over interactions"""
+- **`coVerifyOrder`** validates call ordering -- critical for testing workflows like order->payment->save
+- The **pitfall** of over-mocking is that tests become coupled to implementation, not behavior -- prefer testing outcomes over interactions'''
     ),
 ]

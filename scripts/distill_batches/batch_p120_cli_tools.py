@@ -1,13 +1,10 @@
-"""CLI tools — Click, Rich, and interactive terminal applications."""
+"""CLI tools -- Click, Rich, and interactive terminal applications."""
 
 PAIRS = [
     (
         "python/click-cli",
         "Show Python Click CLI patterns: commands, groups, options, and interactive prompts.",
-        '''Python Click CLI patterns:
-
-```python
-import click
+        '''import click
 import sys
 from pathlib import Path
 
@@ -85,24 +82,12 @@ def deploy(source: str, dest: str, force: bool):
 def init():
     """Initialize a new project interactively."""
     name = click.prompt("Project name", default="my-project")
-    language = click.prompt(
+    language = click.prompt('''
+    ),
+    (
         "Language",
-        type=click.Choice(["python", "typescript", "rust", "go"]),
-        default="python",
-    )
-    description = click.prompt("Description", default="")
-    use_docker = click.confirm("Include Docker support?", default=True)
-    port = click.prompt("Server port", default=8000, type=int)
-
-    click.echo(f"\\nCreating {name} ({language})...")
-    click.echo(f"  Description: {description}")
-    click.echo(f"  Docker: {'yes' if use_docker else 'no'}")
-    click.echo(f"  Port: {port}")
-
-
-# --- File input/output ---
-
-@cli.command()
+        "type=click.Choice(['python', 'typescript', 'rust', 'go']) default='python' ) description = click.prompt('Description', default='') use_docker = click.confirm('Include Docker support?', default=True) port = click.prompt('Server port', default=8000, type=int) click.echo(f'\\nCreating {name} ({language})...') click.echo(f'  Description: {description}') click.echo(f'  Docker: {'yes' if use_docker else 'no'}') click.echo(f'  Port: {port}')",
+        '''@cli.command()
 @click.argument("input", type=click.File("r"), default="-")  # stdin by default
 @click.argument("output", type=click.File("w"), default="-")  # stdout by default
 @click.option("--format", "fmt", type=click.Choice(["json", "csv", "table"]))
@@ -142,19 +127,16 @@ if __name__ == "__main__":
 ```
 
 Click CLI patterns:
-1. **`@click.group()`** — subcommands like `mycli search`, `mycli deploy`
-2. **`@click.pass_context`** — share state (verbose, config) across subcommands
-3. **`click.progressbar()`** — built-in progress bar for long operations
-4. **`type=click.File("r")`** — auto-handle file open/close, `-` for stdin/stdout
-5. **`click.prompt()` + `click.confirm()`** — interactive input with defaults and choices'''
+1. **`@click.group()`** -- subcommands like `mycli search`, `mycli deploy`
+2. **`@click.pass_context`** -- share state (verbose, config) across subcommands
+3. **`click.progressbar()`** -- built-in progress bar for long operations
+4. **`type=click.File("r")`** -- auto-handle file open/close, `-` for stdin/stdout
+5. **`click.prompt()` + `click.confirm()`** -- interactive input with defaults and choices'''
     ),
     (
         "python/rich-tui",
         "Show Python Rich patterns: formatted output, tables, progress bars, and live displays.",
-        '''Python Rich terminal UI patterns:
-
-```python
-from rich.console import Console
+        '''from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
@@ -208,124 +190,6 @@ def show_users(users: list[dict]):
             user["name"],
             user["email"],
             user["role"],
-            status,
-        )
-
-    console.print(table)
-
-
-# --- Progress bars ---
-
-def process_files(files: list[str]):
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TextColumn("({task.completed}/{task.total})"),
-        console=console,
-    ) as progress:
-        task = progress.add_task("Processing files...", total=len(files))
-
-        for file in files:
-            progress.update(task, description=f"Processing {file}...")
-            time.sleep(0.1)  # Simulate work
-            progress.update(task, advance=1)
-
-
-# Multiple concurrent progress bars
-def parallel_downloads():
-    with Progress() as progress:
-        download1 = progress.add_task("[cyan]Downloading model...", total=1000)
-        download2 = progress.add_task("[green]Downloading data...", total=500)
-        compile_task = progress.add_task("[yellow]Compiling...", total=200)
-
-        while not progress.finished:
-            progress.update(download1, advance=3)
-            progress.update(download2, advance=2)
-            progress.update(compile_task, advance=1)
-            time.sleep(0.01)
-
-
-# --- Live display (auto-updating) ---
-
-def live_dashboard():
-    table = Table(title="Live Metrics")
-    table.add_column("Metric")
-    table.add_column("Value", justify="right")
-
-    with Live(table, console=console, refresh_per_second=4) as live:
-        for i in range(100):
-            table = Table(title="Live Metrics")
-            table.add_column("Metric")
-            table.add_column("Value", justify="right")
-
-            table.add_row("Requests/s", f"[green]{100 + i * 5}[/]")
-            table.add_row("Latency p95", f"[yellow]{50 + i}ms[/]")
-            table.add_row("Errors", f"[red]{i % 3}[/]")
-            table.add_row("Active Users", str(200 + i * 2))
-
-            live.update(table)
-            time.sleep(0.1)
-
-
-# --- Tree (directory/hierarchy display) ---
-
-def show_project_structure():
-    tree = Tree("[bold]my-project/[/bold]")
-
-    src = tree.add("[bold blue]src/[/bold blue]")
-    src.add("[green]main.py[/green]")
-    src.add("[green]config.py[/green]")
-
-    api = src.add("[bold blue]api/[/bold blue]")
-    api.add("[green]routes.py[/green]")
-    api.add("[green]models.py[/green]")
-
-    tests = tree.add("[bold blue]tests/[/bold blue]")
-    tests.add("[green]test_main.py[/green]")
-
-    tree.add("[dim]pyproject.toml[/dim]")
-    tree.add("[dim]README.md[/dim]")
-
-    console.print(tree)
-
-
-# --- Syntax highlighting ---
-
-code = '''
-def fibonacci(n: int) -> int:
-    if n < 2:
-        return n
-    return fibonacci(n - 1) + fibonacci(n - 2)
-'''
-
-syntax = Syntax(code, "python", theme="monokai", line_numbers=True)
-console.print(syntax)
-
-
-# --- Interactive prompts ---
-
-name = Prompt.ask("Enter your name", default="World")
-age = IntPrompt.ask("Enter your age")
-proceed = Confirm.ask("Do you want to continue?")
-color = Prompt.ask("Pick a color", choices=["red", "green", "blue"])
-
-
-# --- Exception handling ---
-
-try:
-    1 / 0
-except Exception:
-    console.print_exception(show_locals=True)
-```
-
-Rich patterns:
-1. **Markup syntax** — `[bold green]text[/]` for inline styling
-2. **`Table`** — formatted tables with column alignment and colors
-3. **`Progress`** — multi-bar progress with spinner, percentage, and ETA
-4. **`Live`** — auto-refreshing display for dashboards and monitoring
-5. **`print_exception(show_locals=True)`** — beautiful tracebacks with local variables'''
+            status,'''
     ),
 ]
-"""

@@ -1,18 +1,18 @@
+"""p14 docker deep"""
+
 PAIRS = [
     (
         "devops/docker-image-optimization",
-        r"""Explain Docker image optimization including multi-stage builds, layer caching strategies, minimizing image size with distroless/Alpine bases, BuildKit features, and security scanning. Include practical Dockerfile patterns for Python and Node.js applications.""",
-        r"""## Docker Image Optimization: Multi-Stage Builds, Layer Caching, and Minimal Images
-
-Docker images directly impact deployment speed, security surface, and resource costs. A well-optimized image is small, builds fast, and contains only what's needed to run the application.
+        "Explain Docker image optimization including multi-stage builds, layer caching strategies, minimizing image size with distroless/Alpine bases, BuildKit features, and security scanning. Include practical Dockerfile patterns for Python and Node.js applications.",
+        '''Docker images directly impact deployment speed, security surface, and resource costs. A well-optimized image is small, builds fast, and contains only what's needed to run the application.
 
 ### Multi-Stage Builds
 
-The most impactful optimization — separate build dependencies from runtime:
+The most impactful optimization -- separate build dependencies from runtime:
 
 ```dockerfile
 # ============================================================
-# Python Application — Multi-Stage Build
+# Python Application -- Multi-Stage Build
 # ============================================================
 
 # Stage 1: Build dependencies in a full Python image
@@ -28,7 +28,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-# Stage 2: Runtime image — no compilers, no build tools
+# Stage 2: Runtime image -- no compilers, no build tools
 FROM python:3.12-slim AS runtime
 
 # Only install runtime C libraries (not dev headers)
@@ -51,7 +51,7 @@ CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```dockerfile
 # ============================================================
-# Node.js Application — Multi-Stage Build
+# Node.js Application -- Multi-Stage Build
 # ============================================================
 
 # Stage 1: Install dependencies
@@ -224,7 +224,7 @@ COPY requirements.txt .
 ```dockerfile
 # syntax=docker/dockerfile:1.4
 
-# Secret mounts — never stored in layers
+# Secret mounts -- never stored in layers
 FROM python:3.12-slim
 RUN --mount=type=secret,id=pip_conf,target=/etc/pip.conf \
     pip install -r requirements.txt
@@ -261,14 +261,12 @@ COPY backend/ /app/
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0"]
 ```
 
-**Key optimization metrics**: (1) Target <100MB for application images, <50MB for microservices, (2) Build time under 2 minutes with warm cache, (3) Zero high/critical vulnerabilities from `docker scout` or `trivy`, (4) Non-root user, minimal capabilities, read-only filesystem where possible."""
+**Key optimization metrics**: (1) Target <100MB for application images, <50MB for microservices, (2) Build time under 2 minutes with warm cache, (3) Zero high/critical vulnerabilities from `docker scout` or `trivy`, (4) Non-root user, minimal capabilities, read-only filesystem where possible.'''
     ),
     (
         "devops/docker-compose-production",
-        r"""Explain Docker Compose patterns for production-grade local development and staging including service dependencies, health checks, volume management, networking, environment configuration, and compose profiles for different environments.""",
-        r"""## Docker Compose Production Patterns: Service Orchestration for Dev and Staging
-
-Docker Compose bridges the gap between development and production by defining multi-service applications declaratively. Production-grade compose files go beyond basic service definitions.
+        "Explain Docker Compose patterns for production-grade local development and staging including service dependencies, health checks, volume management, networking, environment configuration, and compose profiles for different environments.",
+        '''Docker Compose bridges the gap between development and production by defining multi-service applications declaratively. Production-grade compose files go beyond basic service definitions.
 
 ### Service Dependencies and Health Checks
 
@@ -538,14 +536,12 @@ volumes:
       device: /data/app  # Host directory
 ```
 
-**Key patterns**: (1) Always use `depends_on` with `condition: service_healthy`, (2) Use profiles to share one compose file across environments, (3) Isolate networks so databases aren't exposed, (4) Pin image tags — never use `:latest` in staging/prod, (5) Use secrets for credentials, environment variables for non-sensitive config."""
+**Key patterns**: (1) Always use `depends_on` with `condition: service_healthy`, (2) Use profiles to share one compose file across environments, (3) Isolate networks so databases aren't exposed, (4) Pin image tags -- never use `:latest` in staging/prod, (5) Use secrets for credentials, environment variables for non-sensitive config.'''
     ),
     (
         "devops/docker-networking-internals",
-        r"""Explain Docker networking internals including bridge networks, overlay networks for Swarm, DNS resolution, iptables rules, network namespaces, veth pairs, and troubleshooting container networking issues.""",
-        r"""## Docker Networking Internals: Bridges, Namespaces, and Traffic Flow
-
-Understanding how Docker networking works at the Linux kernel level helps you debug connectivity issues and design secure network topologies.
+        "Explain Docker networking internals including bridge networks, overlay networks for Swarm, DNS resolution, iptables rules, network namespaces, veth pairs, and troubleshooting container networking issues.",
+        '''Understanding how Docker networking works at the Linux kernel level helps you debug connectivity issues and design secure network topologies.
 
 ### Bridge Network Architecture
 
@@ -558,15 +554,15 @@ Host Network Stack
     │
     ├── docker0 (bridge, 172.17.0.1/16)
     │     │
-    │     ├── veth1234 ←──────→ eth0 (container A, 172.17.0.2)
+    │     ├── veth1234 ←──────-> eth0 (container A, 172.17.0.2)
     │     │                     [network namespace A]
     │     │
-    │     └── veth5678 ←──────→ eth0 (container B, 172.17.0.3)
+    │     └── veth5678 ←──────-> eth0 (container B, 172.17.0.3)
     │                           [network namespace B]
     │
     └── br-customnet (user bridge, 172.18.0.1/16)
           │
-          └── vethABCD ←──────→ eth0 (container C, 172.18.0.2)
+          └── vethABCD ←──────-> eth0 (container C, 172.18.0.2)
                                 [network namespace C]
 ```
 
@@ -650,9 +646,9 @@ sudo iptables -t filter -L -n -v  # Filter rules (isolation)
 
 # Port mapping: -p 8080:80 creates these rules:
 # 1. DNAT in PREROUTING chain:
-#    Destination 0.0.0.0:8080 → 172.17.0.2:80
+#    Destination 0.0.0.0:8080 -> 172.17.0.2:80
 # 2. MASQUERADE in POSTROUTING chain:
-#    Source from bridge subnet → host IP
+#    Source from bridge subnet -> host IP
 
 # Inter-container communication:
 # On default bridge: containers CAN communicate (ICC=true)
@@ -713,75 +709,16 @@ class ContainerNetInfo:
 def get_container_network_info(container: str) -> ContainerNetInfo:
     result = subprocess.run(
         ["docker", "inspect", container],
-        capture_output=True, text=True
-    )
-    info = json.loads(result.stdout)[0]
-
-    networks = info["NetworkSettings"]["Networks"]
-    net_name = list(networks.keys())[0]
-    net_info = networks[net_name]
-
-    return ContainerNetInfo(
-        name=info["Name"].lstrip("/"),
-        id=info["Id"][:12],
-        ip=net_info["IPAddress"],
-        gateway=net_info["Gateway"],
-        network=net_name,
-        ports=info["NetworkSettings"]["Ports"] or {},
-    )
-
-
-def diagnose_connectivity(source: str, target: str, port: int):
-    """Diagnose connectivity between two containers."""
-    src_info = get_container_network_info(source)
-    tgt_info = get_container_network_info(target)
-
-    print(f"Source: {src_info.name} ({src_info.ip}) on {src_info.network}")
-    print(f"Target: {tgt_info.name} ({tgt_info.ip}) on {tgt_info.network}")
-
-    # Check if same network
-    if src_info.network != tgt_info.network:
-        print("PROBLEM: Containers are on different networks!")
-        print(f"  Source: {src_info.network}")
-        print(f"  Target: {tgt_info.network}")
-        print("  Fix: Connect both to the same network or use network aliases")
-        return
-
-    # Try DNS resolution
-    result = subprocess.run(
-        ["docker", "exec", source, "nslookup", target],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"PROBLEM: DNS resolution failed for '{target}'")
-        print("  Fix: Use user-defined network (not default bridge)")
-        return
-
-    # Try TCP connection
-    result = subprocess.run(
-        ["docker", "exec", source, "nc", "-zv", "-w2",
-         tgt_info.ip, str(port)],
-        capture_output=True, text=True
-    )
-    if result.returncode != 0:
-        print(f"PROBLEM: TCP connection to {target}:{port} failed")
-        print("  Check: Is the service listening on 0.0.0.0 (not 127.0.0.1)?")
-    else:
-        print(f"OK: {source} can reach {target}:{port}")
-```
-
-**Key networking principles**: (1) Always use user-defined bridge networks for DNS resolution between containers, (2) Never expose database ports to the host — use internal networks, (3) Each container gets its own network namespace with isolated routing table, (4) iptables NAT handles port mapping — understand the DNAT/MASQUERADE chain for debugging, (5) Use `docker network inspect` and `nsenter` for deep network debugging."""
+        capture_output=True, text=True'''
     ),
     (
         "devops/docker-security-hardening",
-        r"""Explain Docker security hardening including running as non-root, dropping capabilities, seccomp profiles, AppArmor/SELinux, read-only filesystems, resource limits, vulnerability scanning, and secrets management.""",
-        r"""## Docker Security Hardening: Defense in Depth for Container Workloads
-
-Containers share the host kernel, so a container escape gives full host access. Security hardening reduces the blast radius and prevents exploitation.
+        "Explain Docker security hardening including running as non-root, dropping capabilities, seccomp profiles, AppArmor/SELinux, read-only filesystems, resource limits, vulnerability scanning, and secrets management.",
+        '''Containers share the host kernel, so a container escape gives full host access. Security hardening reduces the blast radius and prevents exploitation.
 
 ### Non-Root Containers
 
-The most impactful single change — don't run processes as root inside containers:
+The most impactful single change -- don't run processes as root inside containers:
 
 ```dockerfile
 FROM python:3.12-slim
@@ -868,32 +805,12 @@ docker run --read-only \
 Restrict which system calls a container can make:
 
 ```json
-{
-  "defaultAction": "SCMP_ACT_ERRNO",
-  "architectures": ["SCMP_ARCH_X86_64"],
-  "syscalls": [
-    {
-      "names": [
-        "accept", "accept4", "bind", "clone", "close",
-        "connect", "dup", "dup2", "epoll_create",
-        "epoll_ctl", "epoll_wait", "execve", "exit",
-        "exit_group", "fcntl", "fstat", "futex",
-        "getdents64", "getpid", "getsockname",
-        "getsockopt", "ioctl", "listen", "lseek",
-        "mmap", "mprotect", "munmap", "nanosleep",
-        "open", "openat", "pipe", "poll", "read",
-        "readlink", "recvfrom", "recvmsg", "rt_sigaction",
-        "rt_sigprocmask", "sendmsg", "sendto",
-        "setsockopt", "socket", "stat", "write",
-        "writev"
-      ],
-      "action": "SCMP_ACT_ALLOW"
-    }
-  ]
-}
-```
-
-```bash
+{'''
+    ),
+    (
+        "action",
+        "} ] }",
+        '''```bash
 # Apply custom seccomp profile
 docker run --security-opt seccomp=./strict-profile.json myimage
 
@@ -950,7 +867,7 @@ grype myimage:latest
 
 # In CI/CD pipeline
 trivy image --exit-code 1 --severity CRITICAL myimage:latest
-# Exit code 1 if any CRITICAL vulnerabilities found → fail the build
+# Exit code 1 if any CRITICAL vulnerabilities found -> fail the build
 ```
 
 ### Secrets Management
@@ -961,7 +878,7 @@ echo "supersecretpassword" | docker secret create db_password -
 docker service create --secret db_password myimage
 
 # Inside container, secret is at /run/secrets/db_password
-# It's a tmpfs mount — never written to disk
+# It's a tmpfs mount -- never written to disk
 
 # For non-Swarm: use BuildKit secrets for build-time
 docker build --secret id=npmrc,src=$HOME/.npmrc .
@@ -990,38 +907,12 @@ def get_secret(name: str) -> str:
 
     raise ValueError(
         f"Secret '{name}' not found in /run/secrets/ "
-        f"or environment variable {name.upper()}"
-    )
-
-
-# Usage
-db_password = get_secret("db_password")
-api_key = get_secret("api_key")
-```
-
-### Runtime Security Checklist
-
-```bash
-# Audit a running container's security posture
-docker inspect --format '{{json .HostConfig}}' mycontainer | python3 -m json.tool
-
-# Check for:
-# "Privileged": false          ← MUST be false
-# "ReadonlyRootfs": true       ← Should be true
-# "CapDrop": ["ALL"]           ← Should drop all
-# "SecurityOpt": ["no-new-privileges"]  ← Prevent privilege escalation
-# "PidsLimit": > 0             ← Should be limited
-# "Memory": > 0                ← Should be limited
-```
-
-**Security hardening priority order**: (1) Non-root user (highest impact, easiest), (2) Read-only filesystem + tmpfs for writable dirs, (3) Drop all capabilities, add back minimally, (4) Resource limits to prevent DoS, (5) Seccomp profiles for syscall filtering, (6) Scan images in CI/CD pipeline, block CRITICAL vulns, (7) Never store secrets in images or environment variables — use Docker secrets or vault."""
+        f"or environment variable {name.upper()}"'''
     ),
     (
         "devops/container-orchestration-patterns",
-        r"""Explain container orchestration patterns including sidecar, ambassador, adapter, init containers, health probes (liveness, readiness, startup), pod disruption budgets, and anti-affinity rules. Focus on the pattern concepts that apply across Kubernetes and other orchestrators.""",
-        r"""## Container Orchestration Patterns: Sidecars, Probes, and Resilience
-
-Container orchestration patterns are reusable architectural solutions for deploying, scaling, and managing containerized applications. These patterns work across Kubernetes, Nomad, ECS, and other orchestrators.
+        "Explain container orchestration patterns including sidecar, ambassador, adapter, init containers, health probes (liveness, readiness, startup), pod disruption budgets, and anti-affinity rules. Focus on the pattern concepts that apply across Kubernetes and other orchestrators.",
+        '''Container orchestration patterns are reusable architectural solutions for deploying, scaling, and managing containerized applications. These patterns work across Kubernetes, Nomad, ECS, and other orchestrators.
 
 ### Sidecar Pattern
 
@@ -1063,9 +954,9 @@ spec:
 ```python
 # Sidecar pattern in code: envoy proxy sidecar
 # The application doesn't know about mTLS, retries, or circuit breaking
-# — the sidecar handles it transparently.
+# -- the sidecar handles it transparently.
 
-# app.py — simple HTTP server, no service mesh awareness
+# app.py -- simple HTTP server, no service mesh awareness
 from fastapi import FastAPI
 
 app = FastAPI()
@@ -1101,7 +992,7 @@ spec:
     - name: app
       image: myapp:1.0
       env:
-        # App connects to localhost — ambassador handles routing
+        # App connects to localhost -- ambassador handles routing
         - name: DATABASE_HOST
           value: "localhost"
         - name: DATABASE_PORT
@@ -1189,7 +1080,7 @@ spec:
         periodSeconds: 10
 
       # Liveness probe: is the process healthy?
-      # Failure → container restart
+      # Failure -> container restart
       livenessProbe:
         httpGet:
           path: /health/live
@@ -1200,7 +1091,7 @@ spec:
         failureThreshold: 3
 
       # Readiness probe: can it handle traffic?
-      # Failure → removed from service endpoints (no traffic)
+      # Failure -> removed from service endpoints (no traffic)
       readinessProbe:
         httpGet:
           path: /health/ready
@@ -1234,7 +1125,7 @@ async def startup_check():
 @app.get("/health/live")
 async def liveness_check():
     """Is the process alive and not deadlocked?"""
-    # Keep this SIMPLE — if this handler runs, we're alive.
+    # Keep this SIMPLE -- if this handler runs, we're alive.
     # Don't check external dependencies here!
     # A database being down should NOT restart your container.
     return {"status": "alive"}
@@ -1339,6 +1230,6 @@ spec:
         - containerPort: 9090  # Prometheus scrape target
 ```
 
-**Pattern selection guide**: (1) **Sidecar** when you need to extend without modifying — logging, proxying, monitoring, (2) **Ambassador** when simplifying access to external services — cloud databases, APIs, (3) **Adapter** when standardizing interfaces — metric formats, log formats, (4) **Init container** when you need setup before the main app — migrations, downloads, wait-for-dependency, (5) Always implement all three probe types — startup for slow apps, liveness for deadlock detection, readiness for traffic management."""
+**Pattern selection guide**: (1) **Sidecar** when you need to extend without modifying -- logging, proxying, monitoring, (2) **Ambassador** when simplifying access to external services -- cloud databases, APIs, (3) **Adapter** when standardizing interfaces -- metric formats, log formats, (4) **Init container** when you need setup before the main app -- migrations, downloads, wait-for-dependency, (5) Always implement all three probe types -- startup for slow apps, liveness for deadlock detection, readiness for traffic management.'''
     ),
 ]

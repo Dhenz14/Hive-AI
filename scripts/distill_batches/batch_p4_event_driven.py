@@ -1,5 +1,5 @@
 """
-Batch P4 — Event-Driven Architecture: event sourcing, CQRS, Kafka,
+Batch P4 -- Event-Driven Architecture: event sourcing, CQRS, Kafka,
 sagas, outbox pattern. Each pair targets >0.80 quality score.
 """
 
@@ -7,11 +7,11 @@ PAIRS = [
     # --- 1. Event Sourcing Fundamentals ---
     (
         "event_sourcing_fundamentals",
-        "Explain event sourcing from first principles — event store design with append-only "
+        "Explain event sourcing from first principles -- event store design with append-only "
         "logs, aggregate reconstruction from event streams, snapshotting for performance, "
         "and building read-model projections. Provide a complete Python implementation using "
         "SQLite as the event store with proper serialization, concurrency control, and tests.",
-        r"""
+        '''
 # Event Sourcing Fundamentals: Capturing Every State Change as an Immutable Fact
 
 ## Why Event Sourcing?
@@ -23,16 +23,16 @@ state is derived by replaying events from the beginning.
 
 ```
 Traditional CRUD:
-  Account { balance: 150 }   ← How did we get here? No idea.
+  Account { balance: 150 }   <- How did we get here? No idea.
 
 Event Sourcing:
   AccountCreated { id: 1 }
   MoneyDeposited { amount: 200 }
   MoneyWithdrawn { amount: 50 }
-  → Replay: 0 + 200 - 50 = 150  ← Full audit trail, deterministic.
+  -> Replay: 0 + 200 - 50 = 150  <- Full audit trail, deterministic.
 ```
 
-This matters **because** many domains — banking, healthcare, e-commerce — require a
+This matters **because** many domains -- banking, healthcare, e-commerce -- require a
 complete audit trail. However, the benefits go far beyond compliance:
 
 1. **Temporal queries**: "What was the account balance on March 1st?"
@@ -50,8 +50,8 @@ The event store is an **append-only log** with strict ordering guarantees. Every
 belongs to a **stream** (typically one stream per aggregate instance), and each event
 has a monotonically increasing version number within that stream.
 
-**Best practice**: Design events as past-tense facts — `OrderPlaced`, `PaymentReceived`,
-`ItemShipped` — because they represent things that **already happened** and cannot be
+**Best practice**: Design events as past-tense facts -- `OrderPlaced`, `PaymentReceived`,
+`ItemShipped` -- because they represent things that **already happened** and cannot be
 undone, only compensated.
 
 ```python
@@ -286,7 +286,7 @@ designed around consistency boundaries with narrow scope.
 ## Aggregate Reconstruction and Snapshotting
 
 The aggregate reconstructs its state by replaying events. For aggregates with thousands
-of events, replaying from scratch is expensive, therefore we use **snapshotting** — we
+of events, replaying from scratch is expensive, therefore we use **snapshotting** -- we
 periodically save the current state and only replay events after the snapshot.
 
 ```python
@@ -313,7 +313,7 @@ class BankAccount:
     Event-sourced aggregate representing a bank account.
 
     State is derived entirely from replaying domain events.
-    No direct state mutation — all changes go through events.
+    No direct state mutation -- all changes go through events.
     """
 
     SNAPSHOT_INTERVAL: int = 50  # snapshot every 50 events
@@ -469,7 +469,7 @@ class Repository:
 ## Projections: Building Read Models
 
 Events are optimized for writes, but reads need different shapes. **Projections**
-subscribe to the event stream and build denormalized read models — therefore you can
+subscribe to the event stream and build denormalized read models -- therefore you can
 have multiple projections from the same events without changing the write side.
 
 ```python
@@ -625,7 +625,7 @@ if __name__ == "__main__":
 - **Event sourcing** stores state as an append-only sequence of immutable domain events;
   the current state is always derived, never stored directly as the primary record.
 - The **event store** must guarantee stream-level ordering and support optimistic
-  concurrency control — therefore the `(stream_id, version)` uniqueness constraint is
+  concurrency control -- therefore the `(stream_id, version)` uniqueness constraint is
   the critical invariant.
 - **Snapshotting** is a performance optimization that avoids replaying the entire event
   history; however, correctness must never depend on snapshots because they can always
@@ -633,27 +633,27 @@ if __name__ == "__main__":
 - **Projections** build read-optimized views from the event stream. They are disposable
   and rebuildable, which means you can add new projections retroactively.
 - A **common pitfall** is making events too granular or too coarse. Events should represent
-  meaningful domain state transitions — `MoneyDeposited` rather than `BalanceFieldUpdated`.
+  meaningful domain state transitions -- `MoneyDeposited` rather than `BalanceFieldUpdated`.
 - **Best practice**: version your event schemas from day one. When you need to change an
   event structure, create a new version and write an upcaster that transforms old events
   to the new shape during replay.
-"""
+'''
     ),
 
     # --- 2. CQRS Pattern ---
     (
         "cqrs_pattern_implementation",
-        "Explain the CQRS (Command Query Responsibility Segregation) pattern in depth — why "
+        "Explain the CQRS (Command Query Responsibility Segregation) pattern in depth -- why "
         "separate write and read models, how to implement command handlers and query handlers, "
         "how to build read-model projections with eventual consistency, and the trade-offs "
         "involved. Provide a complete Python implementation with command bus, event bus, "
         "separate write and read paths, and comprehensive tests.",
-        r"""
+        '''
 # CQRS: Separating Write and Read Responsibilities for Scalable Systems
 
 ## The Core Insight Behind CQRS
 
-In most applications, **reads vastly outnumber writes** — often by a ratio of 100:1 or
+In most applications, **reads vastly outnumber writes** -- often by a ratio of 100:1 or
 more. Yet traditional architectures force reads and writes through the same model, the
 same database schema, and the same service layer. This creates a fundamental tension:
 the schema that is optimal for enforcing business rules on writes is rarely optimal for
@@ -683,7 +683,7 @@ query needs.
 
 ## Command Side: Enforcing Business Rules
 
-The command side receives **commands** — imperative requests to change state. Commands
+The command side receives **commands** -- imperative requests to change state. Commands
 pass through validation, domain logic, and produce **events** that describe what happened.
 
 ```python
@@ -700,7 +700,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Generic, TypeVar
 
 # ---------------------------------------------------------------------------
-# Commands — imperative requests to change state
+# Commands -- imperative requests to change state
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -735,7 +735,7 @@ class PlaceOrder(Command):
 
 
 # ---------------------------------------------------------------------------
-# Events — immutable facts about what happened
+# Events -- immutable facts about what happened
 # ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -780,7 +780,7 @@ class StockReserved(Event):
 
 **Best practice**: Commands should be named as imperatives (`CreateProduct`, `PlaceOrder`)
 while events should be named as past-tense facts (`ProductCreated`, `OrderPlaced`). This
-linguistic distinction reinforces the conceptual difference — commands can be rejected,
+linguistic distinction reinforces the conceptual difference -- commands can be rejected,
 events cannot.
 
 ## Command Handlers and the Write Model
@@ -978,7 +978,7 @@ class CommandHandler:
 ## Query Side: Optimized Read Models
 
 The query side maintains **denormalized projections** that are purpose-built for specific
-UI views. This is where the real power of CQRS emerges — each screen or API endpoint
+UI views. This is where the real power of CQRS emerges -- each screen or API endpoint
 can have its own projection without compromising the write model.
 
 ```python
@@ -990,7 +990,7 @@ class ReadDatabase:
     """
     Read-side storage with denormalized views.
 
-    Separate from the write database — in production these could be
+    Separate from the write database -- in production these could be
     different technologies entirely (e.g., write to Postgres,
     read from Elasticsearch or Redis).
     """
@@ -1093,7 +1093,7 @@ class ProjectionHandler:
     Subscribes to domain events and updates read-side projections.
 
     This is the bridge between the write side and the read side.
-    Eventual consistency is guaranteed — projections may lag behind
+    Eventual consistency is guaranteed -- projections may lag behind
     the write model by milliseconds to seconds.
     """
 
@@ -1206,7 +1206,7 @@ if __name__ == "__main__":
   consistency, and need event-based synchronization between them.
 - **Best practice**: Start with a single database and logical separation. Only physically
   separate write and read databases when you have concrete scaling evidence.
-- The **event bus** is the bridge — every state change on the write side publishes events
+- The **event bus** is the bridge -- every state change on the write side publishes events
   that projections consume to update the read side.
 - **Eventual consistency** is the reality: the read model may lag behind by milliseconds.
   However, for most user-facing scenarios this is imperceptible, and the scalability
@@ -1214,23 +1214,23 @@ if __name__ == "__main__":
 - A **common pitfall** is using CQRS for simple CRUD applications. If your read and write
   models look identical, CQRS adds overhead without benefit. Reserve it for domains with
   genuinely different read/write requirements or where event sourcing is already in play.
-"""
+'''
     ),
 
     # --- 3. Apache Kafka Deep Dive ---
     (
         "apache_kafka_deep_dive",
-        "Provide a comprehensive deep dive into Apache Kafka — topic partitioning strategies, "
+        "Provide a comprehensive deep dive into Apache Kafka -- topic partitioning strategies, "
         "consumer group mechanics and rebalancing, exactly-once semantics with idempotent "
         "producers and transactional APIs, Schema Registry for schema evolution, and complete "
         "Python producer/consumer implementations using confluent-kafka-python with robust "
         "error handling, monitoring metrics, and graceful shutdown.",
-        r"""
+        '''
 # Apache Kafka Deep Dive: Distributed Event Streaming at Scale
 
 ## Kafka's Core Architecture
 
-Apache Kafka is a **distributed commit log** — an append-only, partitioned, replicated
+Apache Kafka is a **distributed commit log** -- an append-only, partitioned, replicated
 log structure that provides durable, ordered, and replayable event streams. Understanding
 its architecture is essential **because** every design decision in Kafka traces back to
 the commit log abstraction.
@@ -1238,22 +1238,22 @@ the commit log abstraction.
 ```
 Producer ──► Topic: "orders" ──────────────────────────────────────────────
               │
-              ├── Partition 0: [msg0, msg1, msg4, msg7, ...]  → Broker 1
-              ├── Partition 1: [msg2, msg3, msg6, msg9, ...]  → Broker 2
-              └── Partition 2: [msg5, msg8, msg10, ...]       → Broker 3
+              ├── Partition 0: [msg0, msg1, msg4, msg7, ...]  -> Broker 1
+              ├── Partition 1: [msg2, msg3, msg6, msg9, ...]  -> Broker 2
+              └── Partition 2: [msg5, msg8, msg10, ...]       -> Broker 3
                                                                     │
               Consumer Group "order-service" ◄──────────────────────┘
-                Consumer A ← Partition 0
-                Consumer B ← Partition 1
-                Consumer C ← Partition 2
+                Consumer A <- Partition 0
+                Consumer B <- Partition 1
+                Consumer C <- Partition 2
 ```
 
 Key concepts:
 - **Topics** are logical channels; **partitions** are the unit of parallelism
 - Each partition is an ordered, append-only log with monotonic offsets
-- **Consumer groups** enable parallel consumption — each partition is assigned to exactly
+- **Consumer groups** enable parallel consumption -- each partition is assigned to exactly
   one consumer within a group
-- **Replication** ensures durability — each partition has a leader and N-1 followers
+- **Replication** ensures durability -- each partition has a leader and N-1 followers
 
 ## Partitioning Strategies
 
@@ -1289,7 +1289,7 @@ class PartitionStrategy:
 
     def key_based(self, key: str) -> int:
         """
-        Consistent hashing on a key — all events with the same
+        Consistent hashing on a key -- all events with the same
         key land in the same partition, guaranteeing order.
 
         Best practice: Use the aggregate/entity ID as key.
@@ -1310,7 +1310,7 @@ class PartitionStrategy:
         self, event: dict[str, Any]
     ) -> int:
         """
-        Route by business attributes — e.g., region, priority.
+        Route by business attributes -- e.g., region, priority.
 
         Common mistake: Using a low-cardinality key (like region)
         causes partition skew. Monitor partition lag to detect this.
@@ -1326,7 +1326,7 @@ class PartitionStrategy:
     @staticmethod
     def _murmur2(data: bytes) -> int:
         """
-        Java-compatible Murmur2 hash — matches Kafka's
+        Java-compatible Murmur2 hash -- matches Kafka's
         default partitioner for interoperability.
         """
         seed = 0x9747B28C
@@ -1362,7 +1362,7 @@ class PartitionStrategy:
 ## Consumer Groups and Rebalancing
 
 Consumer groups are Kafka's mechanism for **parallel, fault-tolerant consumption**. When
-a consumer joins or leaves a group, Kafka triggers a **rebalance** — reassigning
+a consumer joins or leaves a group, Kafka triggers a **rebalance** -- reassigning
 partitions across the remaining consumers.
 
 However, rebalancing is expensive **because** all consumers in the group must stop
@@ -1669,7 +1669,7 @@ class KafkaProducerService:
         """
         Send a message with delivery confirmation.
 
-        The key determines partition assignment — therefore all
+        The key determines partition assignment -- therefore all
         events for the same entity should use the same key.
         """
         serialized_value = json.dumps(value).encode("utf-8")
@@ -1851,7 +1851,7 @@ def test_schema_registry() -> None:
     }
     registry.register("orders-value", v1_schema)
 
-    # V2 adds optional field — backward compatible
+    # V2 adds optional field -- backward compatible
     v2_schema = {
         "type": "object",
         "required": ["order_id", "product_id", "quantity"],
@@ -1876,7 +1876,7 @@ def test_schema_registry() -> None:
 
 ## Summary and Key Takeaways
 
-- **Partition keys** are the single most important design decision — they determine ordering,
+- **Partition keys** are the single most important design decision -- they determine ordering,
   parallelism, and load distribution. A **common mistake** is choosing low-cardinality keys
   that create hot partitions.
 - **Consumer groups** provide automatic parallelism and fault tolerance, however rebalancing
@@ -1887,23 +1887,23 @@ def test_schema_registry() -> None:
 - **Best practice** for error handling: never let a poison message block the consumer. Route
   failures to a dead letter queue and continue processing. Monitor DLQ depth as a health metric.
 - **Schema Registry** prevents breaking changes from reaching production. Enforce BACKWARD
-  compatibility as the default — this means new consumers can always read old messages.
+  compatibility as the default -- this means new consumers can always read old messages.
 - The **trade-off** with Kafka is operational complexity. It requires ZooKeeper (or KRaft),
   careful partition sizing, ISR management, and monitoring. However, for event-driven
   architectures at scale, it provides unmatched durability, ordering, and throughput
   guarantees that simpler message brokers cannot match.
-"""
+'''
     ),
 
     # --- 4. Saga Pattern for Distributed Transactions ---
     (
         "saga_pattern_distributed_transactions",
-        "Explain the Saga pattern for managing distributed transactions across microservices — "
+        "Explain the Saga pattern for managing distributed transactions across microservices -- "
         "choreography vs orchestration approaches, compensation logic for rollbacks, timeout "
         "handling, and idempotency requirements. Build a complete Python saga orchestrator for "
         "an e-commerce order flow with payment, inventory, and shipping steps including proper "
         "error handling, state persistence, and comprehensive tests.",
-        r"""
+        '''
 # Saga Pattern: Coordinating Distributed Transactions Without Two-Phase Commit
 
 ## Why Sagas Exist
@@ -1920,19 +1920,19 @@ step fails.
 
 ```
 Happy Path:
-  Create Order → Reserve Inventory → Charge Payment → Ship Order → Done ✓
+  Create Order -> Reserve Inventory -> Charge Payment -> Ship Order -> Done ✓
 
 Failure at Payment:
-  Create Order → Reserve Inventory → Charge Payment ✗
+  Create Order -> Reserve Inventory -> Charge Payment ✗
                                           ↓
-  Compensate:   Cancel Order ← Release Inventory ← (Payment failed, no compensation needed)
+  Compensate:   Cancel Order <- Release Inventory <- (Payment failed, no compensation needed)
 ```
 
 ## Choreography vs. Orchestration
 
 There are two approaches to coordinating sagas:
 
-**Choreography** — each service listens to events from other services and decides
+**Choreography** -- each service listens to events from other services and decides
 independently what to do next. No central coordinator.
 
 ```
@@ -1945,7 +1945,7 @@ Order Service                  Inventory Service              Payment Service
      │──── OrderConfirmed           │                              │
 ```
 
-**Orchestration** — a central saga orchestrator directs each service, telling them what
+**Orchestration** -- a central saga orchestrator directs each service, telling them what
 to do and handling failures.
 
 The **trade-off**: choreography is simpler for small flows (3-4 steps) but becomes
@@ -2478,7 +2478,7 @@ class TestSagaOrchestrator(unittest.TestCase):
         self.orchestrator.register_saga("place_order", steps)
 
     def test_happy_path(self) -> None:
-        """All steps succeed — saga completes."""
+        """All steps succeed -- saga completes."""
         saga_id = self.orchestrator.start_saga("place_order", {
             "order_id": "ord-001",
             "product_id": "widget",
@@ -2492,7 +2492,7 @@ class TestSagaOrchestrator(unittest.TestCase):
         self.assertIn("ord-001", self.shipping_svc.shipments)
 
     def test_payment_failure_triggers_compensation(self) -> None:
-        """Payment fails — order and inventory are compensated."""
+        """Payment fails -- order and inventory are compensated."""
         self.payment_svc._should_fail = True
 
         saga_id = self.orchestrator.start_saga("place_order", {
@@ -2513,7 +2513,7 @@ class TestSagaOrchestrator(unittest.TestCase):
         )
 
     def test_insufficient_stock_compensation(self) -> None:
-        """Inventory reservation fails — only order is compensated."""
+        """Inventory reservation fails -- only order is compensated."""
         saga_id = self.orchestrator.start_saga("place_order", {
             "order_id": "ord-003",
             "product_id": "widget",
@@ -2558,7 +2558,7 @@ if __name__ == "__main__":
 - **Choreography** works for simple flows but leads to tangled event chains as complexity
   grows. **Orchestration** makes the flow explicit and easier to debug, therefore it is
   the **best practice** for business-critical multi-step processes.
-- **Compensation** must be **idempotent** — the same compensation may run multiple times
+- **Compensation** must be **idempotent** -- the same compensation may run multiple times
   due to retries. A **common pitfall** is writing compensations that fail on the second
   invocation because the resource was already cleaned up.
 - **Timeout handling** is essential because distributed calls can hang indefinitely. Every
@@ -2567,20 +2567,20 @@ if __name__ == "__main__":
   resume in-progress sagas from their last persisted state rather than starting over.
 - The **trade-off** with sagas is that they provide eventual consistency, not immediate
   consistency. During the saga execution window, the system is in an intermediate state.
-  Design your UI to handle this gracefully — show "order processing" rather than
+  Design your UI to handle this gracefully -- show "order processing" rather than
   "order confirmed" until the saga completes.
-"""
+'''
     ),
 
     # --- 5. Domain Events with Outbox Pattern ---
     (
         "domain_events_outbox_pattern",
-        "Explain the transactional outbox pattern for reliable domain event publishing — why "
+        "Explain the transactional outbox pattern for reliable domain event publishing -- why "
         "dual writes fail, how the outbox guarantees atomicity, CDC with Debezium concepts, "
         "polling publisher implementation, and idempotent consumer design. Provide a complete "
         "Python implementation with SQLite-backed outbox, polling publisher, relay service, "
         "and idempotent event handler with deduplication and comprehensive tests.",
-        r"""
+        '''
 # Transactional Outbox Pattern: Reliable Event Publishing Without Dual Writes
 
 ## The Dual Write Problem
@@ -2590,18 +2590,18 @@ it faces a fundamental consistency challenge. These are two separate systems, an
 a distributed transaction, one can succeed while the other fails.
 
 ```
-Scenario A — Write DB first, then publish:
-  1. UPDATE orders SET status = 'confirmed'     ← succeeds
-  2. kafka.produce("order-confirmed")            ← FAILS (broker down)
+Scenario A -- Write DB first, then publish:
+  1. UPDATE orders SET status = 'confirmed'     <- succeeds
+  2. kafka.produce("order-confirmed")            <- FAILS (broker down)
   Result: Database updated, but no event published. Downstream out of sync.
 
-Scenario B — Publish first, then write DB:
-  1. kafka.produce("order-confirmed")            ← succeeds
-  2. UPDATE orders SET status = 'confirmed'      ← FAILS (DB constraint)
+Scenario B -- Publish first, then write DB:
+  1. kafka.produce("order-confirmed")            <- succeeds
+  2. UPDATE orders SET status = 'confirmed'      <- FAILS (DB constraint)
   Result: Event published, but database not updated. Lie published to consumers.
 ```
 
-This is the **dual write problem** — writing to two separate systems cannot be made atomic
+This is the **dual write problem** -- writing to two separate systems cannot be made atomic
 without a distributed transaction. **Because** 2PC is impractical in microservice
 architectures (it blocks resources, creates a single point of failure, and does not scale),
 we need a different approach.
@@ -2629,7 +2629,7 @@ business data**, in a single local transaction. A separate process then reads fr
 ```
 
 This works **because** both the business write and the event write are in the same
-transaction — they either both commit or both roll back. The relay process handles
+transaction -- they either both commit or both roll back. The relay process handles
 publishing asynchronously, with at-least-once delivery guarantees.
 
 ## Complete Outbox Implementation
@@ -2669,7 +2669,7 @@ class OutboxEntry:
     Represents a single event in the outbox table.
 
     Immutable because once written to the outbox, the event
-    content must never change — only its publication status.
+    content must never change -- only its publication status.
     """
     entry_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     aggregate_type: str = ""
@@ -2736,7 +2736,7 @@ class OutboxDatabase:
         """
         Create an order AND write the domain event in one transaction.
 
-        This is the key to the outbox pattern — both writes happen
+        This is the key to the outbox pattern -- both writes happen
         atomically in the same database transaction.
         """
         event_payload = json.dumps({
@@ -2758,7 +2758,7 @@ class OutboxDatabase:
         with self._lock:
             cursor = self._conn.cursor()
             try:
-                # Both in one transaction — atomic!
+                # Both in one transaction -- atomic!
                 cursor.execute(
                     "INSERT INTO orders "
                     "(order_id, customer_id, product_id, quantity, "
@@ -2975,7 +2975,7 @@ class PollingPublisher:
         )
 
     def _poll_loop(self) -> None:
-        """Main polling loop — fetch and publish pending entries."""
+        """Main polling loop -- fetch and publish pending entries."""
         while self._running:
             try:
                 self._process_batch()
@@ -3024,7 +3024,7 @@ class PollingPublisher:
 ## Idempotent Consumer: Handling Duplicate Deliveries
 
 Because the outbox pattern provides **at-least-once delivery**, consumers must be
-**idempotent** — processing the same event twice must produce the same result as
+**idempotent** -- processing the same event twice must produce the same result as
 processing it once. The standard approach is to track processed event IDs.
 
 A **common mistake** is assuming the broker provides exactly-once delivery. Even with
@@ -3106,7 +3106,7 @@ class IdempotentEventHandler:
             raise
 
     def _on_order_created(self, payload: dict[str, Any]) -> None:
-        """Handle OrderCreated — send notification to customer."""
+        """Handle OrderCreated -- send notification to customer."""
         self._conn.execute(
             "INSERT INTO order_notifications "
             "(notification_id, order_id, event_type, message) "
@@ -3121,7 +3121,7 @@ class IdempotentEventHandler:
         )
 
     def _on_order_confirmed(self, payload: dict[str, Any]) -> None:
-        """Handle OrderConfirmed — send confirmation notification."""
+        """Handle OrderConfirmed -- send confirmation notification."""
         self._conn.execute(
             "INSERT INTO order_notifications "
             "(notification_id, order_id, event_type, message) "
@@ -3154,7 +3154,7 @@ class IdempotentEventHandler:
 While polling works for moderate throughput, **Change Data Capture (CDC)** with Debezium
 is the production **best practice** for the outbox pattern. Debezium reads the database's
 transaction log (WAL in PostgreSQL, binlog in MySQL) and streams outbox insertions directly
-to Kafka — with sub-second latency and zero polling overhead.
+to Kafka -- with sub-second latency and zero polling overhead.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -3244,11 +3244,11 @@ class TestOutboxPattern(unittest.TestCase):
         }
         event_id = "evt-unique-001"
 
-        # First processing — should succeed
+        # First processing -- should succeed
         result1 = self.handler.handle(event_id, "OrderCreated", payload)
         self.assertTrue(result1)
 
-        # Second processing — duplicate, should be skipped
+        # Second processing -- duplicate, should be skipped
         result2 = self.handler.handle(event_id, "OrderCreated", payload)
         self.assertFalse(result2)
 
@@ -3257,7 +3257,7 @@ class TestOutboxPattern(unittest.TestCase):
         self.assertEqual(len(notifications), 1)
 
     def test_full_pipeline_integration(self) -> None:
-        """End-to-end: write → outbox → publish → consume idempotently."""
+        """End-to-end: write -> outbox -> publish -> consume idempotently."""
         # Step 1: Create order (writes to DB + outbox atomically)
         entry = self.db.create_order_with_event(
             "ord-005", "cust-5", "prod-E", 10, 199.90
@@ -3303,7 +3303,7 @@ if __name__ == "__main__":
 
 - The **dual write problem** makes it impossible to atomically update a database and
   publish to a message broker without special patterns. Never write to two systems
-  independently and hope for the best — this is a **common pitfall** that leads to
+  independently and hope for the best -- this is a **common pitfall** that leads to
   data inconsistency.
 - The **transactional outbox** solves this by writing events to an outbox table in the
   same database transaction as the business data. **Because** both writes share a
@@ -3320,6 +3320,6 @@ if __name__ == "__main__":
 - The **trade-off** with the outbox pattern is added complexity: an extra table, a relay
   process, and idempotency logic. However, for any system where event reliability matters,
   this complexity is far preferable to the silent data loss that dual writes produce.
-"""
+'''
     ),
 ]

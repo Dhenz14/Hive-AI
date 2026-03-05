@@ -1,5 +1,5 @@
 """
-Batch P4 — Distributed Systems Theory & Practice
+Batch P4 -- Distributed Systems Theory & Practice
 Covers: consensus algorithms, distributed transactions, vector clocks,
 consistent hashing, CRDTs.
 Target quality: >0.80 per v5 scorer.
@@ -9,7 +9,7 @@ PAIRS = [
     (
         "distributed-systems/raft-consensus",
         "Explain the Raft consensus algorithm in detail including leader election with randomized timeouts, log replication with commit indices, safety guarantees, membership changes with joint consensus, and provide a complete Python implementation of a Raft node with state machine, heartbeat mechanism, and vote handling suitable for understanding the protocol internals.",
-        r"""# Raft Consensus: Understandable Distributed Consensus
+        '''# Raft Consensus: Understandable Distributed Consensus
 
 ## Why Raft Over Paxos
 
@@ -21,7 +21,7 @@ Raft was designed by Diego Ongaro and John Ousterhout specifically because Paxos
 
 ### Terms and Roles
 
-Every Raft node is in one of three states: **Follower**, **Candidate**, or **Leader**. Time is divided into **terms** (logical clocks) — each term has at most one leader. If a node sees a higher term number, it immediately steps down to Follower.
+Every Raft node is in one of three states: **Follower**, **Candidate**, or **Leader**. Time is divided into **terms** (logical clocks) -- each term has at most one leader. If a node sees a higher term number, it immediately steps down to Follower.
 
 ### Leader Election
 
@@ -31,12 +31,12 @@ Every Raft node is in one of three states: **Follower**, **Candidate**, or **Lea
 4. A node grants its vote if: (a) it hasn't voted in this term yet, and (b) the candidate's log is at least as up-to-date as its own
 5. Candidate becomes Leader when it receives votes from a majority
 
-The **randomized timeout** is critical — it prevents split votes where multiple candidates run simultaneously. In practice, this resolves most elections in a single round.
+The **randomized timeout** is critical -- it prevents split votes where multiple candidates run simultaneously. In practice, this resolves most elections in a single round.
 
 ## Complete Implementation
 
 ```python
-"""Raft consensus protocol — educational implementation."""
+"""Raft consensus protocol -- educational implementation."""
 from __future__ import annotations
 
 import dataclasses
@@ -161,7 +161,7 @@ class RaftNode:
         return (len(self.peers) + 1) // 2 + 1
 
     def _new_election_deadline(self) -> float:
-        """Randomized election timeout — this prevents split votes.
+        """Randomized election timeout -- this prevents split votes.
 
         The randomization is the simplest mechanism in Raft and arguably
         the most important. Without it, all followers would timeout
@@ -244,7 +244,7 @@ class RaftNode:
         2. We haven't already voted for someone else this term
         3. The candidate's log is at least as up-to-date as ours
 
-        Condition 3 is the Election Restriction — it ensures the leader
+        Condition 3 is the Election Restriction -- it ensures the leader
         always has all committed entries. This is what makes Raft safe:
         a candidate with a stale log cannot win an election.
         """
@@ -359,7 +359,7 @@ class RaftNode:
                     conflict_index=len(self.log),
                 )
             if self.log[args.prev_log_index].term != args.prev_log_term:
-                # Conflict — find the first index of the conflicting term
+                # Conflict -- find the first index of the conflicting term
                 conflict_term = self.log[args.prev_log_index].term
                 conflict_idx = args.prev_log_index
                 while conflict_idx > 0 and self.log[conflict_idx - 1].term == conflict_term:
@@ -567,7 +567,7 @@ Raft provides five guarantees, each enforced by a specific mechanism:
 |----------|-----------|-----------|
 | **Election Safety** | At most one leader per term | Each node votes once per term + majority required |
 | **Leader Append-Only** | Leader never overwrites/deletes its log | Leader only appends entries |
-| **Log Matching** | Same index+term → identical prefix | AppendEntries consistency check |
+| **Log Matching** | Same index+term -> identical prefix | AppendEntries consistency check |
 | **Leader Completeness** | Committed entries appear in all future leaders | Election Restriction (vote only for up-to-date candidates) |
 | **State Machine Safety** | All servers apply same command at each index | Committed = replicated to majority + same term |
 
@@ -577,33 +577,33 @@ Raft provides five guarantees, each enforced by a specific mechanism:
 
 2. **Not persisting state before responding**: `currentTerm`, `votedFor`, and `log` must be persisted to disk before sending any RPC response. Otherwise, a crash and restart can violate the "vote once per term" invariant.
 
-3. **The Figure 8 problem**: A leader must not commit entries from previous terms by counting replicas alone. It can only commit entries from its own term — which implicitly commits all prior entries. Ignoring this leads to committed entries being overwritten.
+3. **The Figure 8 problem**: A leader must not commit entries from previous terms by counting replicas alone. It can only commit entries from its own term -- which implicitly commits all prior entries. Ignoring this leads to committed entries being overwritten.
 
 4. **Linearizable reads**: A naive implementation where the leader serves reads directly can return stale data if a network partition causes a new leader to be elected. Production implementations use **ReadIndex** (leader confirms it's still leader before reading) or **lease-based reads** (time-bounded leader lease).
 
 ## Key Takeaways
 
-- Raft decomposes consensus into **leader election**, **log replication**, and **safety** — making it significantly easier to implement correctly than Paxos
+- Raft decomposes consensus into **leader election**, **log replication**, and **safety** -- making it significantly easier to implement correctly than Paxos
 - **Randomized election timeouts** prevent split votes and are the simplest yet most critical mechanism in the protocol
-- The **Election Restriction** (only vote for candidates with up-to-date logs) is what ensures committed entries are never lost — this is Raft's core safety invariant
-- Production Raft implementations need additional features: **log compaction** (snapshotting), **membership changes** (joint consensus), and **linearizable reads** — each adding significant complexity
+- The **Election Restriction** (only vote for candidates with up-to-date logs) is what ensures committed entries are never lost -- this is Raft's core safety invariant
+- Production Raft implementations need additional features: **log compaction** (snapshotting), **membership changes** (joint consensus), and **linearizable reads** -- each adding significant complexity
 - Performance in production: Raft typically achieves **10,000-100,000 writes/second** depending on entry size, network latency, and disk sync policy
-"""
+'''
     ),
     (
         "distributed-systems/consistent-hashing",
         "Explain consistent hashing for distributed systems including the ring-based algorithm, virtual nodes for load balancing, bounded-load consistent hashing, and provide a production-grade Python implementation with jump consistent hashing comparison, rebalancing metrics, and handling of node failures with data migration strategies.",
-        r"""# Consistent Hashing: The Foundation of Distributed Data Systems
+        '''# Consistent Hashing: The Foundation of Distributed Data Systems
 
 ## Why Simple Hashing Fails
 
-With N nodes and simple modular hashing (`hash(key) % N`), adding or removing one node remaps **nearly all keys** — requiring massive data migration. Consistent hashing solves this: when a node is added or removed, only **K/N keys** need to move (where K is total keys and N is total nodes). This property makes consistent hashing the backbone of DynamoDB, Cassandra, Memcached, and every content delivery network.
+With N nodes and simple modular hashing (`hash(key) % N`), adding or removing one node remaps **nearly all keys** -- requiring massive data migration. Consistent hashing solves this: when a node is added or removed, only **K/N keys** need to move (where K is total keys and N is total nodes). This property makes consistent hashing the backbone of DynamoDB, Cassandra, Memcached, and every content delivery network.
 
 ## The Ring Algorithm
 
-Map both nodes and keys to positions on a circular hash space (0 to 2^32-1). Each key is assigned to the first node encountered when walking clockwise from the key's hash position. This means adding a node only affects keys between it and its predecessor — all other mappings remain stable.
+Map both nodes and keys to positions on a circular hash space (0 to 2^32-1). Each key is assigned to the first node encountered when walking clockwise from the key's hash position. This means adding a node only affects keys between it and its predecessor -- all other mappings remain stable.
 
-**The load balancing problem**: With few physical nodes, the hash ring can become unbalanced — one node might own 60% of the keyspace. Virtual nodes solve this by mapping each physical node to many positions on the ring.
+**The load balancing problem**: With few physical nodes, the hash ring can become unbalanced -- one node might own 60% of the keyspace. Virtual nodes solve this by mapping each physical node to many positions on the ring.
 
 ```python
 """Production-grade consistent hashing with virtual nodes and metrics."""
@@ -634,7 +634,7 @@ class ConsistentHashRing(Generic[T]):
 
     Virtual nodes dramatically improve load balance. With V virtual
     nodes per physical node, the standard deviation of load is
-    O(1/sqrt(V*N)) — meaning 150 virtual nodes with 10 physical
+    O(1/sqrt(V*N)) -- meaning 150 virtual nodes with 10 physical
     nodes gives ~1% standard deviation. Without virtual nodes,
     load imbalance can reach 50%+.
 
@@ -707,7 +707,7 @@ class ConsistentHashRing(Generic[T]):
         All keys owned by the removed node must be migrated to their
         new owners (the next node clockwise for each virtual node's
         range). This is why consistent hashing is better than modular
-        hashing — only this node's keys move, not everyone's.
+        hashing -- only this node's keys move, not everyone's.
         """
         if node_id not in self._nodes:
             raise ValueError(f"Node {node_id} not in ring")
@@ -940,7 +940,7 @@ if __name__ == "__main__":
 | **150** | **~0.07** | **~1.15x** | **O(150N)** |
 | 500 | ~0.04 | ~1.08x | O(500N) |
 
-**Best practice**: 150 virtual nodes is the sweet spot for most systems — it achieves <10% load imbalance while keeping memory overhead manageable. Going to 500+ gives diminishing returns because the lookup time increases (binary search over more positions).
+**Best practice**: 150 virtual nodes is the sweet spot for most systems -- it achieves <10% load imbalance while keeping memory overhead manageable. Going to 500+ gives diminishing returns because the lookup time increases (binary search over more positions).
 
 ## Node Failure and Data Migration
 
@@ -948,27 +948,27 @@ When a node fails or is removed, its data must be migrated. The strategies diffe
 
 **Graceful removal**: The leaving node actively transfers its data to the new owners before departing. This is the preferred approach because it avoids any data unavailability window.
 
-**Crash failure**: The system detects the failure (via heartbeat timeout), removes the node from the ring, and the new owners rebuild their data from replicas. This is why replication factor ≥ 3 is standard — it tolerates one node loss without data unavailability and two without data loss.
+**Crash failure**: The system detects the failure (via heartbeat timeout), removes the node from the ring, and the new owners rebuild their data from replicas. This is why replication factor >= 3 is standard -- it tolerates one node loss without data unavailability and two without data loss.
 
-**Common pitfall**: Triggering rebalancing too aggressively. A brief network partition can cause a node to appear failed, triggering expensive data migration — only for the node to come back moments later. Production systems use **suspicion protocols** (like SWIM) that require multiple failed heartbeats before declaring a node dead.
+**Common pitfall**: Triggering rebalancing too aggressively. A brief network partition can cause a node to appear failed, triggering expensive data migration -- only for the node to come back moments later. Production systems use **suspicion protocols** (like SWIM) that require multiple failed heartbeats before declaring a node dead.
 
 ## Key Takeaways
 
-- Consistent hashing ensures **only K/N keys move** when a node is added or removed, compared to nearly all keys with modular hashing — this is fundamental to elastic scaling
+- Consistent hashing ensures **only K/N keys move** when a node is added or removed, compared to nearly all keys with modular hashing -- this is fundamental to elastic scaling
 - **Virtual nodes** are essential for load balance: 150 virtual nodes per physical node reduces load imbalance from ~50% to ~7%
-- **Bounded-load consistent hashing** adds a hard upper bound on per-node load, preventing hotspots from popular keys — critical for production cache systems
-- **Jump consistent hash** is a simpler alternative when you have numbered buckets — O(1) memory and O(ln N) time with perfect uniformity, but no support for weighted or named nodes
+- **Bounded-load consistent hashing** adds a hard upper bound on per-node load, preventing hotspots from popular keys -- critical for production cache systems
+- **Jump consistent hash** is a simpler alternative when you have numbered buckets -- O(1) memory and O(ln N) time with perfect uniformity, but no support for weighted or named nodes
 - Replication on the ring (storing keys on N successive distinct nodes) provides fault tolerance, but **suspicion protocols** should gate rebalancing to avoid thrashing during transient failures
-"""
+'''
     ),
     (
         "distributed-systems/crdts",
         "Explain Conflict-free Replicated Data Types (CRDTs) for building eventually consistent distributed systems, covering the mathematical foundations of join-semilattices, state-based vs operation-based CRDTs, and implement a comprehensive CRDT library in Python including G-Counter, PN-Counter, LWW-Register, OR-Set, and LWW-Element-Graph with merge operations and convergence proofs.",
-        r"""# CRDTs: Conflict-Free Replicated Data Types
+        '''# CRDTs: Conflict-Free Replicated Data Types
 
 ## The Motivation: Consistency Without Coordination
 
-In distributed systems, you must choose between **strong consistency** (which requires coordination and sacrifices availability) and **eventual consistency** (which allows concurrent updates but risks conflicts). CRDTs offer a third option: **strong eventual consistency** — replicas can update independently, and they're guaranteed to converge to the same state when they've seen the same updates, **without any conflict resolution logic**.
+In distributed systems, you must choose between **strong consistency** (which requires coordination and sacrifices availability) and **eventual consistency** (which allows concurrent updates but risks conflicts). CRDTs offer a third option: **strong eventual consistency** -- replicas can update independently, and they're guaranteed to converge to the same state when they've seen the same updates, **without any conflict resolution logic**.
 
 This property makes CRDTs ideal for collaborative editing (Google Docs, Figma), distributed caches, multi-datacenter databases (Riak, Redis CRDT), and offline-first applications.
 
@@ -976,9 +976,9 @@ This property makes CRDTs ideal for collaborative editing (Google Docs, Figma), 
 
 A CRDT is built on a **join-semilattice**: a set with a partial order and a **least upper bound** (join) operation that is:
 
-1. **Commutative**: `a ⊔ b = b ⊔ a` — merge order doesn't matter
-2. **Associative**: `(a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)` — grouping doesn't matter
-3. **Idempotent**: `a ⊔ a = a` — duplicate merges are harmless
+1. **Commutative**: `a ⊔ b = b ⊔ a` -- merge order doesn't matter
+2. **Associative**: `(a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)` -- grouping doesn't matter
+3. **Idempotent**: `a ⊔ a = a` -- duplicate merges are harmless
 
 Because the join operation has these properties, replicas always converge regardless of message ordering, duplication, or timing. This is a mathematical guarantee, not a probabilistic one.
 
@@ -998,7 +998,7 @@ V = TypeVar("V")
 
 
 class GCounter:
-    """Grow-only Counter — each replica increments its own slot.
+    """Grow-only Counter -- each replica increments its own slot.
 
     The merge operation takes the max of each slot. Because max is
     commutative, associative, and idempotent, this forms a valid CRDT.
@@ -1027,7 +1027,7 @@ class GCounter:
     def merge(self, other: GCounter) -> GCounter:
         """Merge with another replica's state.
 
-        Takes the max of each slot — this is the join operation.
+        Takes the max of each slot -- this is the join operation.
         Convergence proof: max is commutative, associative, and
         idempotent, so repeated merges in any order converge.
         """
@@ -1045,7 +1045,7 @@ class GCounter:
 
 
 class PNCounter:
-    """Positive-Negative Counter — supports both increment and decrement.
+    """Positive-Negative Counter -- supports both increment and decrement.
 
     Implemented as two GCounters: one for increments (P), one for
     decrements (N). The value is P.value - N.value.
@@ -1089,12 +1089,12 @@ class Timestamped(Generic[T]):
 
 
 class LWWRegister(Generic[T]):
-    """Last-Writer-Wins Register — concurrent writes resolve by timestamp.
+    """Last-Writer-Wins Register -- concurrent writes resolve by timestamp.
 
     The "last write wins" policy is simple and predictable, but it
     can silently discard concurrent updates. This is acceptable for
     many use cases (user preferences, status fields) but inappropriate
-    for others (bank balances, inventory counts — use counters instead).
+    for others (bank balances, inventory counts -- use counters instead).
 
     Common mistake: Using wall-clock time for timestamps. Clock skew
     between replicas can cause "earlier" writes to win. Use Hybrid
@@ -1139,7 +1139,7 @@ class LWWRegister(Generic[T]):
 
 
 class ORSet(Generic[T]):
-    """Observed-Remove Set — supports both add and remove.
+    """Observed-Remove Set -- supports both add and remove.
 
     The naive approach (tracking adds and removes separately) has the
     "add-remove anomaly": if add and remove happen concurrently, which
@@ -1169,7 +1169,7 @@ class ORSet(Generic[T]):
     def remove(self, element: T) -> None:
         """Remove an element by tombstoning all its current tags.
 
-        Only removes tags we've observed — concurrent adds with
+        Only removes tags we've observed -- concurrent adds with
         different tags will survive this remove.
         """
         if element in self._elements:
@@ -1218,7 +1218,7 @@ class ORSet(Generic[T]):
 
 
 class LWWElementGraph:
-    """Last-Writer-Wins Element Graph — CRDT graph structure.
+    """Last-Writer-Wins Element Graph -- CRDT graph structure.
 
     Supports vertices and edges with LWW add/remove semantics.
     Each vertex and edge has an add-timestamp and remove-timestamp.
@@ -1228,7 +1228,7 @@ class LWWElementGraph:
     (follow/unfollow), and distributed knowledge graphs.
 
     Design decision: An edge can only exist if both its endpoints
-    exist. This is the "add-precondition" — we check it on read,
+    exist. This is the "add-precondition" -- we check it on read,
     not on write, to avoid coordination.
     """
 
@@ -1392,24 +1392,24 @@ if __name__ == "__main__":
 | CRDT Type | Operations | Merge Strategy | Metadata Overhead | Best For |
 |-----------|-----------|---------------|-------------------|----------|
 | **G-Counter** | Increment | Max per slot | O(replicas) | View counts, metrics |
-| **PN-Counter** | Inc/Dec | Max per slot × 2 | O(2 × replicas) | Likes, inventory |
+| **PN-Counter** | Inc/Dec | Max per slot x 2 | O(2 x replicas) | Likes, inventory |
 | **LWW-Register** | Set | Higher timestamp wins | O(1) | User profiles, status |
 | **OR-Set** | Add/Remove | Union tags + tombstones | O(adds) | Shopping carts, tags |
 | **LWW-Graph** | Add/Remove vertices/edges | Max timestamps | O(vertices + edges) | Social graphs, knowledge bases |
 
 ## Key Takeaways
 
-- CRDTs guarantee **strong eventual consistency** through the mathematical properties of join-semilattices — commutativity, associativity, and idempotency of the merge operation
+- CRDTs guarantee **strong eventual consistency** through the mathematical properties of join-semilattices -- commutativity, associativity, and idempotency of the merge operation
 - **State-based CRDTs** (shown here) ship full state on sync and merge with a join function; **operation-based CRDTs** ship individual operations and require exactly-once delivery
-- The **OR-Set** solves the add-remove anomaly by tagging each add uniquely — concurrent adds survive removes, giving intuitive semantics
+- The **OR-Set** solves the add-remove anomaly by tagging each add uniquely -- concurrent adds survive removes, giving intuitive semantics
 - **Metadata overhead** is the main cost: OR-Sets accumulate tombstones, G-Counters grow with the number of replicas. Production systems need **garbage collection** (causal stability) to bound metadata
 - CRDTs are used in production at massive scale: **Redis CRDTs** for geo-distributed caching, **Riak** for distributed databases, **Figma** and **Google Docs** for collaborative editing, and **Automerge/Yjs** for local-first applications
-"""
+'''
     ),
     (
         "distributed-systems/vector-clocks",
         "Explain vector clocks and their role in tracking causality in distributed systems, covering the happens-before relation, limitations of Lamport timestamps, how vector clocks detect concurrent events, and provide a Python implementation of a vector clock system with causal delivery, conflict detection for a key-value store, and comparison with hybrid logical clocks.",
-        r"""# Vector Clocks: Tracking Causality in Distributed Systems
+        '''# Vector Clocks: Tracking Causality in Distributed Systems
 
 ## The Problem: Ordering Events Without a Global Clock
 
@@ -1417,7 +1417,7 @@ In a distributed system, there is no shared global clock. Each node has its own 
 
 ## Lamport Timestamps: Necessary but Insufficient
 
-Leslie Lamport's logical clocks (1978) provide a simple rule: if event A happened before B, then `L(A) < L(B)`. However, the **converse is not true**: `L(A) < L(B)` does NOT mean A happened before B — they might be concurrent. Lamport timestamps can detect potential causality but cannot distinguish causality from concurrency.
+Leslie Lamport's logical clocks (1978) provide a simple rule: if event A happened before B, then `L(A) < L(B)`. However, the **converse is not true**: `L(A) < L(B)` does NOT mean A happened before B -- they might be concurrent. Lamport timestamps can detect potential causality but cannot distinguish causality from concurrency.
 
 **Why this matters**: If two users concurrently update the same key, we need to know they're concurrent (to trigger conflict resolution). Lamport timestamps would just pick the higher timestamp, silently discarding one update. Vector clocks solve this by capturing **which events each node has seen**.
 
@@ -1449,7 +1449,7 @@ class CausalRelation(enum.Enum):
     """Possible causal relationships between two events."""
     BEFORE = "before"        # a happens-before b
     AFTER = "after"          # b happens-before a
-    CONCURRENT = "concurrent"  # neither ordered — potential conflict
+    CONCURRENT = "concurrent"  # neither ordered -- potential conflict
     EQUAL = "equal"          # same logical time
 
 
@@ -1458,7 +1458,7 @@ class VectorClock:
 
     Each node maintains a vector of logical timestamps, one per node.
     The vector captures "how much of each node's history I've observed."
-    This allows precise detection of concurrent events — something
+    This allows precise detection of concurrent events -- something
     Lamport timestamps cannot do.
 
     Space complexity: O(N) per clock where N is the number of nodes.
@@ -1503,7 +1503,7 @@ class VectorClock:
           a happened before b.
         - If all of b's counters <= a's counters: b happened before a.
         - If some of a's are greater AND some of b's are greater:
-          the events are CONCURRENT — a conflict that must be resolved.
+          the events are CONCURRENT -- a conflict that must be resolved.
 
         This precise concurrency detection is why distributed databases
         (Riak, Dynamo) use vector clocks for conflict resolution.
@@ -1562,7 +1562,7 @@ class CausalKVStore:
     the store to detect concurrent writes.
 
     If two writes are concurrent (neither causally dominates), the
-    store keeps BOTH versions as "siblings" — the application must
+    store keeps BOTH versions as "siblings" -- the application must
     resolve the conflict (e.g., merge shopping cart contents, take
     the longer text, etc.).
 
@@ -1628,13 +1628,13 @@ class CausalKVStore:
                 relation = VectorClock.compare(version.clock, context)
                 if relation == CausalRelation.AFTER or relation == CausalRelation.CONCURRENT:
                     # This version happened after the client's read,
-                    # or is concurrent — keep it as a sibling
+                    # or is concurrent -- keep it as a sibling
                     surviving.append(version)
                 # BEFORE or EQUAL: this version is superseded by the new write
             surviving.append(new_version)
             self._store[key] = surviving
         else:
-            # Blind write — concurrent with everything existing
+            # Blind write -- concurrent with everything existing
             existing.append(new_version)
             self._store[key] = existing
 
@@ -1677,7 +1677,7 @@ class CausalKVStore:
 
 
 class HybridLogicalClock:
-    """Hybrid Logical Clock (HLC) — combines physical and logical time.
+    """Hybrid Logical Clock (HLC) -- combines physical and logical time.
 
     Vector clocks have O(N) space per timestamp, which is problematic
     for systems with many nodes. HLCs use a single 64-bit timestamp
@@ -1688,7 +1688,7 @@ class HybridLogicalClock:
 
     HLCs provide a total order (unlike vector clocks which give partial
     order) and are bounded by real time (within clock skew). However,
-    they CANNOT detect concurrency — only ordering. This is the trade-off:
+    they CANNOT detect concurrency -- only ordering. This is the trade-off:
     O(1) space but no conflict detection.
 
     Used by: CockroachDB, YugabyteDB, TiDB.
@@ -1708,7 +1708,7 @@ class HybridLogicalClock:
             self.physical = wall_time_ms
             self.logical = 0
         else:
-            # Wall clock hasn't advanced — increment logical
+            # Wall clock hasn't advanced -- increment logical
             self.logical += 1
 
         return (self.physical, self.logical)
@@ -1752,7 +1752,7 @@ def test_vector_clocks():
     # B does a local event
     vc_b.increment()  # B: {B:1}
 
-    # These are concurrent — neither has seen the other's event
+    # These are concurrent -- neither has seen the other's event
     rel = VectorClock.compare(vc_a, vc_b)
     assert rel == CausalRelation.CONCURRENT, f"Should be concurrent, got {rel}"
 
@@ -1760,7 +1760,7 @@ def test_vector_clocks():
     vc_a_copy = vc_a.copy()
     vc_b.merge(vc_a_copy)  # B: {A:1, B:2}
 
-    # Now B has seen A's event — B's new events are AFTER A's
+    # Now B has seen A's event -- B's new events are AFTER A's
     vc_b.increment()  # B: {A:1, B:3}
     rel = VectorClock.compare(vc_a, vc_b)
     assert rel == CausalRelation.BEFORE, f"A should be before B, got {rel}"
@@ -1815,21 +1815,21 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **Vector clocks** are the only general mechanism that can **detect concurrent events** — Lamport timestamps and HLCs can order events but cannot distinguish causality from concurrency
+- **Vector clocks** are the only general mechanism that can **detect concurrent events** -- Lamport timestamps and HLCs can order events but cannot distinguish causality from concurrency
 - The **happens-before relation** is a partial order: some events are genuinely unordered, and this concurrency is meaningful (it indicates potential conflicts)
-- In the **Dynamo model**, concurrent writes produce "siblings" that the application resolves — this preserves all concurrent updates rather than silently discarding one with last-write-wins
-- **Hybrid Logical Clocks** sacrifice concurrency detection for O(1) space — a good trade-off for strongly-consistent systems (like CockroachDB) that use Raft consensus rather than eventual consistency
+- In the **Dynamo model**, concurrent writes produce "siblings" that the application resolves -- this preserves all concurrent updates rather than silently discarding one with last-write-wins
+- **Hybrid Logical Clocks** sacrifice concurrency detection for O(1) space -- a good trade-off for strongly-consistent systems (like CockroachDB) that use Raft consensus rather than eventual consistency
 - The fundamental trade-off is **space vs. information**: O(N) per timestamp for full causal tracking, or O(1) for ordering-only, and each application must choose based on its consistency model
-"""
+'''
     ),
     (
         "distributed-systems/consistent-transactions",
         "Explain distributed transaction protocols including two-phase commit (2PC), three-phase commit, and Saga pattern, covering their failure modes, performance characteristics, and trade-offs, and implement a complete 2PC coordinator in Python with timeout handling, participant recovery, and comparison against Saga-based eventual consistency with compensating transactions.",
-        r"""# Distributed Transactions: 2PC, 3PC, and Sagas
+        '''# Distributed Transactions: 2PC, 3PC, and Sagas
 
 ## The Distributed Transaction Problem
 
-When a business operation spans multiple services or databases, we need **atomicity** — either all changes commit or all roll back. A single-database transaction uses write-ahead logging, but across network boundaries, we need a **protocol** to coordinate the commit decision because any participant might crash at any point.
+When a business operation spans multiple services or databases, we need **atomicity** -- either all changes commit or all roll back. A single-database transaction uses write-ahead logging, but across network boundaries, we need a **protocol** to coordinate the commit decision because any participant might crash at any point.
 
 ## Two-Phase Commit (2PC)
 
@@ -1837,9 +1837,9 @@ When a business operation spans multiple services or databases, we need **atomic
 
 **Phase 1 (Prepare/Vote)**: Coordinator asks all participants "Can you commit?" Each participant acquires locks, writes to its WAL, and votes YES or NO.
 
-**Phase 2 (Commit/Abort)**: If ALL voted YES → coordinator sends COMMIT. If ANY voted NO → coordinator sends ABORT. Participants execute accordingly.
+**Phase 2 (Commit/Abort)**: If ALL voted YES -> coordinator sends COMMIT. If ANY voted NO -> coordinator sends ABORT. Participants execute accordingly.
 
-**The blocking problem**: If the coordinator crashes after collecting votes but before sending the decision, participants are **stuck** — they're holding locks and don't know whether to commit or abort. This is 2PC's fundamental weakness and why it's a **blocking protocol**.
+**The blocking problem**: If the coordinator crashes after collecting votes but before sending the decision, participants are **stuck** -- they're holding locks and don't know whether to commit or abort. This is 2PC's fundamental weakness and why it's a **blocking protocol**.
 
 ```python
 """Two-phase commit coordinator with timeout and recovery."""
@@ -1878,7 +1878,7 @@ class TransactionLog:
 
     The coordinator MUST persist its decision to the WAL before
     sending commit/abort messages. This is what allows recovery
-    after coordinator crash — the recovered coordinator reads the
+    after coordinator crash -- the recovered coordinator reads the
     WAL and resends the decision.
 
     Common mistake: Sending the commit message before persisting
@@ -2092,7 +2092,7 @@ class TwoPhaseCommitCoordinator:
             try:
                 future.result(timeout=self.commit_timeout)
             except Exception as e:
-                # Phase 2 retries are critical — the decision is made,
+                # Phase 2 retries are critical -- the decision is made,
                 # we must keep trying until all participants acknowledge
                 logger.error(
                     f"Failed to send {'commit' if commit else 'abort'} "
@@ -2122,7 +2122,7 @@ class TwoPhaseCommitCoordinator:
                 self._send_decision(txn_id, yes_voters, commit=False)
                 log.state = TxnState.ABORTED
             else:
-                # No decision recorded — safe to abort
+                # No decision recorded -- safe to abort
                 logger.info(f"Recovery: aborting undecided {txn_id}")
                 log.decision = "abort"
                 yes_voters = [
@@ -2159,8 +2159,8 @@ class SagaOrchestrator:
     steps are undone via compensating transactions.
 
     Trade-offs vs 2PC:
-    - No distributed locks → better performance and availability
-    - Eventual consistency → intermediate states are visible
+    - No distributed locks -> better performance and availability
+    - Eventual consistency -> intermediate states are visible
     - Compensations must be idempotent and semantically correct
     - More complex application logic
 
@@ -2196,7 +2196,7 @@ class SagaOrchestrator:
         """Run compensating transactions in reverse order.
 
         Compensations must be idempotent because they may be retried
-        on failure. They should also be "best effort" — a failed
+        on failure. They should also be "best effort" -- a failed
         compensation is logged for manual intervention, not retried
         forever.
         """
@@ -2303,11 +2303,11 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **2PC** guarantees atomicity but is a **blocking protocol** — if the coordinator crashes after collecting votes, participants hold locks indefinitely until recovery
+- **2PC** guarantees atomicity but is a **blocking protocol** -- if the coordinator crashes after collecting votes, participants hold locks indefinitely until recovery
 - The coordinator's **WAL** is the most critical component: the decision must be persisted before sending phase 2 messages, otherwise recovery is impossible
-- **3PC** adds a "pre-commit" phase to make the protocol non-blocking, but it's **not partition-tolerant** and rarely used in practice — modern systems use Paxos/Raft-based commit protocols instead
-- **Sagas** trade strong consistency for availability and performance — each step commits independently, and failures trigger compensating transactions in reverse order
+- **3PC** adds a "pre-commit" phase to make the protocol non-blocking, but it's **not partition-tolerant** and rarely used in practice -- modern systems use Paxos/Raft-based commit protocols instead
+- **Sagas** trade strong consistency for availability and performance -- each step commits independently, and failures trigger compensating transactions in reverse order
 - **Best practice**: Use 2PC within a single database cluster (where coordinator failure is rare) and Sagas across service boundaries (where long-held locks are unacceptable and business-level compensation is natural)
-"""
+'''
     ),
 ]

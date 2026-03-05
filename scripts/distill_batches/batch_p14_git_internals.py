@@ -1,17 +1,17 @@
+"""p14 git internals"""
+
 PAIRS = [
     (
         "tools/git-internals-object-model",
-        r"""Explain Git's internal object model including blobs, trees, commits, and tags, how content-addressable storage works, the reflog, and how operations like merge, rebase, and cherry-pick manipulate these objects. Include commands for inspecting Git internals.""",
-        r"""## Git Internals: The Object Model, Content-Addressable Storage, and How Operations Work
-
-Git is fundamentally a content-addressable filesystem with a VCS interface on top. Understanding the internals explains why Git commands behave the way they do and helps debug complex situations.
+        "Explain Git's internal object model including blobs, trees, commits, and tags, how content-addressable storage works, the reflog, and how operations like merge, rebase, and cherry-pick manipulate these objects. Include commands for inspecting Git internals.",
+        '''Git is fundamentally a content-addressable filesystem with a VCS interface on top. Understanding the internals explains why Git commands behave the way they do and helps debug complex situations.
 
 ### The Four Object Types
 
 Everything in Git is stored as one of four object types, each identified by its SHA-1 hash:
 
 ```bash
-# 1. BLOB — file contents (no filename, no permissions)
+# 1. BLOB -- file contents (no filename, no permissions)
 echo "Hello World" | git hash-object --stdin -w
 # Returns: 557db03de997c86a4a028e1ebd3a1ceb225be238
 # Stored at: .git/objects/55/7db03de997c86a4a028e1ebd3a1ceb225be238
@@ -21,13 +21,13 @@ git cat-file -t 557db03  # Type: blob
 git cat-file -p 557db03  # Contents: Hello World
 git cat-file -s 557db03  # Size: 12 bytes
 
-# 2. TREE — directory listing (maps names to blobs/trees)
+# 2. TREE -- directory listing (maps names to blobs/trees)
 git cat-file -p HEAD^{tree}
 # 100644 blob abc123...  README.md
 # 100755 blob def456...  build.sh
 # 040000 tree 789abc...  src
 
-# 3. COMMIT — snapshot + metadata
+# 3. COMMIT -- snapshot + metadata
 git cat-file -p HEAD
 # tree 4b825dc642cb6eb9a060e54bf899d15f5e9e
 # parent 8a5cbc430f1a9c3d00b678a5e3d1d   (can have 0, 1, or 2+ parents)
@@ -36,7 +36,7 @@ git cat-file -p HEAD
 #
 # Initial commit message
 
-# 4. TAG — annotated tag pointing to an object
+# 4. TAG -- annotated tag pointing to an object
 git cat-file -p v1.0
 # object 8a5cbc430f1a9c3d00b678a5e3d1d
 # type commit
@@ -183,8 +183,8 @@ git rebase main
 # 1. Git identifies commits to replay: D and E
 # 2. Saves them as patches (diffs)
 # 3. Resets feature branch to C (tip of main)
-# 4. Applies D's diff → creates D' (new hash, same changes)
-# 5. Applies E's diff → creates E' (new hash, same changes)
+# 4. Applies D's diff -> creates D' (new hash, same changes)
+# 5. Applies E's diff -> creates E' (new hash, same changes)
 # 6. Updates feature ref to point to E'
 
 # D and E still exist (unreachable, in reflog for 30 days)
@@ -265,57 +265,12 @@ def get_commit_graph(repo_path: str, max_commits: int = 50) -> dict:
     result = subprocess.run(
         ["git", "log", f"--max-count={max_commits}",
          "--format=%H|%P|%s|%an|%ai", "--all"],
-        cwd=repo_path, capture_output=True, text=True
-    )
-
-    commits = {}
-    for line in result.stdout.strip().split("\n"):
-        if not line:
-            continue
-        parts = line.split("|", 4)
-        sha, parents, message, author, date = parts
-        commits[sha[:8]] = {
-            "parents": [p[:8] for p in parents.split() if p],
-            "message": message,
-            "author": author,
-            "date": date,
-        }
-
-    return commits
-
-
-def find_large_objects(repo_path: str, top_n: int = 20) -> list:
-    """Find the largest objects in the repository."""
-    result = subprocess.run(
-        ["git", "rev-list", "--objects", "--all"],
-        cwd=repo_path, capture_output=True, text=True
-    )
-
-    objects = []
-    for line in result.stdout.strip().split("\n")[:1000]:
-        parts = line.split(None, 1)
-        sha = parts[0]
-        path = parts[1] if len(parts) > 1 else ""
-
-        size_result = subprocess.run(
-            ["git", "cat-file", "-s", sha],
-            cwd=repo_path, capture_output=True, text=True
-        )
-        size = int(size_result.stdout.strip())
-        objects.append({"sha": sha[:8], "size": size, "path": path})
-
-    objects.sort(key=lambda x: x["size"], reverse=True)
-    return objects[:top_n]
-```
-
-**Key mental model**: (1) Commits don't store diffs — they store complete snapshots (trees of blobs), (2) Branches are just movable pointers to commits, (3) Rebase creates NEW commits — the old ones become unreachable, (4) The reflog is your safety net — you can recover from almost any mistake within 30 days, (5) `git cat-file -p <hash>` is the universal debugger for understanding what Git is storing."""
+        cwd=repo_path, capture_output=True, text=True'''
     ),
     (
         "tools/git-advanced-workflows",
-        r"""Explain advanced Git workflows including worktrees for parallel development, sparse checkout for monorepos, Git hooks for automation, interactive staging with patch mode, and stash management patterns.""",
-        r"""## Advanced Git Workflows: Worktrees, Sparse Checkout, Hooks, and Patch Staging
-
-These workflows solve real problems that emerge in professional development: working on multiple branches simultaneously, handling massive repositories, automating quality checks, and making precise commits.
+        "Explain advanced Git workflows including worktrees for parallel development, sparse checkout for monorepos, Git hooks for automation, interactive staging with patch mode, and stash management patterns.",
+        '''These workflows solve real problems that emerge in professional development: working on multiple branches simultaneously, handling massive repositories, automating quality checks, and making precise commits.
 
 ### Git Worktrees: Parallel Branch Development
 
@@ -361,260 +316,12 @@ def review_branch(branch: str, repo_dir: str = ".") -> Path:
 
     subprocess.run(
         ["git", "worktree", "add", str(worktree_dir), branch],
-        cwd=repo_dir, check=True
-    )
-
-    print(f"Worktree created at: {worktree_dir}")
-    print(f"Branch: {branch}")
-    print(f"To clean up: git worktree remove {worktree_dir}")
-
-    return worktree_dir
-```
-
-### Sparse Checkout: Efficient Monorepo Access
-
-Only check out the directories you need from a large repository:
-
-```bash
-# Enable sparse checkout
-git sparse-checkout init --cone
-
-# Only check out specific directories
-git sparse-checkout set services/api libs/shared
-
-# This downloads the full history but only materializes
-# the specified directories in the working tree
-# .git/ still has everything (for log, blame, etc.)
-
-# Add more paths
-git sparse-checkout add services/frontend
-
-# List current sparse paths
-git sparse-checkout list
-
-# Disable (check out everything)
-git sparse-checkout disable
-
-# Combine with shallow clone for maximum efficiency
-git clone --filter=blob:none --sparse https://github.com/org/monorepo.git
-cd monorepo
-git sparse-checkout set services/api
-# Only downloads blobs (file contents) for services/api
-# Other blobs fetched on-demand if needed
-```
-
-### Git Hooks for Automation
-
-```bash
-# Hooks live in .git/hooks/ (local) or can be shared via config
-# Make hooks shared across the team:
-mkdir -p .githooks
-git config core.hooksPath .githooks
-# Commit .githooks/ to the repo
-```
-
-```python
-#!/usr/bin/env python3
-# .githooks/pre-commit — runs before each commit
-
-import subprocess
-import sys
-
-
-def run(cmd: list[str]) -> tuple[int, str]:
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    return result.returncode, result.stdout + result.stderr
-
-
-def main() -> int:
-    errors = []
-
-    # Get staged files
-    _, output = run(["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"])
-    staged_files = [f for f in output.strip().split("\n") if f]
-
-    python_files = [f for f in staged_files if f.endswith(".py")]
-    ts_files = [f for f in staged_files if f.endswith((".ts", ".tsx"))]
-
-    # Check for debug statements
-    for f in staged_files:
-        _, content = run(["git", "show", f":{f}"])
-        for i, line in enumerate(content.split("\n"), 1):
-            if "debugger" in line or "console.log" in line or "breakpoint()" in line:
-                errors.append(f"{f}:{i}: Debug statement found: {line.strip()}")
-
-    # Run formatter check on Python files
-    if python_files:
-        code, output = run(["ruff", "check", "--select=E,W"] + python_files)
-        if code != 0:
-            errors.append(f"Ruff errors:\n{output}")
-
-    # Run type check on TypeScript files
-    if ts_files:
-        code, output = run(["tsc", "--noEmit"])
-        if code != 0:
-            errors.append(f"TypeScript errors:\n{output}")
-
-    # Check for large files
-    for f in staged_files:
-        _, size_output = run(["git", "cat-file", "-s", f":{f}"])
-        try:
-            size = int(size_output.strip())
-            if size > 5_000_000:  # 5MB
-                errors.append(f"{f}: File too large ({size // 1_000_000}MB)")
-        except ValueError:
-            pass
-
-    if errors:
-        print("Pre-commit checks failed:")
-        for error in errors:
-            print(f"  {error}")
-        return 1
-
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-```
-
-```bash
-#!/bin/bash
-# .githooks/commit-msg — validate commit message format
-
-commit_msg_file=$1
-commit_msg=$(cat "$commit_msg_file")
-
-# Conventional commits pattern
-pattern="^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,72}$"
-
-first_line=$(head -1 "$commit_msg_file")
-
-if ! echo "$first_line" | grep -qE "$pattern"; then
-    echo "ERROR: Commit message doesn't follow conventional commits format"
-    echo "Expected: type(scope): description"
-    echo "Types: feat, fix, docs, style, refactor, test, chore, perf, ci, build, revert"
-    echo "Got: $first_line"
-    exit 1
-fi
-```
-
-### Interactive Staging with Patch Mode
-
-Stage specific lines within a file, not the whole file:
-
-```bash
-# Stage specific hunks from a file
-git add -p src/app.py
-# Shows each changed hunk and asks:
-# Stage this hunk [y,n,q,a,d,s,e,?]?
-# y = stage this hunk
-# n = skip this hunk
-# s = split into smaller hunks
-# e = manually edit the hunk (for partial line changes)
-
-# Stage specific lines with edit mode
-git add -p
-# Choose 'e' to open editor
-# Lines starting with '+' are additions — remove '+' lines you don't want
-# Lines starting with '-' are deletions — change '-' to ' ' to keep them
-# Save and close editor
-
-# Verify what's staged vs unstaged
-git diff --cached  # Shows what WILL be committed
-git diff           # Shows what WON'T be committed
-
-# Interactive reset (unstage specific hunks)
-git reset -p
-
-# Commit only the staged changes
-git commit -m "fix: Update validation logic"
-# The unstaged changes remain in your working directory
-```
-
-### Stash Management
-
-```bash
-# Basic stash
-git stash push -m "WIP: refactoring auth module"
-
-# Stash specific files
-git stash push -m "partial work" -- src/auth.py src/middleware.py
-
-# Stash including untracked files
-git stash push --include-untracked -m "with new files"
-
-# List stashes
-git stash list
-# stash@{0}: On main: WIP: refactoring auth module
-# stash@{1}: On feature: partial work
-
-# Apply without removing from stash
-git stash apply stash@{0}
-
-# Apply and remove from stash
-git stash pop stash@{0}
-
-# View stash contents
-git stash show -p stash@{0}
-
-# Create a branch from a stash
-git stash branch new-feature stash@{0}
-# Creates branch, checks it out, applies stash, drops it
-
-# Clean up old stashes
-git stash drop stash@{2}
-git stash clear  # Drop ALL stashes
-```
-
-```python
-# Git stash automation: auto-stash before risky operations
-import subprocess
-import functools
-
-
-def auto_stash(func):
-    """Decorator that stashes changes before and restores after."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        # Check if there are uncommitted changes
-        result = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True
-        )
-        has_changes = bool(result.stdout.strip())
-
-        if has_changes:
-            subprocess.run(
-                ["git", "stash", "push", "-m",
-                 f"auto-stash before {func.__name__}",
-                 "--include-untracked"],
-                check=True
-            )
-
-        try:
-            return func(*args, **kwargs)
-        finally:
-            if has_changes:
-                subprocess.run(
-                    ["git", "stash", "pop"],
-                    check=True
-                )
-
-    return wrapper
-
-
-@auto_stash
-def safe_rebase(target_branch: str):
-    subprocess.run(["git", "rebase", target_branch], check=True)
-
-
-@auto_stash
-def safe_pull():
-    subprocess.run(["git", "pull", "--rebase"], check=True)
-```
-
-### Useful Aliases
+        cwd=repo_dir, check=True'''
+    ),
+    (
+        "--include-untracked",
+        "check=True ) try: return func(*args, **kwargs) finally: if has_changes: subprocess.run( ['git', 'stash', 'pop'] check=True ) return wrapper @auto_stash def safe_rebase(target_branch: str): subprocess.run(['git', 'rebase', target_branch], check=True) @auto_stash def safe_pull(): subprocess.run(['git', 'pull', '--rebase'], check=True)",
+        '''### Useful Aliases
 
 ```bash
 # Add to ~/.gitconfig or .git/config
@@ -644,14 +351,12 @@ def safe_pull():
     wdiff = diff --word-diff=color
 ```
 
-**Advanced workflow tips**: (1) Use worktrees for code review — keep your WIP untouched, (2) Sparse checkout + partial clone for monorepos — only download what you need, (3) Share hooks via `.githooks/` directory committed to the repo, (4) Use `git add -p` for atomic, focused commits — one logical change per commit, (5) Name stashes descriptively — unnamed stashes become unidentifiable quickly."""
+**Advanced workflow tips**: (1) Use worktrees for code review -- keep your WIP untouched, (2) Sparse checkout + partial clone for monorepos -- only download what you need, (3) Share hooks via `.githooks/` directory committed to the repo, (4) Use `git add -p` for atomic, focused commits -- one logical change per commit, (5) Name stashes descriptively -- unnamed stashes become unidentifiable quickly.'''
     ),
     (
         "tools/git-rebase-strategies",
-        r"""Explain Git rebase strategies including when to rebase vs merge, handling rebase conflicts, autosquash workflow, rebase onto for branch transplanting, and recovering from a bad rebase. Include practical team workflow guidance.""",
-        r"""## Git Rebase Strategies: When, How, and Recovery
-
-Rebase is a powerful tool for maintaining a clean project history, but it rewrites commits. Understanding when and how to use it prevents data loss and team friction.
+        "Explain Git rebase strategies including when to rebase vs merge, handling rebase conflicts, autosquash workflow, rebase onto for branch transplanting, and recovering from a bad rebase. Include practical team workflow guidance.",
+        '''Rebase is a powerful tool for maintaining a clean project history, but it rewrites commits. Understanding when and how to use it prevents data loss and team friction.
 
 ### When to Rebase vs Merge
 
@@ -841,12 +546,12 @@ git cherry-pick abc1234  # Pick specific commits from reflog
 # 4. Feature branch is deleted
 
 # GitHub PR merge strategies:
-# "Merge commit"  → Preserves all commits + merge commit
-# "Squash merge"  → Combines all commits into one (cleanest)
-# "Rebase merge"  → Replays commits onto main (linear history)
+# "Merge commit"  -> Preserves all commits + merge commit
+# "Squash merge"  -> Combines all commits into one (cleanest)
+# "Rebase merge"  -> Replays commits onto main (linear history)
 
 # Protect against force-push accidents:
-# In GitHub: Settings → Branches → Branch protection rules
+# In GitHub: Settings -> Branches -> Branch protection rules
 # ☑ Require pull request before merging
 # ☑ Require status checks to pass
 # ☑ Require linear history (enforces rebase)
@@ -871,44 +576,12 @@ def check_branch_freshness(base: str = "origin/main") -> bool:
     # Find merge base
     result = subprocess.run(
         ["git", "merge-base", "HEAD", base],
-        capture_output=True, text=True, check=True
-    )
-    merge_base = result.stdout.strip()
-
-    # Check if merge base is the tip of base branch
-    result = subprocess.run(
-        ["git", "rev-parse", base],
-        capture_output=True, text=True, check=True
-    )
-    base_tip = result.stdout.strip()
-
-    if merge_base != base_tip:
-        behind_count = subprocess.run(
-            ["git", "rev-list", "--count", f"{merge_base}..{base}"],
-            capture_output=True, text=True, check=True
-        )
-        print(
-            f"Branch is {behind_count.stdout.strip()} commits behind {base}. "
-            f"Please rebase: git rebase {base}"
-        )
-        return False
-
-    print(f"Branch is up to date with {base}")
-    return True
-
-
-if __name__ == "__main__":
-    sys.exit(0 if check_branch_freshness() else 1)
-```
-
-**Rebase rules of thumb**: (1) Rebase your own unpublished commits freely — it's just editing history, (2) Never rebase commits that others have based work on, (3) Use `--force-with-lease` not `--force` when pushing rebased branches, (4) Enable `rerere` to avoid resolving the same conflicts repeatedly, (5) If in doubt, the reflog can recover from any rebase within 30 days."""
+        capture_output=True, text=True, check=True'''
     ),
     (
         "tools/git-monorepo-strategies",
-        r"""Explain Git strategies for monorepo management including sparse checkout, partial clone, path-based ownership with CODEOWNERS, commit conventions for monorepos, and CI/CD optimization with affected path detection.""",
-        r"""## Git Monorepo Strategies: Scaling Git for Large Codebases
-
-Monorepos — single repositories containing multiple projects — offer advantages in code sharing and atomic changes but challenge Git's performance. These strategies make monorepos practical.
+        "Explain Git strategies for monorepo management including sparse checkout, partial clone, path-based ownership with CODEOWNERS, commit conventions for monorepos, and CI/CD optimization with affected path detection.",
+        '''Monorepos -- single repositories containing multiple projects -- offer advantages in code sharing and atomic changes but challenge Git's performance. These strategies make monorepos practical.
 
 ### Partial Clone + Sparse Checkout
 
@@ -988,79 +661,18 @@ from pathlib import Path
 
 
 # Define dependency graph between packages
-DEPENDENCY_GRAPH = {
-    "libs/shared": [],  # No deps
-    "libs/auth": ["libs/shared"],
-    "services/api": ["libs/shared", "libs/auth"],
-    "services/frontend": ["libs/shared"],
-    "services/worker": ["libs/shared", "libs/auth"],
-    "services/ml-pipeline": ["libs/shared"],
-}
-
-
-def get_changed_files(base_ref: str = "origin/main") -> list[str]:
-    """Get files changed compared to base branch."""
-    result = subprocess.run(
-        ["git", "diff", "--name-only", base_ref, "HEAD"],
-        capture_output=True, text=True, check=True,
-    )
-    return [f for f in result.stdout.strip().split("\n") if f]
-
-
-def get_changed_packages(changed_files: list[str]) -> set[str]:
-    """Map changed files to their packages."""
-    packages = set()
-    for filepath in changed_files:
-        for package in DEPENDENCY_GRAPH:
-            if filepath.startswith(package + "/"):
-                packages.add(package)
-    return packages
-
-
-def get_affected_packages(changed: set[str]) -> set[str]:
-    """Expand changed packages to include dependents (reverse deps)."""
-    affected = set(changed)
-
-    # Build reverse dependency map
-    reverse_deps: dict[str, list[str]] = {k: [] for k in DEPENDENCY_GRAPH}
-    for pkg, deps in DEPENDENCY_GRAPH.items():
-        for dep in deps:
-            reverse_deps[dep].append(pkg)
-
-    # BFS to find all transitively affected packages
-    queue = list(changed)
-    while queue:
-        pkg = queue.pop(0)
-        for dependent in reverse_deps.get(pkg, []):
-            if dependent not in affected:
-                affected.add(dependent)
-                queue.append(dependent)
-
-    return affected
-
-
-def main():
-    changed_files = get_changed_files()
-    changed_pkgs = get_changed_packages(changed_files)
-    affected_pkgs = get_affected_packages(changed_pkgs)
-
-    print(f"Changed files: {len(changed_files)}")
-    print(f"Changed packages: {changed_pkgs}")
-    print(f"Affected packages (with dependents): {affected_pkgs}")
-
-    # Output for CI consumption
-    output = {
-        "changed_packages": sorted(changed_pkgs),
-        "affected_packages": sorted(affected_pkgs),
-        "should_build": {
-            pkg: pkg in affected_pkgs
-            for pkg in DEPENDENCY_GRAPH
-        },
-    }
-    print(json.dumps(output, indent=2))
-
-    # GitHub Actions: set output for matrix strategy
-    # echo "matrix={...}" >> $GITHUB_OUTPUT
+DEPENDENCY_GRAPH = {'''
+    ),
+    (
+        "services/ml-pipeline",
+        "} def get_changed_files(base_ref: str = 'origin/main') -> list[str]:",
+        '''["git", "diff", "--name-only", base_ref, "HEAD"],
+        capture_output=True, text=True, check=True,'''
+    ),
+    (
+        "should_build",
+        "pkg: pkg in affected_pkgs for pkg in DEPENDENCY_GRAPH } } print(json.dumps(output, indent=2))",
+        '''# echo "matrix={...}" >> $GITHUB_OUTPUT
 
 
 if __name__ == "__main__":
@@ -1188,6 +800,6 @@ git config feature.manyFiles true
 git config index.version 4
 ```
 
-**Monorepo best practices**: (1) Partial clone + sparse checkout is essential above 1GB repo size, (2) CODEOWNERS enforces team ownership boundaries, (3) Build only affected packages — CI should take minutes, not hours, (4) Scoped commit messages make changelogs and git log filtering practical, (5) Enable commit-graph and fsmonitor for status/log performance."""
+**Monorepo best practices**: (1) Partial clone + sparse checkout is essential above 1GB repo size, (2) CODEOWNERS enforces team ownership boundaries, (3) Build only affected packages -- CI should take minutes, not hours, (4) Scoped commit messages make changelogs and git log filtering practical, (5) Enable commit-graph and fsmonitor for status/log performance.'''
     ),
 ]

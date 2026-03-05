@@ -1,5 +1,5 @@
 """
-Batch P4 — LLM Inference Optimization (Deep Dive)
+Batch P4 -- LLM Inference Optimization (Deep Dive)
 Covers: PagedAttention, speculative decoding, quantization internals,
 KV cache optimization, structured output generation.
 Target quality: >0.80 per v5 scorer.
@@ -9,42 +9,42 @@ PAIRS = [
     (
         "llm-inference/paged-attention",
         "Explain the PagedAttention algorithm used in vLLM for efficient LLM serving, including the memory fragmentation problem it solves, the block-based KV cache management approach, how copy-on-write enables efficient beam search and parallel sampling, and provide a simplified Python implementation of the core paging logic with benchmarks comparing throughput against naive pre-allocation strategies.",
-        r"""# PagedAttention: Virtual Memory for LLM Serving
+        '''# PagedAttention: Virtual Memory for LLM Serving
 
 ## The Memory Fragmentation Crisis
 
-Traditional LLM serving pre-allocates contiguous KV cache memory for the maximum possible sequence length per request. Because real requests vary wildly in length, this wastes **60-80% of GPU memory** — a problem called **internal fragmentation**. PagedAttention, introduced by the vLLM team (Kwon et al., 2023), borrows virtual memory concepts from OS design to solve this elegantly.
+Traditional LLM serving pre-allocates contiguous KV cache memory for the maximum possible sequence length per request. Because real requests vary wildly in length, this wastes **60-80% of GPU memory** -- a problem called **internal fragmentation**. PagedAttention, introduced by the vLLM team (Kwon et al., 2023), borrows virtual memory concepts from OS design to solve this elegantly.
 
-**Why this matters for production**: A single A100 80GB GPU serving Llama-2-13B with naive allocation handles ~8 concurrent requests. With PagedAttention, the same GPU handles **~40 concurrent requests** — a 5x throughput improvement from memory management alone.
+**Why this matters for production**: A single A100 80GB GPU serving Llama-2-13B with naive allocation handles ~8 concurrent requests. With PagedAttention, the same GPU handles **~40 concurrent requests** -- a 5x throughput improvement from memory management alone.
 
 ## How PagedAttention Works
 
 ### The Core Insight
 
-Instead of allocating one contiguous buffer per sequence, PagedAttention divides the KV cache into fixed-size **blocks** (typically 16 tokens each). A **block table** maps each sequence's logical token positions to physical block locations — exactly like a page table in virtual memory.
+Instead of allocating one contiguous buffer per sequence, PagedAttention divides the KV cache into fixed-size **blocks** (typically 16 tokens each). A **block table** maps each sequence's logical token positions to physical block locations -- exactly like a page table in virtual memory.
 
 ```
 Traditional:  Seq1 [===========............]  (pre-allocated for max_len, mostly wasted)
               Seq2 [======.................]
 
 PagedAttention: Physical blocks: [B0|B1|B2|B3|B4|B5|B6|B7|B8|B9|...]
-                Seq1 block table: [0→B2, 1→B5, 2→B8]       (3 blocks used)
-                Seq2 block table: [0→B0, 1→B3]              (2 blocks used)
+                Seq1 block table: [0->B2, 1->B5, 2->B8]       (3 blocks used)
+                Seq2 block table: [0->B0, 1->B3]              (2 blocks used)
                 Free list: [B1, B4, B6, B7, B9, ...]
 ```
 
 ### Key Design Decisions
 
-1. **Block size selection**: Too small → excessive table overhead; too large → internal fragmentation returns. 16 tokens is the sweet spot because it aligns with GPU warp sizes and keeps waste under 1 token on average per sequence.
+1. **Block size selection**: Too small -> excessive table overhead; too large -> internal fragmentation returns. 16 tokens is the sweet spot because it aligns with GPU warp sizes and keeps waste under 1 token on average per sequence.
 
 2. **Non-contiguous physical layout**: The attention kernel is modified to gather K/V vectors from scattered blocks. This adds ~2% compute overhead but eliminates fragmentation entirely.
 
-3. **Copy-on-Write (CoW) for shared prefixes**: When multiple sequences share a prompt (beam search, parallel sampling), they share physical blocks until one sequence diverges. Only then is a block copied — saving massive memory for batch scenarios.
+3. **Copy-on-Write (CoW) for shared prefixes**: When multiple sequences share a prompt (beam search, parallel sampling), they share physical blocks until one sequence diverges. Only then is a block copied -- saving massive memory for batch scenarios.
 
 ### Simplified Implementation
 
 ```python
-"""PagedAttention block manager — simplified core logic."""
+"""PagedAttention block manager -- simplified core logic."""
 from __future__ import annotations
 
 import dataclasses
@@ -88,7 +88,7 @@ class BlockTable:
     def logical_to_physical(self, token_pos: int, block_size: int) -> tuple[int, int]:
         """Convert token position to (physical_block_id, offset_within_block).
 
-        This is the critical translation — like a virtual-to-physical address
+        This is the critical translation -- like a virtual-to-physical address
         mapping in an OS page table.
         """
         logical_idx = token_pos // block_size
@@ -99,7 +99,7 @@ class BlockTable:
 class BlockSpaceManager:
     """Manages physical block allocation and deallocation.
 
-    This is the heart of PagedAttention — it tracks free blocks, allocates
+    This is the heart of PagedAttention -- it tracks free blocks, allocates
     on demand, handles copy-on-write for shared prefixes, and reclaims
     blocks when sequences finish.
     """
@@ -168,9 +168,9 @@ class BlockSpaceManager:
         last_block = table.blocks[-1]
 
         if last_block.num_filled >= self.config.block_size:
-            # Current block is full — need a new one
+            # Current block is full -- need a new one
             if not self.free_blocks:
-                raise MemoryError("No free blocks — trigger preemption")
+                raise MemoryError("No free blocks -- trigger preemption")
             new_block = self.free_blocks.pop()
             new_block.ref_count = 1
             new_block.num_filled = 0
@@ -186,7 +186,7 @@ class BlockSpaceManager:
         return last_block.block_id, slot_offset
 
     def fork_sequence(self, parent_id: int, child_id: int) -> BlockTable:
-        """Fork a sequence for beam search — shares blocks via CoW.
+        """Fork a sequence for beam search -- shares blocks via CoW.
 
         Instead of copying all KV cache data, we just increment reference
         counts. Physical copies happen lazily when a block is modified
@@ -326,25 +326,25 @@ if __name__ == "__main__":
 
 2. **Preemption strategy matters**: When memory runs out, you must choose between **swapping** (move blocks to CPU, resume later) and **recomputation** (discard blocks, recompute from prompt). Swapping is better for long sequences; recomputation is better for short ones because PCIe bandwidth is the bottleneck.
 
-3. **Prefix caching**: Extend PagedAttention with a **prefix tree** that shares blocks across requests with identical system prompts. This is especially valuable for chat applications where every request starts with the same system message — saving 200-500 tokens of KV cache per request.
+3. **Prefix caching**: Extend PagedAttention with a **prefix tree** that shares blocks across requests with identical system prompts. This is especially valuable for chat applications where every request starts with the same system message -- saving 200-500 tokens of KV cache per request.
 
 ## Key Takeaways
 
 - PagedAttention applies **virtual memory paging** to KV cache management, eliminating the 60-80% memory waste from pre-allocation
 - **Copy-on-Write** makes beam search and parallel sampling nearly free in memory terms
-- The technique is **model-agnostic** — it works with any transformer architecture without retraining
+- The technique is **model-agnostic** -- it works with any transformer architecture without retraining
 - Production deployments should combine PagedAttention with **prefix caching** and intelligent **preemption policies** for maximum throughput
-- vLLM, TensorRT-LLM, and SGLang all implement variants of PagedAttention — it's now the industry standard for LLM serving
-"""
+- vLLM, TensorRT-LLM, and SGLang all implement variants of PagedAttention -- it's now the industry standard for LLM serving
+'''
     ),
     (
         "llm-inference/speculative-decoding",
         "Explain speculative decoding for LLM inference acceleration, covering the mathematical proof of why it preserves the target model's output distribution exactly, the draft-then-verify algorithm with rejection sampling, how to choose and train effective draft models, and provide a complete Python implementation with token acceptance rate tracking and performance analysis.",
-        r"""# Speculative Decoding: Lossless LLM Acceleration
+        '''# Speculative Decoding: Lossless LLM Acceleration
 
 ## The Autoregressive Bottleneck
 
-LLM inference is **memory-bandwidth bound**, not compute-bound. Each token generation requires loading the entire model's weights from HBM to compute units, but only produces a single token. The arithmetic intensity (FLOPs per byte loaded) is extremely low — wasting the GPU's computational capacity. Speculative decoding exploits this by **batching multiple verification steps** into a single forward pass.
+LLM inference is **memory-bandwidth bound**, not compute-bound. Each token generation requires loading the entire model's weights from HBM to compute units, but only produces a single token. The arithmetic intensity (FLOPs per byte loaded) is extremely low -- wasting the GPU's computational capacity. Speculative decoding exploits this by **batching multiple verification steps** into a single forward pass.
 
 **The key insight**: Verifying K draft tokens in parallel costs nearly the same as generating one token, because the bottleneck is weight loading, not computation.
 
@@ -352,7 +352,7 @@ LLM inference is **memory-bandwidth bound**, not compute-bound. Each token gener
 
 ### Why It's Lossless
 
-Speculative decoding uses **modified rejection sampling** to guarantee that the output distribution is **identical** to the target model's distribution — not an approximation, but mathematically exact.
+Speculative decoding uses **modified rejection sampling** to guarantee that the output distribution is **identical** to the target model's distribution -- not an approximation, but mathematically exact.
 
 Given:
 - Target model distribution: `p(x_t | x_{<t})`
@@ -376,7 +376,7 @@ p'(x) = normalize(max(0, p(x) - q(x)))
 - P(accepted) = q(x) * min(1, p(x)/q(x))
 - P(rejected, then resampled as x) = [sum over rejected tokens] * p'(x)
 
-When you work through the algebra, these sum to exactly `p(x)` for all `x`. This holds regardless of how bad the draft model is — a worse draft just means lower acceptance rates, not different outputs.
+When you work through the algebra, these sum to exactly `p(x)` for all `x`. This holds regardless of how bad the draft model is -- a worse draft just means lower acceptance rates, not different outputs.
 
 ### Expected Speedup
 
@@ -386,12 +386,12 @@ If the draft model's average acceptance rate is `α`, and we speculate `K` token
 E[tokens] = (1 - α^(K+1)) / (1 - α)
 ```
 
-For α=0.8 and K=5: E[tokens] ≈ 4.0 tokens per step — a ~4x speedup.
+For α=0.8 and K=5: E[tokens] ~= 4.0 tokens per step -- a ~4x speedup.
 
 ## Complete Implementation
 
 ```python
-"""Speculative decoding with rejection sampling — complete implementation."""
+"""Speculative decoding with rejection sampling -- complete implementation."""
 from __future__ import annotations
 
 import dataclasses
@@ -474,7 +474,7 @@ def _sample_with_temperature(
     Returns (sampled_token, log_probability).
     """
     if temperature <= 0:
-        # Greedy — deterministic
+        # Greedy -- deterministic
         token = logits.argmax(dim=-1, keepdim=True)
         log_prob = F.log_softmax(logits, dim=-1).gather(-1, token)
         return token.squeeze(-1), log_prob.squeeze(-1)
@@ -550,7 +550,7 @@ def speculative_decode(
             stats.total_draft_calls += 1
 
         # === Phase 2: Verify all K tokens with target model (single pass) ===
-        # This is where the speedup comes from — one forward pass scores K+1
+        # This is where the speedup comes from -- one forward pass scores K+1
         verify_input = torch.cat(
             [generated] + [t.unsqueeze(-1) for t in draft_tokens], dim=-1
         )
@@ -582,7 +582,7 @@ def speculative_decode(
             stats.total_draft_tokens += 1
 
             if uniform.item() < accept_prob.item():
-                # Accepted — append this token
+                # Accepted -- append this token
                 generated = torch.cat(
                     [generated, draft_token.unsqueeze(-1)], dim=-1
                 )
@@ -593,7 +593,7 @@ def speculative_decode(
                 if tokens_generated >= config.max_new_tokens:
                     break
             else:
-                # Rejected — sample from adjusted distribution
+                # Rejected -- sample from adjusted distribution
                 # p'(x) = normalize(max(0, p(x) - q(x)))
                 adjusted = torch.clamp(target_prob - draft_prob, min=0)
                 adjusted_sum = adjusted.sum(dim=-1, keepdim=True)
@@ -609,7 +609,7 @@ def speculative_decode(
                 break  # stop checking remaining draft tokens
 
         else:
-            # All K draft tokens accepted — bonus: sample one more from target
+            # All K draft tokens accepted -- bonus: sample one more from target
             bonus_logits = target_logits[:, prompt_len + len(draft_tokens) - 1, :]
             bonus_token, _ = _sample_with_temperature(
                 bonus_logits, config.temperature, config.top_p
@@ -670,8 +670,8 @@ The draft model must balance **speed** against **distribution similarity** to th
 
 | Strategy | Acceptance Rate | Draft Speed | Best For |
 |----------|----------------|-------------|----------|
-| **Smaller same-family** (Llama-8B → 70B) | 70-85% | 5-10x faster | General use |
-| **Quantized target** (Q4 → FP16) | 80-90% | 2-3x faster | When no small model available |
+| **Smaller same-family** (Llama-8B -> 70B) | 70-85% | 5-10x faster | General use |
+| **Quantized target** (Q4 -> FP16) | 80-90% | 2-3x faster | When no small model available |
 | **Distilled student** | 75-90% | 8-15x faster | Production with training budget |
 | **n-gram / retrieval** | 40-60% | 100x+ faster | Repetitive/templated output |
 | **Medusa heads** | 60-80% | ~1x (shared backbone) | Single-model deployment |
@@ -682,21 +682,21 @@ The draft model must balance **speed** against **distribution similarity** to th
 
 ## Key Takeaways
 
-- Speculative decoding is **mathematically lossless** — it produces the exact same output distribution as standard decoding via rejection sampling
+- Speculative decoding is **mathematically lossless** -- it produces the exact same output distribution as standard decoding via rejection sampling
 - Speedup comes from the **memory-bandwidth bottleneck**: verifying K tokens costs about the same as generating one, because weight loading dominates
 - **Acceptance rate** is the critical metric; aim for >70% through same-family or fine-tuned draft models
 - **Adaptive speculation** (adjusting K dynamically) improves throughput by 10-20% compared to fixed K, because acceptance rates vary across a generation
 - The technique **composes** with other optimizations: PagedAttention + speculative decoding + quantization can yield 10-20x total speedup over naive serving
-"""
+'''
     ),
     (
         "llm-inference/quantization-internals",
         "Provide a deep technical explanation of LLM quantization methods including GPTQ, AWQ, and GGUF/llama.cpp quantization, covering the mathematical foundations of each approach, calibration data requirements, the quality-speed tradeoff at different bit widths, and implement a simplified GPTQ quantizer in Python showing the layer-wise optimal brain quantization algorithm with Hessian computation.",
-        r"""# LLM Quantization: From Theory to Production
+        '''# LLM Quantization: From Theory to Production
 
 ## Why Quantization Works for LLMs
 
-Large language models are remarkably robust to precision reduction because of **weight redundancy** and the **outlier structure** of transformer activations. Most weights cluster near zero and can be represented with fewer bits without meaningful quality loss. However, a small fraction of weights (and activations) are **outliers** that disproportionately affect output quality — handling these outliers correctly is what separates good quantization from bad.
+Large language models are remarkably robust to precision reduction because of **weight redundancy** and the **outlier structure** of transformer activations. Most weights cluster near zero and can be represented with fewer bits without meaningful quality loss. However, a small fraction of weights (and activations) are **outliers** that disproportionately affect output quality -- handling these outliers correctly is what separates good quantization from bad.
 
 ## The Three Major Approaches
 
@@ -704,7 +704,7 @@ Large language models are remarkably robust to precision reduction because of **
 
 GPTQ (Frantar et al., 2022) adapts **Optimal Brain Surgeon** theory to LLMs. The core idea: when you quantize one weight, you can **compensate** by adjusting the remaining unquantized weights to minimize the layer-wise output error.
 
-**Mathematical foundation**: For a linear layer `Y = XW`, quantizing weight matrix `W` to `Ŵ` introduces error `E = X(W - Ŵ)`. GPTQ minimizes `||E||²` using second-order information (the Hessian `H = X^T X`).
+**Mathematical foundation**: For a linear layer `Y = XW`, quantizing weight matrix `W` to `Ŵ` introduces error `E = X(W - Ŵ)`. GPTQ minimizes `||E||**2` using second-order information (the Hessian `H = X^T X`).
 
 The key update rule when quantizing column `i`:
 
@@ -713,11 +713,11 @@ error_i = (w_i - quant(w_i)) / H_ii
 W[:, i+1:] -= error_i * H[i, i+1:]  # compensate remaining weights
 ```
 
-This propagates the quantization error optimally through the remaining weights — each subsequent weight absorbs some of the error from previous quantizations.
+This propagates the quantization error optimally through the remaining weights -- each subsequent weight absorbs some of the error from previous quantizations.
 
 ### 2. AWQ: Activation-Aware Weight Quantization
 
-AWQ (Lin et al., 2023) observes that only ~1% of weights are **salient** — those connected to large activation channels. Instead of complex compensation, AWQ applies **per-channel scaling** that moves precision from unimportant channels to salient ones.
+AWQ (Lin et al., 2023) observes that only ~1% of weights are **salient** -- those connected to large activation channels. Instead of complex compensation, AWQ applies **per-channel scaling** that moves precision from unimportant channels to salient ones.
 
 The insight: multiplying weights by `s` and dividing activations by `s` is mathematically equivalent but changes the quantization error distribution. By choosing `s` to protect salient channels, AWQ achieves GPTQ-level quality with much simpler implementation.
 
@@ -787,7 +787,7 @@ class GPTQQuantizer:
         """Compute the Hessian matrix H = X^T X from calibration data.
 
         The Hessian captures how sensitive the layer output is to each
-        weight — this second-order information is what makes GPTQ
+        weight -- this second-order information is what makes GPTQ
         dramatically better than naive quantization.
 
         Args:
@@ -819,7 +819,7 @@ class GPTQQuantizer:
         # Average over samples
         hessian /= num_samples
 
-        # Dampening for numerical stability — prevents division by tiny
+        # Dampening for numerical stability -- prevents division by tiny
         # diagonal elements that would amplify quantization errors
         damp = self.config.damp_percent * torch.diag(hessian).mean()
         hessian += damp * torch.eye(
@@ -1011,8 +1011,8 @@ if __name__ == "__main__":
 | Q2_K | 3.4 | 2.9 GB | 7.89 | 1.8x |
 
 **Key observations**:
-- **Q4_K_M is the sweet spot** for most deployments — only 0.11 perplexity increase over FP16 at 3.4x smaller size
-- **Q3 and below** show rapid quality degradation — the outlier weights can't be represented accurately enough
+- **Q4_K_M is the sweet spot** for most deployments -- only 0.11 perplexity increase over FP16 at 3.4x smaller size
+- **Q3 and below** show rapid quality degradation -- the outlier weights can't be represented accurately enough
 - **Q2_K** is only viable for very large models (70B+) where redundancy compensates for precision loss
 - Speed doesn't always increase with lower bits because **dequantization overhead** at very low bit widths can offset memory savings
 
@@ -1026,27 +1026,27 @@ if __name__ == "__main__":
 
 ## Key Takeaways
 
-- **GPTQ** uses second-order (Hessian) information to optimally compensate quantization errors across weights — this is why it outperforms naive rounding by 2-4x in output error
+- **GPTQ** uses second-order (Hessian) information to optimally compensate quantization errors across weights -- this is why it outperforms naive rounding by 2-4x in output error
 - **AWQ** achieves similar quality with simpler per-channel scaling by protecting the ~1% of salient weights that matter most
 - **GGUF k-quants** (Q4_K_M, Q5_K_M) use mixed-precision blocks to allocate more bits to important sub-blocks
-- The **quality cliff** is at ~3.5 bits/weight — below this, outlier representation breaks down and perplexity degrades rapidly
+- The **quality cliff** is at ~3.5 bits/weight -- below this, outlier representation breaks down and perplexity degrades rapidly
 - Always use **calibration data from your target domain** and keep **embedding/output layers at higher precision** for best results
-"""
+'''
     ),
     (
         "llm-inference/kv-cache-optimization",
         "Explain KV cache optimization techniques for production LLM serving including multi-query attention, grouped-query attention, sliding window attention, KV cache compression, and prompt caching strategies, with implementation examples showing how each technique reduces memory consumption and its impact on model quality and throughput.",
-        r"""# KV Cache Optimization: Scaling LLM Serving
+        '''# KV Cache Optimization: Scaling LLM Serving
 
 ## The KV Cache Problem
 
 During autoregressive generation, each transformer layer stores key-value pairs for all previous tokens to avoid recomputation. For a model with `L` layers, `H` attention heads, head dimension `d`, and sequence length `S`, the KV cache requires:
 
 ```
-Memory = 2 × L × H × S × d × bytes_per_element
+Memory = 2 x L x H x S x d x bytes_per_element
 ```
 
-For Llama-2-70B at sequence length 4096: `2 × 80 × 64 × 4096 × 128 × 2 bytes = 10.7 GB` — just for one request's KV cache. This becomes the dominant memory consumer at long context lengths and high batch sizes.
+For Llama-2-70B at sequence length 4096: `2 x 80 x 64 x 4096 x 128 x 2 bytes = 10.7 GB` -- just for one request's KV cache. This becomes the dominant memory consumer at long context lengths and high batch sizes.
 
 ## Technique 1: Multi-Query Attention (MQA)
 
@@ -1063,7 +1063,7 @@ import math
 class MultiQueryAttention(nn.Module):
     """Multi-Query Attention: all query heads share one KV head.
 
-    Memory savings: num_heads × reduction in KV cache.
+    Memory savings: num_heads x reduction in KV cache.
     For 32-head model: 32x less KV cache memory.
 
     Quality impact: ~0.5-1% degradation on benchmarks, but the
@@ -1106,7 +1106,7 @@ class MultiQueryAttention(nn.Module):
         new_cache = {"k": k, "v": v}
 
         # Broadcast single KV head to all query heads
-        # This is the key trick — K and V are expanded without copying
+        # This is the key trick -- K and V are expanded without copying
         k_expanded = k.expand(-1, -1, self.num_heads, -1)
         v_expanded = v.expand(-1, -1, self.num_heads, -1)
 
@@ -1188,7 +1188,7 @@ class SlidingWindowKVCache:
     """Fixed-size circular buffer KV cache for sliding window attention.
 
     Instead of growing linearly with sequence length, memory is bounded
-    to window_size × num_layers regardless of how long the conversation goes.
+    to window_size x num_layers regardless of how long the conversation goes.
 
     For Mistral-7B with window=4096:
     - Standard KV cache at 32K context: 8.5 GB
@@ -1227,7 +1227,7 @@ class SlidingWindowKVCache:
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Write new KV pair and return the full window for attention.
 
-        Uses modular arithmetic for O(1) insertion — no shifting or
+        Uses modular arithmetic for O(1) insertion -- no shifting or
         copying of existing cache entries, which is critical for
         keeping per-token latency constant regardless of context length.
         """
@@ -1246,7 +1246,7 @@ class SlidingWindowKVCache:
         if total < self.window_size:
             return buf[0, :, :, :total, :], buf[1, :, :, :total, :]
 
-        # Full window — reorder to temporal sequence for attention
+        # Full window -- reorder to temporal sequence for attention
         start = self.write_positions[layer_idx] % self.window_size
         indices = torch.arange(self.window_size, device=buf.device)
         indices = (indices + start) % self.window_size
@@ -1271,7 +1271,7 @@ class KVCacheCompressor:
 
     Strategy: Keep recent tokens (locality) + high-attention tokens
     (importance). This is based on the observation that attention
-    patterns follow a power law — a small number of tokens receive
+    patterns follow a power law -- a small number of tokens receive
     most of the attention mass.
 
     Common mistake: Evicting based on position alone (keeping only recent).
@@ -1287,7 +1287,7 @@ class KVCacheCompressor:
     ) -> None:
         self.max_cache_size = max_cache_size
         self.recent_window = recent_window
-        self.sink_tokens = sink_tokens  # "attention sinks" — first few tokens
+        self.sink_tokens = sink_tokens  # "attention sinks" -- first few tokens
         self.attention_scores: torch.Tensor | None = None
 
     def update_attention_scores(
@@ -1323,10 +1323,10 @@ class KVCacheCompressor:
         """Evict low-importance tokens when cache exceeds max size.
 
         Preserves:
-        1. Sink tokens (first N) — these accumulate disproportionate
+        1. Sink tokens (first N) -- these accumulate disproportionate
            attention in autoregressive models (StreamingLLM insight)
-        2. Recent window — locality matters for coherent generation
-        3. High-attention tokens — globally important context
+        2. Recent window -- locality matters for coherent generation
+        3. High-attention tokens -- globally important context
 
         Returns compressed K and V caches.
         """
@@ -1337,7 +1337,7 @@ class KVCacheCompressor:
 
         budget = self.max_cache_size - self.recent_window - self.sink_tokens
         if budget <= 0:
-            # Not enough room — just keep sinks + recent
+            # Not enough room -- just keep sinks + recent
             keep_idx = list(range(self.sink_tokens))
             keep_idx.extend(range(seq_len - self.recent_window, seq_len))
             idx = torch.tensor(keep_idx, device=k_cache.device)
@@ -1463,27 +1463,27 @@ class PrefixCache:
 | **Sliding window** (W=4096) | Bounded at W | Loses long-range | Low (attention mask) |
 | **KV compression** (50% eviction) | 2x | -0.2-0.5% | Medium (attention tracking) |
 | **Prefix caching** | Variable (30-50% typical) | Lossless | Medium (hash + LRU) |
-| **Quantized KV** (FP16→INT8) | 2x | -0.1% | Low (cast on read) |
+| **Quantized KV** (FP16->INT8) | 2x | -0.1% | Low (cast on read) |
 
 **Best practice for production**: Combine GQA (architectural) + prefix caching (free for shared prompts) + KV quantization (INT8 cache with FP16 compute) for a combined 16-20x KV cache reduction with minimal quality impact.
 
 ## Key Takeaways
 
-- The **KV cache** is the primary memory bottleneck for LLM serving at scale — it grows linearly with batch size and sequence length
+- The **KV cache** is the primary memory bottleneck for LLM serving at scale -- it grows linearly with batch size and sequence length
 - **GQA** is the current industry standard (used in Llama-2-70B, Mistral, Gemma) because it provides 8x KV reduction with negligible quality loss
-- **Sliding window attention** bounds memory regardless of sequence length but sacrifices long-range attention — combine with full-attention layers (as Mistral does) for the best of both worlds
-- **Attention-based eviction** outperforms position-based eviction because token importance follows a power law — always keep "sink tokens" (first few tokens) which accumulate disproportionate attention
-- **Prefix caching** is lossless and should be enabled in every production deployment — it's free throughput for any workload with repeated system prompts
-"""
+- **Sliding window attention** bounds memory regardless of sequence length but sacrifices long-range attention -- combine with full-attention layers (as Mistral does) for the best of both worlds
+- **Attention-based eviction** outperforms position-based eviction because token importance follows a power law -- always keep "sink tokens" (first few tokens) which accumulate disproportionate attention
+- **Prefix caching** is lossless and should be enabled in every production deployment -- it's free throughput for any workload with repeated system prompts
+'''
     ),
     (
         "llm-inference/structured-output",
         "Explain techniques for guaranteed structured output generation from LLMs including constrained decoding with finite state machines, JSON schema enforcement via grammar-based sampling, and outlines/guidance-style token masking, with a complete implementation of a grammar-constrained sampler that enforces valid JSON output from any language model.",
-        r"""# Structured Output Generation: Guaranteed Valid JSON from LLMs
+        '''# Structured Output Generation: Guaranteed Valid JSON from LLMs
 
 ## The Problem with Unconstrained Generation
 
-LLMs frequently produce malformed JSON, missing fields, extra text around JSON blocks, or invalid types — even when explicitly prompted. For production systems that parse LLM output programmatically, this means **error handling, retries, and wasted tokens**. Constrained decoding eliminates these failures by making it **impossible** for the model to generate invalid output.
+LLMs frequently produce malformed JSON, missing fields, extra text around JSON blocks, or invalid types -- even when explicitly prompted. For production systems that parse LLM output programmatically, this means **error handling, retries, and wasted tokens**. Constrained decoding eliminates these failures by making it **impossible** for the model to generate invalid output.
 
 ## How Constrained Decoding Works
 
@@ -1603,7 +1603,7 @@ class JSONConstrainedSampler:
 
         This is called once at initialization. Without this cache,
         we'd need to decode every vocabulary token at every generation
-        step — making constrained decoding 100x slower than necessary.
+        step -- making constrained decoding 100x slower than necessary.
         """
         vocab_size = self.tokenizer.vocab_size
         self.token_texts: dict[int, str] = {}
@@ -1653,12 +1653,12 @@ class JSONConstrainedSampler:
 
         if state == JSONState.OBJECT_OPEN:
             if self.schema and self.schema.required_keys - self.seen_keys:
-                # Must add required keys — only allow "
+                # Must add required keys -- only allow "
                 return ['"', " ", "\n"]
             return ['"', "}", " ", "\n"]
 
         if state == JSONState.OBJECT_KEY:
-            # Inside a key string — validate against schema if present
+            # Inside a key string -- validate against schema if present
             if self.schema:
                 remaining = self.schema.all_keys - self.seen_keys
                 return list(remaining) + ['"']
@@ -1831,7 +1831,7 @@ def constrained_generate(
     2. Contain all required fields from the schema
     3. Have correct types for each field
 
-    No retries, no error handling needed — it's valid by construction.
+    No retries, no error handling needed -- it's valid by construction.
     """
     sampler = JSONConstrainedSampler(tokenizer, schema)
     input_ids = tokenizer.encode(prompt, return_tensors="pt")
@@ -1909,19 +1909,19 @@ def example_extraction():
 
 1. **Pre-compute token validity**: The token map computation is expensive but only done once. For production, serialize this map and load it at startup rather than recomputing.
 
-2. **Batch masking**: When serving multiple requests with the same schema, the valid token sets are identical for each state — compute once and broadcast.
+2. **Batch masking**: When serving multiple requests with the same schema, the valid token sets are identical for each state -- compute once and broadcast.
 
 3. **Speculative constrained decoding**: Combine with speculative decoding by applying constraints during verification rather than draft generation. The draft model generates unconstrained tokens, and rejected tokens are resampled from the constrained distribution.
 
-4. **Common pitfall — tokenizer alignment**: Multi-byte tokens can span JSON structural characters. A token like `"}` needs special handling because it closes both a string and an object. Always process character-by-character within each token, not token-by-token.
+4. **Common pitfall -- tokenizer alignment**: Multi-byte tokens can span JSON structural characters. A token like `"}` needs special handling because it closes both a string and an object. Always process character-by-character within each token, not token-by-token.
 
 ## Key Takeaways
 
-- **Constrained decoding** guarantees valid structured output by masking invalid tokens at each generation step — eliminating the need for retries or error handling
+- **Constrained decoding** guarantees valid structured output by masking invalid tokens at each generation step -- eliminating the need for retries or error handling
 - The technique uses a **finite state machine** that tracks JSON parsing state and computes valid continuations at each step
-- **Pre-computing the token-to-text mapping** is critical for performance — without it, constrained decoding is 100x slower
+- **Pre-computing the token-to-text mapping** is critical for performance -- without it, constrained decoding is 100x slower
 - Grammar-based approaches compose with other techniques: you can use constrained decoding with quantized models, speculative decoding, and batched serving
 - For production, prefer libraries like **Outlines** or **llama.cpp grammars** that handle edge cases (Unicode, escape sequences, nested structures) comprehensively
-"""
+'''
     ),
 ]

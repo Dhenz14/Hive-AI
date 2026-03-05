@@ -1,10 +1,10 @@
+"""p14 redis patterns"""
+
 PAIRS = [
     (
         "databases/redis-data-structures",
-        r"""Explain Redis data structures beyond simple key-value including Sorted Sets for leaderboards, Streams for event sourcing, HyperLogLog for cardinality estimation, Bitmaps for feature flags, and Pub/Sub patterns. Include practical Python implementations.""",
-        r"""## Redis Data Structures: Sorted Sets, Streams, HyperLogLog, and Beyond
-
-Redis is often reduced to "a cache," but its data structures solve problems that would require multiple external systems. Understanding when to use each structure is the key to effective Redis usage.
+        "Explain Redis data structures beyond simple key-value including Sorted Sets for leaderboards, Streams for event sourcing, HyperLogLog for cardinality estimation, Bitmaps for feature flags, and Pub/Sub patterns. Include practical Python implementations.",
+        '''Redis is often reduced to "a cache," but its data structures solve problems that would require multiple external systems. Understanding when to use each structure is the key to effective Redis usage.
 
 ### Sorted Sets for Leaderboards and Rankings
 
@@ -39,78 +39,12 @@ class Leaderboard:
     def get_top(self, count: int = 10) -> list[tuple[str, float]]:
         """Get top N users with scores."""
         return self.r.zrevrange(
-            self.key, 0, count - 1, withscores=True
-        )
-
-    def get_around_user(self, user_id: str, count: int = 5) -> list:
-        """Get users around a specific user (for context)."""
-        rank = self.r.zrevrank(self.key, user_id)
-        if rank is None:
-            return []
-        start = max(0, rank - count // 2)
-        end = rank + count // 2
-        return self.r.zrevrange(self.key, start, end, withscores=True)
-
-    def get_score(self, user_id: str) -> Optional[float]:
-        return self.r.zscore(self.key, user_id)
-
-    def total_players(self) -> int:
-        return self.r.zcard(self.key)
-
-
-# Usage
-r = redis.Redis(decode_responses=True)
-lb = Leaderboard(r, "weekly")
-lb.update_score("alice", 1500)
-lb.update_score("bob", 1350)
-lb.increment_score("alice", 50)  # Alice now at 1550
-top_10 = lb.get_top(10)
-# [('alice', 1550.0), ('bob', 1350.0)]
-```
-
-### Streams for Event Sourcing
-
-Redis Streams are an append-only log with consumer groups — like a lightweight Kafka:
-
-```python
-import redis
-import json
-from dataclasses import dataclass, asdict
-from typing import Optional
-import time
-
-
-@dataclass
-class Event:
-    type: str
-    data: dict
-    timestamp: float = 0
-
-    def __post_init__(self):
-        if not self.timestamp:
-            self.timestamp = time.time()
-
-
-class EventStream:
-    """Event sourcing with Redis Streams and consumer groups."""
-
-    def __init__(self, client: redis.Redis, stream: str):
-        self.r = client
-        self.stream = stream
-
-    def publish(self, event: Event) -> str:
-        """Publish an event. Returns the event ID."""
-        entry = {
-            "type": event.type,
-            "data": json.dumps(event.data),
-            "timestamp": str(event.timestamp),
-        }
-        return self.r.xadd(self.stream, entry, maxlen=100000)
-
-    def create_consumer_group(self, group: str, start_id: str = "0"):
-        """Create a consumer group (idempotent)."""
-        try:
-            self.r.xgroup_create(self.stream, group, id=start_id, mkstream=True)
+            self.key, 0, count - 1, withscores=True'''
+    ),
+    (
+        "timestamp",
+        "} return self.r.xadd(self.stream, entry, maxlen=100000) def create_consumer_group(self, group: str, start_id: str = '0'):",
+        '''self.r.xgroup_create(self.stream, group, id=start_id, mkstream=True)
         except redis.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
@@ -127,226 +61,16 @@ class EventStream:
             group, consumer,
             {self.stream: ">"},  # ">" means only new messages
             count=count,
-            block=block_ms,
-        )
-        if not results:
-            return []
-
-        events = []
-        for stream_name, messages in results:
-            for msg_id, fields in messages:
-                event = Event(
-                    type=fields["type"],
-                    data=json.loads(fields["data"]),
-                    timestamp=float(fields["timestamp"]),
-                )
-                events.append((msg_id, event))
-        return events
-
-    def acknowledge(self, group: str, *message_ids: str):
-        """Acknowledge processed messages."""
-        self.r.xack(self.stream, group, *message_ids)
-
-    def get_pending(self, group: str) -> list:
-        """Get messages that were delivered but not acknowledged."""
-        return self.r.xpending_range(
-            self.stream, group, min="-", max="+", count=100
-        )
-
-    def claim_stale(
-        self, group: str, consumer: str, min_idle_ms: int = 60000
-    ) -> list:
-        """Claim messages that another consumer failed to process."""
-        pending = self.r.xpending_range(
-            self.stream, group, min="-", max="+", count=10
-        )
-        stale_ids = [
-            p["message_id"] for p in pending
-            if p["time_since_delivered"] > min_idle_ms
-        ]
-        if not stale_ids:
-            return []
-        return self.r.xclaim(
-            self.stream, group, consumer,
-            min_idle_time=min_idle_ms,
-            message_ids=stale_ids,
-        )
-
-
-# Usage:
-stream = EventStream(r, "orders")
-stream.create_consumer_group("payment-processors")
-
-# Publisher
-stream.publish(Event("order.created", {"order_id": "123", "total": 99.99}))
-
-# Consumer (run in a loop)
-events = stream.consume("payment-processors", "worker-1")
-for msg_id, event in events:
-    process_payment(event)
-    stream.acknowledge("payment-processors", msg_id)
-```
-
-### HyperLogLog for Cardinality Estimation
-
-Count unique items with O(1) memory (~12KB regardless of set size):
-
-```python
-class UniqueVisitorCounter:
-    """Count unique visitors with HyperLogLog — O(1) memory."""
-
-    def __init__(self, client: redis.Redis):
-        self.r = client
-
-    def record_visit(self, page: str, visitor_id: str):
-        key = f"visitors:{page}:{self._today()}"
-        self.r.pfadd(key, visitor_id)
-        # Set expiry for auto-cleanup
-        self.r.expire(key, 86400 * 7)  # Keep 7 days
-
-    def unique_visitors(self, page: str, date: str = None) -> int:
-        date = date or self._today()
-        return self.r.pfcount(f"visitors:{page}:{date}")
-
-    def unique_visitors_range(self, page: str, dates: list[str]) -> int:
-        """Merge multiple days for total unique visitors."""
-        keys = [f"visitors:{page}:{d}" for d in dates]
-        # Merge into temporary key
-        tmp_key = f"visitors:{page}:merged:{hash(tuple(dates))}"
-        self.r.pfmerge(tmp_key, *keys)
-        count = self.r.pfcount(tmp_key)
-        self.r.delete(tmp_key)
-        return count
-
-    def _today(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-# Usage:
-counter = UniqueVisitorCounter(r)
-# Record 1 million visits
-for visitor_id in range(1_000_000):
-    counter.record_visit("/home", f"user-{visitor_id % 50000}")
-
-# Approximate count (within 0.81% error)
-print(counter.unique_visitors("/home"))  # ~50000
-# Memory used: ~12KB (vs ~400KB for a Set of 50K strings)
-```
-
-### Bitmaps for Feature Flags and Presence
-
-```python
-class FeatureFlags:
-    """Bit-level feature flags — millions of users in bytes."""
-
-    def __init__(self, client: redis.Redis):
-        self.r = client
-
-    def enable(self, feature: str, user_id: int):
-        self.r.setbit(f"feature:{feature}", user_id, 1)
-
-    def disable(self, feature: str, user_id: int):
-        self.r.setbit(f"feature:{feature}", user_id, 0)
-
-    def is_enabled(self, feature: str, user_id: int) -> bool:
-        return bool(self.r.getbit(f"feature:{feature}", user_id))
-
-    def enabled_count(self, feature: str) -> int:
-        """Count users with this feature enabled."""
-        return self.r.bitcount(f"feature:{feature}")
-
-    def users_with_all(self, *features: str) -> int:
-        """Count users that have ALL features enabled (AND)."""
-        dest = f"feature:intersection:{':'.join(features)}"
-        keys = [f"feature:{f}" for f in features]
-        self.r.bitop("AND", dest, *keys)
-        count = self.r.bitcount(dest)
-        self.r.delete(dest)
-        return count
-
-
-# Usage:
-flags = FeatureFlags(r)
-flags.enable("dark_mode", user_id=42)
-flags.enable("dark_mode", user_id=100)
-flags.enable("beta_ui", user_id=42)
-
-# Check flag
-flags.is_enabled("dark_mode", 42)  # True
-
-# Count: how many users have dark_mode?
-flags.enabled_count("dark_mode")  # 2
-
-# Memory: 1 million users = 125KB per feature
-# (1 bit per user, vs 8+ bytes per user in a Set)
-```
-
-### Rate Limiting with Sliding Window
-
-```python
-class SlidingWindowRateLimiter:
-    """Rate limiter using sorted sets for precise sliding windows."""
-
-    def __init__(self, client: redis.Redis):
-        self.r = client
-
-    def is_allowed(
-        self,
-        key: str,
-        max_requests: int,
-        window_seconds: int,
-    ) -> tuple[bool, int]:
-        """Check if request is allowed. Returns (allowed, remaining)."""
-        now = time.time()
-        window_start = now - window_seconds
-        pipe_key = f"ratelimit:{key}"
-
-        # Use pipeline for atomicity
-        pipe = self.r.pipeline()
-        # Remove entries outside the window
-        pipe.zremrangebyscore(pipe_key, 0, window_start)
-        # Count entries in window
-        pipe.zcard(pipe_key)
-        # Add current request
-        pipe.zadd(pipe_key, {f"{now}:{id(now)}": now})
-        # Set expiry
-        pipe.expire(pipe_key, window_seconds)
-        results = pipe.execute()
-
-        current_count = results[1]  # Count before adding
-        remaining = max(0, max_requests - current_count - 1)
-        allowed = current_count < max_requests
-
-        if not allowed:
-            # Remove the entry we just added
-            self.r.zremrangebyscore(pipe_key, now, now)
-
-        return allowed, remaining
-
-
-# Usage:
-limiter = SlidingWindowRateLimiter(r)
-allowed, remaining = limiter.is_allowed(
-    key=f"api:{user_id}",
-    max_requests=100,
-    window_seconds=60,
-)
-if not allowed:
-    raise RateLimitExceeded(f"Rate limit exceeded. Try again later.")
-```
-
-**Redis data structure selection guide**: (1) **Strings**: simple cache, counters, locks, (2) **Sorted Sets**: leaderboards, priority queues, time-based windowing, (3) **Streams**: event sourcing, message queues with consumer groups, (4) **HyperLogLog**: unique counting (visitors, IPs) with ~0.8% error, (5) **Bitmaps**: boolean flags per user/entity — extreme memory efficiency, (6) **Hashes**: object storage, session data — avoid thousands of individual keys."""
+            block=block_ms,'''
     ),
     (
         "databases/redis-caching-patterns",
-        r"""Explain Redis caching patterns including cache-aside, write-through, write-behind, cache invalidation strategies, distributed locking with Redlock, and cache stampede prevention. Include Python implementations with proper error handling.""",
-        r"""## Redis Caching Patterns: Cache-Aside, Invalidation, Locks, and Stampede Prevention
-
-Caching is simple in concept but notoriously hard to get right. The problems aren't in reading from cache — they're in keeping the cache consistent with the source of truth and handling failure modes.
+        "Explain Redis caching patterns including cache-aside, write-through, write-behind, cache invalidation strategies, distributed locking with Redlock, and cache stampede prevention. Include Python implementations with proper error handling.",
+        '''Caching is simple in concept but notoriously hard to get right. The problems aren't in reading from cache -- they're in keeping the cache consistent with the source of truth and handling failure modes.
 
 ### Cache-Aside (Lazy Loading)
 
-The most common pattern — application manages cache explicitly:
+The most common pattern -- application manages cache explicitly:
 
 ```python
 import redis
@@ -373,169 +97,12 @@ class CacheAside:
         self.r.setex(
             f"{self.prefix}:{key}",
             ttl,
-            json.dumps(value, default=str),
-        )
-
-    def delete(self, key: str):
-        self.r.delete(f"{self.prefix}:{key}")
-
-    def get_or_set(
-        self,
-        key: str,
-        factory: Callable,
-        ttl: int = 300,
-    ) -> Any:
-        """Cache-aside in one call."""
-        value = self.get(key)
-        if value is not None:
-            return value
-
-        # Cache miss — fetch from source
-        value = factory()
-        if value is not None:
-            self.set(key, value, ttl)
-        return value
-
-
-# Decorator version
-def cached(cache: CacheAside, ttl: int = 300, key_prefix: str = ""):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            # Build cache key from function name and arguments
-            key_parts = [key_prefix or func.__qualname__]
-            key_parts.extend(str(a) for a in args)
-            key_parts.extend(f"{k}={v}" for k, v in sorted(kwargs.items()))
-            cache_key = hashlib.md5(
-                ":".join(key_parts).encode()
-            ).hexdigest()
-
-            return cache.get_or_set(
-                cache_key,
-                lambda: func(*args, **kwargs),
-                ttl,
-            )
-        wrapper.invalidate = lambda *a, **kw: cache.delete(
-            hashlib.md5(":".join(
-                [key_prefix or func.__qualname__] +
-                [str(x) for x in a] +
-                [f"{k}={v}" for k, v in sorted(kw.items())]
-            ).encode()).hexdigest()
-        )
-        return wrapper
-    return decorator
-
-
-# Usage:
-cache = CacheAside(redis.Redis(decode_responses=True))
-
-@cached(cache, ttl=600)
-def get_user_profile(user_id: int) -> dict:
-    return db.query("SELECT * FROM users WHERE id = %s", user_id)
-
-profile = get_user_profile(42)  # Cache miss → DB query
-profile = get_user_profile(42)  # Cache hit
-get_user_profile.invalidate(42)  # Clear cache
-```
-
-### Write-Through Cache
-
-Updates go to both cache and database atomically:
-
-```python
-class WriteThroughCache:
-    """Write-through: updates go to cache AND DB together."""
-
-    def __init__(self, client: redis.Redis, db, prefix: str = "wt"):
-        self.r = client
-        self.db = db
-        self.prefix = prefix
-
-    async def get(self, entity: str, entity_id: str) -> Optional[dict]:
-        key = f"{self.prefix}:{entity}:{entity_id}"
-        cached = self.r.get(key)
-        if cached:
-            return json.loads(cached)
-
-        # Cache miss: load from DB and populate cache
-        record = await self.db.fetch_one(entity, entity_id)
-        if record:
-            self.r.setex(key, 3600, json.dumps(record, default=str))
-        return record
-
-    async def update(self, entity: str, entity_id: str, data: dict):
-        """Update DB and cache together."""
-        key = f"{self.prefix}:{entity}:{entity_id}"
-
-        # Update DB first (source of truth)
-        await self.db.update(entity, entity_id, data)
-
-        # Then update cache
-        # If cache update fails, it'll be stale but self-correcting
-        # (TTL will expire, next read repopulates)
-        try:
-            record = await self.db.fetch_one(entity, entity_id)
-            self.r.setex(key, 3600, json.dumps(record, default=str))
-        except redis.RedisError:
-            # Cache failure is acceptable — DB is the source of truth
-            self.r.delete(key)  # Better to miss than serve stale data
-
-    async def delete(self, entity: str, entity_id: str):
-        key = f"{self.prefix}:{entity}:{entity_id}"
-        await self.db.delete(entity, entity_id)
-        self.r.delete(key)
-```
-
-### Cache Invalidation Strategies
-
-```python
-class CacheInvalidator:
-    """Multiple invalidation strategies."""
-
-    def __init__(self, client: redis.Redis):
-        self.r = client
-
-    # Strategy 1: Tag-based invalidation
-    def set_with_tags(self, key: str, value: Any, tags: list[str], ttl: int = 300):
-        pipe = self.r.pipeline()
-        pipe.setex(f"c:{key}", ttl, json.dumps(value, default=str))
-        for tag in tags:
-            pipe.sadd(f"tag:{tag}", key)
-            pipe.expire(f"tag:{tag}", ttl * 2)
-        pipe.execute()
-
-    def invalidate_tag(self, tag: str):
-        """Invalidate all cache entries with this tag."""
-        keys = self.r.smembers(f"tag:{tag}")
-        if keys:
-            pipe = self.r.pipeline()
-            for key in keys:
-                pipe.delete(f"c:{key}")
-            pipe.delete(f"tag:{tag}")
-            pipe.execute()
-
-    # Strategy 2: Version-based invalidation
-    def get_versioned(self, entity: str, entity_id: str) -> Optional[dict]:
-        version = self.r.get(f"ver:{entity}") or "0"
-        key = f"c:{entity}:{entity_id}:v{version}"
-        raw = self.r.get(key)
-        return json.loads(raw) if raw else None
-
-    def bump_version(self, entity: str):
-        """Increment version — all old cache entries become unreachable."""
-        self.r.incr(f"ver:{entity}")
-
-    # Strategy 3: Event-driven invalidation
-    def publish_invalidation(self, entity: str, entity_id: str):
-        """Publish cache invalidation event to all app instances."""
-        self.r.publish("cache_invalidation", json.dumps({
-            "entity": entity,
-            "id": entity_id,
-            "timestamp": time.time(),
-        }))
-```
-
-### Distributed Locking with Redlock
+            json.dumps(value, default=str),'''
+    ),
+    (
+        "timestamp",
+        "}))",
+        '''### Distributed Locking with Redlock
 
 ```python
 import redis
@@ -561,7 +128,7 @@ class DistributedLock:
         end_time = time.monotonic() + blocking_timeout
 
         while time.monotonic() < end_time:
-            # SET NX with expiry — atomic acquire
+            # SET NX with expiry -- atomic acquire
             if self.r.set(key, token, nx=True, ex=int(timeout)):
                 return token
             time.sleep(0.05)  # Brief wait before retry
@@ -646,7 +213,7 @@ class StampedeProtectedCache:
 
             # Probabilistic early expiry (XFetch)
             # As we approach expiry, there's an increasing chance
-            # we'll recompute early — spreading the load
+            # we'll recompute early -- spreading the load
             now = time.time()
             remaining = expiry - now
             if remaining > 0:
@@ -661,7 +228,7 @@ class StampedeProtectedCache:
         token = self.lock.acquire(f"recompute:{key}", timeout=30, blocking_timeout=2)
 
         if token is None:
-            # Another process is recomputing — serve stale if available
+            # Another process is recomputing -- serve stale if available
             if raw:
                 return json.loads(raw)["value"]
             # No stale data, must wait
@@ -673,29 +240,17 @@ class StampedeProtectedCache:
             value = factory()
             delta = time.time() - start  # Track computation time
 
-            entry = {
-                "value": value,
-                "expiry": time.time() + ttl,
-                "delta": delta,
-            }
-            self.r.setex(
-                f"c:{key}",
-                ttl + 60,  # Extra buffer for stale serving
-                json.dumps(entry, default=str),
-            )
-            return value
-        finally:
-            self.lock.release(f"recompute:{key}", token)
-```
-
-**Caching rules**: (1) Cache-aside is the safest default — application controls consistency, (2) Always set TTL — unbounded caches grow until OOM, (3) Invalidate on write, don't wait for TTL — users expect immediate consistency, (4) Use distributed locks for expensive recomputations — prevent stampede, (5) Cache failures should degrade to slower DB queries, never errors — Redis down shouldn't mean app down."""
+            entry = {'''
+    ),
+    (
+        "delta",
+        "} self.r.setex( f'c:{key}' ttl + 60,  # Extra buffer for stale serving json.dumps(entry, default=str) ) return value finally: self.lock.release(f'recompute:{key}', token)",
+        '''**Caching rules**: (1) Cache-aside is the safest default -- application controls consistency, (2) Always set TTL -- unbounded caches grow until OOM, (3) Invalidate on write, don't wait for TTL -- users expect immediate consistency, (4) Use distributed locks for expensive recomputations -- prevent stampede, (5) Cache failures should degrade to slower DB queries, never errors -- Redis down shouldn't mean app down.'''
     ),
     (
         "databases/redis-operational-patterns",
-        r"""Explain Redis operational patterns including memory management and eviction policies, persistence options (RDB vs AOF), replication and sentinel for HA, key naming conventions, and monitoring with INFO and SLOWLOG.""",
-        r"""## Redis Operational Patterns: Memory, Persistence, HA, and Monitoring
-
-Running Redis in production requires understanding memory management, data durability options, and monitoring. These operational patterns prevent data loss and performance degradation.
+        "Explain Redis operational patterns including memory management and eviction policies, persistence options (RDB vs AOF), replication and sentinel for HA, key naming conventions, and monitoring with INFO and SLOWLOG.",
+        '''Running Redis in production requires understanding memory management, data durability options, and monitoring. These operational patterns prevent data loss and performance degradation.
 
 ### Memory Management and Eviction
 
@@ -708,12 +263,12 @@ maxmemory 2gb
 maxmemory-policy allkeys-lru  # Evict least recently used (recommended for cache)
 
 # Policy options:
-# noeviction        — Return errors on writes (safe for data stores)
-# allkeys-lru       — Evict LRU keys from all keys (best for cache)
-# allkeys-lfu       — Evict least frequently used (better for skewed access)
-# volatile-lru      — Evict LRU from keys with TTL set
-# volatile-ttl      — Evict keys with shortest TTL
-# allkeys-random    — Random eviction (unpredictable, rarely used)
+# noeviction        -- Return errors on writes (safe for data stores)
+# allkeys-lru       -- Evict LRU keys from all keys (best for cache)
+# allkeys-lfu       -- Evict least frequently used (better for skewed access)
+# volatile-lru      -- Evict LRU from keys with TTL set
+# volatile-ttl      -- Evict keys with shortest TTL
+# allkeys-random    -- Random eviction (unpredictable, rarely used)
 ```
 
 ```python
@@ -729,27 +284,12 @@ class MemoryAwareCache:
         used = info["used_memory"]
         max_mem = info.get("maxmemory", 0)
 
-        result = {
-            "used_bytes": used,
-            "used_human": info["used_memory_human"],
-            "max_bytes": max_mem,
-            "fragmentation_ratio": info["mem_fragmentation_ratio"],
-        }
-
-        if max_mem > 0:
-            utilization = used / max_mem
-            result["utilization"] = utilization
-            result["warning"] = utilization > self.warning_pct
-        else:
-            result["utilization"] = None
-            result["warning"] = False
-
-        return result
-
-    def get_big_keys_sample(self, count: int = 10) -> list:
-        """Find large keys using SCAN (non-blocking)."""
-        big_keys = []
-        cursor = 0
+        result = {'''
+    ),
+    (
+        "fragmentation_ratio",
+        "} if max_mem > 0: utilization = used / max_mem result['utilization'] = utilization result['warning'] = utilization > self.warning_pct else: result['utilization'] = None result['warning'] = False return result def get_big_keys_sample(self, count: int = 10) -> list:",
+        '''cursor = 0
 
         for _ in range(100):  # Limit iterations
             cursor, keys = self.r.scan(cursor, count=100)
@@ -770,14 +310,14 @@ class MemoryAwareCache:
 ### Persistence: RDB vs AOF
 
 ```bash
-# RDB (Redis Database Backup) — point-in-time snapshots
+# RDB (Redis Database Backup) -- point-in-time snapshots
 # Pros: compact, fast restart, good for backups
 # Cons: data loss between snapshots (up to 5 min)
 save 900 1     # Save if at least 1 key changed in 900 seconds
 save 300 10    # Save if at least 10 keys changed in 300 seconds
 save 60 10000  # Save if at least 10000 keys changed in 60 seconds
 
-# AOF (Append Only File) — logs every write operation
+# AOF (Append Only File) -- logs every write operation
 # Pros: minimal data loss (1 second with everysec)
 # Cons: larger files, slower restart
 appendonly yes
@@ -832,62 +372,12 @@ class RedisMonitor:
         info = self.r.info()
 
         return {
-            # Memory
-            "memory_used_mb": info["used_memory"] / 1024 / 1024,
-            "memory_fragmentation": info["mem_fragmentation_ratio"],
-            # Performance
-            "ops_per_sec": info["instantaneous_ops_per_sec"],
-            "hit_rate": self._hit_rate(info),
-            # Connections
-            "connected_clients": info["connected_clients"],
-            "blocked_clients": info["blocked_clients"],
-            # Persistence
-            "rdb_last_save_status": info.get("rdb_last_bgsave_status"),
-            "aof_last_write_status": info.get("aof_last_write_status"),
-            # Replication
-            "role": info["role"],
-            "connected_slaves": info.get("connected_slaves", 0),
-            # Alerts
-            "alerts": self._check_alerts(info),
-        }
-
-    def _hit_rate(self, info: dict) -> float:
-        hits = info.get("keyspace_hits", 0)
-        misses = info.get("keyspace_misses", 0)
-        total = hits + misses
-        return hits / total if total > 0 else 0.0
-
-    def _check_alerts(self, info: dict) -> list:
-        alerts = []
-        if info["mem_fragmentation_ratio"] > 1.5:
-            alerts.append("High memory fragmentation (>1.5)")
-        if info.get("blocked_clients", 0) > 0:
-            alerts.append(f"{info['blocked_clients']} blocked clients")
-        hit_rate = self._hit_rate(info)
-        if hit_rate < 0.8 and hit_rate > 0:
-            alerts.append(f"Low cache hit rate: {hit_rate:.1%}")
-        return alerts
-
-    def get_slow_queries(self, count: int = 10) -> list:
-        """Get recent slow queries from SLOWLOG."""
-        entries = self.r.slowlog_get(count)
-        return [
-            {
-                "id": entry["id"],
-                "timestamp": entry["start_time"],
-                "duration_us": entry["duration"],
-                "duration_ms": entry["duration"] / 1000,
-                "command": " ".join(
-                    str(arg) for arg in entry["command"][:5]
-                ),
-            }
-            for entry in entries
-        ]
-
-    def get_client_stats(self) -> list:
-        """Analyze connected clients."""
-        clients = self.r.client_list()
-        by_name = {}
+            # Memory'''
+    ),
+    (
+        "command",
+        "str(arg) for arg in entry['command'][:5] ) } for entry in entries ] def get_client_stats(self) -> list:",
+        '''by_name = {}
         for c in clients:
             name = c.get("name", "unnamed")
             if name not in by_name:
@@ -896,27 +386,18 @@ class RedisMonitor:
             by_name[name]["idle_total"] += c.get("idle", 0)
 
         return [
-            {
-                "name": name,
-                "connections": stats["count"],
-                "avg_idle_sec": stats["idle_total"] / stats["count"],
-            }
-            for name, stats in sorted(
-                by_name.items(),
-                key=lambda x: x[1]["count"],
-                reverse=True,
-            )
-        ]
-
-
-# Periodic monitoring
-monitor = RedisMonitor(r)
+            {'''
+    ),
+    (
+        "avg_idle_sec",
+        "} for name, stats in sorted( by_name.items() key=lambda x: x[1]['count'] reverse=True ) ]",
+        '''monitor = RedisMonitor(r)
 health = monitor.health_check()
 if health["alerts"]:
     for alert in health["alerts"]:
         print(f"ALERT: {alert}")
 ```
 
-**Operational checklist**: (1) Always set `maxmemory` and `maxmemory-policy` — unbounded Redis will eat all RAM, (2) Use both RDB + AOF persistence unless it's a pure cache, (3) Monitor hit rate — below 80% means your cache isn't effective, (4) Monitor fragmentation ratio — above 1.5 means wasted memory (restart to defragment), (5) Use SLOWLOG to find expensive commands — O(N) commands on large collections are the usual suspects."""
+**Operational checklist**: (1) Always set `maxmemory` and `maxmemory-policy` -- unbounded Redis will eat all RAM, (2) Use both RDB + AOF persistence unless it's a pure cache, (3) Monitor hit rate -- below 80% means your cache isn't effective, (4) Monitor fragmentation ratio -- above 1.5 means wasted memory (restart to defragment), (5) Use SLOWLOG to find expensive commands -- O(N) commands on large collections are the usual suspects.'''
     ),
 ]

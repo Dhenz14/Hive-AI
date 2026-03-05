@@ -1,10 +1,10 @@
+"""p18 data structures"""
+
 PAIRS = [
     (
         "algorithms/graph-algorithms-practical",
-        r"""Explain practical graph algorithms including BFS/DFS traversal, Dijkstra's shortest path, topological sort for dependency resolution, cycle detection, connected components, and A* pathfinding. Include Python implementations with real-world applications.""",
-        r"""## Practical Graph Algorithms: Traversal, Shortest Path, and Dependency Resolution
-
-Graph algorithms solve problems in networking, dependency management, social networks, and pathfinding. Understanding when to apply each algorithm is as important as implementing them.
+        "Explain practical graph algorithms including BFS/DFS traversal, Dijkstra's shortest path, topological sort for dependency resolution, cycle detection, connected components, and A* pathfinding. Include Python implementations with real-world applications.",
+        '''Graph algorithms solve problems in networking, dependency management, social networks, and pathfinding. Understanding when to apply each algorithm is as important as implementing them.
 
 ### Graph Representation
 
@@ -76,8 +76,8 @@ def bfs_path(graph: Graph, start: str, end: str) -> Optional[list[str]]:
     return None  # No path exists
 
 
-# Application: social network — find degrees of separation
-# Application: web crawler — discover pages level by level
+# Application: social network -- find degrees of separation
+# Application: web crawler -- discover pages level by level
 # Application: shortest path in unweighted graph (maze solving)
 ```
 
@@ -94,7 +94,7 @@ def has_cycle(graph: Graph) -> bool:
 
         for neighbor, _ in graph.neighbors(node):
             if color[neighbor] == 1:
-                return True  # Back edge → cycle!
+                return True  # Back edge -> cycle!
             if color[neighbor] == 0 and dfs(neighbor):
                 return True
 
@@ -224,104 +224,12 @@ class DependencyResolver:
         if order is None:
             cycle = self._find_cycle()
             raise CircularDependencyError(
-                f"Circular dependency detected: {' -> '.join(cycle)}"
-            )
-        return order
-
-    def _find_cycle(self) -> list[str]:
-        """Find and return a cycle for error reporting."""
-        visited = set()
-        path = []
-        path_set = set()
-
-        def dfs(node):
-            visited.add(node)
-            path.append(node)
-            path_set.add(node)
-
-            for neighbor, _ in self.graph.neighbors(node):
-                if neighbor in path_set:
-                    cycle_start = path.index(neighbor)
-                    return path[cycle_start:] + [neighbor]
-                if neighbor not in visited:
-                    result = dfs(neighbor)
-                    if result:
-                        return result
-
-            path.pop()
-            path_set.remove(node)
-            return None
-
-        for node in self.graph.nodes:
-            if node not in visited:
-                cycle = dfs(node)
-                if cycle:
-                    return cycle
-        return []
-
-
-# Usage:
-resolver = DependencyResolver()
-resolver.add_dependency("web-app", "auth-lib")
-resolver.add_dependency("web-app", "db-lib")
-resolver.add_dependency("auth-lib", "crypto-lib")
-resolver.add_dependency("db-lib", "crypto-lib")
-build_order = resolver.resolve()
-# ['crypto-lib', 'auth-lib', 'db-lib', 'web-app']
-```
-
-### A* Pathfinding
-
-```python
-def astar(
-    graph: Graph,
-    start: str,
-    goal: str,
-    heuristic: callable,  # h(node) -> estimated cost to goal
-) -> tuple[list[str], float]:
-    """A* search: optimal pathfinding with heuristic guidance."""
-    open_set = [(0, start)]
-    came_from = {}
-    g_score = {start: 0}
-    f_score = {start: heuristic(start)}
-
-    while open_set:
-        _, current = heapq.heappop(open_set)
-
-        if current == goal:
-            path = [current]
-            while current in came_from:
-                current = came_from[current]
-                path.append(current)
-            path.reverse()
-            return path, g_score[goal]
-
-        for neighbor, weight in graph.neighbors(current):
-            tentative_g = g_score[current] + weight
-
-            if tentative_g < g_score.get(neighbor, float("inf")):
-                came_from[neighbor] = current
-                g_score[neighbor] = tentative_g
-                f = tentative_g + heuristic(neighbor)
-                f_score[neighbor] = f
-                heapq.heappush(open_set, (f, neighbor))
-
-    return [], float("inf")  # No path found
-
-
-# Application: game pathfinding, robot navigation, map routing
-# A* = Dijkstra + heuristic guidance → explores fewer nodes
-# Heuristic must be admissible (never overestimate) for optimality
-```
-
-**Algorithm selection guide**: (1) **BFS** for shortest path in unweighted graphs, (2) **Dijkstra** for shortest path in weighted graphs (no negative weights), (3) **Topological sort** for dependency resolution and build ordering, (4) **DFS** for cycle detection and connected components, (5) **A*** when you have a good distance heuristic (grid maps, road networks)."""
+                f"Circular dependency detected: {' -> '.join(cycle)}"'''
     ),
     (
         "algorithms/btree-lsm-tree-internals",
-        r"""Explain B-Tree and LSM-Tree data structures including how they work, read/write performance characteristics, when databases use each, compaction strategies for LSM-Trees, and write amplification trade-offs.""",
-        r"""## B-Tree vs LSM-Tree: The Two Pillars of Database Storage Engines
-
-Every database uses one of two fundamental data structures for on-disk storage. Understanding their trade-offs explains why PostgreSQL and RocksDB behave so differently.
+        "Explain B-Tree and LSM-Tree data structures including how they work, read/write performance characteristics, when databases use each, compaction strategies for LSM-Trees, and write amplification trade-offs.",
+        '''Every database uses one of two fundamental data structures for on-disk storage. Understanding their trade-offs explains why PostgreSQL and RocksDB behave so differently.
 
 ### B-Tree: Read-Optimized
 
@@ -353,7 +261,7 @@ class BTree:
         self.root = BTreeNode()
 
     def search(self, key) -> Optional[Any]:
-        """Search is O(log_M(N)) — very few disk reads."""
+        """Search is O(log_M(N)) -- very few disk reads."""
         node = self.root
         while True:
             i = bisect_left(node.keys, key)
@@ -368,7 +276,7 @@ class BTree:
     def insert(self, key, value):
         """Insert requires finding the leaf, possibly splitting nodes up."""
         if self.root.is_full(self.order):
-            # Root is full — create new root and split
+            # Root is full -- create new root and split
             new_root = BTreeNode(is_leaf=False)
             new_root.children = [self.root]
             self._split_child(new_root, 0)
@@ -416,9 +324,9 @@ class BTree:
 
 
 # B-Tree characteristics:
-# READ:  O(log_M N) — typically 3-4 disk reads for billions of rows
+# READ:  O(log_M N) -- typically 3-4 disk reads for billions of rows
 #        (because M is large, e.g., 100-500 keys per 8KB page)
-# WRITE: O(log_M N) — find leaf + update in place
+# WRITE: O(log_M N) -- find leaf + update in place
 #        BUT: random I/O (need to read-modify-write the page)
 # SPACE: ~50-70% page utilization after splits
 #
@@ -468,7 +376,7 @@ class MemTable:
 
 
 class SSTable:
-    """Sorted String Table — immutable on-disk sorted file."""
+    """Sorted String Table -- immutable on-disk sorted file."""
 
     def __init__(self, path: str):
         self.path = path
@@ -524,7 +432,7 @@ class LSMTree:
             self._flush()
 
     def get(self, key: str) -> Optional[str]:
-        """Read: check memtable → immutable → SSTables (newest first)."""
+        """Read: check memtable -> immutable -> SSTables (newest first)."""
         # 1. Check active memtable
         result = self.memtable.get(key)
         if result is not None:
@@ -572,9 +480,9 @@ class LSMTree:
 
 
 # LSM-Tree characteristics:
-# WRITE: O(1) amortized — just append to memtable
+# WRITE: O(1) amortized -- just append to memtable
 #        Sequential I/O when flushing (very fast on SSDs and HDDs)
-# READ:  O(N * log M) worst case — check each level
+# READ:  O(N * log M) worst case -- check each level
 #        Bloom filters reduce this to ~1 disk read for negative lookups
 # SPACE: Write amplification from compaction (data written multiple times)
 #
@@ -599,14 +507,12 @@ class LSMTree:
 | Use case          | OLTP (PostgreSQL)    | Write-heavy (RocksDB)   |
 ```
 
-**Storage engine selection**: (1) **B-Tree** (PostgreSQL, MySQL) for read-heavy OLTP workloads, (2) **LSM-Tree** (RocksDB, Cassandra) for write-heavy ingestion workloads, (3) LSM-Trees trade read latency for write throughput, (4) Bloom filters are essential for LSM read performance — they skip levels that don't contain the key, (5) Compaction strategy (leveled vs size-tiered) is the main tuning knob for LSM-Trees."""
+**Storage engine selection**: (1) **B-Tree** (PostgreSQL, MySQL) for read-heavy OLTP workloads, (2) **LSM-Tree** (RocksDB, Cassandra) for write-heavy ingestion workloads, (3) LSM-Trees trade read latency for write throughput, (4) Bloom filters are essential for LSM read performance -- they skip levels that don't contain the key, (5) Compaction strategy (leveled vs size-tiered) is the main tuning knob for LSM-Trees.'''
     ),
     (
         "algorithms/bloom-filters-probabilistic",
-        r"""Explain Bloom filters and other probabilistic data structures including how Bloom filters work, false positive rate calculation, counting Bloom filters, Count-Min Sketch for frequency estimation, and HyperLogLog for cardinality. Include Python implementations.""",
-        r"""## Probabilistic Data Structures: Bloom Filters, Count-Min Sketch, and HyperLogLog
-
-Probabilistic data structures trade perfect accuracy for dramatic space savings. They answer questions like "have I seen this before?", "how many times?", and "how many unique items?" using a fraction of the memory that exact data structures would require.
+        "Explain Bloom filters and other probabilistic data structures including how Bloom filters work, false positive rate calculation, counting Bloom filters, Count-Min Sketch for frequency estimation, and HyperLogLog for cardinality. Include Python implementations.",
+        '''Probabilistic data structures trade perfect accuracy for dramatic space savings. They answer questions like "have I seen this before?", "how many times?", and "how many unique items?" using a fraction of the memory that exact data structures would require.
 
 ### Bloom Filter: Membership Testing
 
@@ -640,250 +546,12 @@ class BloomFilter:
         """Check if item might be in the filter."""
         return all(
             self.bits[mmh3.hash(item, i) % self.size]
-            for i in range(self.num_hashes)
-        )
-
-    @staticmethod
-    def _optimal_size(n: int, p: float) -> int:
-        """Optimal bit array size: m = -(n * ln(p)) / (ln(2)^2)"""
-        return int(-n * math.log(p) / (math.log(2) ** 2))
-
-    @staticmethod
-    def _optimal_hashes(m: int, n: int) -> int:
-        """Optimal number of hashes: k = (m/n) * ln(2)"""
-        return max(1, int(m / n * math.log(2)))
-
-    @property
-    def estimated_false_positive_rate(self) -> float:
-        """Current estimated false positive rate."""
-        # (1 - e^(-k*n/m))^k
-        k, n, m = self.num_hashes, self.count, self.size
-        return (1 - math.exp(-k * n / m)) ** k
-
-    def memory_usage_bytes(self) -> int:
-        return self.size // 8
-
-
-# Usage example: URL deduplication in web crawler
-bloom = BloomFilter(expected_items=10_000_000, false_positive_rate=0.001)
-
-# Memory: ~18MB for 10M items at 0.1% false positive rate
-# vs ~800MB for a HashSet of 10M URLs
-
-urls_to_crawl = ["https://example.com/page1", "https://example.com/page2"]
-for url in urls_to_crawl:
-    if url not in bloom:
-        bloom.add(url)
-        crawl(url)
-    else:
-        pass  # Probably already crawled (0.1% chance of false positive)
-
-
-# Real-world uses:
-# - Web crawlers: skip already-visited URLs
-# - Databases: skip disk reads for non-existent keys (LSM-Tree)
-# - CDNs: check if content is cached without querying cache
-# - Email: check if address is in blocklist
-```
-
-### Counting Bloom Filter
-
-Supports deletions by using counters instead of bits:
-
-```python
-class CountingBloomFilter:
-    """Bloom filter that supports deletion using counters."""
-
-    def __init__(self, expected_items: int, fp_rate: float = 0.01):
-        self.size = BloomFilter._optimal_size(expected_items, fp_rate)
-        self.num_hashes = BloomFilter._optimal_hashes(self.size, expected_items)
-        self.counters = [0] * self.size  # 4-bit counters typically
-
-    def add(self, item: str):
-        for i in range(self.num_hashes):
-            idx = mmh3.hash(item, i) % self.size
-            self.counters[idx] = min(15, self.counters[idx] + 1)  # 4-bit max
-
-    def remove(self, item: str):
-        """Remove an item (only if previously added!)."""
-        if item not in self:
-            return
-        for i in range(self.num_hashes):
-            idx = mmh3.hash(item, i) % self.size
-            self.counters[idx] = max(0, self.counters[idx] - 1)
-
-    def __contains__(self, item: str) -> bool:
-        return all(
-            self.counters[mmh3.hash(item, i) % self.size] > 0
-            for i in range(self.num_hashes)
-        )
-
-
-# Use when you need to remove items (e.g., user session tracking)
-# 4x more memory than standard Bloom filter (4 bits vs 1 bit per slot)
-```
-
-### Count-Min Sketch: Frequency Estimation
-
-Estimate how many times each element has appeared:
-
-```python
-class CountMinSketch:
-    """Estimate frequency of elements with bounded error."""
-
-    def __init__(self, width: int = 10000, depth: int = 7):
-        """
-        width: number of counters per row (larger = more accurate)
-        depth: number of hash functions (more = lower error probability)
-
-        Error guarantee: estimate <= true_count + epsilon * total_count
-        where epsilon = e / width, probability of exceeding: (1/e)^depth
-        """
-        self.width = width
-        self.depth = depth
-        self.table = [[0] * width for _ in range(depth)]
-        self.total = 0
-
-    def add(self, item: str, count: int = 1):
-        """Record 'count' occurrences of item."""
-        self.total += count
-        for i in range(self.depth):
-            idx = mmh3.hash(item, i) % self.width
-            self.table[i][idx] += count
-
-    def estimate(self, item: str) -> int:
-        """Estimate frequency. Always >= true count (may overestimate)."""
-        return min(
-            self.table[i][mmh3.hash(item, i) % self.width]
-            for i in range(self.depth)
-        )
-
-
-# Usage: finding heavy hitters (most frequent items) in a stream
-sketch = CountMinSketch(width=100000, depth=7)
-# Memory: ~2.8MB (100K * 7 * 4 bytes)
-# vs potentially gigabytes for exact counting of millions of items
-
-for event in event_stream:
-    sketch.add(event.item_id)
-
-# Find top items
-top_items = []
-for item_id in candidate_items:
-    freq = sketch.estimate(item_id)
-    if freq > threshold:
-        top_items.append((item_id, freq))
-
-# Real-world uses:
-# - Network traffic monitoring (find top talkers)
-# - Database query frequency tracking
-# - Trending topic detection
-# - Cache eviction (LFU approximation)
-```
-
-### HyperLogLog: Cardinality Estimation
-
-Count unique elements with O(1) memory:
-
-```python
-class HyperLogLog:
-    """Estimate number of distinct elements using ~12KB of memory."""
-
-    def __init__(self, precision: int = 14):
-        """
-        precision: number of bits for register addressing (4-18)
-        Higher = more accurate but more memory
-        p=14: 16384 registers, ~0.81% error, ~12KB memory
-        """
-        self.precision = precision
-        self.num_registers = 1 << precision
-        self.registers = [0] * self.num_registers
-        self._alpha = self._compute_alpha(self.num_registers)
-
-    def add(self, item: str):
-        """Add an item to the counter."""
-        h = mmh3.hash(item, signed=False)
-
-        # First p bits determine the register
-        register_idx = h & (self.num_registers - 1)
-
-        # Remaining bits: count leading zeros + 1
-        remaining = h >> self.precision
-        run_length = self._count_leading_zeros(remaining) + 1
-
-        # Keep the maximum run length seen for this register
-        self.registers[register_idx] = max(
-            self.registers[register_idx], run_length
-        )
-
-    def count(self) -> int:
-        """Estimate the number of distinct elements."""
-        # Harmonic mean of 2^(-register[i])
-        raw_estimate = self._alpha * self.num_registers ** 2 / sum(
-            2.0 ** (-r) for r in self.registers
-        )
-
-        # Small range correction
-        if raw_estimate <= 2.5 * self.num_registers:
-            zeros = self.registers.count(0)
-            if zeros > 0:
-                return int(self.num_registers * math.log(self.num_registers / zeros))
-
-        return int(raw_estimate)
-
-    def merge(self, other: "HyperLogLog"):
-        """Merge two HLLs (union of counted elements)."""
-        assert self.num_registers == other.num_registers
-        for i in range(self.num_registers):
-            self.registers[i] = max(self.registers[i], other.registers[i])
-
-    @staticmethod
-    def _count_leading_zeros(value: int, max_bits: int = 32) -> int:
-        if value == 0:
-            return max_bits
-        count = 0
-        for i in range(max_bits - 1, -1, -1):
-            if value & (1 << i):
-                break
-            count += 1
-        return count
-
-    @staticmethod
-    def _compute_alpha(m: int) -> float:
-        if m == 16:
-            return 0.673
-        elif m == 32:
-            return 0.697
-        elif m == 64:
-            return 0.709
-        return 0.7213 / (1 + 1.079 / m)
-
-
-# Usage: count unique visitors
-hll = HyperLogLog(precision=14)
-
-for visitor_id in visitor_stream:  # Millions of events
-    hll.add(visitor_id)
-
-print(f"Estimated unique visitors: {hll.count()}")
-# Memory: ~12KB regardless of cardinality
-# Error: ±0.81%
-
-# Merge HLLs from different servers
-hll_server1 = HyperLogLog()
-hll_server2 = HyperLogLog()
-# ... add events to each ...
-hll_server1.merge(hll_server2)  # Combined unique count
-```
-
-**Probabilistic DS selection guide**: (1) **Bloom filter** for "have I seen this?" — web crawlers, cache lookups, database key existence, (2) **Count-Min Sketch** for "how often?" — frequency estimation, heavy hitter detection, (3) **HyperLogLog** for "how many unique?" — unique visitor counts, cardinality estimation, (4) All three trade accuracy for extreme space efficiency — 12KB HLL vs gigabytes for exact sets, (5) Bloom filters have NO false negatives — "definitely not in set" is always correct."""
+            for i in range(self.num_hashes)'''
     ),
     (
         "algorithms/hash-table-design",
-        r"""Explain hash table design including hash function properties, collision resolution strategies (chaining, open addressing, Robin Hood hashing), load factor management, consistent hashing for distributed systems, and implementing a production-quality hash map.""",
-        r"""## Hash Table Design: Collision Resolution, Consistent Hashing, and Performance
-
-Hash tables provide O(1) average-case lookups — the most used data structure in software. Understanding their internals explains performance characteristics and helps design distributed systems.
+        "Explain hash table design including hash function properties, collision resolution strategies (chaining, open addressing, Robin Hood hashing), load factor management, consistent hashing for distributed systems, and implementing a production-quality hash map.",
+        '''Hash tables provide O(1) average-case lookups -- the most used data structure in software. Understanding their internals explains performance characteristics and helps design distributed systems.
 
 ### Hash Function Properties
 
@@ -891,7 +559,7 @@ Hash tables provide O(1) average-case lookups — the most used data structure i
 # A good hash function has:
 # 1. Deterministic: same input always gives same output
 # 2. Uniform distribution: outputs are evenly spread
-# 3. Avalanche effect: small input change → big output change
+# 3. Avalanche effect: small input change -> big output change
 # 4. Fast to compute
 
 # Python's built-in hash() changes per process (security)
@@ -1070,7 +738,7 @@ class ConsistentHashRing:
         self.ring.sort()
 
     def remove_node(self, node_id: str):
-        """Remove a node — only its keys are redistributed."""
+        """Remove a node -- only its keys are redistributed."""
         self.nodes.discard(node_id)
         self.ring = [(h, n) for h, n in self.ring if n != node_id]
 
@@ -1128,22 +796,20 @@ ring.add_node("cache-4")
 replicas = ring.get_nodes("user:42:profile", count=2)
 ```
 
-**Hash table design principles**: (1) **Chaining** is simpler and degrades gracefully — chains just get longer, (2) **Open addressing** is more cache-friendly and uses less memory per entry, (3) **Robin Hood hashing** reduces variance in probe lengths — worst case approaches average case, (4) Keep load factor below 0.75 for open addressing, below 1.0 for chaining, (5) **Consistent hashing** with virtual nodes ensures uniform distribution and minimal disruption when nodes join/leave."""
+**Hash table design principles**: (1) **Chaining** is simpler and degrades gracefully -- chains just get longer, (2) **Open addressing** is more cache-friendly and uses less memory per entry, (3) **Robin Hood hashing** reduces variance in probe lengths -- worst case approaches average case, (4) Keep load factor below 0.75 for open addressing, below 1.0 for chaining, (5) **Consistent hashing** with virtual nodes ensures uniform distribution and minimal disruption when nodes join/leave.'''
     ),
     (
         "algorithms/skip-list-implementation",
-        r"""Explain skip lists including how they work as a probabilistic alternative to balanced trees, insertion with random level generation, search and delete operations, comparison with red-black trees, and why Redis uses skip lists for sorted sets.""",
-        r"""## Skip Lists: Probabilistic Alternative to Balanced Trees
-
-A skip list is a layered linked list where higher layers act as "express lanes" for faster traversal. It provides O(log n) expected search, insert, and delete — same as balanced BSTs — but with much simpler implementation.
+        "Explain skip lists including how they work as a probabilistic alternative to balanced trees, insertion with random level generation, search and delete operations, comparison with red-black trees, and why Redis uses skip lists for sorted sets.",
+        '''A skip list is a layered linked list where higher layers act as "express lanes" for faster traversal. It provides O(log n) expected search, insert, and delete -- same as balanced BSTs -- but with much simpler implementation.
 
 ### How Skip Lists Work
 
 ```
-Level 3:  HEAD ──────────────────────────────────→ 50 ──────────────→ NIL
-Level 2:  HEAD ──────────→ 20 ──────────────────→ 50 ──→ 70 ──────→ NIL
-Level 1:  HEAD ──→ 10 ──→ 20 ──→ 30 ──────────→ 50 ──→ 70 ──→ 80 → NIL
-Level 0:  HEAD → 5 → 10 → 20 → 25 → 30 → 40 → 50 → 60 → 70 → 80 → NIL
+Level 3:  HEAD ──────────────────────────────────-> 50 ──────────────-> NIL
+Level 2:  HEAD ──────────-> 20 ──────────────────-> 50 ──-> 70 ──────-> NIL
+Level 1:  HEAD ──-> 10 ──-> 20 ──-> 30 ──────────-> 50 ──-> 70 ──-> 80 -> NIL
+Level 0:  HEAD -> 5 -> 10 -> 20 -> 25 -> 30 -> 40 -> 50 -> 60 -> 70 -> 80 -> NIL
 ```
 
 Search for 40:
@@ -1366,6 +1032,6 @@ class RedisSkipListLevel:
 # ✓ O(1) average is important
 ```
 
-**Skip list insights**: (1) Probabilistic balancing is simpler than rotation-based balancing — no complex tree rotations, (2) Expected O(log n) with high probability — degenerate O(n) case is astronomically unlikely, (3) Range queries are natural — just walk level 0 from start to end, (4) P=0.25 (Redis's choice) uses less memory than P=0.5 with only slightly taller structures, (5) Skip lists shine in concurrent settings — you only need to lock a few nodes during updates."""
+**Skip list insights**: (1) Probabilistic balancing is simpler than rotation-based balancing -- no complex tree rotations, (2) Expected O(log n) with high probability -- degenerate O(n) case is astronomically unlikely, (3) Range queries are natural -- just walk level 0 from start to end, (4) P=0.25 (Redis's choice) uses less memory than P=0.5 with only slightly taller structures, (5) Skip lists shine in concurrent settings -- you only need to lock a few nodes during updates.'''
     ),
 ]

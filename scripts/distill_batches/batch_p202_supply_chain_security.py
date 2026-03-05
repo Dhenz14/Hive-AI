@@ -1,13 +1,10 @@
-"""Software supply chain security — SBOM, dependency scanning, image signing, SLSA provenance."""
+"""Software supply chain security -- SBOM, dependency scanning, image signing, SLSA provenance."""
 
 PAIRS = [
     (
         "security/sbom-generation",
         "Show how to generate Software Bill of Materials (SBOM) in CycloneDX and SPDX formats for Python projects, containers, and CI/CD pipelines.",
-        '''SBOM generation with CycloneDX and SPDX for Python and containers:
-
-```python
-# --- Generate CycloneDX SBOM programmatically ---
+        '''# --- Generate CycloneDX SBOM programmatically ---
 
 from typing import Optional
 from datetime import datetime, timezone
@@ -23,274 +20,12 @@ from cyclonedx.model import (
     License, LicenseChoice,
     OrganizationalEntity,
     Property,
-    Tool,
-)
-from cyclonedx.output.json import JsonV1Dot5
-from cyclonedx.factory.license import LicenseFactory
-from packageurl import PackageURL
-
-
-def generate_python_sbom(
-    project_name: str,
-    project_version: str,
-    requirements_file: Path,
-    output_path: Path,
-    supplier: str = "MyOrg",
-) -> Bom:
-    """Generate CycloneDX SBOM from a Python project's requirements."""
-    bom = Bom()
-
-    # Root component (the application itself)
-    root = Component(
-        type=ComponentType.APPLICATION,
-        name=project_name,
-        version=project_version,
-        bom_ref=f"pkg:pypi/{project_name}@{project_version}",
-        supplier=OrganizationalEntity(name=supplier),
-        licenses=[LicenseChoice(license=License(id="MIT"))],
-    )
-    bom.metadata.component = root
-
-    # Tool that generated the SBOM
-    bom.metadata.tools.add(Tool(
-        name="hiveai-sbom-generator",
-        version="1.0.0",
-    ))
-    bom.metadata.timestamp = datetime.now(timezone.utc)
-
-    # Parse requirements and add as components
-    lf = LicenseFactory()
-    for line in requirements_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.startswith("-"):
-            continue
-
-        # Parse requirement line: package==version
-        if "==" in line:
-            name, version = line.split("==", 1)
-        elif ">=" in line:
-            name, version = line.split(">=", 1)
-        else:
-            name, version = line, "unknown"
-
-        name = name.strip().lower()
-        version = version.strip().split(";")[0].strip()  # Remove markers
-
-        purl = PackageURL(
-            type="pypi",
-            name=name,
-            version=version,
-        )
-
-        component = Component(
-            type=ComponentType.LIBRARY,
-            name=name,
-            version=version,
-            purl=purl,
-            bom_ref=str(purl),
-        )
-        bom.components.add(component)
-
-    # Write SBOM
-    output = JsonV1Dot5(bom)
-    output_path.write_text(output.output_as_string())
-    return bom
-
-
-# Usage
-sbom = generate_python_sbom(
-    project_name="my-api-service",
-    project_version="2.1.0",
-    requirements_file=Path("requirements.txt"),
-    output_path=Path("sbom.cdx.json"),
-)
-print(f"Generated SBOM with {len(sbom.components)} components")
-```
-
-```bash
-# --- CLI tools for SBOM generation ---
-
-# CycloneDX for Python (from pip dependencies)
-pip install cyclonedx-bom
-cyclonedx-py requirements \
-  --input-file requirements.txt \
-  --output-format json \
-  --schema-version 1.5 \
-  --output-file sbom.cdx.json
-
-# CycloneDX from Poetry
-cyclonedx-py poetry \
-  --output-format json \
-  --output-file sbom.cdx.json
-
-# Syft: generate SBOM from container images (supports CycloneDX + SPDX)
-syft packages myorg/api-service:v2.1.0 \
-  --output cyclonedx-json=sbom-container.cdx.json
-
-syft packages myorg/api-service:v2.1.0 \
-  --output spdx-json=sbom-container.spdx.json
-
-# Syft from a directory
-syft dir:./src \
-  --output cyclonedx-json=sbom-source.cdx.json
-
-# SPDX tool for Python
-pip install spdx-tools
-# Convert between formats
-pyspdxtools_converter --infile sbom.cdx.json --outfile sbom.spdx.json
-
-# Trivy SBOM generation
-trivy image --format cyclonedx --output sbom.cdx.json myorg/api-service:v2.1.0
-trivy fs --format cyclonedx --output sbom-fs.cdx.json .
-
-# Validate SBOM
-pip install cyclonedx-python-lib
-python -c "
-from cyclonedx.model.bom import Bom
-from cyclonedx.parser import JsonParser
-import json
-data = json.loads(open('sbom.cdx.json').read())
-print(f'Valid CycloneDX {data.get(\"specVersion\", \"?\")} SBOM')
-print(f'Components: {len(data.get(\"components\", []))}')
-"
-```
-
-```yaml
-# --- CI/CD pipeline: SBOM generation and attestation ---
-# GitHub Actions workflow
-
-name: SBOM Generation
-on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-
-jobs:
-  sbom:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write       # For release upload
-      id-token: write       # For Sigstore signing
-      packages: write       # For GHCR
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      # Generate SBOM from Python dependencies
-      - name: Generate Python SBOM (CycloneDX)
-        run: |
-          pip install cyclonedx-bom
-          cyclonedx-py requirements \
-            --input-file requirements.txt \
-            --output-format json \
-            --schema-version 1.5 \
-            --output-file python-sbom.cdx.json
-
-      # Build and push container image
-      - name: Build Docker image
-        run: |
-          docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-
-      # Generate SBOM from container image
-      - name: Generate Container SBOM (Syft)
-        uses: anchore/sbom-action@v0
-        with:
-          image: ghcr.io/${{ github.repository }}:${{ github.sha }}
-          format: cyclonedx-json
-          output-file: container-sbom.cdx.json
-
-      # Attest the SBOM (Sigstore)
-      - name: Attest SBOM
-        uses: actions/attest-sbom@v1
-        with:
-          subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          sbom-path: container-sbom.cdx.json
-
-      # Upload SBOMs as release assets
-      - name: Upload SBOMs
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            python-sbom.cdx.json
-            container-sbom.cdx.json
-```
-
-```python
-# --- SBOM analysis and vulnerability correlation ---
-
-import json
-from dataclasses import dataclass
-from pathlib import Path
-
-
-@dataclass
-class SBOMComponent:
-    name: str
-    version: str
-    purl: str
-    component_type: str
-    licenses: list[str]
-
-
-def parse_cyclonedx_sbom(sbom_path: Path) -> list[SBOMComponent]:
-    """Parse CycloneDX JSON SBOM into structured components."""
-    data = json.loads(sbom_path.read_text())
-
-    components = []
-    for comp in data.get("components", []):
-        licenses = []
-        for lic in comp.get("licenses", []):
-            if "license" in lic:
-                lid = lic["license"].get("id") or lic["license"].get("name", "unknown")
-                licenses.append(lid)
-            elif "expression" in lic:
-                licenses.append(lic["expression"])
-
-        components.append(SBOMComponent(
-            name=comp.get("name", ""),
-            version=comp.get("version", ""),
-            purl=comp.get("purl", ""),
-            component_type=comp.get("type", "library"),
-            licenses=licenses,
-        ))
-
-    return components
-
-
-def license_audit(components: list[SBOMComponent]) -> dict[str, list[str]]:
-    """Audit SBOM for license compliance issues."""
-    COPYLEFT_LICENSES = {"GPL-2.0-only", "GPL-3.0-only", "AGPL-3.0-only", "LGPL-2.1-only"}
-    UNKNOWN_RISK = {"unknown", "NOASSERTION", ""}
-
-    issues: dict[str, list[str]] = {
-        "copyleft": [],
-        "unknown": [],
-        "permissive": [],
-    }
-
-    for comp in components:
-        for lic in comp.licenses:
-            if lic in COPYLEFT_LICENSES:
-                issues["copyleft"].append(f"{comp.name}@{comp.version} ({lic})")
-            elif lic in UNKNOWN_RISK:
-                issues["unknown"].append(f"{comp.name}@{comp.version}")
-            else:
-                issues["permissive"].append(f"{comp.name}@{comp.version} ({lic})")
-
-    return issues
-```
-
-| SBOM Format | Standard | Ecosystem | Primary Use |
+    Tool,'''
+    ),
+    (
+        "permissive",
+        "} for comp in components: for lic in comp.licenses: if lic in COPYLEFT_LICENSES: issues['copyleft'].append(f'{comp.name}@{comp.version} ({lic})') elif lic in UNKNOWN_RISK: issues['unknown'].append(f'{comp.name}@{comp.version}') else: issues['permissive'].append(f'{comp.name}@{comp.version} ({lic})') return issues",
+        '''| SBOM Format | Standard | Ecosystem | Primary Use |
 |---|---|---|---|
 | CycloneDX | OWASP | Security-focused | Vulnerability management, compliance |
 | SPDX | Linux Foundation | License-focused | License compliance, legal review |
@@ -316,10 +51,7 @@ Key patterns:
     (
         "security/dependency-scanning",
         "Show dependency scanning and vulnerability detection with Dependabot, Trivy, pip-audit, and Safety with CI/CD integration and remediation workflows.",
-        '''Dependency scanning with Dependabot, Trivy, pip-audit, and Safety:
-
-```yaml
-# --- Dependabot configuration (.github/dependabot.yml) ---
+        '''# --- Dependabot configuration (.github/dependabot.yml) ---
 
 version: 2
 updates:
@@ -416,81 +148,12 @@ class DependencyScanner:
         try:
             result = subprocess.run(
                 [
-                    sys.executable, "-m", "pip_audit",
-                    "--format", "json",
-                    "--output", "-",
-                    "--strict",
-                    "--desc",
-                ],
-                capture_output=True,
-                text=True,
-                cwd=self.project_dir,
-            )
-        except FileNotFoundError:
-            logger.warning("pip-audit not installed; skipping")
-            return []
-
-        vulns = []
-        if result.stdout:
-            data = json.loads(result.stdout)
-            for dep in data.get("dependencies", []):
-                for vuln in dep.get("vulns", []):
-                    v = Vulnerability(
-                        package=dep["name"],
-                        installed_version=dep["version"],
-                        fixed_version=vuln.get("fix_versions", [None])[0]
-                        if vuln.get("fix_versions") else None,
-                        vuln_id=vuln.get("id", "unknown"),
-                        severity=self._map_severity(vuln.get("id", "")),
-                        description=vuln.get("description", "")[:200],
-                        source="pip-audit",
-                    )
-                    vulns.append(v)
-
-        self.vulnerabilities.extend(vulns)
-        return vulns
-
-    def scan_trivy_filesystem(self) -> list[Vulnerability]:
-        """Scan project directory with Trivy."""
-        try:
-            result = subprocess.run(
-                [
-                    "trivy", "fs",
-                    "--format", "json",
-                    "--severity", "CRITICAL,HIGH,MEDIUM",
-                    "--exit-code", "0",
-                    str(self.project_dir),
-                ],
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError:
-            logger.warning("trivy not installed; skipping")
-            return []
-
-        vulns = []
-        if result.stdout:
-            data = json.loads(result.stdout)
-            for res in data.get("Results", []):
-                for vuln_data in res.get("Vulnerabilities", []):
-                    v = Vulnerability(
-                        package=vuln_data.get("PkgName", ""),
-                        installed_version=vuln_data.get("InstalledVersion", ""),
-                        fixed_version=vuln_data.get("FixedVersion"),
-                        vuln_id=vuln_data.get("VulnerabilityID", ""),
-                        severity=vuln_data.get("Severity", "UNKNOWN").lower(),
-                        description=vuln_data.get("Title", "")[:200],
-                        source="trivy",
-                    )
-                    vulns.append(v)
-
-        self.vulnerabilities.extend(vulns)
-        return vulns
-
-    def generate_report(self) -> dict:
-        """Generate a consolidated vulnerability report."""
-        # Deduplicate by (package, vuln_id)
-        seen = set()
+                    sys.executable, "-m", "pip_audit",'''
+    ),
+    (
+        "--exit-code",
+        "str(self.project_dir) ] capture_output=True text=True ) except FileNotFoundError: logger.warning('trivy not installed; skipping') return [] vulns = [] if result.stdout: data = json.loads(result.stdout) for res in data.get('Results', []): for vuln_data in res.get('Vulnerabilities', []): v = Vulnerability( package=vuln_data.get('PkgName', '') installed_version=vuln_data.get('InstalledVersion', '') fixed_version=vuln_data.get('FixedVersion') vuln_id=vuln_data.get('VulnerabilityID', '') severity=vuln_data.get('Severity', 'UNKNOWN').lower() description=vuln_data.get('Title', '')[:200] source='trivy' ) vulns.append(v) self.vulnerabilities.extend(vulns) return vulns def generate_report(self) -> dict:",
+        '''seen = set()
         unique_vulns = []
         for v in self.vulnerabilities:
             key = (v.package, v.vuln_id)
@@ -502,33 +165,12 @@ class DependencyScanner:
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         unique_vulns.sort(key=lambda v: severity_order.get(v.severity, 4))
 
-        report = {
-            "scan_date": datetime.now(timezone.utc).isoformat(),
-            "total_vulnerabilities": len(unique_vulns),
-            "by_severity": {},
-            "vulnerabilities": [],
-        }
-
-        for v in unique_vulns:
-            report["by_severity"].setdefault(v.severity, 0)
-            report["by_severity"][v.severity] += 1
-            report["vulnerabilities"].append({
-                "package": v.package,
-                "installed": v.installed_version,
-                "fixed": v.fixed_version,
-                "id": v.vuln_id,
-                "severity": v.severity,
-                "description": v.description,
-                "source": v.source,
-            })
-
-        return report
-
-    @staticmethod
-    def _map_severity(vuln_id: str) -> str:
-        """Map vulnerability ID to severity (simplified)."""
-        # In production, query the NVD API for actual CVSS scores
-        return "high"  # Default to high for safety
+        report = {'''
+    ),
+    (
+        "source",
+        "}) return report @staticmethod def _map_severity(vuln_id: str) -> str:",
+        '''return "high"  # Default to high for safety
 
 
 # Usage
@@ -649,10 +291,7 @@ Key patterns:
     (
         "security/container-image-signing",
         "Show container image signing and verification with cosign (Sigstore) including keyless signing, SBOM attestation, and admission control in Kubernetes.",
-        '''Container image signing with cosign (Sigstore), attestation, and K8s admission control:
-
-```bash
-# --- cosign: sign container images ---
+        '''# --- cosign: sign container images ---
 
 # Install cosign
 # go install github.com/sigstore/cosign/v2/cmd/cosign@latest
@@ -926,38 +565,12 @@ def verify_image_signature(
             signer_identity=None,
             issuer=None,
             annotations={},
-            transparency_log_index=None,
-        )
-
-    # Parse cosign JSON output
-    try:
-        sigs = json.loads(result.stdout)
-        first_sig = sigs[0] if sigs else {}
-        optional_fields = first_sig.get("optional", {})
-
-        return SignatureVerification(
-            verified=True,
-            signer_identity=optional_fields.get("Subject"),
-            issuer=optional_fields.get("Issuer"),
-            annotations={
-                k: v for k, v in optional_fields.items()
-                if k not in ("Subject", "Issuer")
-            },
-            transparency_log_index=optional_fields.get(
-                "LogIndex"
-            ),
-        )
-    except (json.JSONDecodeError, IndexError):
-        return SignatureVerification(
-            verified=True,
-            signer_identity=None,
-            issuer=None,
-            annotations={},
-            transparency_log_index=None,
-        )
-```
-
-| Signing Method | Key Management | Identity Proof | Transparency | Best For |
+            transparency_log_index=None,'''
+    ),
+    (
+        "LogIndex",
+        ") ) except (json.JSONDecodeError, IndexError): return SignatureVerification( verified=True signer_identity=None issuer=None annotations={} transparency_log_index=None )",
+        '''| Signing Method | Key Management | Identity Proof | Transparency | Best For |
 |---|---|---|---|---|
 | Keyless (Sigstore) | None (ephemeral) | OIDC (GitHub, Google) | Rekor log | CI/CD pipelines |
 | Key-based (cosign) | Manual (cosign.key) | Key possession | Optional Rekor | Air-gapped environments |
@@ -976,10 +589,7 @@ Key patterns:
     (
         "security/reproducible-builds-slsa",
         "Explain reproducible builds and SLSA (Supply-chain Levels for Software Artifacts) provenance with practical implementation using GitHub Actions and SLSA framework.",
-        '''Reproducible builds and SLSA provenance for supply chain integrity:
-
-```
-┌──────────────────────────────────────────────────────────┐
+        '''┌──────────────────────────────────────────────────────────┐
 │                    SLSA Levels                            │
 │                                                           │
 │  Level 0: No guarantees                                   │
@@ -1143,93 +753,24 @@ def reproducible_build(
     for i in range(build_count):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Set deterministic environment variables
-            env = {
-                "SOURCE_DATE_EPOCH": "1709510400",  # Fixed timestamp
-                "PYTHONHASHSEED": "0",              # Deterministic hashing
-                "LC_ALL": "C.UTF-8",                # Consistent locale
-                "TZ": "UTC",                        # Consistent timezone
-                "PATH": "/usr/bin:/bin",             # Minimal PATH
-            }
-
-            result = subprocess.run(
-                [
-                    "python", "-m", "build",
-                    "--wheel",
-                    "--outdir", tmpdir,
-                    "--no-isolation",
-                ],
-                cwd=source_dir,
-                env=env,
-                capture_output=True,
-                text=True,
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(f"Build {i+1} failed: {result.stderr}")
-
-            wheel = list(Path(tmpdir).glob("*.whl"))[0]
-            digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-
-            results.append(BuildResult(
-                artifact_path=wheel,
-                sha256_digest=digest,
-                build_metadata={
-                    "build_number": i + 1,
-                    "source_date_epoch": env["SOURCE_DATE_EPOCH"],
-                },
-            ))
-
-    # Check all digests match
-    digests = {r.sha256_digest for r in results}
+            env = {'''
+    ),
+    (
+        "source_date_epoch",
+        "} ))",
+        '''digests = {r.sha256_digest for r in results}
     is_reproducible = len(digests) == 1
 
     if not is_reproducible:
         import logging
         logging.warning(
             f"Non-reproducible build! Got {len(digests)} different digests: "
-            f"{[r.sha256_digest[:16] for r in results]}"
-        )
-
-    return is_reproducible, results
-
-
-# --- SLSA provenance verification ---
-
-def verify_slsa_provenance(
-    artifact_path: Path,
-    provenance_path: Path,
-    source_uri: str,
-    source_tag: str | None = None,
-    builder_id: str | None = None,
-) -> dict:
-    """
-    Verify SLSA provenance for an artifact.
-    Requires slsa-verifier CLI tool.
-    """
-    cmd = [
-        "slsa-verifier", "verify-artifact",
-        str(artifact_path),
-        "--provenance-path", str(provenance_path),
-        "--source-uri", source_uri,
-    ]
-
-    if source_tag:
-        cmd.extend(["--source-tag", source_tag])
-    if builder_id:
-        cmd.extend(["--builder-id", builder_id])
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    return {
-        "verified": result.returncode == 0,
-        "output": result.stdout.strip(),
-        "errors": result.stderr.strip() if result.returncode != 0 else None,
-    }
-
-
-# --- Dockerfile for reproducible container builds ---
-
-REPRODUCIBLE_DOCKERFILE = '''
+            f"{[r.sha256_digest[:16] for r in results]}"'''
+    ),
+    (
+        "errors",
+        "}",
+        '''REPRODUCIBLE_DOCKERFILE = """
 # syntax=docker/dockerfile:1
 
 # Pin base image by digest (not tag)
@@ -1265,7 +806,7 @@ RUN useradd -r -s /bin/false appuser
 USER appuser
 
 ENTRYPOINT ["python", "-m", "my_api_service"]
-'''
+"""
 ```
 
 | SLSA Level | Requirements | Protection Against |
@@ -1296,4 +837,3 @@ Key patterns:
 7. **Ephemeral builders** -- use fresh, isolated build environments to prevent cross-build contamination'''
     ),
 ]
-"""

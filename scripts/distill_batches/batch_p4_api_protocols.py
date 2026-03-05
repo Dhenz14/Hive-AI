@@ -1,5 +1,5 @@
 """
-Batch P4 — API Protocols: GraphQL, gRPC, REST, WebSocket, rate limiting.
+Batch P4 -- API Protocols: GraphQL, gRPC, REST, WebSocket, rate limiting.
 Each pair targets >0.80 quality score.
 """
 
@@ -7,11 +7,11 @@ PAIRS = [
     # --- 1. GraphQL Server Design ---
     (
         "graphql_server_design_strawberry",
-        "Explain GraphQL server design in depth — schema-first vs code-first approaches, resolver "
+        "Explain GraphQL server design in depth -- schema-first vs code-first approaches, resolver "
         "architecture, DataLoader pattern for solving the N+1 query problem, real-time subscriptions, "
         "and how to build a production GraphQL API using Strawberry in Python with proper typing, "
         "authentication, pagination, and error handling.",
-        """\
+        '''\
 # GraphQL Server Design: Schema-First vs Code-First with Strawberry
 
 ## Why GraphQL Over REST?
@@ -23,9 +23,9 @@ shapes, the **client declares exactly what it needs**.
 
 ```
 REST approach for a user profile page:
-  GET /api/users/123          → { id, name, email, bio, avatar, ... 47 more fields }
-  GET /api/users/123/posts    → [{ id, title, body, ... }]
-  GET /api/users/123/followers → [{ id, name, ... }]
+  GET /api/users/123          -> { id, name, email, bio, avatar, ... 47 more fields }
+  GET /api/users/123/posts    -> [{ id, title, body, ... }]
+  GET /api/users/123/followers -> [{ id, name, ... }]
   = 3 round trips, massive over-fetching
 
 GraphQL approach:
@@ -46,15 +46,15 @@ implications for team workflow and type safety.
 **Schema-first** (SDL-first) means writing the `.graphql` schema files by hand, then
 generating or wiring resolvers to match. Tools like Apollo Server and Ariadne use this.
 The **best practice** is schema-first when your schema is a contract between frontend and
-backend teams — designers can review the schema without reading Python code.
+backend teams -- designers can review the schema without reading Python code.
 
 **Code-first** means defining your schema in the host language (Python, TypeScript), and the
 SDL is generated automatically. Strawberry, Graphene, and Nexus use this approach. The
-advantage is **type safety** — because the schema is defined in Python with type hints, your
+advantage is **type safety** -- because the schema is defined in Python with type hints, your
 IDE catches errors that schema-first only catches at runtime.
 
 ```python
-# Schema-first with Ariadne — schema and code are separate
+# Schema-first with Ariadne -- schema and code are separate
 # schema.graphql
 """
 type User {
@@ -70,13 +70,13 @@ type Query {
 }
 """
 
-# resolvers.py — must manually keep in sync with schema
+# resolvers.py -- must manually keep in sync with schema
 # Common mistake: schema says `posts` returns PostConnection
-# but resolver returns a plain list — silent runtime error
+# but resolver returns a plain list -- silent runtime error
 ```
 
 ```python
-# Code-first with Strawberry — schema IS the code
+# Code-first with Strawberry -- schema IS the code
 import strawberry
 from typing import Optional
 from datetime import datetime
@@ -102,7 +102,7 @@ class User:
 ```
 
 The **common mistake** with code-first is treating it as "just define some classes." You must
-still think carefully about your schema design — nullability, connections, input types — because
+still think carefully about your schema design -- nullability, connections, input types -- because
 the code IS the contract.
 
 ## DataLoader: Solving the N+1 Problem
@@ -147,7 +147,7 @@ class PostLoader:
         result = await self.db.execute(stmt)
         rows = result.scalars().all()
 
-        # Group by user_id — MUST return results in same order as keys
+        # Group by user_id -- MUST return results in same order as keys
         posts_by_user: Dict[int, List[Post]] = defaultdict(list)
         for row in rows:
             posts_by_user[row.user_id].append(
@@ -472,14 +472,14 @@ async def test_dataloader_batching(test_client, caplog):
         response = await test_client.post("/graphql", json={"query": query})
 
     assert response.status_code == 200
-    # Count SQL queries — should be 2 (users + batched posts), not 51
+    # Count SQL queries -- should be 2 (users + batched posts), not 51
     sql_queries = [r for r in caplog.records if "SELECT" in r.message]
     assert len(sql_queries) <= 3, f"N+1 detected: {len(sql_queries)} queries"
 ```
 
 ## Summary and Key Takeaways
 
-**Schema-first vs code-first** is not a universal answer — use schema-first when the GraphQL
+**Schema-first vs code-first** is not a universal answer -- use schema-first when the GraphQL
 schema serves as a contract across teams (frontend/backend/mobile), and use code-first with
 Strawberry when you want **compile-time type safety** and your Python types are the source of
 truth. The common mistake is choosing based on preference rather than team structure.
@@ -495,18 +495,18 @@ subscriptions require sticky sessions or a shared pub/sub backend in multi-serve
 **Pagination** should always use Relay-style cursor pagination (Connection/Edge/PageInfo) rather
 than offset-based pagination. Cursors are stable under inserts and perform better because the
 database uses index seeks rather than offset scans. However, cursor pagination cannot support
-"jump to page 47" — therefore, use offset pagination only when random page access is a hard
+"jump to page 47" -- therefore, use offset pagination only when random page access is a hard
 requirement from the product team.
-"""
+'''
     ),
     # --- 2. gRPC Service Design ---
     (
         "grpc_service_design_python",
-        "Explain gRPC service design in depth — protobuf schema design, the four streaming patterns "
+        "Explain gRPC service design in depth -- protobuf schema design, the four streaming patterns "
         "(unary, server streaming, client streaming, bidirectional), interceptors for auth and "
         "logging, and how to build a production Python gRPC server with health checking, reflection, "
         "graceful shutdown, error handling, and comprehensive testing.",
-        """\
+        '''\
 # gRPC Service Design: High-Performance RPC with Protocol Buffers
 
 ## Why gRPC Over REST?
@@ -535,7 +535,7 @@ is gRPC for internal service-to-service communication and REST/GraphQL for exter
 ## Protobuf Schema Design
 
 ```protobuf
-// service.proto — the single source of truth for your API contract
+// service.proto -- the single source of truth for your API contract
 syntax = "proto3";
 
 package orderservice.v1;
@@ -570,7 +570,7 @@ message OrderItem {
     string product_id = 1;
     string product_name = 2;
     int32 quantity = 3;
-    // Use integer cents to avoid floating point — common mistake is using float
+    // Use integer cents to avoid floating point -- common mistake is using float
     int64 price_cents = 4;
 }
 
@@ -674,7 +674,7 @@ import grpc
 from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from grpc_reflection.v1alpha import reflection
 
-# Generated from protobuf — run: python -m grpc_tools.protoc ...
+# Generated from protobuf -- run: python -m grpc_tools.protoc ...
 import order_service_pb2 as pb2
 import order_service_pb2_grpc as pb2_grpc
 
@@ -850,7 +850,7 @@ from typing import Callable, Any
 class AuthInterceptor(grpc.aio.ServerInterceptor):
     """Server interceptor that validates JWT tokens on every request.
 
-    Interceptors are the gRPC equivalent of middleware — they wrap every
+    Interceptors are the gRPC equivalent of middleware -- they wrap every
     RPC call. This is the best practice for cross-cutting concerns like
     auth, logging, and metrics because it keeps business logic clean.
     """
@@ -960,7 +960,7 @@ class MetricsInterceptor(grpc.aio.ServerInterceptor):
 ```python
 async def serve(port: int = 50051) -> None:
     """Start the gRPC server with health checking, reflection, and graceful shutdown."""
-    # Create interceptor chain — order matters
+    # Create interceptor chain -- order matters
     auth_svc = AuthService()
     interceptors = [
         MetricsInterceptor(),
@@ -987,7 +987,7 @@ async def serve(port: int = 50051) -> None:
         OrderServicer(repo, event_bus), server
     )
 
-    # Health checking — required for Kubernetes readiness probes
+    # Health checking -- required for Kubernetes readiness probes
     health_servicer = health.aio.HealthServicer()
     health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
     await health_servicer.set(
@@ -995,7 +995,7 @@ async def serve(port: int = 50051) -> None:
         health_pb2.HealthCheckResponse.SERVING,
     )
 
-    # Reflection — allows grpcurl and other tools to discover services
+    # Reflection -- allows grpcurl and other tools to discover services
     SERVICE_NAMES = (
         pb2.DESCRIPTOR.services_by_name["OrderService"].full_name,
         reflection.SERVICE_NAME,
@@ -1119,7 +1119,7 @@ async def test_server_streaming(stub):
     order_resp = await stub.CreateOrder(create_req)
     order_id = order_resp.order.id
 
-    # Watch for events — read first event with timeout
+    # Watch for events -- read first event with timeout
     watch_req = pb2.GetOrderRequest(order_id=order_id)
     call = stub.WatchOrder(watch_req)
     # Cancel after first event in test
@@ -1131,7 +1131,7 @@ async def test_invalid_request(stub):
     """Test error handling for invalid requests."""
     request = pb2.CreateOrderRequest(
         customer_id="cust-1",
-        items=[],  # Empty items — should fail
+        items=[],  # Empty items -- should fail
         shipping_address=pb2.Address(street="1 St", city="C", state="S", zip_code="0", country="US"),
     )
     with pytest.raises(grpc.aio.AioRpcError) as exc_info:
@@ -1150,7 +1150,7 @@ currency, which causes rounding errors that compound across transactions.
 **The four streaming patterns** serve distinct use cases: unary for simple request-response,
 server streaming for real-time feeds and event watching, client streaming for bulk uploads,
 and bidirectional streaming for interactive pipelines. The trade-off with streaming is
-complexity — you must handle cancellation, backpressure, and partial failures that do not
+complexity -- you must handle cancellation, backpressure, and partial failures that do not
 exist in unary calls.
 
 **Interceptors** are the gRPC equivalent of middleware and should handle all cross-cutting
@@ -1164,17 +1164,17 @@ checks for readiness probes, and reflection enables `grpcurl` for debugging. How
 common mistake is forgetting to update the health status to `NOT_SERVING` during graceful
 shutdown, causing the load balancer to continue routing traffic to a shutting-down server.
 Therefore, always set NOT_SERVING before calling `server.stop()` with a grace period.
-"""
+'''
     ),
     # --- 3. REST API Design Best Practices ---
     (
         "rest_api_design_fastapi",
-        "Explain REST API design best practices in depth — HATEOAS and hypermedia controls, "
+        "Explain REST API design best practices in depth -- HATEOAS and hypermedia controls, "
         "versioning strategies (URL path vs header vs query parameter), pagination approaches "
         "(cursor-based vs offset-based), filtering and sorting, standardized error responses "
         "(RFC 7807), OpenAPI specification, and a complete FastAPI implementation demonstrating "
         "all these patterns with proper validation and testing.",
-        """\
+        '''\
 # REST API Design Best Practices: From Theory to FastAPI Implementation
 
 ## The REST Maturity Model
@@ -1186,10 +1186,10 @@ maturity model defines four levels:
 Level 0: Single endpoint, POST everything (SOAP, XML-RPC)
 Level 1: Resources with unique URIs (/users/123, /orders/456)
 Level 2: HTTP verbs used correctly (GET reads, POST creates, PUT replaces, PATCH updates)
-Level 3: HATEOAS — responses include links to related actions and resources
+Level 3: HATEOAS -- responses include links to related actions and resources
 ```
 
-Most production APIs are Level 2. Level 3 (HATEOAS) is controversial — the **trade-off** is
+Most production APIs are Level 2. Level 3 (HATEOAS) is controversial -- the **trade-off** is
 that it makes APIs self-discoverable and evolvable (clients follow links instead of
 hardcoding URLs), but it adds payload size and implementation complexity. The **best practice**
 is to implement HATEOAS for public APIs that evolve independently from clients, and skip it
@@ -1224,13 +1224,13 @@ for internal microservice APIs where tight coupling is acceptable.
 
 The key insight is that the **links change based on state**. A shipped order would NOT include
 a `cancel` link because cancellation is no longer valid. This means the client never needs to
-hardcode business rules about which operations are available — it reads them from the response.
+hardcode business rules about which operations are available -- it reads them from the response.
 
 ## Versioning Strategies
 
 ```
 1. URL Path Versioning (most common):
-   /api/v1/users  →  /api/v2/users
+   /api/v1/users  ->  /api/v2/users
    Pros: Obvious, cache-friendly, easy to route
    Cons: Not really "RESTful" (same resource, different URIs)
 
@@ -1424,7 +1424,7 @@ class OrderCreate(BaseModel):
 
 
 class OrderUpdate(BaseModel):
-    """Partial update — all fields optional."""
+    """Partial update -- all fields optional."""
     shipping_address: Optional[str] = Field(default=None, min_length=5)
     metadata: Optional[dict[str, str]] = None
 
@@ -1449,7 +1449,7 @@ class OrderResponse(BaseModel):
             "customer": Link(href=f"{base_url}/api/v1/customers/{self.customer_id}"),
         }
 
-        # State-dependent links — the key HATEOAS pattern
+        # State-dependent links -- the key HATEOAS pattern
         if self.status == OrderStatus.PENDING:
             self._links["confirm"] = Link(
                 href=f"{base_url}/api/v1/orders/{self.id}/confirm",
@@ -1645,7 +1645,7 @@ async def update_order(
     order_id: str = Path(description="Order ID"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Partial update using PATCH — only provided fields are updated."""
+    """Partial update using PATCH -- only provided fields are updated."""
     order = await db.get(OrderModel, order_id)
     if not order:
         raise ProblemDetailException(
@@ -1805,7 +1805,7 @@ async def test_filtering(client):
 
 ## Summary and Key Takeaways
 
-**HATEOAS** makes APIs self-documenting and evolvable — clients discover available actions from
+**HATEOAS** makes APIs self-documenting and evolvable -- clients discover available actions from
 response links rather than hardcoding URLs. The **best practice** is state-dependent links
 (a shipped order does not show a cancel link). However, the trade-off is increased payload size
 and implementation effort, therefore reserve full HATEOAS for public APIs with many client
@@ -1818,23 +1818,23 @@ rather than the entire API surface, which creates a combinatorial nightmare.
 **Cursor pagination** is strictly superior to offset pagination for any dataset with concurrent
 writes. The pitfall with offset is that inserting or deleting rows shifts the offset window,
 causing duplicate or missing items. Cursors use index seeks which are O(1) regardless of
-position. However, cursor pagination cannot support "jump to page N" — therefore, use offset
+position. However, cursor pagination cannot support "jump to page N" -- therefore, use offset
 only when random page access is a hard product requirement.
 
 **RFC 7807 Problem Details** should be the standard error format for every REST API. It
 provides machine-readable `type` URIs, human-readable `detail`, and extensible fields for
 validation errors. The common mistake is returning plain text errors or inconsistent JSON
-structures across endpoints — standardizing on RFC 7807 makes client error handling uniform.
-"""
+structures across endpoints -- standardizing on RFC 7807 makes client error handling uniform.
+'''
     ),
     # --- 4. WebSocket Real-Time Systems ---
     (
         "websocket_realtime_systems_python",
-        "Explain WebSocket real-time system design in depth — connection lifecycle management, "
+        "Explain WebSocket real-time system design in depth -- connection lifecycle management, "
         "heartbeat and automatic reconnection strategies, pub/sub room-based messaging, binary "
         "protocol design with message framing, and build a production Python asyncio WebSocket "
         "server with connection registry, room management, backpressure handling, and tests.",
-        """\
+        '''\
 # WebSocket Real-Time Systems: Connection Management to Binary Protocols
 
 ## Why WebSockets Over HTTP Polling?
@@ -1845,28 +1845,28 @@ eliminates the fundamental inefficiency of polling.
 
 ```
 HTTP Polling (every 1 second):
-  Client: GET /messages → 200 "no new messages"  (wasted request)
-  Client: GET /messages → 200 "no new messages"  (wasted request)
-  Client: GET /messages → 200 "1 new message"    (1 second latency)
+  Client: GET /messages -> 200 "no new messages"  (wasted request)
+  Client: GET /messages -> 200 "no new messages"  (wasted request)
+  Client: GET /messages -> 200 "1 new message"    (1 second latency)
   = 60 requests/minute per client, most returning nothing
   = 60,000 requests/minute for 1,000 clients
 
 WebSocket:
-  Client: WS handshake → upgrade to WebSocket
-  Server: (sends message when available) → 0ms latency
+  Client: WS handshake -> upgrade to WebSocket
+  Server: (sends message when available) -> 0ms latency
   = 1 connection per client, messages pushed instantly
   = 1,000 persistent connections, zero polling waste
 ```
 
 However, WebSockets have **trade-offs**: they are stateful (harder to scale horizontally),
 bypass HTTP caching, and require explicit handling of disconnection, reconnection, and
-backpressure. The **common mistake** is treating WebSockets like HTTP — fire and forget — when
+backpressure. The **common mistake** is treating WebSockets like HTTP -- fire and forget -- when
 they actually require careful lifecycle management.
 
 ## Connection Lifecycle and Heartbeat
 
 A production WebSocket system must handle five states: **connecting**, **open**, **closing**,
-**closed**, and **reconnecting**. The most critical concern is detecting dead connections —
+**closed**, and **reconnecting**. The most critical concern is detecting dead connections --
 because TCP does not detect half-open connections quickly, a client can appear connected even
 though the network path is broken.
 
@@ -1881,7 +1881,7 @@ Heartbeat Protocol:
   If no PONG:    Client starts reconnection with exponential backoff
 ```
 
-The **best practice** is bidirectional heartbeats — the server pings clients (to detect dead
+The **best practice** is bidirectional heartbeats -- the server pings clients (to detect dead
 clients and free resources), and clients ping the server (to detect network failures and
 trigger reconnection). Using only server-side pings is a pitfall because clients never
 discover that their connection is broken until they try to send data.
@@ -1940,7 +1940,7 @@ class ConnectionRegistry:
     """Thread-safe registry of all active WebSocket connections.
 
     Provides O(1) lookup by connection ID and by user ID, and O(1) room
-    membership queries. This is essential for scaling — without proper
+    membership queries. This is essential for scaling -- without proper
     indexing, broadcasting to a room of 10,000 users requires scanning
     all connections.
     """
@@ -1997,7 +1997,7 @@ class ConnectionRegistry:
             return True
 
     def get_room_connections(self, room: str) -> list[Connection]:
-        """Get all connections in a room — O(room_size), not O(total_connections)."""
+        """Get all connections in a room -- O(room_size), not O(total_connections)."""
         conn_ids = self._by_room.get(room, set())
         return [self._connections[cid] for cid in conn_ids if cid in self._connections]
 
@@ -2016,7 +2016,7 @@ class MessageBroker:
     """In-process pub/sub broker for room-based messaging.
 
     For multi-server deployments, replace this with Redis Pub/Sub or
-    similar. The interface stays the same — that is the key abstraction
+    similar. The interface stays the same -- that is the key abstraction
     boundary.
     """
 
@@ -2037,7 +2037,7 @@ class MessageBroker:
         """Send message to all connections in a room.
 
         Returns the number of successful sends. Uses backpressure-aware
-        sending — if a client's queue is full, we drop the message for
+        sending -- if a client's queue is full, we drop the message for
         that client rather than blocking the entire broadcast.
         """
         connections = self.registry.get_room_connections(room)
@@ -2048,7 +2048,7 @@ class MessageBroker:
             if conn.id == exclude:
                 continue
             try:
-                # Non-blocking put — drop if queue is full (backpressure)
+                # Non-blocking put -- drop if queue is full (backpressure)
                 conn.send_queue.put_nowait(payload)
                 sent += 1
             except asyncio.QueueFull:
@@ -2126,7 +2126,7 @@ class WebSocketServer:
             await self._server.wait_closed()
 
     async def _handler(self, ws: WebSocketServerProtocol) -> None:
-        """Main connection handler — runs for the lifetime of each connection."""
+        """Main connection handler -- runs for the lifetime of each connection."""
         conn = Connection(ws=ws)
 
         try:
@@ -2187,7 +2187,7 @@ class WebSocketServer:
             )
 
     async def _send_loop(self, conn: Connection) -> None:
-        """Dedicated send loop — drains the connection's send queue.
+        """Dedicated send loop -- drains the connection's send queue.
 
         Separating send from receive prevents a slow send from blocking
         message reception. This is the key pattern for backpressure handling.
@@ -2492,11 +2492,11 @@ async def test_binary_protocol():
 
 **Connection lifecycle management** is the most critical aspect of WebSocket systems. Every
 connection must be tracked in a registry with O(1) lookup by ID, user, and room. The
-**common mistake** is forgetting to clean up on disconnection — leaked connections accumulate
+**common mistake** is forgetting to clean up on disconnection -- leaked connections accumulate
 and exhaust server memory. Therefore, always use try/finally blocks and remove connections
 from all indexes on disconnect.
 
-**Heartbeat must be bidirectional** — server pings detect dead clients (freeing resources),
+**Heartbeat must be bidirectional** -- server pings detect dead clients (freeing resources),
 and client pings detect network failures (triggering reconnection). The **best practice** is
 a 30-second interval with a 10-second timeout, and exponential backoff on reconnection
 (1s, 2s, 4s, 8s... capped at 30s). A pitfall is using only WebSocket protocol-level pings
@@ -2504,41 +2504,41 @@ without application-level pings, because some proxies and load balancers strip W
 control frames.
 
 **Backpressure handling** prevents slow consumers from blocking the entire system. The pattern
-is a per-connection send queue with a size limit — when the queue is full, messages are dropped
+is a per-connection send queue with a size limit -- when the queue is full, messages are dropped
 for that connection rather than blocking the broadcast. The trade-off is message loss for slow
 clients, but the alternative (blocking) causes cascading failures across all clients.
 
 **Binary protocols** reduce bandwidth 3-10x compared to JSON, which matters at scale (10,000+
-connections). However, the trade-off is debugging difficulty — you cannot read binary frames
+connections). However, the trade-off is debugging difficulty -- you cannot read binary frames
 in browser dev tools. The best practice is to support both JSON (development/debugging) and
 binary (production) modes, switching based on a connection parameter.
-"""
+'''
     ),
     # --- 5. API Rate Limiting and Throttling ---
     (
         "api_rate_limiting_throttling",
-        "Explain API rate limiting and throttling in depth — token bucket and sliding window "
+        "Explain API rate limiting and throttling in depth -- token bucket and sliding window "
         "algorithms, distributed rate limiting with Redis, per-user and per-endpoint quotas, "
         "graceful degradation strategies, and build a complete Python middleware implementation "
         "for FastAPI with multiple rate limit tiers, Redis backend, and comprehensive testing.",
-        """\
+        '''\
 # API Rate Limiting and Throttling: Protecting Services at Scale
 
 ## Why Rate Limiting is Non-Negotiable
 
-Every production API needs rate limiting. Without it, a single misbehaving client — whether
-malicious or buggy — can overwhelm your service and cause cascading failures for all users.
+Every production API needs rate limiting. Without it, a single misbehaving client -- whether
+malicious or buggy -- can overwhelm your service and cause cascading failures for all users.
 Rate limiting is not just about security; it is about **reliability** and **fairness**.
 
 ```
 Without rate limiting:
-  Normal client:    100 req/s  → 200ms response time
-  Buggy client:  50,000 req/s  → All clients get 5000ms+ or timeouts
+  Normal client:    100 req/s  -> 200ms response time
+  Buggy client:  50,000 req/s  -> All clients get 5000ms+ or timeouts
   Result: One client takes down the entire service
 
 With rate limiting:
-  Normal client:    100 req/s  → 200ms response time (allowed)
-  Buggy client:  50,000 req/s  → 429 Too Many Requests after 1000 req/s
+  Normal client:    100 req/s  -> 200ms response time (allowed)
+  Buggy client:  50,000 req/s  -> 429 Too Many Requests after 1000 req/s
   Result: Buggy client is throttled, all others unaffected
 ```
 
@@ -2551,16 +2551,16 @@ consumes one token, and tokens refill at a fixed rate.
 ```
 Token Bucket (capacity=10, refill_rate=5/sec):
 
-  t=0.0:  bucket=[10 tokens]  →  request: consume 1  →  [9 tokens]  ✓
-  t=0.0:  bucket=[9 tokens]   →  burst of 9 requests  →  [0 tokens]  ✓
-  t=0.0:  bucket=[0 tokens]   →  request: NO tokens   →  429 ✗
-  t=0.2:  bucket=[1 token]    →  1 token refilled (5/sec × 0.2s)
-  t=1.0:  bucket=[5 tokens]   →  5 tokens refilled (5/sec × 1s)
+  t=0.0:  bucket=[10 tokens]  ->  request: consume 1  ->  [9 tokens]  ✓
+  t=0.0:  bucket=[9 tokens]   ->  burst of 9 requests  ->  [0 tokens]  ✓
+  t=0.0:  bucket=[0 tokens]   ->  request: NO tokens   ->  429 ✗
+  t=0.2:  bucket=[1 token]    ->  1 token refilled (5/sec x 0.2s)
+  t=1.0:  bucket=[5 tokens]   ->  5 tokens refilled (5/sec x 1s)
 
 The beauty: allows bursts up to capacity, but sustained rate = refill_rate
 ```
 
-The **trade-off** compared to fixed windows is complexity — token bucket requires tracking
+The **trade-off** compared to fixed windows is complexity -- token bucket requires tracking
 the last refill time and calculating fractional refills. However, it avoids the "boundary
 burst" problem where fixed windows allow 2x the rate at window boundaries.
 
@@ -2574,7 +2574,7 @@ Sliding Window (limit=100 per minute):
 
   Window = [now - 60s, now]
   Requests in window: counted in real time
-  New request: if count < 100 → allow, else → 429
+  New request: if count < 100 -> allow, else -> 429
 
   Practical implementation uses a weighted combination of current and
   previous window counts to avoid storing every timestamp:
@@ -2582,8 +2582,8 @@ Sliding Window (limit=100 per minute):
   current_window_count = 40 (we're 30s into current minute)
   previous_window_count = 80
   weight = (60 - 30) / 60 = 0.5  (50% of previous window overlaps)
-  estimated_count = 40 + (80 × 0.5) = 80
-  80 < 100 → allowed
+  estimated_count = 40 + (80 x 0.5) = 80
+  80 < 100 -> allowed
 ```
 
 ## Complete Rate Limiter Implementation
@@ -2834,7 +2834,7 @@ import redis.asyncio as redis
 class RateLimitTier:
     """Rate limit configuration for a user tier.
 
-    Different tiers allow different quotas — free users get basic limits,
+    Different tiers allow different quotas -- free users get basic limits,
     paid users get higher limits, and internal services get the highest.
     """
     name: str
@@ -2934,7 +2934,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def _identify_client(self, request: Request) -> Tuple[str, RateLimitTier]:
         """Extract client identity and tier from the request.
 
-        Priority: API key → JWT user → IP address.
+        Priority: API key -> JWT user -> IP address.
         Common mistake: using only IP, which fails behind NATs and proxies.
         """
         # Check API key first
@@ -3016,7 +3016,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not daily_result.allowed:
             return self._rate_limit_response(daily_result, "daily")
 
-        # Request allowed — add rate limit headers to response
+        # Request allowed -- add rate limit headers to response
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(global_result.limit)
         response.headers["X-RateLimit-Remaining"] = str(global_result.remaining)
@@ -3132,7 +3132,7 @@ async def test_token_bucket_refills(token_bucket):
     for _ in range(10):
         await token_bucket.check("user-2")
 
-    # Wait for 1 second — should refill 5 tokens (rate = 5/sec)
+    # Wait for 1 second -- should refill 5 tokens (rate = 5/sec)
     await asyncio.sleep(1.1)
 
     results = []
@@ -3233,11 +3233,11 @@ async def test_reset_clears_limit(token_bucket):
 **Token bucket** is the best general-purpose rate limiting algorithm because it naturally
 allows bursts (up to bucket capacity) while enforcing a sustained rate (refill rate). The
 **common mistake** is using fixed window counters, which allow 2x the intended rate at window
-boundaries — a client can send 100 requests at 11:59:59 and 100 more at 12:00:01, getting
+boundaries -- a client can send 100 requests at 11:59:59 and 100 more at 12:00:01, getting
 200 requests in 2 seconds despite a 100/minute limit.
 
 **Distributed rate limiting with Redis** is essential for multi-server deployments. The
-**best practice** is atomic Lua scripts — they execute on the Redis server as a single
+**best practice** is atomic Lua scripts -- they execute on the Redis server as a single
 operation, preventing race conditions where two servers both read "99 remaining" and both
 allow a request, resulting in 101 total. The pitfall is using separate GET/SET commands,
 which create a time-of-check-to-time-of-use (TOCTOU) race.
@@ -3252,8 +3252,8 @@ network identity.
 critical for client-side handling. Well-behaved clients use these headers to self-throttle
 before hitting 429 errors. The trade-off is that these headers leak your rate limit
 configuration to potential attackers, but transparency for legitimate clients outweighs the
-risk. The best practice is to always return `Retry-After` on 429 responses — without it,
+risk. The best practice is to always return `Retry-After` on 429 responses -- without it,
 clients resort to arbitrary backoff strategies that waste both client and server resources.
-"""
+'''
     ),
 ]

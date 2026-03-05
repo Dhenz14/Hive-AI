@@ -40,12 +40,14 @@ It operates fully offline with Ollama — no API keys required — while seamles
 
 ### LoRA Training Pipeline
 - **Self-Distillation** — 16 prompt templates generate training pairs from the model's own knowledge (standard + O1-style reasoning)
-- **Claude Opus Distillation** — 1,044 expert-curated training pairs across 298 batch files covering 60+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML, AI reasoning, multi-agent systems, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
+- **Claude Opus Distillation** — 1,739 expert-curated training pairs across 472 batch files covering 80+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML/AI, system design, compilers, distributed systems, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
+- **Self-Improvement Pipeline** — Autonomous "get smarter" loop: self-eval → data generation → QLoRA training → GGUF export → validation. Includes LoRA bank, curriculum meta-learning, error-driven learning, and online distillation (p400-p407 batch series)
 - **Genetic Expansion** — Mutation operators (rephrase, constrain, generalize, error-inject, multi-step) expand top pairs for data diversity
 - **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
 - **Merge Cycling** — Train LoRA → merge into base → train new LoRA on improved base → repeat. Each cycle bakes specialization deeper into core weights
 - **MoLoRA (Mixture of LoRA Experts)** — Domain-specialized LoRAs with intelligent keyword-based query routing. Each domain gets its own merged Ollama model with graceful fallback to the generalist
 - **Eval System** — 115 coding challenges (100 general + 15 Hive-specific) across 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%)
+- **Model Benchmark Harness** — 12-task harness across 4 categories (single-shot generation, refactoring, debugging, context retention) measuring tokens/sec, TTFT, VRAM, speculative decoding acceptance rate, and task success. Built-in model comparison mode
 - **Multi-Backend Serving** — Ollama for standard models, llama-server for LoRA adapters, OpenRouter for cloud models. Automatic routing via `smart_call()`
 
 ### Blockchain Publishing
@@ -312,6 +314,29 @@ python scripts/run_eval.py --base-url http://localhost:11435
 python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
 ```
 
+### Model Benchmark Harness
+
+Benchmark coding models across 4 task categories with detailed performance metrics:
+
+```bash
+# Benchmark a single model
+python -m bench.run_bench --model qwen2.5-coder:14b-q5_K_M
+
+# Head-to-head comparison
+python -m bench.run_bench --model qwen3.5:9b --compare qwen2.5-coder:14b-q5_K_M
+
+# Speculative decoding via llama-server
+python -m bench.run_bench --model qwen2.5-coder-14b --backend llama-server --draft qwen2.5-coder-1.5b
+
+# Run specific category only
+python -m bench.run_bench --model qwen3.5:9b --category single_shot debug
+```
+
+**Categories**: single-shot generation (5 tasks), refactoring (2), debugging (3), context retention (2)
+**Metrics**: score, pass rate, tokens/sec, time-to-first-token, VRAM peak, speculative decoding acceptance rate
+
+Results are saved as timestamped JSON in `bench/results/` for tracking improvements across training cycles.
+
 ### LoRA Version History
 
 | Version | Base Model | Status | Pairs | Eval Score | Notes |
@@ -325,7 +350,7 @@ python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
 
 #### Claude Opus Distillation Corpus
 
-In addition to self-distilled pairs, the project includes 1,044 expert-curated training pairs distilled from Claude Opus 4.6, organized across 298 batch files in `scripts/distill_batches/`. These cover 60+ domains including Python stdlib, async patterns, TypeScript, React, CSS Grid/Flexbox, DevOps (systemd/nginx/Docker/Terraform/Flux CD/Cilium), databases (PostgreSQL, TiDB, Drizzle ORM, Neon), authentication (JWT/OAuth2/RBAC), AI/ML (GRPO, DPO, Constitutional AI, RoPE scaling, multi-agent systems, RAG, structured outputs, tool use), modern frameworks (Next.js 15, Deno 2, islands architecture, streaming SSR), and more. Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence.
+In addition to self-distilled pairs, the project includes 1,739 expert-curated training pairs distilled from Claude Opus 4.6, organized across 472 batch files in `scripts/distill_batches/`. These cover 80+ domains including Python stdlib, async patterns, TypeScript, React, CSS, DevOps, databases, authentication, AI/ML (GRPO, DPO, RAG, multi-agent systems, speculative decoding, federated learning), system design, compilers, distributed systems, security, and an autonomous self-improvement pipeline (p400-p407: self-training loops, QLoRA, self-eval/reward, GGUF optimization, meta-learning, error-driven learning, online distillation, and the "get smarter" orchestrator). Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence.
 
 ---
 
@@ -621,7 +646,8 @@ hiveai-knowledge-refinery/
 │   │   ├── brain_export.py    # IPFS pinning + Hive LoRA publication
 │   │   ├── exporter.py        # Golden Books → JSONL training pairs
 │   │   ├── dedup.py           # Embedding-based deduplication gate
-│   │   └── benchmark.py       # Held-out evaluation harness
+│   │   ├── benchmark.py       # Held-out evaluation harness
+│   │   └── miner.py           # Multi-source training pair miner
 │   ├── dbc/
 │   │   ├── chain.py           # Hive blockchain abstraction, pair encoding, protocol logic
 │   │   ├── node.py            # DBC node daemon with MockChain for testing
@@ -667,11 +693,17 @@ hiveai-knowledge-refinery/
 │   ├── calibrate_eval.py      # Eval anchor calibration
 │   ├── claude_distill.py      # Claude distillation pipeline (v1)
 │   ├── claude_distill_v2.py   # Claude Opus distillation v2 (1,044 pairs, batch loader)
-│   ├── distill_batches/       # 298 batch files with expert-curated training pairs
+│   ├── distill_batches/       # 472 batch files with expert-curated training pairs (1,739 pairs)
+│   ├── fix_broken_batches.py  # Batch file repair utility (triple-quote conflict resolution)
 │   ├── distill_multilang.py   # Multi-language distillation support
 │   ├── mine_hive_knowledge.py # Hive-specific pair mining
 │   ├── distill_supervisor.py  # Continuous distillation manager
 │   └── setup_check.py         # First-run environment validator
+├── bench/
+│   ├── run_bench.py           # Model benchmark CLI (compare models, track regressions)
+│   ├── runner.py              # Ollama + llama-server backends, VRAM monitoring, spec decode
+│   ├── tasks.py               # 12 tasks across 4 categories with automatic evaluators
+│   └── results/               # Timestamped JSON benchmark results
 ├── evals/
 │   └── anchors/               # 18 domain-specific eval anchor sets
 ├── loras/
@@ -850,6 +882,9 @@ The trainer: accumulated knowledge → LoRA adapters that encode the *ability to
 - [x] Confidence routing via `smart_call()` (60-70% fast model usage)
 - [x] Merge cycling (train → merge → repeat)
 - [x] MoLoRA domain routing (Python, Hive, JS, Rust, C++, Go)
+- [x] Claude Opus distillation corpus (1,739 pairs across 472 batch files, 80+ domains)
+- [x] Self-improvement pipeline (p400-p407: autonomous "get smarter" training loop)
+- [x] Model benchmark harness (12 tasks, 4 categories, speculative decoding metrics)
 - [ ] LoRA v5 training (dense Qwen3.5-9B, r=64) — in progress
 - [ ] Domain specialist training (per-domain LoRAs)
 - [ ] GRPO+ reinforcement learning via rLLM
