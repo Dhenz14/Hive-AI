@@ -40,6 +40,7 @@ It operates fully offline with Ollama — no API keys required — while seamles
 
 ### LoRA Training Pipeline
 - **Self-Distillation** — 16 prompt templates generate training pairs from the model's own knowledge (standard + O1-style reasoning)
+- **Claude Opus Distillation** — 1,001 expert-curated training pairs across 284 batch files covering 50+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
 - **Genetic Expansion** — Mutation operators (rephrase, constrain, generalize, error-inject, multi-step) expand top pairs for data diversity
 - **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
 - **Merge Cycling** — Train LoRA → merge into base → train new LoRA on improved base → repeat. Each cycle bakes specialization deeper into core weights
@@ -322,6 +323,10 @@ python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
 | v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
 | v5 | Qwen3.5-9B (dense) | In Progress | 2,529 | — | Dense model, maxed-out r=64 LoRA |
 
+#### Claude Opus Distillation Corpus
+
+In addition to self-distilled pairs, the project includes 1,001 expert-curated training pairs distilled from Claude Opus 4.6, organized across 284 batch files in `scripts/distill_batches/`. These cover 50+ domains including Python stdlib, async patterns, TypeScript, React, CSS Grid/Flexbox, DevOps (systemd/nginx/Docker/Terraform), databases (PostgreSQL, migrations), authentication (JWT/OAuth2/RBAC), GraphQL, WebRTC, message queues (RabbitMQ/Kafka/Celery), observability, and more. Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence.
+
 ---
 
 ## Configuration Reference
@@ -371,7 +376,7 @@ python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `MIN_TRAINING_QUALITY` | Minimum quality for training pairs | `0.70` |
+| `MIN_TRAINING_QUALITY` | Minimum quality for training pairs | `0.80` |
 | `LORA_EXPORT_QUALITY` | Minimum quality for LoRA export | `0.75` |
 | `MIN_CODE_BLOCKS` | Minimum code blocks required per pair | `1` |
 | `DEDUP_EXACT_THRESHOLD` | Exact duplicate threshold | `0.95` |
@@ -660,7 +665,10 @@ hiveai-knowledge-refinery/
 │   ├── download_model.sh      # Reliable model download (XET-safe)
 │   ├── prepare_v5_data.py     # v5 data preparation
 │   ├── calibrate_eval.py      # Eval anchor calibration
-│   ├── claude_distill.py      # Claude distillation pipeline
+│   ├── claude_distill.py      # Claude distillation pipeline (v1)
+│   ├── claude_distill_v2.py   # Claude Opus distillation v2 (1,001 pairs, batch loader)
+│   ├── distill_batches/       # 284 batch files with expert-curated training pairs
+│   ├── distill_multilang.py   # Multi-language distillation support
 │   ├── mine_hive_knowledge.py # Hive-specific pair mining
 │   ├── distill_supervisor.py  # Continuous distillation manager
 │   └── setup_check.py         # First-run environment validator

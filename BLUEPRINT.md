@@ -67,11 +67,12 @@ data diversity.
 | v4.jsonl | 2,414 | v3 + MoE-aware pairs |
 | v5.jsonl | 2,529 | Dense model, code-focused |
 | dbc_pairs.jsonl | 17 | DBC expert pairs |
+| claude_distill_v2 | 1,001 | Claude Opus 4.6 distillation (284 batch files, 50+ domains) |
 
 **Quality gates (scorer v5):**
 - Code quality cap: 0.35 (prevents overrating non-working code)
 - No-code gate: pairs without MIN_CODE_BLOCKS code blocks cap at 0.49
-- MIN_TRAINING_QUALITY: 0.70
+- MIN_TRAINING_QUALITY: 0.80
 - LORA_EXPORT_QUALITY: 0.75
 - Tiered dedup: exact (0.95) → paraphrase (0.85) → near (0.75)
 
@@ -287,7 +288,11 @@ scripts/
 ├── deploy_domain.py       # Domain adapter deployment
 ├── run_eval.py            # 115-challenge eval harness
 ├── download_model.sh      # Reliable HF model download (XET-safe)
-└── calibrate_eval.py      # Eval anchor calibration
+├── calibrate_eval.py      # Eval anchor calibration
+├── claude_distill.py      # Claude distillation v1
+├── claude_distill_v2.py   # Claude Opus 4.6 distillation v2 (batch loader)
+├── distill_batches/       # 284 batch files (1,001 expert-curated pairs)
+└── distill_multilang.py   # Multi-language distillation
 evals/
 └── anchors/               # 18 domain-specific anchor sets
 ```
@@ -300,6 +305,7 @@ evals/
 |------|-------|--------|
 | Raw triples + books | SQLite (staging) | 3,201 pairs, 187 topics mined |
 | Training pairs | SQLite + JSONL exports | v1-v5 datasets ready |
+| Claude distillation | `scripts/distill_batches/` | 1,001 pairs, 284 files, 50+ domains |
 | LoRA v1 adapter | `loras/v1/` | Proven (+15%), deployed |
 | LoRA v5 adapter | (in progress) | Dense Qwen3.5-9B, r=64 |
 | Merge cycling | `hiveai/lora/merge_cycle.py` | Implemented, ready |

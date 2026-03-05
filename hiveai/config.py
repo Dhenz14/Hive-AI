@@ -59,7 +59,7 @@ EXTRACTION_QUALITY = os.environ.get("EXTRACTION_QUALITY", "high").lower()
 EMBEDDING_MODEL_NAME = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
 EMBEDDING_DIMENSIONS = 1024
 SEMANTIC_SIMILARITY_THRESHOLD = float(os.environ.get("SEMANTIC_SIMILARITY_THRESHOLD", "0.82"))
-MIN_TRAINING_QUALITY = float(os.environ.get("MIN_TRAINING_QUALITY", "0.70"))
+MIN_TRAINING_QUALITY = float(os.environ.get("MIN_TRAINING_QUALITY", "0.80"))
 LORA_EXPORT_QUALITY = float(os.environ.get("LORA_EXPORT_QUALITY", "0.75"))
 # Hard gate: pairs with fewer code blocks than this are never eligible (coding model must code)
 MIN_CODE_BLOCKS = int(os.environ.get("MIN_CODE_BLOCKS", "1"))

@@ -1407,16 +1407,28 @@ def lora_distill():
         pairs_per_topic = min(int(body.get("pairs_per_topic", 3)), 6)
         use_builtin = body.get("builtin", False)
         language = body.get("language", "python").lower()
-        if language not in ("python", "cpp", "javascript"):
-            return jsonify({"error": f"Unsupported language '{language}'. Use: python, cpp, javascript"}), 400
+        if language not in ("python", "cpp", "rust", "go", "javascript"):
+            return jsonify({"error": f"Unsupported language '{language}'. Use: python, cpp, rust, go, javascript"}), 400
 
-        from hiveai.lora.distiller import distill_batch, distill_builtin, distill_hive, distill_cpp
+        from hiveai.lora.distiller import (
+            distill_batch, distill_builtin, distill_hive,
+            distill_cpp, distill_rust, distill_go, distill_javascript,
+        )
 
         use_hive = body.get("hive", False)
         use_cpp = body.get("cpp", False) or language == "cpp"
+        use_rust = body.get("rust", False) or language == "rust"
+        use_go = body.get("go", False) or language == "go"
+        use_js = body.get("javascript", False) or language == "javascript"
 
         if use_cpp:
             results = distill_cpp(pairs_per_topic=pairs_per_topic, db=db)
+        elif use_rust:
+            results = distill_rust(pairs_per_topic=pairs_per_topic, db=db)
+        elif use_go:
+            results = distill_go(pairs_per_topic=pairs_per_topic, db=db)
+        elif use_js:
+            results = distill_javascript(pairs_per_topic=pairs_per_topic, db=db)
         elif use_hive:
             results = distill_hive(pairs_per_topic=pairs_per_topic, db=db)
         elif use_builtin:
@@ -1424,7 +1436,7 @@ def lora_distill():
         elif topics:
             results = distill_batch(topics, pairs_per_topic=pairs_per_topic, db=db, language=language)
         else:
-            return jsonify({"error": "Provide 'topics' list, set 'builtin': true, 'hive': true, or 'cpp': true"}), 400
+            return jsonify({"error": "Provide 'topics' list, set 'builtin': true, 'hive': true, 'cpp': true, 'rust': true, 'go': true, or 'javascript': true"}), 400
 
         eligible = sum(1 for r in results if r.get("is_eligible"))
         return jsonify({
