@@ -1307,4 +1307,3 @@ def merge_counts(a: dict[str, int], b: dict[str, int]) -> dict[str, int]:
 - Profile before parallelizing: overhead can outweigh gains for small workloads'''
     ),
 ]
-"""

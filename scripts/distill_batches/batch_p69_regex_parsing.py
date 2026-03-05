@@ -335,4 +335,3 @@ Text processing patterns:
 5. **Grapheme counting** — `regex` library handles emoji and combining characters correctly'''
     ),
 ]
-"""

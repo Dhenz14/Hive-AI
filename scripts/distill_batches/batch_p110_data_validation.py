@@ -403,4 +403,3 @@ ETL pipeline patterns:
 5. **`PipelineContext`** — track stats and errors across all stages'''
     ),
 ]
-"""

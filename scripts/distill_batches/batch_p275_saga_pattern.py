@@ -232,4 +232,3 @@ Key patterns:
 5. **Cleanup** — delete old published events to prevent outbox table growth'''
     ),
 ]
-"""

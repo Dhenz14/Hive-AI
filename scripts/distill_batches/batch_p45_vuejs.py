@@ -4,7 +4,7 @@ PAIRS = [
     (
         "vue/composition-api",
         "Show Vue 3 Composition API patterns: reactive state, computed, watchers, composables, and lifecycle hooks.",
-        '''Vue 3 Composition API patterns:
+        """Vue 3 Composition API patterns:
 
 ```vue
 <script setup lang="ts">
@@ -131,12 +131,12 @@ Composition API rules:
 2. **`computed`** for derived state (cached, only recalculates when deps change)
 3. **`watch`** for side effects on specific changes, **`watchEffect`** for auto-tracking
 4. **`<script setup>`** — compiler macro that eliminates boilerplate
-5. **`shallowRef`** for large data that doesn't need deep reactivity'''
+5. **`shallowRef`** for large data that doesn't need deep reactivity"""
     ),
     (
         "vue/composables",
         "Show Vue 3 composable patterns: reusable logic, async data fetching, and shared state.",
-        '''Vue 3 composable patterns for reusable logic:
+        """Vue 3 composable patterns for reusable logic:
 
 ```typescript
 // composables/useFetch.ts
@@ -267,12 +267,12 @@ Composable conventions:
 2. **Return refs** — callers decide how to use reactive values
 3. **Accept refs or plain values** — flexible inputs with `MaybeRef<T>`
 4. **Handle cleanup** — use `onUnmounted` to prevent memory leaks
-5. **Single responsibility** — one composable per concern, compose together'''
+5. **Single responsibility** — one composable per concern, compose together"""
     ),
     (
         "vue/pinia-state",
         "Show Vue 3 Pinia state management: stores, actions, getters, and composing stores.",
-        '''Pinia state management for Vue 3:
+        """Pinia state management for Vue 3:
 
 ```typescript
 // stores/auth.ts
@@ -433,7 +433,6 @@ Pinia patterns:
 2. **`storeToRefs`** — destructure state/getters without losing reactivity
 3. **Actions are just functions** — no mutations needed, direct state modification
 4. **Compose stores** — use one store inside another via `useOtherStore()`
-5. **Plugins** — add persistence, logging, or devtools integration'''
+5. **Plugins** — add persistence, logging, or devtools integration"""
     ),
 ]
-"""

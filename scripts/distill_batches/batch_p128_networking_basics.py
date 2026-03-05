@@ -165,4 +165,3 @@ DNS patterns:
 5. **Health-checked registry** — periodically verify service instances are alive'''
     ),
 ]
-"""

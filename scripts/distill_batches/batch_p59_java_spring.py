@@ -573,4 +573,3 @@ Spring Security patterns:
 5. **Role hierarchy** — `hasRole('ADMIN')` for coarse, `@PreAuthorize` SpEL for fine-grained'''
     ),
 ]
-"""

@@ -316,4 +316,3 @@ Advanced patterns:
 5. **Avoid `apply`** — use vectorized operations for 100x speedup'''
     ),
 ]
-"""

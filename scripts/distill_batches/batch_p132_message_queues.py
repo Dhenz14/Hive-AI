@@ -556,4 +556,3 @@ Celery patterns:
 5. **`task_acks_late=True`** — acknowledge after processing for at-least-once delivery'''
     ),
 ]
-"""

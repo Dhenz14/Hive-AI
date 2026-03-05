@@ -563,4 +563,3 @@ CRUD patterns:
 5. **Schema validation** — enforce structure at database level'''
     ),
 ]
-"""

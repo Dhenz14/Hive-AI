@@ -4,7 +4,7 @@ PAIRS = [
     (
         "k8s/deployment-patterns",
         "Show Kubernetes deployment patterns: Deployment, Service, ConfigMap, HPA, PDB, and health checks.",
-        '''Kubernetes deployment patterns:
+        """Kubernetes deployment patterns:
 
 ```yaml
 # --- Deployment with best practices ---
@@ -217,12 +217,12 @@ Kubernetes patterns:
 2. **Three probes** — startup (slow init), liveness (restart if stuck), readiness (traffic routing)
 3. **`preStop` hook** — delay shutdown so in-flight requests complete
 4. **`topologySpreadConstraints`** — spread pods across zones for HA
-5. **PDB** — prevent disruptions from taking below minimum during upgrades'''
+5. **PDB** — prevent disruptions from taking below minimum during upgrades"""
     ),
     (
         "k8s/ingress-networking",
         "Show Kubernetes networking patterns: Ingress, NetworkPolicy, and service mesh basics.",
-        '''Kubernetes networking patterns:
+        """Kubernetes networking patterns:
 
 ```yaml
 # --- Ingress with TLS and path routing ---
@@ -388,12 +388,12 @@ Networking patterns:
 2. **NetworkPolicy** — microsegmentation at pod level (API can only reach DB, Redis)
 3. **Ingress** — TLS termination, rate limiting, path-based routing
 4. **ExternalSecrets** — sync secrets from vault/cloud provider to k8s
-5. **Egress control** — restrict outbound to only needed destinations'''
+5. **Egress control** — restrict outbound to only needed destinations"""
     ),
     (
         "k8s/helm-kustomize",
         "Show Kubernetes templating with Helm charts and Kustomize overlays for multi-environment deployments.",
-        '''Helm and Kustomize patterns:
+        """Helm and Kustomize patterns:
 
 ```yaml
 # --- Helm chart values ---
@@ -542,7 +542,6 @@ Templating patterns:
 2. **Kustomize** — patch-based overlays without templates (built into kubectl)
 3. **Config checksums** — annotation hash triggers rollout when ConfigMap changes
 4. **`configMapGenerator`** — Kustomize auto-generates ConfigMaps from literals/files
-5. **Image tags** — override in overlay, never use `latest` in production'''
+5. **Image tags** — override in overlay, never use `latest` in production"""
     ),
 ]
-"""

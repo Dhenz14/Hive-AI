@@ -399,4 +399,3 @@ Synchronization patterns:
 5. **Once** — thread-safe lazy initialization (singleton pattern)'''
     ),
 ]
-"""

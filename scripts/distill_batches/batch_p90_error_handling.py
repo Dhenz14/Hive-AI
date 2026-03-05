@@ -355,4 +355,3 @@ Retry patterns:
 5. **Decorrelated jitter** — AWS-recommended for distributed systems'''
     ),
 ]
-"""

@@ -386,4 +386,3 @@ Deployment strategies:
 5. **Always have rollback** — never deploy without a tested rollback path'''
     ),
 ]
-"""

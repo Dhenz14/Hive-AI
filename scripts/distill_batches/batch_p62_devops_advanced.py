@@ -511,4 +511,3 @@ Monitoring patterns:
 5. **Dashboard as code** — generate Grafana JSON programmatically for consistency'''
     ),
 ]
-"""

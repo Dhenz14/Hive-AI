@@ -234,4 +234,3 @@ Key patterns:
 5. **Result passing** — yield a dict/object to communicate state back to caller'''
     ),
 ]
-"""

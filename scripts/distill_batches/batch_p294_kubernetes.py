@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/k8s-deployment",
         "Show Kubernetes deployment patterns: rolling updates, readiness probes, resource management, and HPA autoscaling.",
-        '''Kubernetes deployment with autoscaling:
+        """Kubernetes deployment with autoscaling:
 
 ```yaml
 # Deployment with rolling updates and probes
@@ -146,12 +146,12 @@ Key patterns:
 2. **Zero-downtime deploy** — maxSurge=1, maxUnavailable=0; new pods ready before old terminate
 3. **Topology spread** — distribute pods across nodes; survive node failure
 4. **HPA with custom metrics** — scale on CPU, memory, and business metrics (RPS)
-5. **Scale-down stabilization** — 5-minute window prevents flapping; scale up faster than down'''
+5. **Scale-down stabilization** — 5-minute window prevents flapping; scale up faster than down"""
     ),
     (
         "devops/k8s-networking",
         "Show Kubernetes networking: Ingress, NetworkPolicy, service mesh basics, and TLS termination.",
-        '''Kubernetes networking patterns:
+        """Kubernetes networking patterns:
 
 ```yaml
 # Ingress with TLS and path-based routing
@@ -242,7 +242,6 @@ Key patterns:
 2. **TLS termination** — cert-manager auto-provisions Let's Encrypt certificates
 3. **Rate limiting** — nginx annotations for per-IP rate limits at ingress level
 4. **NetworkPolicy** — whitelist ingress/egress; default-deny for zero trust
-5. **DNS egress** — always allow port 53 UDP; pods need DNS resolution'''
+5. **DNS egress** — always allow port 53 UDP; pods need DNS resolution"""
     ),
 ]
-"""

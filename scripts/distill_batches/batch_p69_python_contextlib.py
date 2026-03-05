@@ -407,4 +407,3 @@ Decorator patterns:
 5. **Stacking order** — decorators apply bottom-up (innermost first)'''
     ),
 ]
-"""

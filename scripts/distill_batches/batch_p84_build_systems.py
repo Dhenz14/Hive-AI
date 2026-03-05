@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/monorepo-patterns",
         "Show monorepo patterns: workspace organization, dependency management, and shared packages.",
-        '''Monorepo organization patterns:
+        """Monorepo organization patterns:
 
 ```
 # --- Monorepo structure ---
@@ -136,12 +136,12 @@ Monorepo patterns:
 2. **`^build` dependsOn** — build dependencies before dependent packages
 3. **Shared configs** — ESLint, TypeScript, Prettier as internal packages
 4. **`exports` field** — explicit public API for internal packages
-5. **Turborepo caching** — skip rebuilding unchanged packages'''
+5. **Turborepo caching** — skip rebuilding unchanged packages"""
     ),
     (
         "devops/ci-optimization",
         "Show CI/CD optimization patterns: caching, parallel jobs, conditional builds, and matrix strategies.",
-        '''CI/CD optimization (GitHub Actions):
+        """CI/CD optimization (GitHub Actions):
 
 ```yaml
 # .github/workflows/ci.yml
@@ -287,12 +287,12 @@ CI/CD optimization patterns:
 2. **Concurrency groups** — cancel superseded runs on same PR
 3. **Dependency caching** — `cache: 'pnpm'` / `enable-cache: true`
 4. **Matrix strategy** — test across multiple Python/Node versions in parallel
-5. **Reusable workflows** — `workflow_call` for shared security/deploy logic'''
+5. **Reusable workflows** — `workflow_call` for shared security/deploy logic"""
     ),
     (
         "devops/github-actions-patterns",
         "Show GitHub Actions patterns: composite actions, environment protection, and artifact management.",
-        '''GitHub Actions advanced patterns:
+        """GitHub Actions advanced patterns:
 
 ```yaml
 # --- Composite action (reusable step) ---
@@ -433,7 +433,6 @@ GitHub Actions patterns:
 2. **Environment protection** — required reviewers + wait timers for production
 3. **OIDC auth** — `id-token: write` for keyless cloud authentication
 4. **`create-pull-request`** — automated PRs for dependency updates
-5. **Matrix `include`/`exclude`** — fine-tune test combinations'''
+5. **Matrix `include`/`exclude`** — fine-tune test combinations"""
     ),
 ]
-"""

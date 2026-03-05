@@ -4,7 +4,7 @@ PAIRS = [
     (
         "typescript/advanced-types",
         "Show advanced TypeScript type patterns: conditional types, mapped types, template literals, and type guards.",
-        '''Advanced TypeScript type patterns:
+        """Advanced TypeScript type patterns:
 
 ```typescript
 // --- Conditional types ---
@@ -155,12 +155,12 @@ TypeScript type patterns:
 2. **Mapped types** — transform all properties of a type
 3. **Template literals** — string manipulation at the type level
 4. **Discriminated unions** — tagged unions with exhaustive matching
-5. **Branded types** — nominal typing for type-safe IDs and units'''
+5. **Branded types** — nominal typing for type-safe IDs and units"""
     ),
     (
         "typescript/patterns",
         "Show TypeScript design patterns: dependency injection, repository pattern, event emitter, and builder.",
-        '''TypeScript design patterns:
+        """TypeScript design patterns:
 
 ```typescript
 // --- Dependency injection with interfaces ---
@@ -353,7 +353,6 @@ TypeScript patterns:
 2. **Typed events** — compile-time checked event names and payloads
 3. **Builder** — `this` return type enables fluent chaining
 4. **Middleware** — compose request processing as a stack
-5. **Generic constraints** — `keyof T & string` for type-safe field access'''
+5. **Generic constraints** — `keyof T & string` for type-safe field access"""
     ),
 ]
-"""

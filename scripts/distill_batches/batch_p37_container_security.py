@@ -483,4 +483,3 @@ Secrets hierarchy:
 5. **Never** — hardcoded in code, committed to git, in Docker layers'''
     ),
 ]
-"""

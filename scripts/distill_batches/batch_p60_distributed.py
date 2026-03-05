@@ -398,4 +398,3 @@ Saga patterns:
 5. **Compensation failure logging** — log critical failures for manual intervention'''
     ),
 ]
-"""

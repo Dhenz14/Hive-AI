@@ -195,4 +195,3 @@ Key patterns:
 5. **Selective CI** — only test/build packages affected by changes; faster pipelines'''
     ),
 ]
-"""

@@ -414,4 +414,3 @@ Video streaming patterns:
 5. **Thumbnail sprites** — FFmpeg `fps=1/N` filter generates preview images at intervals'''
     ),
 ]
-"""

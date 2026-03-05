@@ -496,4 +496,3 @@ Web performance patterns:
 5. **Debounce/throttle** — limit rapid-fire events (search input, scroll)'''
     ),
 ]
-"""

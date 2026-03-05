@@ -4,7 +4,7 @@ PAIRS = [
     (
         "go/concurrency-patterns",
         "Show Go concurrency patterns: goroutines, channels, select, WaitGroup, and context cancellation.",
-        '''Go concurrency patterns:
+        """Go concurrency patterns:
 
 ```go
 package main
@@ -224,12 +224,12 @@ Go concurrency patterns:
 2. **Pipeline** — chain stages with channels (Unix pipe style)
 3. **Context cancellation** — propagate cancellation through goroutine trees
 4. **Semaphore** — buffered channel limits concurrent goroutines
-5. **errgroup** — structured concurrency with first-error propagation'''
+5. **errgroup** — structured concurrency with first-error propagation"""
     ),
     (
         "go/http-patterns",
         "Show Go HTTP patterns: middleware, routing, JSON handling, graceful shutdown, and testing.",
-        '''Go HTTP server patterns:
+        """Go HTTP server patterns:
 
 ```go
 package main
@@ -424,12 +424,12 @@ Go HTTP patterns:
 2. **`http.NewServeMux`** — Go 1.22+ pattern matching with path params
 3. **Dependency injection** — server struct holds repos, loggers
 4. **Graceful shutdown** — signal handling + `server.Shutdown(ctx)`
-5. **Structured errors** — `APIError` type for consistent error responses'''
+5. **Structured errors** — `APIError` type for consistent error responses"""
     ),
     (
         "go/error-handling",
         "Show Go error handling patterns: custom errors, wrapping, sentinel errors, and error groups.",
-        '''Go error handling patterns:
+        """Go error handling patterns:
 
 ```go
 package myapp
@@ -608,7 +608,6 @@ Go error patterns:
 2. **`fmt.Errorf("%w")`** — wrap errors to add context while preserving the chain
 3. **`errors.Is`** — check error chain for sentinel values
 4. **`errors.As`** — extract typed error from chain
-5. **Named return** — `(err error)` with defer for cleanup error handling'''
+5. **Named return** — `(err error)` with defer for cleanup error handling"""
     ),
 ]
-"""

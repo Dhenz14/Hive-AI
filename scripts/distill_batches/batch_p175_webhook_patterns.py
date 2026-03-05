@@ -1537,4 +1537,3 @@ Key patterns:
 6. **Secret rotation** should be seamless -- accept both old and new secrets during transition.'''
     ),
 ]
-"""

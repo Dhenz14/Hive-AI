@@ -1450,4 +1450,3 @@ Key patterns:
 6. TLS config from environment for Temporal Cloud; mount certs as K8s secrets.'''
     ),
 ]
-"""

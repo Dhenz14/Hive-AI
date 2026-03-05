@@ -455,4 +455,3 @@ Key patterns:
 5. **Scaling factors** — control contribution of each model; task-dependent tuning'''
     ),
 ]
-"""

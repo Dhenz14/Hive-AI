@@ -435,4 +435,3 @@ Bloom filter patterns:
 5. **Counting variant** — integer counters instead of bits enable `remove()` support'''
     ),
 ]
-"""

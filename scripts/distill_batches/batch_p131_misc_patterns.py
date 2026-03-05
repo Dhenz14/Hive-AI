@@ -502,4 +502,3 @@ Context manager patterns:
 5. **`__enter__`/`__exit__`** — class-based for stateful managers (Timer, Lock)'''
     ),
 ]
-"""

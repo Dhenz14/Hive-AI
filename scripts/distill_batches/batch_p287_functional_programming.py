@@ -1399,4 +1399,3 @@ print(evaluate(result2.value))  # 18.0
 - Use `skip_whitespace` combinator consistently for whitespace handling'''
     ),
 ]
-"""

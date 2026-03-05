@@ -471,4 +471,3 @@ Secrets management patterns:
 5. **`hmac.compare_digest()`** — constant-time comparison prevents timing attacks'''
     ),
 ]
-"""

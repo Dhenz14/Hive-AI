@@ -603,4 +603,3 @@ Message queue patterns:
 5. **Graceful shutdown** — stop accepting new messages, drain in-flight tasks'''
     ),
 ]
-"""

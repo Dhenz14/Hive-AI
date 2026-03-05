@@ -443,4 +443,3 @@ TiDB patterns:
 5. **Optimistic transactions** — default in TiDB; retry on write conflicts instead of acquiring locks upfront'''
     ),
 ]
-"""

@@ -667,4 +667,3 @@ Reasoning model patterns:
 5. **Cost efficiency** — reasoning tokens cost more; reserve them for problems that need depth'''
     ),
 ]
-"""

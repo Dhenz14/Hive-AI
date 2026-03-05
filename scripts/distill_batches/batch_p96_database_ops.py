@@ -447,4 +447,3 @@ Query builder patterns:
 5. **Cursor pagination** — use `LIMIT`/`OFFSET` with page calculation'''
     ),
 ]
-"""

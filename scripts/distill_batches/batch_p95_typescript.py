@@ -4,7 +4,7 @@ PAIRS = [
     (
         "typescript/advanced-types",
         "Show advanced TypeScript patterns: conditional types, mapped types, template literals, and type inference.",
-        '''Advanced TypeScript type patterns:
+        """Advanced TypeScript type patterns:
 
 ```typescript
 // --- Conditional types ---
@@ -152,12 +152,12 @@ TypeScript type patterns:
 2. **Mapped types with `as`** — transform/filter keys (getters, string keys only)
 3. **Template literal types** — type-safe string patterns and route parsing
 4. **Discriminated unions** — `kind` field enables exhaustive pattern matching
-5. **Branded types** — prevent mixing `UserId` and `OrderId` at compile time'''
+5. **Branded types** — prevent mixing `UserId` and `OrderId` at compile time"""
     ),
     (
         "typescript/type-safe-apis",
         "Show TypeScript patterns for type-safe API layers: Zod validation, type-safe fetch, and generic CRUD.",
-        '''Type-safe API patterns:
+        """Type-safe API patterns:
 
 ```typescript
 import { z } from 'zod';
@@ -326,12 +326,12 @@ Type-safe API patterns:
 2. **`z.infer<typeof Schema>`** — derive TypeScript types from Zod schemas
 3. **`typedFetch()`** — validates API responses against schema at runtime
 4. **Generic CRUD** — reusable client with full type safety per resource
-5. **`z.coerce.number()`** — parse string query params to numbers safely'''
+5. **`z.coerce.number()`** — parse string query params to numbers safely"""
     ),
     (
         "typescript/utility-patterns",
         "Show TypeScript utility patterns: type guards, assertion functions, pattern matching, and safe access.",
-        '''TypeScript utility patterns:
+        """TypeScript utility patterns:
 
 ```typescript
 // --- Type guards ---
@@ -488,7 +488,6 @@ TypeScript utility patterns:
 2. **Assertion functions** — `asserts value is T` for throw-on-invalid
 3. **Exhaustive matching** — compile error if handler missing for union member
 4. **Typed event emitter** — event names and payloads checked at compile time
-5. **`pipe()`** — compose functions with type-safe chaining'''
+5. **`pipe()`** — compose functions with type-safe chaining"""
     ),
 ]
-"""

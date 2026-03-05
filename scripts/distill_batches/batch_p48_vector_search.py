@@ -377,4 +377,3 @@ RAG patterns:
 5. **Source citation** — include source references in generated answers'''
     ),
 ]
-"""

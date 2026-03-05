@@ -236,4 +236,3 @@ Key patterns:
 5. **Validate first** — syntax validation catches errors before expensive plan operations'''
     ),
 ]
-"""

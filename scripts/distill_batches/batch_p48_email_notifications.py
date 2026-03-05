@@ -426,4 +426,3 @@ Notification patterns:
 5. **Batch sending** — async gather for concurrent delivery'''
     ),
 ]
-"""

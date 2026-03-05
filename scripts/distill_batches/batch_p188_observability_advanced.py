@@ -1812,4 +1812,3 @@ Key patterns for SLO-based alerting:
 7. **Burn rate calculation** -- burn rate = (error rate in window) / (error budget fraction); a value of 1x means budget will exhaust exactly at window end'''
     ),
 ]
-"""

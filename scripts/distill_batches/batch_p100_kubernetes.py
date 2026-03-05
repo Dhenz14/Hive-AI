@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/k8s-deployments",
         "Show Kubernetes deployment patterns: rolling updates, health probes, resource limits, and pod disruption budgets.",
-        '''Kubernetes deployment patterns:
+        """Kubernetes deployment patterns:
 
 ```yaml
 # --- Deployment with best practices ---
@@ -211,12 +211,12 @@ Kubernetes patterns:
 2. **Three probes** — startup (slow init), readiness (traffic), liveness (restart)
 3. **`preStop` sleep** — delay shutdown for in-flight requests to drain
 4. **Pod anti-affinity** — spread replicas across nodes for HA
-5. **HPA stabilization** — prevent flapping with scale-down cooldown'''
+5. **HPA stabilization** — prevent flapping with scale-down cooldown"""
     ),
     (
         "devops/k8s-config",
         "Show Kubernetes configuration patterns: ConfigMaps, Secrets, Kustomize overlays, and Helm charts.",
-        '''Kubernetes configuration management:
+        """Kubernetes configuration management:
 
 ```yaml
 # --- ConfigMap ---
@@ -394,12 +394,12 @@ K8s config patterns:
 2. **Kustomize overlays** — base + per-environment patches (no templating)
 3. **Helm values** — `values.yaml` defaults + `values-production.yaml` overrides
 4. **Ingress + cert-manager** — auto-provisioned TLS certificates
-5. **`configMapGenerator`** — auto-hash suffix ensures pod restart on config change'''
+5. **`configMapGenerator`** — auto-hash suffix ensures pod restart on config change"""
     ),
     (
         "devops/k8s-jobs-cronjobs",
         "Show Kubernetes Job and CronJob patterns: batch processing, parallelism, and completion tracking.",
-        '''Kubernetes Jobs and CronJobs:
+        """Kubernetes Jobs and CronJobs:
 
 ```yaml
 # --- One-time Job ---
@@ -534,7 +534,6 @@ K8s Job patterns:
 2. **`parallelism` + `completions`** — run N pods concurrently for M total tasks
 3. **`concurrencyPolicy: Forbid`** — skip scheduled run if previous still active
 4. **`activeDeadlineSeconds`** — hard timeout prevents hung jobs
-5. **`ttlSecondsAfterFinished`** — auto-cleanup completed job pods'''
+5. **`ttlSecondsAfterFinished`** — auto-cleanup completed job pods"""
     ),
 ]
-"""

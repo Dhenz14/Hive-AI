@@ -203,4 +203,3 @@ Key patterns:
 5. **OTLP export** — send traces to Jaeger, Tempo, or any OTLP-compatible backend'''
     ),
 ]
-"""

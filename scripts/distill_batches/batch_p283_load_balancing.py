@@ -273,4 +273,3 @@ Key patterns:
 5. **Local cache** — avoid hammering registry; refresh every N seconds'''
     ),
 ]
-"""

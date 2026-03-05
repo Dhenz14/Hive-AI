@@ -340,4 +340,3 @@ Key patterns:
 5. **Negative prompts** — specify what to avoid; improves quality significantly'''
     ),
 ]
-"""

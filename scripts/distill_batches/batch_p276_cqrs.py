@@ -281,4 +281,3 @@ Key patterns:
 5. **Event versioning** — monotonic version per stream; detect concurrent modifications'''
     ),
 ]
-"""

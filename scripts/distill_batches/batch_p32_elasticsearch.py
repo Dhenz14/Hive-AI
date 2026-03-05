@@ -447,4 +447,3 @@ Operational patterns:
 5. **Index templates** — automatic mapping for time-series indices'''
     ),
 ]
-"""

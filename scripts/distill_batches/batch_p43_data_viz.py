@@ -4,7 +4,7 @@ PAIRS = [
     (
         "python/matplotlib-patterns",
         "Show matplotlib and seaborn patterns: chart types, styling, subplots, annotations, and publication-quality figures.",
-        '''Data visualization patterns with matplotlib and seaborn:
+        """Data visualization patterns with matplotlib and seaborn:
 
 ```python
 import matplotlib.pyplot as plt
@@ -181,7 +181,6 @@ Visualization rules:
 2. **Remove clutter** — hide top/right spines, minimize gridlines
 3. **Annotate values** — add labels on bars, highlight key points
 4. **Color with purpose** — consistent palette, use color to encode meaning
-5. **Figure size** — match output medium (slides: wide, reports: narrow)'''
+5. **Figure size** — match output medium (slides: wide, reports: narrow)"""
     ),
 ]
-"""

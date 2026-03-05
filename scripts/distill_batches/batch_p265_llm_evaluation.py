@@ -428,4 +428,3 @@ Key patterns:
 5. **Calibration items** — track annotator accuracy on gold items to weight their votes'''
     ),
 ]
-"""

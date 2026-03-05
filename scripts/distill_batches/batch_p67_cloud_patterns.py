@@ -576,4 +576,3 @@ Twelve-factor patterns:
 5. **Admin processes** — one-off tasks use same code, run as separate processes'''
     ),
 ]
-"""

@@ -4,7 +4,7 @@ PAIRS = [
     (
         "typescript/utility-types",
         "Show TypeScript utility type patterns: mapped types, conditional types, template literals, and type inference.",
-        '''TypeScript utility type patterns:
+        """TypeScript utility type patterns:
 
 ```typescript
 // --- Mapped types ---
@@ -177,12 +177,12 @@ TypeScript utility patterns:
 2. **Template literal types** — type-safe string patterns like `"GET /users"`
 3. **Branded types** — prevent mixing USD/EUR or UserId/OrderId at compile time
 4. **Builder with type accumulation** — `.build()` only compiles when required fields set
-5. **`assertNever()`** — exhaustive switch/case checking catches missing variants'''
+5. **`assertNever()`** — exhaustive switch/case checking catches missing variants"""
     ),
     (
         "typescript/module-patterns",
         "Show TypeScript module and project patterns: barrel exports, dependency injection, and plugin systems.",
-        '''TypeScript module and project patterns:
+        """TypeScript module and project patterns:
 
 ```typescript
 // --- Barrel exports (index.ts re-exports) ---
@@ -367,7 +367,6 @@ TypeScript module patterns:
 2. **Constructor injection** — depend on interfaces, wire in composition root
 3. **Plugin system** — `register/init/destroy` lifecycle with typed context
 4. **`TypedEventEmitter`** — compile-time checked event names and payloads
-5. **Service container** — lazy singleton instantiation with `resolve<T>()`'''
+5. **Service container** — lazy singleton instantiation with `resolve<T>()`"""
     ),
 ]
-"""

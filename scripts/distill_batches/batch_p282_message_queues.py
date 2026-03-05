@@ -231,4 +231,3 @@ Key patterns:
 5. **Middleware** — cross-cutting concerns (logging, metrics) applied to all events'''
     ),
 ]
-"""

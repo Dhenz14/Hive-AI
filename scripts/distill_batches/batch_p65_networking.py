@@ -540,4 +540,3 @@ DNS/service discovery patterns:
 5. **Async resolution** — `getaddrinfo` in event loop avoids blocking'''
     ),
 ]
-"""

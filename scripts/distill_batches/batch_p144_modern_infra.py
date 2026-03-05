@@ -595,4 +595,3 @@ Gateway API patterns:
 5. **Portable** — same HTTPRoute spec works across Istio, Cilium, Envoy Gateway, NGINX'''
     ),
 ]
-"""

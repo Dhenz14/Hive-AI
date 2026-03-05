@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/bash-scripting",
         "Show Bash scripting best practices: error handling, argument parsing, logging, and portable scripts.",
-        '''Production Bash scripting patterns:
+        """Production Bash scripting patterns:
 
 ```bash
 #!/usr/bin/env bash
@@ -170,12 +170,12 @@ Best practices:
 4. **Dry-run mode** — preview actions without executing
 5. **Logging functions** — consistent, colorized output with timestamps
 6. **Prerequisites check** — verify required tools before starting
-7. **Confirmation prompts** — for destructive or production operations'''
+7. **Confirmation prompts** — for destructive or production operations"""
     ),
     (
         "devops/bash-automation",
         "Show Bash automation patterns: parallel execution, file processing, API interaction, and monitoring scripts.",
-        '''Bash automation for DevOps tasks:
+        """Bash automation for DevOps tasks:
 
 ```bash
 #!/usr/bin/env bash
@@ -370,7 +370,6 @@ Patterns:
 2. **File processing** — pipelines with `find -print0`, `while read -r`, `awk`
 3. **API wrapper** — curl with auth headers, status code extraction, error handling
 4. **Retry with backoff** — generic retry function for flaky operations
-5. **Health checks** — iterate service list with configurable check types'''
+5. **Health checks** — iterate service list with configurable check types"""
     ),
 ]
-"""

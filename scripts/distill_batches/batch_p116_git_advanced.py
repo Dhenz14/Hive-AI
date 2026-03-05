@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/git-workflows",
         "Show advanced Git workflow patterns: branching strategies, merge vs rebase, cherry-pick, and release management.",
-        '''Advanced Git workflow patterns:
+        """Advanced Git workflow patterns:
 
 ```bash
 # --- Branching strategy (trunk-based with feature flags) ---
@@ -154,12 +154,12 @@ Git workflow patterns:
 2. **`bisect run`** — automated binary search for bug-introducing commit
 3. **`cherry-pick`** — port specific fixes to release branches
 4. **`stash push -m`** — named stashes for organized work-in-progress
-5. **`log -S`** — "pickaxe" search finds commits that added/removed specific code'''
+5. **`log -S`** — "pickaxe" search finds commits that added/removed specific code"""
     ),
     (
         "devops/git-hooks",
         "Show Git hooks patterns: pre-commit linting, commit message validation, and CI integration hooks.",
-        '''Git hooks patterns:
+        """Git hooks patterns:
 
 ```bash
 #!/usr/bin/env bash
@@ -304,7 +304,6 @@ Git hooks patterns:
 2. **Conventional commits** — enforce `type(scope): description` via commit-msg hook
 3. **pre-commit framework** — declarative YAML config for multi-language hooks
 4. **Large file detection** — prevent accidental commits of binaries/data files
-5. **Auto-format + re-stage** — format code then `git add` changed files automatically'''
+5. **Auto-format + re-stage** — format code then `git add` changed files automatically"""
     ),
 ]
-"""

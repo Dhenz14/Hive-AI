@@ -190,4 +190,3 @@ Key patterns:
 5. **Resource limits** — prevent container from consuming all host resources; OOM protection'''
     ),
 ]
-"""

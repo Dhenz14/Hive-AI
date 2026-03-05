@@ -407,4 +407,3 @@ Key patterns:
 5. **ControlNet** — inject structural guidance (edges, depth, pose) without retraining the base model'''
     ),
 ]
-"""

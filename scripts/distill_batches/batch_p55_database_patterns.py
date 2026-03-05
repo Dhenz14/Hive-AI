@@ -412,4 +412,3 @@ Full-text search patterns:
 5. **Highlights** — `ts_headline` returns search terms marked in context'''
     ),
 ]
-"""

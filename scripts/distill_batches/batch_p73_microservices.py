@@ -600,4 +600,3 @@ Circuit breaker patterns:
 5. **Async lock** — thread-safe state transitions'''
     ),
 ]
-"""

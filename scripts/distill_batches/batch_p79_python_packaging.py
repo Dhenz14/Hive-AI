@@ -4,7 +4,7 @@ PAIRS = [
     (
         "python/pyproject-toml",
         "Show modern Python packaging with pyproject.toml: project metadata, build systems, optional dependencies, and scripts.",
-        '''Modern Python packaging with pyproject.toml:
+        """Modern Python packaging with pyproject.toml:
 
 ```toml
 # pyproject.toml — single file for all project configuration
@@ -147,12 +147,12 @@ Packaging patterns:
 2. **`[project.optional-dependencies]`** — group extras like `pip install pkg[dev]`
 3. **`[project.scripts]`** — auto-generate CLI entry points
 4. **`src/` layout** — prevents accidental imports of uninstalled package
-5. **`-e ".[dev]"`** — editable install with dev dependencies for local development'''
+5. **`-e ".[dev]"`** — editable install with dev dependencies for local development"""
     ),
     (
         "python/dependency-management",
         "Show Python dependency management patterns: virtual environments, pip-tools, uv, and lock files.",
-        '''Python dependency management:
+        """Python dependency management:
 
 ```bash
 # --- Virtual environments ---
@@ -262,12 +262,12 @@ Dependency management patterns:
 2. **Lock files** — pin exact versions for reproducible CI/production deploys
 3. **Flexible source deps** — use `>=X.Y,<Z.0` ranges in pyproject.toml
 4. **`pip-compile`** — compile abstract deps to locked concrete versions
-5. **Dependency groups** — separate test/lint/docs deps, install what you need'''
+5. **Dependency groups** — separate test/lint/docs deps, install what you need"""
     ),
     (
         "database/sql-advanced",
         "Show advanced SQL patterns: CTEs, window functions, recursive queries, lateral joins, and query optimization.",
-        '''Advanced SQL patterns:
+        """Advanced SQL patterns:
 
 ```sql
 -- --- Common Table Expressions (CTEs) ---
@@ -418,7 +418,6 @@ Advanced SQL patterns:
 2. **Window functions** — rank, running totals, moving averages without self-joins
 3. **Recursive CTEs** — tree traversal, date generation, graph walks
 4. **`LATERAL` joins** — correlated subquery as a join (top-N per group)
-5. **`FILTER` clause** — conditional aggregation cleaner than CASE WHEN'''
+5. **`FILTER` clause** — conditional aggregation cleaner than CASE WHEN"""
     ),
 ]
-"""

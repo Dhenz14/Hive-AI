@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/islands-architecture",
         "Show islands architecture patterns: partial hydration, selective interactivity, and implementation with Astro and Fresh (Deno).",
-        '''Islands architecture — partial hydration for fast pages:
+        """Islands architecture — partial hydration for fast pages:
 
 ```typescript
 // === Astro Islands ===
@@ -182,12 +182,12 @@ Key patterns:
 2. **Independent hydration** — each island loads its own JS bundle; one slow island doesn't block others
 3. **Mixed frameworks** — Astro islands can be React, Svelte, Vue, or Solid in the same page
 4. **Progressive enhancement** — page is usable before any JS loads; islands add interactivity on top
-5. **Fresh convention** — files in `islands/` directory are automatically client-side components'''
+5. **Fresh convention** — files in `islands/` directory are automatically client-side components"""
     ),
     (
         "frontend/streaming-ssr-suspense",
         "Show streaming SSR patterns: React Suspense boundaries, out-of-order streaming, progressive rendering, and selective hydration.",
-        '''Streaming SSR with React Suspense:
+        """Streaming SSR with React Suspense:
 
 ```typescript
 // === Streaming SSR: send HTML progressively as data resolves ===
@@ -402,7 +402,6 @@ Key patterns:
 2. **Out-of-order streaming** — Suspense boundaries resolve independently; fast data appears first regardless of DOM order
 3. **Selective hydration** — React prioritizes hydrating the Suspense boundary the user interacts with first
 4. **Nested Suspense** — fine-grained loading states; each boundary can show its own skeleton
-5. **Next.js `loading.tsx`** — automatic Suspense boundary per route segment; no manual Suspense wrapping needed'''
+5. **Next.js `loading.tsx`** — automatic Suspense boundary per route segment; no manual Suspense wrapping needed"""
     ),
 ]
-"""

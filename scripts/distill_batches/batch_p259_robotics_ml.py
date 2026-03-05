@@ -400,4 +400,3 @@ Key patterns:
 5. **Delta prediction** — predict state change (Δs) instead of absolute next state; more stable'''
     ),
 ]
-"""

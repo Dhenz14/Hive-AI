@@ -4,7 +4,7 @@ PAIRS = [
     (
         "tooling/vite-config",
         "Show Vite configuration patterns: plugins, aliases, env variables, proxy, and build optimization.",
-        '''Vite configuration patterns:
+        """Vite configuration patterns:
 
 ```typescript
 // vite.config.ts
@@ -134,12 +134,12 @@ Vite best practices:
 2. **Proxy** — forward API calls to backend during development
 3. **`loadEnv`** — access env vars in config (only `VITE_` prefixed in client)
 4. **Conditional plugins** — only add analysis tools in specific modes
-5. **CSS modules** — scoped styles with camelCase convention'''
+5. **CSS modules** — scoped styles with camelCase convention"""
     ),
     (
         "tooling/webpack-config",
         "Show webpack 5 configuration: module federation, code splitting, loaders, and optimization.",
-        '''Webpack 5 configuration patterns:
+        """Webpack 5 configuration patterns:
 
 ```javascript
 // webpack.config.js
@@ -286,12 +286,12 @@ Webpack tips:
 2. **`splitChunks`** — separate vendor code for long-term caching
 3. **`swc-loader`** — 20x faster than babel-loader for TypeScript
 4. **`filesystem` cache** — persistent cache across builds
-5. **Module Federation** — share code between independently deployed apps'''
+5. **Module Federation** — share code between independently deployed apps"""
     ),
     (
         "tooling/esbuild-bundling",
         "Show esbuild patterns: fast bundling, plugins, and build scripts for production.",
-        '''Esbuild fast bundling patterns:
+        """Esbuild fast bundling patterns:
 
 ```typescript
 // build.ts
@@ -448,7 +448,6 @@ esbuild patterns:
 2. **`splitting`** — code splitting for dynamic imports (ESM only)
 3. **`metafile`** — analyze bundle size and dependencies
 4. **`context` + `watch`** — incremental rebuilds for development
-5. **10-100x faster** than webpack/rollup for most builds'''
+5. **10-100x faster** than webpack/rollup for most builds"""
     ),
 ]
-"""

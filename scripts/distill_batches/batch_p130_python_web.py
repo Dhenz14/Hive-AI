@@ -368,4 +368,3 @@ File upload patterns:
 5. **Background image processing** — `BackgroundTasks` generates thumbnails after response'''
     ),
 ]
-"""

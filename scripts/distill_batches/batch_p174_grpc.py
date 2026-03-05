@@ -1533,4 +1533,3 @@ gRPC channel best practices:
 '''
     ),
 ]
-"""

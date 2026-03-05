@@ -576,4 +576,3 @@ LINQ patterns:
 5. **`IAsyncEnumerable`** — stream large result sets without loading all into memory'''
     ),
 ]
-"""

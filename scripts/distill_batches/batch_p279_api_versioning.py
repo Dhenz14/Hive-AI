@@ -244,4 +244,3 @@ Key patterns:
 5. **Avoid OFFSET** — OFFSET is O(n) and results shift with inserts; use cursors instead'''
     ),
 ]
-"""

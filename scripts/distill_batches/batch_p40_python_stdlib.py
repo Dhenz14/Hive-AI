@@ -600,4 +600,3 @@ Best practices:
 5. **`rglob`** — recursive search without manual `os.walk`'''
     ),
 ]
-"""

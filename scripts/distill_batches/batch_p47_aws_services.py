@@ -368,4 +368,3 @@ DynamoDB patterns:
 5. **Batch operations** — handle unprocessed items from throttling'''
     ),
 ]
-"""

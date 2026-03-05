@@ -495,4 +495,3 @@ Database optimization rules:
 5. **Connection pooling** — reuse connections, set appropriate pool sizes'''
     ),
 ]
-"""

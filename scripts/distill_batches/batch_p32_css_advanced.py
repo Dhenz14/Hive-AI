@@ -4,7 +4,7 @@ PAIRS = [
     (
         "css/grid-layout",
         "Show advanced CSS Grid patterns: responsive layouts, named grid areas, auto-fit/auto-fill, subgrid, and complex dashboard layouts.",
-        '''Advanced CSS Grid for complex layouts:
+        """Advanced CSS Grid for complex layouts:
 
 ```css
 /* --- Responsive Dashboard with Named Areas --- */
@@ -135,12 +135,12 @@ Key patterns:
 2. **auto-fit** — items stretch to fill space; **auto-fill** — preserves empty columns
 3. **Subgrid** — align nested grid children to parent tracks
 4. **Spanning** — featured items span multiple tracks for visual hierarchy
-5. **Grid + media queries** — restructure entire layouts at breakpoints'''
+5. **Grid + media queries** — restructure entire layouts at breakpoints"""
     ),
     (
         "css/animations-transitions",
         "Show CSS animation patterns: transitions, keyframe animations, scroll-driven animations, and performance-optimized motion.",
-        '''CSS animation patterns from simple to advanced:
+        """CSS animation patterns from simple to advanced:
 
 ```css
 /* --- Smooth Transitions --- */
@@ -275,12 +275,12 @@ Performance rules:
 2. **Use `will-change` sparingly** — hints browser to promote to own layer
 3. **Prefer `transition` for state changes**, `animation` for autonomous motion
 4. **Always respect `prefers-reduced-motion`** — accessibility requirement
-5. **Scroll-driven animations** — replace JS scroll listeners with CSS'''
+5. **Scroll-driven animations** — replace JS scroll listeners with CSS"""
     ),
     (
         "css/modern-features",
         "Show modern CSS features: container queries, cascade layers, :has() selector, logical properties, color-mix, and CSS nesting.",
-        '''Modern CSS features replacing JavaScript and preprocessors:
+        """Modern CSS features replacing JavaScript and preprocessors:
 
 ```css
 /* --- Container Queries (component-level responsive) --- */
@@ -451,12 +451,12 @@ What replaces what:
 3. **`:has()`** replaces JS parent-selector hacks
 4. **Cascade layers** replace specificity wars and `!important`
 5. **Logical properties** replace LTR/RTL-specific stylesheets
-6. **`color-mix()`** replaces Sass color functions'''
+6. **`color-mix()`** replaces Sass color functions"""
     ),
     (
         "css/custom-properties-theming",
         "Show CSS custom properties for theming: dark mode, design tokens, dynamic themes, and component-scoped variables.",
-        '''CSS custom properties for scalable theming:
+        """CSS custom properties for scalable theming:
 
 ```css
 /* --- Design Tokens as Custom Properties --- */
@@ -614,7 +614,6 @@ Architecture:
 2. **Semantic tokens** — map primitives to purposes (bg-surface, text-primary)
 3. **Component variables** — scoped defaults that variants can override
 4. **`clamp()`** — fluid spacing/typography without media queries
-5. **Theme switching** — change semantic tokens, all components update automatically'''
+5. **Theme switching** — change semantic tokens, all components update automatically"""
     ),
 ]
-"""

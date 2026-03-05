@@ -366,4 +366,3 @@ Saga patterns:
 5. **Idempotent compensations** — compensations must be safe to retry on failure'''
     ),
 ]
-"""

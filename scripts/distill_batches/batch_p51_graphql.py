@@ -542,4 +542,3 @@ Subscription patterns:
 5. **Cleanup** — remove subscriber queues when connection closes'''
     ),
 ]
-"""

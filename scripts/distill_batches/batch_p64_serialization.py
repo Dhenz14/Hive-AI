@@ -371,4 +371,3 @@ File format patterns:
 5. **CSV typing** — explicit type map to coerce string values'''
     ),
 ]
-"""

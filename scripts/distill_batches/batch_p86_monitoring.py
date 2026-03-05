@@ -502,4 +502,3 @@ Alerting patterns:
 5. **Runbook links** — every alert annotation includes runbook URL'''
     ),
 ]
-"""

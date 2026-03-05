@@ -599,4 +599,3 @@ Clean architecture rules:
 5. **Testability** — test use cases with mock ports, no database needed'''
     ),
 ]
-"""

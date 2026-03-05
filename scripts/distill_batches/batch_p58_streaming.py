@@ -405,4 +405,3 @@ Event sourcing patterns:
 5. **Snapshots** — periodically save aggregate state to avoid replaying all events'''
     ),
 ]
-"""

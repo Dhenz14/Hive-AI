@@ -4,7 +4,7 @@ PAIRS = [
     (
         "emerging/webxr-basics",
         "Show WebXR API usage: creating immersive VR/AR sessions, rendering 3D scenes, and handling spatial input in the browser.",
-        '''WebXR immersive experiences:
+        """WebXR immersive experiences:
 
 ```javascript
 // WebXR session setup and render loop
@@ -142,12 +142,12 @@ Key patterns:
 2. **Reference spaces** — local-floor for room-scale; viewer for head-relative
 3. **Stereo rendering** — iterate pose.views; each view = one eye with its own projection matrix
 4. **Hit testing** — AR ray from device camera hits real-world surfaces for object placement
-5. **Input abstraction** — controllers via gamepad API, hand tracking via joint poses'''
+5. **Input abstraction** — controllers via gamepad API, hand tracking via joint poses"""
     ),
     (
         "emerging/three-js-xr",
         "Show Three.js WebXR integration: VR scene setup, interactive 3D objects, physics, and spatial audio.",
-        '''Three.js WebXR with interactions:
+        """Three.js WebXR with interactions:
 
 ```javascript
 import * as THREE from "three";
@@ -278,12 +278,12 @@ Key patterns:
 2. **Controller models** — XRControllerModelFactory renders actual controller geometry
 3. **Raycasting** — point controller, cast ray, detect intersections for interaction
 4. **Grab mechanics** — attach/detach objects from controller for manipulation
-5. **Positional audio** — THREE.PositionalAudio for spatial sound that changes with head position'''
+5. **Positional audio** — THREE.PositionalAudio for spatial sound that changes with head position"""
     ),
     (
         "emerging/spatial-computing",
         "Show spatial computing concepts: world understanding, scene anchors, shared AR experiences, and persistent content.",
-        '''Spatial computing patterns:
+        """Spatial computing patterns:
 
 ```typescript
 // Spatial anchor management for persistent AR content
@@ -398,7 +398,6 @@ Key patterns:
 2. **Hit test placement** — detect real surfaces, create anchors at intersection points
 3. **Cross-session persistence** — save/restore anchor positions for returning users
 4. **Shared AR** — sync anchors and poses via WebSocket/WebRTC for multi-user AR
-5. **World understanding** — plane detection + hit testing builds map of physical space'''
+5. **World understanding** — plane detection + hit testing builds map of physical space"""
     ),
 ]
-"""

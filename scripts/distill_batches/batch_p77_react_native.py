@@ -4,7 +4,7 @@ PAIRS = [
     (
         "mobile/react-native-patterns",
         "Show React Native patterns: navigation, state management, platform-specific code, and performance.",
-        '''React Native patterns:
+        """React Native patterns:
 
 ```typescript
 // --- Navigation with React Navigation ---
@@ -166,12 +166,12 @@ React Native patterns:
 2. **`Platform.select()`** — platform-specific styles without file splitting
 3. **`memo` + `useCallback`** — prevent FlatList re-renders
 4. **`getItemLayout`** — skip measurement for fixed-height items (faster scroll)
-5. **Cancellable fetches** — cleanup prevents setState on unmounted components'''
+5. **Cancellable fetches** — cleanup prevents setState on unmounted components"""
     ),
     (
         "mobile/flutter-basics",
         "Show Flutter patterns: widgets, state management, navigation, and platform channels.",
-        '''Flutter widget and state patterns:
+        """Flutter widget and state patterns:
 
 ```dart
 import 'package:flutter/material.dart';
@@ -334,12 +334,12 @@ Flutter patterns:
 2. **`ChangeNotifier`** — simple reactive state with Provider
 3. **`FutureBuilder`** — declarative async data loading in widget tree
 4. **`GoRouter`** — declarative URL-based navigation with path parameters
-5. **`MethodChannel`** — bridge to native iOS/Android code for platform APIs'''
+5. **`MethodChannel`** — bridge to native iOS/Android code for platform APIs"""
     ),
     (
         "frontend/pwa-patterns",
         "Show Progressive Web App patterns: service workers, caching strategies, offline support, and installability.",
-        '''Progressive Web App patterns:
+        """Progressive Web App patterns:
 
 ```javascript
 // --- Service Worker registration ---
@@ -514,7 +514,6 @@ PWA patterns:
 2. **Network First** — try network for fresh data, fall back to cache offline
 3. **Stale While Revalidate** — serve cached immediately, update in background
 4. **Background Sync** — retry failed requests when connectivity returns
-5. **`skipWaiting()` + `clients.claim()`** — activate new SW version immediately'''
+5. **`skipWaiting()` + `clients.claim()`** — activate new SW version immediately"""
     ),
 ]
-"""

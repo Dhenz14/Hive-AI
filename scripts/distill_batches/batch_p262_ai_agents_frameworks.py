@@ -473,4 +473,3 @@ Key patterns:
 5. **Context passing** — previous agent output feeds into next; maintains continuity'''
     ),
 ]
-"""

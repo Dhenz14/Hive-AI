@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/terraform-fundamentals",
         "Show Terraform patterns: resource definitions, variables, outputs, data sources, and state management.",
-        '''Terraform infrastructure-as-code patterns:
+        """Terraform infrastructure-as-code patterns:
 
 ```hcl
 # --- Provider and backend configuration ---
@@ -164,12 +164,12 @@ Terraform fundamentals:
 2. **Variable validation** — catch errors before `apply`
 3. **`sensitive = true`** — mask secrets in plan output
 4. **`count` / `for_each`** — create multiple similar resources
-5. **`lifecycle`** — control resource replacement behavior'''
+5. **`lifecycle`** — control resource replacement behavior"""
     ),
     (
         "devops/terraform-modules",
         "Show Terraform module patterns: reusable modules, composition, and production AWS infrastructure.",
-        '''Terraform module patterns for production:
+        """Terraform module patterns for production:
 
 ```hcl
 # --- Reusable ECS module ---
@@ -337,12 +337,12 @@ Module patterns:
 2. **Sensible defaults** — most variables should have defaults
 3. **Composition** — use modules for logical groups (networking, compute, storage)
 4. **`lifecycle` blocks** — prevent unwanted replacements or ignore autoscaler changes
-5. **Circuit breaker** — auto-rollback failed ECS deployments'''
+5. **Circuit breaker** — auto-rollback failed ECS deployments"""
     ),
     (
         "devops/ansible-patterns",
         "Show Ansible patterns: playbooks, roles, handlers, templates, and idempotent operations.",
-        '''Ansible automation patterns:
+        """Ansible automation patterns:
 
 ```yaml
 # --- Playbook: deploy web application ---
@@ -540,7 +540,6 @@ Ansible patterns:
 2. **Handlers** — only restart services when config actually changes
 3. **Roles** — reusable, parameterized bundles of tasks/templates/handlers
 4. **Templates** — Jinja2 for config files with environment-specific values
-5. **Health checks** — verify deployment success with retries'''
+5. **Health checks** — verify deployment success with retries"""
     ),
 ]
-"""

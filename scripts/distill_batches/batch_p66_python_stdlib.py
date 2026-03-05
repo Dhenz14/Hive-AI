@@ -540,4 +540,3 @@ itertools patterns:
 5. **`accumulate`** — running totals/max/product without loops'''
     ),
 ]
-"""

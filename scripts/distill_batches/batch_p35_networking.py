@@ -415,4 +415,3 @@ Patterns:
 5. **Resource management** — async context manager for cleanup'''
     ),
 ]
-"""

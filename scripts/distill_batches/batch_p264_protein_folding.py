@@ -361,4 +361,3 @@ Key patterns:
 5. **Uncertainty estimation** — surrogate outputs mean + variance; know when to fall back to simulation'''
     ),
 ]
-"""

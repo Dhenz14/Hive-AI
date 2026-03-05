@@ -371,4 +371,3 @@ Job scheduling patterns:
 5. **Lock extension** — long-running jobs extend their lock TTL to stay safe'''
     ),
 ]
-"""

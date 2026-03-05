@@ -597,4 +597,3 @@ Incident response patterns:
 5. **Post-mortem template** — blameless review with timeline, root cause, and action items'''
     ),
 ]
-"""

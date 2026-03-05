@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/nginx-reverse-proxy",
         "Show Nginx reverse proxy patterns: upstream configuration, load balancing, SSL termination, rate limiting, and caching.",
-        '''Nginx production reverse proxy configuration:
+        """Nginx production reverse proxy configuration:
 
 ```nginx
 # --- Main configuration ---
@@ -194,12 +194,12 @@ Key patterns:
 4. **SSL hardening** — TLS 1.2+, HSTS, OCSP stapling
 5. **Security headers** — CSP, X-Frame-Options, nosniff
 6. **WebSocket proxy** — upgrade headers + long read timeout
-7. **Request tracing** — `$request_id` propagated to backends'''
+7. **Request tracing** — `$request_id` propagated to backends"""
     ),
     (
         "devops/nginx-advanced",
         "Show advanced Nginx patterns: geo-based routing, A/B testing, request buffering, and Lua scripting with OpenResty.",
-        '''Advanced Nginx patterns for complex routing:
+        """Advanced Nginx patterns for complex routing:
 
 ```nginx
 # --- Geo-based routing ---
@@ -367,7 +367,6 @@ Advanced patterns:
 3. **Canary deploys** — cookie or percentage-based routing to new version
 4. **Access control** — IP allow-lists for admin, bot blocking
 5. **Conditional logging** — skip health checks and metrics endpoints
-6. **CORS handling** — origin validation at proxy level'''
+6. **CORS handling** — origin validation at proxy level"""
     ),
 ]
-"""

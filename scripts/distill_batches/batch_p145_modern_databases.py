@@ -4,7 +4,7 @@ PAIRS = [
     (
         "databases/drizzle-orm",
         "Show Drizzle ORM patterns: schema definition, type-safe queries, migrations, and relations.",
-        '''Drizzle ORM patterns (TypeScript):
+        """Drizzle ORM patterns (TypeScript):
 
 ```typescript
 // --- Schema definition (schema.ts) ---
@@ -197,12 +197,12 @@ Drizzle ORM patterns:
 2. **Type-safe queries** — `select()`, `where()`, `join()` all fully typed with inference
 3. **Relational queries** — `db.query.users.findMany({ with: { posts: true } })` like Prisma
 4. **Zero abstraction** — queries map 1:1 to SQL, no magic (SQL-in-TypeScript philosophy)
-5. **`drizzle-kit`** — migration generation, push for dev, and visual Studio browser'''
+5. **`drizzle-kit`** — migration generation, push for dev, and visual Studio browser"""
     ),
     (
         "databases/neon-serverless-postgres",
         "Show Neon serverless Postgres patterns: branching, connection pooling, serverless driver, and Edge deployment.",
-        '''Neon serverless Postgres patterns:
+        """Neon serverless Postgres patterns:
 
 ```typescript
 // --- Neon serverless driver (HTTP, not TCP) ---
@@ -341,12 +341,12 @@ Neon serverless Postgres patterns:
 2. **Database branching** — copy-on-write branches for preview deployments and testing
 3. **Scale to zero** — no charges when idle, ~500ms cold start on first query
 4. **Pooler URL** — add `-pooler` to hostname for connection pooling in serverless
-5. **Drizzle integration** — `drizzle-orm/neon-http` for type-safe queries over HTTP'''
+5. **Drizzle integration** — `drizzle-orm/neon-http` for type-safe queries over HTTP"""
     ),
     (
         "runtime/deno-2",
         "Show Deno 2 patterns: Node compatibility, npm imports, permissions, KV storage, and Deploy.",
-        '''Deno 2 patterns:
+        """Deno 2 patterns:
 
 ```typescript
 // --- Deno 2: Node-compatible, secure by default ---
@@ -546,7 +546,6 @@ Deno 2 patterns:
 2. **Deno KV** — built-in key-value store with atomic transactions and TTL
 3. **Deno.cron** — built-in cron scheduling, no external job queue needed
 4. **Permissions** — `--allow-net=host`, `--allow-read=path` for security by default
-5. **Built-in tooling** — `deno fmt`, `deno lint`, `deno test`, `deno bench` with zero config'''
+5. **Built-in tooling** — `deno fmt`, `deno lint`, `deno test`, `deno bench` with zero config"""
     ),
 ]
-"""

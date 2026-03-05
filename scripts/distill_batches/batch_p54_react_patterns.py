@@ -4,7 +4,7 @@ PAIRS = [
     (
         "react/hooks-patterns",
         "Show React hooks patterns: custom hooks, useReducer, useCallback, useMemo, and refs.",
-        '''React hooks patterns:
+        """React hooks patterns:
 
 ```tsx
 import {
@@ -201,12 +201,12 @@ Hook patterns:
 2. **Custom hooks** — extract and reuse stateful logic (`useFetch`, `useDebounce`)
 3. **`useCallback`** — stable function reference for child component memoization
 4. **`useMemo`** — cache expensive computations
-5. **`useDeferredValue`** — keep UI responsive during heavy filtering'''
+5. **`useDeferredValue`** — keep UI responsive during heavy filtering"""
     ),
     (
         "react/component-patterns",
         "Show React component patterns: compound components, render props, HOCs, and error boundaries.",
-        '''React component patterns:
+        """React component patterns:
 
 ```tsx
 import {
@@ -369,12 +369,12 @@ Component patterns:
 2. **Slot pattern** — named ReactNode props for flexible layouts
 3. **Error boundary** — catch render errors, show fallback, allow retry
 4. **Polymorphic `as` prop** — component renders as different HTML elements
-5. **Context + Provider** — share state without prop drilling'''
+5. **Context + Provider** — share state without prop drilling"""
     ),
     (
         "react/nextjs-patterns",
         "Show Next.js App Router patterns: server components, data fetching, caching, and route handlers.",
-        '''Next.js App Router patterns:
+        """Next.js App Router patterns:
 
 ```tsx
 // --- Server Component (default) ---
@@ -557,7 +557,6 @@ Next.js patterns:
 2. **`Suspense`** — streaming with loading fallbacks
 3. **Server Actions** — form mutations with `revalidatePath`/`revalidateTag`
 4. **`'use client'`** — opt into client interactivity only when needed
-5. **`useTransition`** — non-blocking navigation with pending states'''
+5. **`useTransition`** — non-blocking navigation with pending states"""
     ),
 ]
-"""

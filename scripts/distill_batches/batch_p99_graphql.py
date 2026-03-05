@@ -655,4 +655,3 @@ WebSocket patterns:
 5. **Pattern matching** — `match message["type"]` for clean message routing'''
     ),
 ]
-"""

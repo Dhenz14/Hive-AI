@@ -4,7 +4,7 @@ PAIRS = [
     (
         "webdev/webassembly-basics",
         "Show WebAssembly patterns: compiling Rust to Wasm, JavaScript interop, memory management, and practical use cases.",
-        '''WebAssembly with Rust and JavaScript:
+        """WebAssembly with Rust and JavaScript:
 
 ```rust
 // --- Rust library compiled to Wasm ---
@@ -203,12 +203,12 @@ When to use WebAssembly:
 When NOT to use Wasm:
 - DOM manipulation (JS is faster for this)
 - Simple CRUD apps (overhead not worth it)
-- I/O-bound tasks (async JS is better)'''
+- I/O-bound tasks (async JS is better)"""
     ),
     (
         "webdev/pwa-patterns",
         "Show Progressive Web App patterns: service workers, caching strategies, offline support, and push notifications.",
-        '''Progressive Web App (PWA) patterns:
+        """Progressive Web App (PWA) patterns:
 
 ```javascript
 // --- Service Worker with caching strategies ---
@@ -368,7 +368,6 @@ Caching strategy selection:
 - **Network First** — API data that should be fresh but works offline
 - **Stale While Revalidate** — content where slight staleness is OK
 - **Network Only** — real-time data, authentication
-- **Cache Only** — offline-first content bundled with the app'''
+- **Cache Only** — offline-first content bundled with the app"""
     ),
 ]
-"""

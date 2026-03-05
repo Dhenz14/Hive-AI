@@ -560,4 +560,3 @@ Key patterns:
 5. **Modality dropout** — randomly drop modalities during training to build robustness to missing inputs'''
     ),
 ]
-"""

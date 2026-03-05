@@ -516,4 +516,3 @@ Integration testing patterns:
 5. **Concurrency tests** — verify optimistic locking handles race conditions'''
     ),
 ]
-"""

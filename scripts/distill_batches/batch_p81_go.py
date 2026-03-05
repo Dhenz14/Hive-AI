@@ -4,7 +4,7 @@ PAIRS = [
     (
         "go/generics",
         "Show Go generics patterns: type parameters, constraints, generic data structures, and utility functions.",
-        '''Go generics (1.18+):
+        """Go generics (1.18+):
 
 ```go
 package collections
@@ -173,12 +173,12 @@ Go generics patterns:
 2. **`Map`/`Filter`/`Reduce`** — functional helpers with type inference
 3. **`SyncMap[K, V]`** — type-safe concurrent map (vs `sync.Map` which uses `any`)
 4. **`Result[T]`** — generic result type for error-or-value returns
-5. **`Set[T comparable]`** — zero-value set using `map[T]struct{}`'''
+5. **`Set[T comparable]`** — zero-value set using `map[T]struct{}`"""
     ),
     (
         "go/concurrency-patterns",
         "Show Go concurrency patterns: goroutines, channels, select, worker pools, and context cancellation.",
-        '''Go concurrency patterns:
+        """Go concurrency patterns:
 
 ```go
 package main
@@ -389,12 +389,12 @@ Go concurrency patterns:
 2. **Pipeline** — chain channel stages with context cancellation
 3. **`errgroup`** — structured concurrency with first-error cancellation
 4. **Rate limiter** — token bucket via buffered channel
-5. **Graceful shutdown** — context cancellation + shutdown timeout'''
+5. **Graceful shutdown** — context cancellation + shutdown timeout"""
     ),
     (
         "go/testing-patterns",
         "Show Go testing patterns: table-driven tests, test helpers, mocks, and benchmarks.",
-        '''Go testing patterns:
+        """Go testing patterns:
 
 ```go
 package auth_test
@@ -604,7 +604,6 @@ Go testing patterns:
 2. **`t.Helper()`** — error messages point to calling test, not helper
 3. **Interface mocks** — define interface, implement mock struct for testing
 4. **`b.RunParallel()`** — parallel benchmarks for concurrent performance
-5. **`t.Cleanup()`** — guaranteed teardown even on test failure'''
+5. **`t.Cleanup()`** — guaranteed teardown even on test failure"""
     ),
 ]
-"""

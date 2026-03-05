@@ -1360,4 +1360,3 @@ Key patterns:
 7. **No-cache headers** -- prevent caching of WebAuthn API responses to avoid stale challenges'''
     ),
 ]
-"""

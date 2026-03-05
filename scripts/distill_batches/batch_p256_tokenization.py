@@ -407,4 +407,3 @@ Key patterns:
 5. **Output specification** — explicit format instructions with examples reduce parsing errors'''
     ),
 ]
-"""

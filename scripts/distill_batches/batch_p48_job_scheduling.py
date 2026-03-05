@@ -369,4 +369,3 @@ Scheduling patterns:
 5. **Replace existing** — `replace_existing=True` for idempotent job registration'''
     ),
 ]
-"""

@@ -357,4 +357,3 @@ WebSocket patterns:
 5. **Graceful disconnect** — clean up rooms and notify peers on disconnect'''
     ),
 ]
-"""

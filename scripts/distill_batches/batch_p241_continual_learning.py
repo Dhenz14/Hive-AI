@@ -432,4 +432,3 @@ Key patterns:
 5. **Width multiplier** — scale all hidden dimensions by 0.5x-0.75x for predictable compute reduction'''
     ),
 ]
-"""

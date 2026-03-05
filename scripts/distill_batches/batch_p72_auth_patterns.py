@@ -407,4 +407,3 @@ RBAC patterns:
 5. **Deny by default** — require explicit permission grant, any deny wins'''
     ),
 ]
-"""

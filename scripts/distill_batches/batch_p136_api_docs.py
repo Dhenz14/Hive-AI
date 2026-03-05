@@ -423,4 +423,3 @@ API versioning patterns:
 5. **Non-breaking additions** — new optional fields don't require a version bump'''
     ),
 ]
-"""

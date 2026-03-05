@@ -466,4 +466,3 @@ Key patterns:
 5. **Result truncation** — limit tool output size to prevent context overflow; LLM can request more detail'''
     ),
 ]
-"""

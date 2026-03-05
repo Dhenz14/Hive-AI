@@ -1848,4 +1848,3 @@ Key design decisions:
 '''
     ),
 ]
-"""

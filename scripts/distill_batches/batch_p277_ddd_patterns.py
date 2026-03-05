@@ -263,4 +263,3 @@ Key patterns:
 5. **Aggregate loading** — load root entity + child entities together; enforce consistency boundary'''
     ),
 ]
-"""

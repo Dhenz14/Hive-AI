@@ -4,7 +4,7 @@ PAIRS = [
     (
         "java/streams-api",
         "Show Java Streams API patterns: map, filter, reduce, collectors, parallel streams, and custom collectors.",
-        '''Java Streams API patterns:
+        """Java Streams API patterns:
 
 ```java
 import java.util.*;
@@ -162,12 +162,12 @@ Streams patterns:
 2. **`flatMap()`** — flatten nested collections into single stream
 3. **`Collectors.toMap()`** — with merge function for duplicate keys
 4. **`mapToDouble().sum()`** — primitive specialization avoids boxing
-5. **`Stream.iterate()`** — generate infinite sequences with seed and function'''
+5. **`Stream.iterate()`** — generate infinite sequences with seed and function"""
     ),
     (
         "java/records-sealed",
         "Show Java records, sealed classes, and pattern matching patterns.",
-        '''Java records, sealed classes, and pattern matching:
+        """Java records, sealed classes, and pattern matching:
 
 ```java
 import java.time.Instant;
@@ -312,12 +312,12 @@ Java modern patterns:
 2. **Sealed interfaces** — exhaustive hierarchies the compiler can check
 3. **Pattern matching switch** — `case Circle c when ...` with guards
 4. **Record patterns** — destructure nested records in switch/instanceof
-5. **`Result<T>`** — sealed type for success/failure without exceptions'''
+5. **`Result<T>`** — sealed type for success/failure without exceptions"""
     ),
     (
         "java/virtual-threads",
         "Show Java virtual threads patterns: structured concurrency, scoped values, and high-throughput servers.",
-        '''Java virtual threads (Project Loom, Java 21+):
+        """Java virtual threads (Project Loom, Java 21+):
 
 ```java
 import java.time.Duration;
@@ -476,7 +476,6 @@ Virtual thread patterns:
 2. **`StructuredTaskScope`** — fork/join with automatic cancellation on failure
 3. **`ShutdownOnSuccess`** — race pattern, first result wins
 4. **`ScopedValue`** — lightweight context propagation (replaces ThreadLocal)
-5. **No pooling needed** — virtual threads are cheap, create per-task not per-pool'''
+5. **No pooling needed** — virtual threads are cheap, create per-task not per-pool"""
     ),
 ]
-"""

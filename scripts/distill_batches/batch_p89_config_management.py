@@ -350,4 +350,3 @@ Vault patterns:
 5. **Key rotation** — rotate keys without re-encrypting; `rewrap` updates ciphertext'''
     ),
 ]
-"""

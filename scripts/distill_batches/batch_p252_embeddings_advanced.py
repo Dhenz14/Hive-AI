@@ -445,4 +445,3 @@ Key patterns:
 5. **Token-level matching** — MaxSim captures fine-grained term-level relevance'''
     ),
 ]
-"""

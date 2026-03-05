@@ -199,4 +199,3 @@ Key patterns:
 5. **Regression detection** — any unintentional output change is caught automatically'''
     ),
 ]
-"""

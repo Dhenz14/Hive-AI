@@ -1118,4 +1118,3 @@ Key patterns:
 7. **Metrics tracking** -- count events, errors, and lag per sync target'''
     ),
 ]
-"""

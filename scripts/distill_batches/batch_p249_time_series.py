@@ -583,4 +583,3 @@ Key patterns:
 5. **Baselines first** — always include naive (last value) and seasonal naive as benchmarks'''
     ),
 ]
-"""

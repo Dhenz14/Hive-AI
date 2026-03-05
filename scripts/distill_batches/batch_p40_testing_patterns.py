@@ -350,4 +350,3 @@ Rules:
 5. **Don't over-mock** — if everything is mocked, you're testing nothing'''
     ),
 ]
-"""

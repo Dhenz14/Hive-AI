@@ -376,4 +376,3 @@ Composition advantages:
 5. **Plugin systems** — extend without modifying core code'''
     ),
 ]
-"""

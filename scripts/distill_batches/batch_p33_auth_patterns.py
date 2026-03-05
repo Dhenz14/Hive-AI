@@ -578,4 +578,3 @@ Security measures:
 6. **Logout everywhere** — destroy all sessions for compromised accounts'''
     ),
 ]
-"""

@@ -486,4 +486,3 @@ Key patterns:
 5. **Curriculum ordering** — order few-shot examples easy → hard for better in-context learning'''
     ),
 ]
-"""

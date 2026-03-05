@@ -266,4 +266,3 @@ Key patterns:
 5. **Sticky assignments** — user always sees same variant; prevents flickering'''
     ),
 ]
-"""

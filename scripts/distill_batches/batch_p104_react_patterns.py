@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/react-hooks-advanced",
         "Show advanced React hook patterns: custom hooks, useReducer, useSyncExternalStore, and hook composition.",
-        '''Advanced React hook patterns:
+        """Advanced React hook patterns:
 
 ```typescript
 import {
@@ -196,12 +196,12 @@ React hook patterns:
 2. **`useDebounce`** — delay value updates for search input
 3. **`useLocalStorage`** — persist state to localStorage with lazy init
 4. **`useIntersectionObserver`** — detect element visibility for lazy loading
-5. **AbortController cleanup** — cancel in-flight fetch on unmount'''
+5. **AbortController cleanup** — cancel in-flight fetch on unmount"""
     ),
     (
         "frontend/react-state",
         "Show React state management patterns: Context, Zustand, and server state with TanStack Query.",
-        '''React state management patterns:
+        """React state management patterns:
 
 ```typescript
 // --- Context + useReducer (built-in) ---
@@ -373,12 +373,12 @@ State management patterns:
 2. **Zustand** — minimal boilerplate, selector-based re-rendering, middleware
 3. **`persist` middleware** — auto-save/restore state to localStorage
 4. **TanStack Query** — server state with caching, refetching, and optimistic updates
-5. **`queryKey` arrays** — cache keys enable granular invalidation'''
+5. **`queryKey` arrays** — cache keys enable granular invalidation"""
     ),
     (
         "frontend/react-component-patterns",
         "Show React component patterns: compound components, render props, HOCs, and error boundaries.",
-        '''React component patterns:
+        """React component patterns:
 
 ```typescript
 import {
@@ -550,7 +550,6 @@ React component patterns:
 2. **Render props** — `children` as function for flexible rendering
 3. **Error Boundary** — catch render errors, show fallback with reset
 4. **Polymorphic `as` prop** — render as any HTML element or component
-5. **Context isolation** — compound component state hidden from consumers'''
+5. **Context isolation** — compound component state hidden from consumers"""
     ),
 ]
-"""

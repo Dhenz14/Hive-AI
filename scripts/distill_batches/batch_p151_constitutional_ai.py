@@ -525,4 +525,3 @@ Key patterns:
 5. **IPO variant** — linear loss is more stable than sigmoid for small datasets; KTO works with unpaired preferences'''
     ),
 ]
-"""

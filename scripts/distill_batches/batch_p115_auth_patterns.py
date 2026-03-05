@@ -587,4 +587,3 @@ RBAC patterns:
 5. **`require_permission()` dependency** — composable FastAPI permission guards'''
     ),
 ]
-"""

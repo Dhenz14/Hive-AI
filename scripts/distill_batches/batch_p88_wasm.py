@@ -4,7 +4,7 @@ PAIRS = [
     (
         "wasm/rust-wasm",
         "Show Rust to WebAssembly patterns: wasm-bindgen, JavaScript interop, and memory management.",
-        '''Rust to WebAssembly with wasm-bindgen:
+        """Rust to WebAssembly with wasm-bindgen:
 
 ```rust
 // Cargo.toml
@@ -203,12 +203,12 @@ WASM patterns:
 2. **Zero-copy memory** — share pixel buffers between JS and WASM via pointers
 3. **`serde_wasm_bindgen`** — serialize complex Rust structs to JS objects
 4. **`console_error_panic_hook`** — readable panic messages in browser console
-5. **`.free()`** — explicit memory cleanup for WASM-allocated objects'''
+5. **`.free()`** — explicit memory cleanup for WASM-allocated objects"""
     ),
     (
         "wasm/wasm-workers",
         "Show WebAssembly with Web Workers: off-main-thread computation and SharedArrayBuffer patterns.",
-        '''WASM with Web Workers for parallel processing:
+        """WASM with Web Workers for parallel processing:
 
 ```javascript
 // --- Worker pool for WASM tasks ---
@@ -388,7 +388,6 @@ WASM + Workers patterns:
 2. **Transferable buffers** — zero-copy transfer between main thread and workers
 3. **Chunk parallelism** — split image/data into strips, process in parallel
 4. **SharedArrayBuffer** — multiple workers access same memory
-5. **Atomics** — thread-safe synchronization primitives for shared memory'''
+5. **Atomics** — thread-safe synchronization primitives for shared memory"""
     ),
 ]
-"""

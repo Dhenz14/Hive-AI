@@ -1816,4 +1816,3 @@ Key patterns for trunk-based development with flags:
 7. **Deploy code daily, release features weekly** -- separate deployment (infrastructure) from release (feature visibility) using flags'''
     ),
 ]
-"""

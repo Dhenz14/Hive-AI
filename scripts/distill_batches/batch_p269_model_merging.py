@@ -267,4 +267,3 @@ Key patterns:
 5. **Reproducible results** — save full results to JSON for later analysis'''
     ),
 ]
-"""

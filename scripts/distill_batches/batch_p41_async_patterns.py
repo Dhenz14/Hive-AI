@@ -332,4 +332,3 @@ Async testing tips:
 5. **Shutdown signals** — use `None` sentinel or cancellation for clean shutdown'''
     ),
 ]
-"""

@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/accessibility-patterns",
         "Show web accessibility patterns: ARIA roles, keyboard navigation, focus management, and screen reader support.",
-        '''Web accessibility (a11y) patterns:
+        """Web accessibility (a11y) patterns:
 
 ```html
 <!-- --- Accessible modal dialog --- -->
@@ -277,12 +277,12 @@ Accessibility patterns:
 2. **`aria-describedby`** — link hints and errors to form inputs
 3. **Tab keyboard nav** — Arrow keys move between tabs, Tab moves to panel
 4. **`aria-live="polite"`** — announce dynamic changes to screen readers
-5. **`prefers-reduced-motion`** — respect user's motion sensitivity preference'''
+5. **`prefers-reduced-motion`** — respect user's motion sensitivity preference"""
     ),
     (
         "frontend/web-animations",
         "Show web animation patterns: CSS animations, transitions, Intersection Observer, and GSAP-style patterns.",
-        '''Web animation patterns:
+        """Web animation patterns:
 
 ```css
 /* --- CSS transitions --- */
@@ -508,7 +508,6 @@ Animation patterns:
 2. **Web Animations API** — JavaScript-controlled animations with promises
 3. **Skeleton loading** — shimmer effect placeholder while content loads
 4. **Staggered delays** — offset children animations for cascading effect
-5. **View Transitions API** — smooth page-to-page transitions (progressive enhancement)'''
+5. **View Transitions API** — smooth page-to-page transitions (progressive enhancement)"""
     ),
 ]
-"""

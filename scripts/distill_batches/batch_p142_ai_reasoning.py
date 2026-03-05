@@ -681,4 +681,3 @@ Inference-time compute scaling:
 5. **Scaling law** — doubling test-time compute often beats 4-8x more training compute'''
     ),
 ]
-"""

@@ -369,4 +369,3 @@ Key patterns:
 5. **NDCG** — discounted cumulative gain accounts for rank position; standard metric for retrieval quality'''
     ),
 ]
-"""

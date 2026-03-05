@@ -507,4 +507,3 @@ Pathlib patterns:
 5. **`.read_text()` / `.write_text()`** — one-liner file I/O with encoding'''
     ),
 ]
-"""

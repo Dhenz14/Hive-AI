@@ -4,7 +4,7 @@ PAIRS = [
     (
         "testing/playwright",
         "Show Playwright E2E testing patterns: page interactions, assertions, fixtures, and API testing.",
-        '''Playwright E2E testing patterns:
+        """Playwright E2E testing patterns:
 
 ```typescript
 import { test, expect, type Page } from '@playwright/test';
@@ -203,12 +203,12 @@ Playwright patterns:
 2. **Page Object Model** — encapsulate page interactions for reuse across tests
 3. **API-based auth fixture** — login via API is faster than UI flow for test setup
 4. **`page.route()`** — intercept network requests to test error states and edge cases
-5. **`toHaveScreenshot()`** — visual regression testing with configurable diff threshold'''
+5. **`toHaveScreenshot()`** — visual regression testing with configurable diff threshold"""
     ),
     (
         "testing/accessibility",
         "Show accessibility testing patterns: axe-core integration, ARIA testing, keyboard navigation, and screen reader testing.",
-        '''Accessibility testing patterns:
+        """Accessibility testing patterns:
 
 ```typescript
 import { test, expect } from '@playwright/test';
@@ -359,12 +359,12 @@ Accessibility testing patterns:
 2. **`withTags(['wcag2aa'])`** — test against specific WCAG conformance levels
 3. **Focus trap testing** — verify Tab cycles within modals, Escape closes them
 4. **`aria-expanded`/`aria-haspopup`** — assert correct ARIA states on interactive widgets
-5. **`aria-describedby` + `role="alert"`** — verify form errors are screen-reader accessible'''
+5. **`aria-describedby` + `role="alert"`** — verify form errors are screen-reader accessible"""
     ),
     (
         "testing/load-testing",
         "Show load testing patterns: k6 scripts, performance metrics, ramp-up scenarios, and threshold checking.",
-        '''Load testing patterns with k6:
+        """Load testing patterns with k6:
 
 ```javascript
 // load-test.js — k6 load test script
@@ -501,7 +501,6 @@ Load testing patterns:
 2. **`thresholds`** — auto-fail CI if p95 latency or error rate exceeds limits
 3. **`check()`** — assert response status and body per request
 4. **Custom metrics** — `Trend` for latency distributions, `Rate` for error rates
-5. **`sleep()`** — think time between requests simulates real user behavior'''
+5. **`sleep()`** — think time between requests simulates real user behavior"""
     ),
 ]
-"""

@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/git-workflows",
         "Show Git workflow patterns: trunk-based development, Git Flow, feature flags, and branch protection strategies.",
-        '''Git workflows for team development:
+        """Git workflows for team development:
 
 ```bash
 # --- Trunk-based development (recommended for CI/CD) ---
@@ -130,12 +130,12 @@ Best practices:
 2. **Rebase before merge** — clean, linear history
 3. **Squash merge** — one commit per feature in main
 4. **Branch protection** — require reviews, CI passing, linear history
-5. **CODEOWNERS** — automatic review assignment by file path'''
+5. **CODEOWNERS** — automatic review assignment by file path"""
     ),
     (
         "devops/git-hooks",
         "Show Git hooks patterns: pre-commit validation, commit message standards, and automated checks with pre-commit framework.",
-        '''Git hooks for code quality automation:
+        """Git hooks for code quality automation:
 
 ```yaml
 # .pre-commit-config.yaml
@@ -262,7 +262,6 @@ Hook workflow:
 2. **commit-msg** — enforce conventional commit message format
 3. **pre-push** — prevent direct push to main, run tests
 4. **post-merge** — auto-install dependencies after pulling
-5. **Framework** — use `pre-commit` tool for portable, shareable hooks'''
+5. **Framework** — use `pre-commit` tool for portable, shareable hooks"""
     ),
 ]
-"""

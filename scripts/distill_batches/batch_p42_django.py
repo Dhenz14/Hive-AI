@@ -4,7 +4,7 @@ PAIRS = [
     (
         "python/django-models",
         "Show Django model patterns: field types, relationships, managers, querysets, signals, and model methods.",
-        '''Django model patterns for production:
+        """Django model patterns for production:
 
 ```python
 from django.db import models
@@ -187,12 +187,12 @@ Patterns:
 2. **Custom managers/querysets** — chainable, reusable query filters
 3. **`F()` expressions** — atomic updates without race conditions
 4. **`select_related`/`prefetch_related`** — prevent N+1 queries
-5. **TextChoices** — type-safe status enums with labels'''
+5. **TextChoices** — type-safe status enums with labels"""
     ),
     (
         "python/django-rest-framework",
         "Show Django REST Framework patterns: serializers, viewsets, permissions, filtering, and pagination.",
-        '''Django REST Framework production patterns:
+        """Django REST Framework production patterns:
 
 ```python
 from rest_framework import serializers, viewsets, permissions, filters, status
@@ -377,7 +377,6 @@ DRF patterns:
 2. **Separate create/read serializers** — different fields for input vs output
 3. **`@action`** — custom endpoints on viewsets
 4. **Cursor pagination** — efficient for infinite scroll (no offset counting)
-5. **FilterSet** — declarative filtering with django-filter'''
+5. **FilterSet** — declarative filtering with django-filter"""
     ),
 ]
-"""

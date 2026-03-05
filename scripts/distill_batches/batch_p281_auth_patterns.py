@@ -237,4 +237,3 @@ Key patterns:
 5. **Effective permissions** — recursively resolve inherited roles for complete permission set'''
     ),
 ]
-"""

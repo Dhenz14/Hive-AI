@@ -4,7 +4,7 @@ PAIRS = [
     (
         "svelte/fundamentals",
         "Show Svelte patterns: reactive declarations, bindings, events, lifecycle, and component composition.",
-        '''Svelte component patterns:
+        """Svelte component patterns:
 
 ```svelte
 <!-- Counter.svelte -->
@@ -143,12 +143,12 @@ Svelte rules:
 2. **Reassign for reactivity** — `arr = [...arr, item]` not `arr.push(item)`
 3. **Scoped styles** — CSS is component-scoped by default
 4. **No virtual DOM** — compiles to direct DOM updates (faster, smaller bundle)
-5. **`bind:`** for two-way binding, `on:` for events, `class:` for conditional classes'''
+5. **`bind:`** for two-way binding, `on:` for events, `class:` for conditional classes"""
     ),
     (
         "svelte/stores-sveltekit",
         "Show Svelte stores and SvelteKit patterns: writable/derived stores, load functions, form actions, and routing.",
-        '''Svelte stores and SvelteKit patterns:
+        """Svelte stores and SvelteKit patterns:
 
 ```typescript
 // src/lib/stores/auth.ts
@@ -311,7 +311,6 @@ SvelteKit patterns:
 2. **`use:enhance`** — progressive enhancement (works without JS, enhanced with JS)
 3. **`$store` syntax** — auto-subscribe to stores in components
 4. **`derived`** — computed stores that update when source stores change
-5. **`invalidate`** — trigger re-fetching of load function data'''
+5. **`invalidate`** — trigger re-fetching of load function data"""
     ),
 ]
-"""

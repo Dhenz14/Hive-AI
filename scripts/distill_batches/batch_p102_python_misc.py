@@ -624,4 +624,3 @@ CLI argument parsing patterns:
 5. **`choices`** — restrict `--format` to valid options with auto error messages'''
     ),
 ]
-"""

@@ -417,4 +417,3 @@ Key patterns:
 5. **QAT** — simulate quantization during training with straight-through estimator; model adapts to quantization noise'''
     ),
 ]
-"""

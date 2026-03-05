@@ -496,4 +496,3 @@ Load testing patterns:
 5. **CI assertions** — fail pipeline if P95, error rate exceed SLOs'''
     ),
 ]
-"""

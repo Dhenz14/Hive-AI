@@ -613,4 +613,3 @@ Key patterns:
 5. **Hook-based extraction** — register forward/backward hooks to capture intermediate activations'''
     ),
 ]
-"""

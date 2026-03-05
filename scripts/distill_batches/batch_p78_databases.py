@@ -449,4 +449,3 @@ Graph database patterns:
 5. **Indexes on lookup properties** — speed up MATCH starting points'''
     ),
 ]
-"""

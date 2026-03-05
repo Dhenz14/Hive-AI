@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/ssr-patterns",
         "Show server-side rendering patterns: Next.js App Router, data fetching, streaming, and caching.",
-        '''Next.js App Router SSR patterns:
+        """Next.js App Router SSR patterns:
 
 ```typescript
 // --- Server Components (default in App Router) ---
@@ -175,12 +175,12 @@ Next.js App Router patterns:
 2. **`Suspense` streaming** — show page immediately, stream slow parts later
 3. **`'use client'`** — opt specific components into client-side interactivity
 4. **Server Actions** — `'use server'` functions for form mutations + revalidation
-5. **`next: { revalidate: 60 }`** — ISR: cache for 60s, rebuild in background'''
+5. **`next: { revalidate: 60 }`** — ISR: cache for 60s, rebuild in background"""
     ),
     (
         "frontend/svelte-patterns",
         "Show Svelte patterns: reactivity, stores, component composition, and SvelteKit routing.",
-        '''Svelte and SvelteKit patterns:
+        """Svelte and SvelteKit patterns:
 
 ```svelte
 <!-- --- Svelte reactivity --- -->
@@ -343,12 +343,12 @@ Svelte patterns:
 2. **`$effect`** — reactive side effects with automatic cleanup
 3. **`{#each ... (key)}`** — keyed list rendering with template syntax
 4. **`+page.server.ts`** — server-side data loading and form actions
-5. **Custom stores** — `writable` + methods for shared state management'''
+5. **Custom stores** — `writable` + methods for shared state management"""
     ),
     (
         "frontend/astro-patterns",
         "Show Astro patterns: islands architecture, content collections, and multi-framework components.",
-        '''Astro islands architecture:
+        """Astro islands architecture:
 
 ```astro
 ---
@@ -512,7 +512,6 @@ Astro patterns:
 2. **`client:visible`** — hydrate component when it enters viewport (lazy)
 3. **Content collections** — type-safe Markdown/MDX with Zod schema validation
 4. **Multi-framework** — use React, Svelte, Vue components in same project
-5. **`.astro` components** — server-only, no client JS, scoped CSS'''
+5. **`.astro` components** — server-only, no client JS, scoped CSS"""
     ),
 ]
-"""

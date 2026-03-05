@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/nextjs-15-app-router",
         "Show Next.js 15 App Router patterns: server components, server actions, streaming, PPR, and caching.",
-        '''Next.js 15 App Router patterns:
+        """Next.js 15 App Router patterns:
 
 ```typescript
 // --- Server Components (default in App Router) ---
@@ -226,12 +226,12 @@ Next.js 15 App Router patterns:
 2. **Server Actions** — `"use server"` functions replace API routes for mutations
 3. **`useActionState`** — pending states + validation errors for form submissions
 4. **Partial Prerendering (PPR)** — static shell + dynamic Suspense holes streamed at request time
-5. **Tag-based revalidation** — `revalidateTag("users")` invalidates all fetches with that tag'''
+5. **Tag-based revalidation** — `revalidateTag("users")` invalidates all fetches with that tag"""
     ),
     (
         "frontend/remix-react-router-v7",
         "Show React Router v7 (Remix) patterns: loaders, actions, nested routes, and progressive enhancement.",
-        '''React Router v7 (Remix) patterns:
+        """React Router v7 (Remix) patterns:
 
 ```typescript
 // --- Route module with loader + action ---
@@ -409,12 +409,12 @@ React Router v7 (Remix) patterns:
 2. **`<Form>`** — progressive enhancement: works without JS, upgrades to fetch
 3. **`useFetcher`** — non-navigating mutations for optimistic UI without page transitions
 4. **Nested routes** — layout routes with `<Outlet>` for shared UI shells
-5. **Type-safe `loaderData`** — auto-generated types from `Route.ComponentProps`'''
+5. **Type-safe `loaderData`** — auto-generated types from `Route.ComponentProps`"""
     ),
     (
         "frontend/server-actions-patterns",
         "Show React Server Actions patterns: form handling, optimistic updates, error handling, and revalidation.",
-        '''React Server Actions patterns:
+        """React Server Actions patterns:
 
 ```typescript
 // --- Server Action definition ---
@@ -611,7 +611,6 @@ Server Actions patterns:
 2. **`useActionState`** — tracks pending state + returns validation errors from server
 3. **`useOptimistic`** — instant UI feedback while server action processes
 4. **Zod validation** — type-safe server-side validation with structured error return
-5. **`revalidatePath`/`revalidateTag`** — invalidate cached data after mutations'''
+5. **`revalidatePath`/`revalidateTag`** — invalidate cached data after mutations"""
     ),
 ]
-"""

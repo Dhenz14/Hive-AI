@@ -748,4 +748,3 @@ Key patterns:
 5. **Reciprocal rank fusion** — merge results from multiple queries using rank-based scoring'''
     ),
 ]
-"""

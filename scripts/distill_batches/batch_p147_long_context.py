@@ -462,4 +462,3 @@ Key patterns:
 5. **Online softmax** — accumulate attention incrementally without materializing the full attention matrix'''
     ),
 ]
-"""

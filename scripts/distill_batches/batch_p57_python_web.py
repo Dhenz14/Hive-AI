@@ -488,4 +488,3 @@ Scraping patterns:
 5. **Decompose noise** — remove script, style, nav before text extraction'''
     ),
 ]
-"""

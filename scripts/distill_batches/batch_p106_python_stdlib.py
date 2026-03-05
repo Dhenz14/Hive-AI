@@ -562,4 +562,3 @@ String formatting patterns:
 5. **`f"{now:%Y-%m-%d}"`** — datetime formatting inside f-strings'''
     ),
 ]
-"""

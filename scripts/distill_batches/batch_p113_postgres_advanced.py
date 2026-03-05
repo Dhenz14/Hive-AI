@@ -4,7 +4,7 @@ PAIRS = [
     (
         "database/postgres-extensions",
         "Show PostgreSQL extension patterns: pgvector for embeddings, pg_trgm for fuzzy search, and PostGIS basics.",
-        '''PostgreSQL extension patterns:
+        """PostgreSQL extension patterns:
 
 ```sql
 -- --- pgvector: vector similarity search ---
@@ -142,12 +142,12 @@ PostgreSQL patterns:
 2. **pg_trgm** — fuzzy matching with trigram similarity (typo-tolerant search)
 3. **Weighted tsvector** — title=A, summary=B, body=C for ranked full-text search
 4. **`ts_headline()`** — generate search result snippets with highlighted matches
-5. **Range partitioning** — auto-prune old data, partition-level vacuum and indexing'''
+5. **Range partitioning** — auto-prune old data, partition-level vacuum and indexing"""
     ),
     (
         "database/postgres-performance",
         "Show PostgreSQL performance tuning: EXPLAIN ANALYZE, index strategies, connection tuning, and query optimization.",
-        '''PostgreSQL performance tuning:
+        """PostgreSQL performance tuning:
 
 ```sql
 -- --- EXPLAIN ANALYZE: understanding query plans ---
@@ -288,7 +288,6 @@ PostgreSQL performance patterns:
 2. **Partial indexes** — index only the rows you query (e.g., `WHERE status = 'pending'`)
 3. **Covering indexes** — `INCLUDE` columns for index-only scans
 4. **Keyset pagination** — `WHERE (col, id) > (last_val, last_id)` instead of OFFSET
-5. **`random_page_cost = 1.1`** — tell planner you have SSDs for better index usage'''
+5. **`random_page_cost = 1.1`** — tell planner you have SSDs for better index usage"""
     ),
 ]
-"""

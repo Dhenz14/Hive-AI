@@ -550,4 +550,3 @@ Type hint guide:
 7. **`Self`** — return type for method chaining'''
     ),
 ]
-"""

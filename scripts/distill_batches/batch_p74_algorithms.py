@@ -571,4 +571,3 @@ Algorithm patterns:
 5. **Rotated array search** — identify sorted half, then standard binary search'''
     ),
 ]
-"""

@@ -394,4 +394,3 @@ Key patterns:
 5. **Inductive learning** — GraphSAGE-based models generalize to unseen nodes (new users, new transactions)'''
     ),
 ]
-"""

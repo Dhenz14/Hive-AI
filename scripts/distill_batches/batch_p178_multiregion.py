@@ -1567,4 +1567,3 @@ Key patterns:
 6. Use `x-user-country` header or IP geolocation to determine data residency.'''
     ),
 ]
-"""

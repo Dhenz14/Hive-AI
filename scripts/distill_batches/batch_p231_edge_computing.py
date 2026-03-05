@@ -1429,4 +1429,3 @@ Key patterns:
 7. Use `tf.tidy()` to prevent memory leaks from intermediate tensor allocations'''
     ),
 ]
-"""

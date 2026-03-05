@@ -4,7 +4,7 @@ PAIRS = [
     (
         "rust/ownership-patterns",
         "Show Rust ownership patterns: borrowing, lifetimes, smart pointers, and common ownership solutions.",
-        '''Rust ownership and borrowing patterns:
+        """Rust ownership and borrowing patterns:
 
 ```rust
 use std::collections::HashMap;
@@ -199,12 +199,12 @@ Ownership patterns:
 2. **`Rc`/`Arc`** — shared ownership (single-threaded / multi-threaded)
 3. **`RefCell`/`Mutex`** — interior mutability when needed
 4. **Builder pattern** — `self` by value for method chaining (ownership transfer)
-5. **`impl Into<String>`** — accept both `&str` and `String` ergonomically'''
+5. **`impl Into<String>`** — accept both `&str` and `String` ergonomically"""
     ),
     (
         "rust/error-handling",
         "Show Rust error handling: Result, custom errors, the ? operator, anyhow/thiserror, and error conversion.",
-        '''Rust error handling patterns:
+        """Rust error handling patterns:
 
 ```rust
 use std::fmt;
@@ -362,7 +362,6 @@ Rust error patterns:
 2. **`anyhow`** — use in application code for easy error context chaining
 3. **`?` operator** — propagate errors with automatic conversion
 4. **`context()`** — add human-readable context to error chain
-5. **Pattern matching** — exhaustive error handling with `match`'''
+5. **Pattern matching** — exhaustive error handling with `match`"""
     ),
 ]
-"""

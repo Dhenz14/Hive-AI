@@ -391,4 +391,3 @@ Elasticsearch patterns:
 5. **`bool` query** — combine must (scoring), filter (non-scoring), should (boost)'''
     ),
 ]
-"""

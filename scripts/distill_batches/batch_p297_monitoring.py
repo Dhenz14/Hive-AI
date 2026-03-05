@@ -218,4 +218,3 @@ Key patterns:
 5. **Budget-based decisions** — if budget exhausted, freeze deploys; if plenty, ship faster'''
     ),
 ]
-"""

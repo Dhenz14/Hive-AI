@@ -4,7 +4,7 @@ PAIRS = [
     (
         "databases/polars-dataframe",
         "Show Polars dataframe patterns: lazy evaluation, expressions, group-by, joins, and comparison with pandas.",
-        '''Polars dataframe patterns:
+        """Polars dataframe patterns:
 
 ```python
 import polars as pl
@@ -173,12 +173,12 @@ Polars patterns:
 2. **Expressions** — `pl.col()`, `pl.when().then()`, `.over()` replace pandas apply/transform
 3. **Window functions** — `.over("group")` for partition-level aggregates without group_by
 4. **Predicate pushdown** — Polars skips reading columns/rows that aren't needed
-5. **Multithreaded** — automatic parallelism across cores, 10-100x faster than pandas'''
+5. **Multithreaded** — automatic parallelism across cores, 10-100x faster than pandas"""
     ),
     (
         "data-engineering/apache-arrow-columnar",
         "Show Apache Arrow and PyArrow patterns: zero-copy data sharing, IPC, Parquet I/O, and compute kernels.",
-        '''Apache Arrow and PyArrow patterns:
+        """Apache Arrow and PyArrow patterns:
 
 ```python
 import pyarrow as pa
@@ -323,7 +323,6 @@ Apache Arrow patterns:
 2. **Compute kernels** — `pc.sum()`, `pc.filter()`, `pc.sort_indices()` run vectorized C++
 3. **Parquet** — columnar storage with column pruning and predicate pushdown
 4. **Dataset API** — scan partitioned datasets across files with lazy filtering
-5. **IPC format** — inter-process data sharing without serialization overhead'''
+5. **IPC format** — inter-process data sharing without serialization overhead"""
     ),
 ]
-"""

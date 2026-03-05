@@ -302,4 +302,3 @@ Spark optimization rules:
 5. **Cache wisely** — only cache DataFrames reused multiple times, always unpersist'''
     ),
 ]
-"""

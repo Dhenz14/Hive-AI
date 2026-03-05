@@ -4,7 +4,7 @@ PAIRS = [
     (
         "architecture/edge-computing",
         "Show edge computing patterns: CDN workers, edge middleware, geo-routing, and A/B testing at the edge.",
-        '''Edge computing patterns for low-latency applications:
+        """Edge computing patterns for low-latency applications:
 
 ```javascript
 // --- Cloudflare Worker: API Gateway at the Edge ---
@@ -154,12 +154,12 @@ Edge computing patterns:
 2. **Geo-routing** — route to nearest datacenter automatically
 3. **Edge KV** — distributed config/cache with eventual consistency
 4. **A/B testing** — assign variants without origin round-trip
-5. **Image optimization** — resize/format on-the-fly at CDN edge'''
+5. **Image optimization** — resize/format on-the-fly at CDN edge"""
     ),
     (
         "architecture/micro-frontends",
         "Show micro-frontend patterns: module federation, single-spa, shared state, and deployment strategies.",
-        '''Micro-frontend architecture patterns:
+        """Micro-frontend architecture patterns:
 
 ```javascript
 // --- Module Federation (Webpack 5) ---
@@ -293,7 +293,6 @@ Architecture patterns:
 2. **Shared singletons** — React, router shared to avoid duplication
 3. **Event bus** — cross-MFE communication via custom events
 4. **Error boundaries** — graceful degradation when one MFE fails
-5. **Independent deploys** — each team deploys their MFE independently'''
+5. **Independent deploys** — each team deploys their MFE independently"""
     ),
 ]
-"""

@@ -4,7 +4,7 @@ PAIRS = [
     (
         "css/tailwind-patterns",
         "Show Tailwind CSS patterns: component styling, responsive design, dark mode, and custom utilities.",
-        '''Tailwind CSS patterns:
+        """Tailwind CSS patterns:
 
 ```html
 <!-- Responsive card component -->
@@ -145,12 +145,12 @@ Tailwind patterns:
 2. **`dark:` prefix** — dark mode variants with class strategy
 3. **`@layer components`** — extract reusable component classes
 4. **`space-y-*`** — vertical spacing between children without margin utilities
-5. **Responsive** — mobile-first: `sm:`, `md:`, `lg:`, `xl:` breakpoints'''
+5. **Responsive** — mobile-first: `sm:`, `md:`, `lg:`, `xl:` breakpoints"""
     ),
     (
         "css/responsive-layouts",
         "Show responsive layout patterns: flexbox, grid, container queries, and mobile-first design.",
-        '''Responsive layout patterns:
+        """Responsive layout patterns:
 
 ```css
 /* --- Holy grail layout with CSS Grid --- */
@@ -313,7 +313,6 @@ Responsive patterns:
 2. **Container queries** — responsive to parent container, not viewport
 3. **`clamp()`** — fluid typography and spacing without breakpoints
 4. **`100dvh`** — dynamic viewport height (accounts for mobile browser chrome)
-5. **Scroll snap** — native carousel behavior without JavaScript'''
+5. **Scroll snap** — native carousel behavior without JavaScript"""
     ),
 ]
-"""

@@ -850,4 +850,3 @@ Key patterns:
 5. **Aggregate reporting** — per-category pass rates and mean scores for dashboarding'''
     ),
 ]
-"""

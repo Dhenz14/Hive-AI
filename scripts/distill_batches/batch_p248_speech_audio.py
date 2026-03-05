@@ -561,4 +561,3 @@ Key patterns:
 5. **Enrollment** — average multiple embeddings for robust speaker profile'''
     ),
 ]
-"""

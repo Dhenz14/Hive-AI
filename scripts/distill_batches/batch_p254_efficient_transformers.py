@@ -457,4 +457,3 @@ Key patterns:
 5. **Capacity factor** — limit max tokens per expert per batch; drop overflow for efficiency'''
     ),
 ]
-"""

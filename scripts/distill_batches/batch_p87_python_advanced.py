@@ -571,4 +571,3 @@ Descriptor and metaclass patterns:
 5. **`__init_subclass__`** — modern hook for subclass registration (no metaclass needed)'''
     ),
 ]
-"""

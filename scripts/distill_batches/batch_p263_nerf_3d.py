@@ -347,4 +347,3 @@ Key patterns:
 5. **Feature transform regularization** — constrain feature TNet close to orthogonal for stability'''
     ),
 ]
-"""

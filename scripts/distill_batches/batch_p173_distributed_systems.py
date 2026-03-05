@@ -1450,4 +1450,3 @@ Convergence guarantees:
 '''
     ),
 ]
-"""

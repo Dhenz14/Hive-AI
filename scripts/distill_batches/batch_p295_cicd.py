@@ -238,4 +238,3 @@ Key patterns:
 5. **Confidence period** — keep old environment alive for quick rollback window'''
     ),
 ]
-"""

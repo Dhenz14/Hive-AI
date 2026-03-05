@@ -4,7 +4,7 @@ PAIRS = [
     (
         "react/zustand",
         "Show Zustand state management: stores, slices, middleware, and TypeScript patterns.",
-        '''Zustand state management:
+        """Zustand state management:
 
 ```typescript
 import { create } from 'zustand';
@@ -181,12 +181,12 @@ Zustand patterns:
 2. **Immer middleware** — write "mutable" updates that produce immutable state
 3. **Persist middleware** — auto-save to localStorage
 4. **Slice pattern** — split large stores into composable pieces
-5. **Subscribe outside React** — react to state changes in non-component code'''
+5. **Subscribe outside React** — react to state changes in non-component code"""
     ),
     (
         "react/react-query",
         "Show React Query (TanStack Query) patterns: queries, mutations, optimistic updates, and infinite scroll.",
-        '''TanStack Query (React Query) patterns:
+        """TanStack Query (React Query) patterns:
 
 ```tsx
 import {
@@ -360,7 +360,6 @@ React Query patterns:
 2. **Optimistic updates** — update UI immediately, rollback on error
 3. **`enabled`** — conditional/dependent queries
 4. **Infinite queries** — cursor-based pagination with `getNextPageParam`
-5. **Prefetch on hover** — load data before user clicks for instant navigation'''
+5. **Prefetch on hover** — load data before user clicks for instant navigation"""
     ),
 ]
-"""

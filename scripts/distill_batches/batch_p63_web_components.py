@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/web-components",
         "Show Web Components patterns: custom elements, Shadow DOM, slots, lifecycle, and form-associated elements.",
-        '''Web Components patterns:
+        """Web Components patterns:
 
 ```javascript
 // --- Basic custom element with Shadow DOM ---
@@ -261,7 +261,6 @@ Web Components patterns:
 2. **Slots** — named and default slots for flexible content composition
 3. **`:host` selector** — style the custom element itself from within shadow
 4. **Form-associated** — `attachInternals()` integrates with native `<form>` validation
-5. **Custom events** — `dispatchEvent(new CustomEvent(...))` for component communication'''
+5. **Custom events** — `dispatchEvent(new CustomEvent(...))` for component communication"""
     ),
 ]
-"""

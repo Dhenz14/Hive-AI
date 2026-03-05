@@ -542,4 +542,3 @@ Typer patterns:
 5. **`CliRunner`** — test CLI commands with captured output and exit codes'''
     ),
 ]
-"""

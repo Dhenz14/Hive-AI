@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/dockerfile-patterns",
         "Show Dockerfile patterns: multi-stage builds, layer caching, security hardening, and Python optimization.",
-        '''Dockerfile best practices:
+        """Dockerfile best practices:
 
 ```dockerfile
 # --- Multi-stage Python build ---
@@ -168,12 +168,12 @@ Docker patterns:
 2. **Layer ordering** — dependencies before code (cache expensive layers)
 3. **Non-root user** — `USER appuser` for security (never run as root)
 4. **Exec form CMD** — `["cmd", "arg"]` for proper signal handling (PID 1)
-5. **Health checks** — `HEALTHCHECK` for orchestrator integration'''
+5. **Health checks** — `HEALTHCHECK` for orchestrator integration"""
     ),
     (
         "devops/makefile-patterns",
         "Show Makefile patterns: project automation, phony targets, variables, and multi-language support.",
-        '''Makefile patterns for project automation:
+        """Makefile patterns for project automation:
 
 ```makefile
 # --- Variables ---
@@ -356,12 +356,12 @@ Makefile patterns:
 2. **`.PHONY`** — declare non-file targets to prevent conflicts with filenames
 3. **Variable extraction** — `$(shell git ...)` for dynamic version/commit
 4. **Dependency chain** — `deploy-staging: check docker-push` runs prerequisites
-5. **Confirmation prompt** — `read -p "Are you sure?"` for destructive operations'''
+5. **Confirmation prompt** — `read -p "Are you sure?"` for destructive operations"""
     ),
     (
         "devops/shell-scripting",
         "Show shell scripting patterns: error handling, argument parsing, logging, and common utilities.",
-        '''Shell scripting patterns:
+        """Shell scripting patterns:
 
 ```bash
 #!/usr/bin/env bash
@@ -585,7 +585,6 @@ Shell scripting patterns:
 2. **Trap cleanup** — `trap cleanup EXIT` runs on any exit (success or failure)
 3. **Argument parsing** — `while/case` loop handles long and short options
 4. **`run()` wrapper** — supports dry-run mode and verbose logging
-5. **`die()` function** — log error and exit with non-zero code'''
+5. **`die()` function** — log error and exit with non-zero code"""
     ),
 ]
-"""

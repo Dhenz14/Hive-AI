@@ -618,4 +618,3 @@ Key patterns:
 5. **Feature reuse** — same features serve both training and inference; prevents training-serving skew'''
     ),
 ]
-"""

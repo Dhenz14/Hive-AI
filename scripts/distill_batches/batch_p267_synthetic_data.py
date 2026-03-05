@@ -357,4 +357,3 @@ Key patterns:
 5. **Adaptive pacing** — if loss is low, accelerate; if loss is high, slow down curriculum'''
     ),
 ]
-"""

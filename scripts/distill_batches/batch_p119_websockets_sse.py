@@ -395,4 +395,3 @@ Real-time sync patterns:
 5. **`navigator.onLine`** — detect connectivity and trigger sync automatically'''
     ),
 ]
-"""

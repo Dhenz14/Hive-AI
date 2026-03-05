@@ -1461,4 +1461,3 @@ Key patterns:
 6. For Kubernetes, headless services + `dns:///` gives client-side LB without a sidecar.'''
     ),
 ]
-"""

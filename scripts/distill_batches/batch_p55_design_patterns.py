@@ -419,4 +419,3 @@ Structural patterns:
 5. **Circuit breaker** — stop calling failing services to prevent cascading failures'''
     ),
 ]
-"""

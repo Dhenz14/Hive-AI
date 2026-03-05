@@ -367,4 +367,3 @@ SQS vs RabbitMQ:
 - **Both** — DLQ for failed messages, visibility timeout for processing safety'''
     ),
 ]
-"""

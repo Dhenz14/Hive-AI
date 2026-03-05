@@ -581,4 +581,3 @@ Deployment patterns:
 5. **Auto-rollback** — revert canary if success rate drops below threshold'''
     ),
 ]
-"""

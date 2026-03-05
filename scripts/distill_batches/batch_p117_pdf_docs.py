@@ -358,4 +358,3 @@ Spreadsheet patterns:
 5. **Streaming CSV** — `DictReader`/`DictWriter` process row-by-row without loading all'''
     ),
 ]
-"""

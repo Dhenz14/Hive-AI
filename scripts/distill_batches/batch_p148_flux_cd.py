@@ -571,4 +571,3 @@ GitOps best practices:
 5. **Immutable deployments** — always use image digest or semver tags, never `:latest`; image automation commits exact versions'''
     ),
 ]
-"""

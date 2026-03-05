@@ -202,4 +202,3 @@ Key patterns:
 5. **Channel per room** — subscribe/unsubscribe as rooms are created/emptied'''
     ),
 ]
-"""

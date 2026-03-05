@@ -378,4 +378,3 @@ Patterns:
 5. **Cache decorator** — transparent caching with auto key generation'''
     ),
 ]
-"""

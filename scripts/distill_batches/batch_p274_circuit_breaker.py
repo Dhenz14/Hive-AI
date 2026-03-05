@@ -264,4 +264,3 @@ Key patterns:
 5. **Early termination** — check budget before starting work; don't waste resources on expired requests'''
     ),
 ]
-"""

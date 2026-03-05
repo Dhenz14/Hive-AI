@@ -487,4 +487,3 @@ GraphQL client patterns:
 5. **Subscriptions** — real-time updates via `graphql-ws` WebSocket transport'''
     ),
 ]
-"""

@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/tailwind-patterns",
         "Show Tailwind CSS patterns: responsive design, dark mode, animations, and common component recipes.",
-        '''Tailwind CSS patterns:
+        """Tailwind CSS patterns:
 
 ```html
 <!-- --- Responsive card grid --- -->
@@ -178,12 +178,12 @@ Tailwind patterns:
 2. **`dark:` variant** — dark mode with class or media strategy
 3. **`group-disabled:`** — style children based on parent state (loading buttons)
 4. **`focus:ring-2 focus:ring-blue-500/20`** — accessible focus indicators with opacity
-5. **`backdrop-blur-md` + `bg-white/80`** — glassmorphism navbar with transparency'''
+5. **`backdrop-blur-md` + `bg-white/80`** — glassmorphism navbar with transparency"""
     ),
     (
         "frontend/css-animations",
         "Show CSS animation patterns: keyframes, transitions, scroll animations, and performance best practices.",
-        '''CSS animation patterns:
+        """CSS animation patterns:
 
 ```css
 /* --- Transitions (hover/focus/active) --- */
@@ -360,7 +360,6 @@ CSS animation patterns:
 2. **Staggered `animation-delay`** — cascade children for list reveal effects
 3. **Skeleton shimmer** — gradient animation for loading placeholders
 4. **`grid-template-rows: 0fr→1fr`** — smooth height animation for accordions
-5. **`prefers-reduced-motion`** — disable animations for motion-sensitive users'''
+5. **`prefers-reduced-motion`** — disable animations for motion-sensitive users"""
     ),
 ]
-"""

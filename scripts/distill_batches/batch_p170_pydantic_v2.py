@@ -1304,4 +1304,3 @@ Key patterns:
 6. `model_rebuild()` resolves forward references in mutually-dependent models.'''
     ),
 ]
-"""

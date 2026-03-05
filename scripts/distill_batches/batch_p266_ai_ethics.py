@@ -393,4 +393,3 @@ Key patterns:
 5. **Alert severity** — classify drift as medium/high; route to appropriate response team'''
     ),
 ]
-"""

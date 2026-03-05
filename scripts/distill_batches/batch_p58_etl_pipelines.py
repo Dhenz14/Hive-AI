@@ -626,4 +626,3 @@ dbt patterns:
 5. **Macros** — reusable SQL snippets (DRY transformations)'''
     ),
 ]
-"""

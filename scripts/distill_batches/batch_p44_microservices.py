@@ -552,4 +552,3 @@ Event sourcing benefits:
 5. **Decoupling** — services react to events, not direct calls'''
     ),
 ]
-"""

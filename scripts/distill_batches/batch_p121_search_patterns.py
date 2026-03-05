@@ -423,4 +423,3 @@ Search UI patterns:
 5. **Highlighted results** — render `<mark>` tags from search highlight response'''
     ),
 ]
-"""

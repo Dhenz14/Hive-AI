@@ -1183,4 +1183,3 @@ Key patterns:
 7. Profile with Chrome DevTools > Performance > WebAssembly to find hot functions'''
     ),
 ]
-"""

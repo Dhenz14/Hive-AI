@@ -4,7 +4,7 @@ PAIRS = [
     (
         "frontend/css-grid",
         "Show CSS Grid patterns: template areas, auto-fit/auto-fill, subgrid, and responsive layouts without media queries.",
-        '''CSS Grid layout patterns:
+        """CSS Grid layout patterns:
 
 ```css
 /* --- Grid template areas (named layout) --- */
@@ -146,12 +146,12 @@ CSS Grid patterns:
 2. **`repeat(auto-fit, minmax(...))`** — responsive columns without media queries
 3. **`subgrid`** — align nested grid children to parent track lines
 4. **`grid-auto-flow: dense`** — fill gaps in masonry-like layouts
-5. **Container queries** — component-level responsive design, independent of viewport'''
+5. **Container queries** — component-level responsive design, independent of viewport"""
     ),
     (
         "frontend/css-flexbox",
         "Show advanced CSS Flexbox patterns: centering, sticky footer, holy grail layout, and responsive patterns.",
-        '''Advanced CSS Flexbox patterns:
+        """Advanced CSS Flexbox patterns:
 
 ```css
 /* --- Perfect centering --- */
@@ -304,12 +304,12 @@ Flexbox patterns:
 2. **`margin-left: auto`** — push items to the right in a flex row
 3. **`min-width: 0`** — enable text truncation inside flex children
 4. **`flex: 1 1 300px`** — responsive wrapping without media queries
-5. **`flex-direction: column`** — vertical layouts with `flex: 1` for main content'''
+5. **`flex-direction: column`** — vertical layouts with `flex: 1` for main content"""
     ),
     (
         "frontend/css-modern",
         "Show modern CSS features: custom properties, cascade layers, :has() selector, and logical properties.",
-        '''Modern CSS features:
+        """Modern CSS features:
 
 ```css
 /* --- Custom properties (design tokens) --- */
@@ -471,7 +471,6 @@ Modern CSS patterns:
 2. **`@layer`** — cascade layers control specificity order (reset < base < components < utilities)
 3. **`:has()`** — parent selector enables conditional styling based on children state
 4. **Logical properties** — `margin-inline`, `padding-block` for automatic RTL support
-5. **`color-mix()`** — derive hover/active shades from a single token color'''
+5. **`color-mix()`** — derive hover/active shades from a single token color"""
     ),
 ]
-"""

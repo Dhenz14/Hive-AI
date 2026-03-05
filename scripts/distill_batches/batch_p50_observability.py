@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/opentelemetry",
         "Show OpenTelemetry patterns: tracing, spans, context propagation, and integration with Python services.",
-        '''OpenTelemetry distributed tracing:
+        """OpenTelemetry distributed tracing:
 
 ```python
 from opentelemetry import trace, metrics, context
@@ -199,12 +199,12 @@ OpenTelemetry patterns:
 2. **Manual spans** — add context to business logic operations
 3. **Attributes** — attach IDs, counts, status to spans for debugging
 4. **Trace-log correlation** — include trace_id in log records
-5. **Metrics** — counters, histograms, and gauges for dashboards'''
+5. **Metrics** — counters, histograms, and gauges for dashboards"""
     ),
     (
         "devops/alerting-patterns",
         "Show alerting patterns: alert design, escalation, runbooks, and on-call best practices.",
-        '''Alerting and incident response patterns:
+        """Alerting and incident response patterns:
 
 ```yaml
 # --- Prometheus alerting rules ---
@@ -354,7 +354,6 @@ Alerting best practices:
 2. **Multi-window burn rate** — detect SLO violations early with less noise
 3. **Inhibition rules** — suppress redundant alerts when root cause is active
 4. **Runbook links** — every alert includes a link to resolution steps
-5. **Escalation tiers** — warning to Slack, critical to PagerDuty'''
+5. **Escalation tiers** — warning to Slack, critical to PagerDuty"""
     ),
 ]
-"""

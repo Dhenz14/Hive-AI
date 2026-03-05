@@ -503,4 +503,3 @@ Key patterns:
 5. **Temperature diversity** — low temp (0.3) for accuracy, high temp (1.3) for creativity; best of N captures both'''
     ),
 ]
-"""

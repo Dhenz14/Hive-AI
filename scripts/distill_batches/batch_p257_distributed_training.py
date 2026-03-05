@@ -465,4 +465,3 @@ Key patterns:
 5. **`use_reentrant=False`** — newer checkpoint API; handles non-deterministic operations correctly'''
     ),
 ]
-"""

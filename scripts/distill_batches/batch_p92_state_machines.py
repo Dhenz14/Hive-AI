@@ -386,4 +386,3 @@ Workflow engine patterns:
 5. **Audit trail** — results dict tracks status/output of every step'''
     ),
 ]
-"""

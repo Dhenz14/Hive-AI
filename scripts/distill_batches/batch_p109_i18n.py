@@ -309,4 +309,3 @@ React i18n patterns:
 5. **`Intl.RelativeTimeFormat`** — "3 hours ago" in any language'''
     ),
 ]
-"""

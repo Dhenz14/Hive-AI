@@ -408,4 +408,3 @@ Webhook patterns:
 5. **Idempotent processing** — deduplicate by event_id with TTL cache'''
     ),
 ]
-"""

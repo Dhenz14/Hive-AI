@@ -792,4 +792,3 @@ Key patterns:
 5. **Interleaved tokens** — (return, state, action) triples form the sequence for transformer'''
     ),
 ]
-"""

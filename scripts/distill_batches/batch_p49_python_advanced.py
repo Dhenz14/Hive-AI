@@ -571,4 +571,3 @@ Dataclass patterns:
 5. **`order=True`** — auto-generate comparison methods based on field order'''
     ),
 ]
-"""

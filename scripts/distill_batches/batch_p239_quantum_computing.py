@@ -236,4 +236,3 @@ Key patterns:
 5. **Near-term quantum** — variational algorithms work on noisy intermediate-scale quantum (NISQ) devices'''
     ),
 ]
-"""

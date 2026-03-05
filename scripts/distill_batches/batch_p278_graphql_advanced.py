@@ -224,4 +224,3 @@ Key patterns:
 5. **Pre-execution validation** — check complexity/depth before running; fail fast on abuse'''
     ),
 ]
-"""

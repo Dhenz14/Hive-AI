@@ -4,7 +4,7 @@ PAIRS = [
     (
         "python/pyproject-toml",
         "Show modern Python project setup with pyproject.toml: dependencies, build config, tool settings, and optional extras.",
-        '''Modern Python project setup with pyproject.toml:
+        """Modern Python project setup with pyproject.toml:
 
 ```toml
 # --- pyproject.toml ---
@@ -174,12 +174,12 @@ Python packaging patterns:
 2. **`[project.scripts]`** — auto-generated CLI entry points installed with the package
 3. **`[project.optional-dependencies]`** — `pip install "pkg[dev,postgres]"` for optional groups
 4. **`src/` layout** — prevents importing uninstalled package from project root
-5. **`py.typed` marker** — PEP 561 signals that package includes inline type annotations'''
+5. **`py.typed` marker** — PEP 561 signals that package includes inline type annotations"""
     ),
     (
         "python/makefile-tasks",
         "Show Makefile patterns for Python projects: common tasks, virtual environments, and CI shortcuts.",
-        '''Makefile patterns for Python projects:
+        """Makefile patterns for Python projects:
 
 ```makefile
 # --- Makefile ---
@@ -297,7 +297,6 @@ Makefile patterns:
 2. **Venv as prerequisite** — `$(VENV)/bin/activate` creates venv only if missing
 3. **`check` target** — combines lint + typecheck + test for local CI simulation
 4. **`$(BIN)` prefix** — all commands use venv Python without manual activation
-5. **`.PHONY`** — declare non-file targets to prevent conflicts with filenames'''
+5. **`.PHONY`** — declare non-file targets to prevent conflicts with filenames"""
     ),
 ]
-"""

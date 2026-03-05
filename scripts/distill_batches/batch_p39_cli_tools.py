@@ -607,4 +607,3 @@ Patterns:
 5. **Format conversion** — always offer WebP alongside JPEG for smaller sizes'''
     ),
 ]
-"""

@@ -150,4 +150,3 @@ Performance tips:
 5. **Broadcasting** — avoid explicit `tile`/`repeat` for shape matching'''
     ),
 ]
-"""

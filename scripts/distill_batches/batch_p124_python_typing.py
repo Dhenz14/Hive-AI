@@ -367,4 +367,3 @@ Pydantic patterns:
 5. **`model_config = ConfigDict(from_attributes=True)`** — create from ORM objects'''
     ),
 ]
-"""

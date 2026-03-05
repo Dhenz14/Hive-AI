@@ -226,4 +226,3 @@ Flask patterns:
 5. **CLI commands** — `@app.cli.command` for admin tasks'''
     ),
 ]
-"""

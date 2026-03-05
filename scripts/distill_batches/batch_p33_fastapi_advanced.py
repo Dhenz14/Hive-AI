@@ -479,4 +479,3 @@ Patterns:
 5. **SSE fallback** — simpler option for server-to-client only streaming'''
     ),
 ]
-"""

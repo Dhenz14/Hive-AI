@@ -398,4 +398,3 @@ Key patterns:
 5. **Embedding index** — precompute and store embeddings; fast retrieval at query time'''
     ),
 ]
-"""

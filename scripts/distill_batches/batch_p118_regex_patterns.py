@@ -368,4 +368,3 @@ Text processing patterns:
 5. **Word-boundary truncation** — truncate at spaces, not mid-word'''
     ),
 ]
-"""

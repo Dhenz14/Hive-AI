@@ -356,4 +356,3 @@ Schema evolution patterns:
 5. **`alembic check`** — verify models match migrations to catch missing migrations'''
     ),
 ]
-"""

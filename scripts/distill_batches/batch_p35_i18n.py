@@ -299,4 +299,3 @@ Best practices:
 5. **Store locale-neutral** — UTC dates, raw numbers; format only for display'''
     ),
 ]
-"""

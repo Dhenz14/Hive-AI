@@ -4,7 +4,7 @@ PAIRS = [
     (
         "rust/async-tokio",
         "Show Rust async patterns with Tokio: spawning tasks, channels, select, and graceful shutdown.",
-        '''Rust async with Tokio:
+        """Rust async with Tokio:
 
 ```rust
 use std::time::Duration;
@@ -168,12 +168,12 @@ Tokio async patterns:
 2. **`mpsc::channel`** — async multi-producer, single-consumer channels
 3. **`tokio::select!`** — race multiple async operations, handle first to complete
 4. **`Semaphore`** — limit concurrent tasks to prevent resource exhaustion
-5. **Graceful shutdown** — `oneshot` channel + `ctrl_c()` for clean teardown'''
+5. **Graceful shutdown** — `oneshot` channel + `ctrl_c()` for clean teardown"""
     ),
     (
         "rust/traits-generics",
         "Show Rust trait patterns: trait objects, default implementations, associated types, and trait bounds.",
-        '''Rust trait patterns:
+        """Rust trait patterns:
 
 ```rust
 use std::fmt;
@@ -340,12 +340,12 @@ Rust trait patterns:
 2. **Default methods** — provide behavior that implementations can override
 3. **Trait objects** — `Box<dyn Trait>` for dynamic dispatch (runtime polymorphism)
 4. **Extension traits** — add methods to existing types (`impl MyTrait for str`)
-5. **Blanket impls** — `impl<T: Debug> MyTrait for T` covers all matching types'''
+5. **Blanket impls** — `impl<T: Debug> MyTrait for T` covers all matching types"""
     ),
     (
         "rust/error-handling",
         "Show Rust error handling patterns: custom errors, the ? operator, thiserror, and anyhow.",
-        '''Rust error handling:
+        """Rust error handling:
 
 ```rust
 use std::fmt;
@@ -513,7 +513,6 @@ Rust error handling:
 2. **`thiserror`** — derive `Error`/`Display` for library error types
 3. **`anyhow`** — `Result<T>` with context chaining for application code
 4. **`map_err()`** — convert between error types at call boundaries
-5. **`.collect::<Result<Vec<_>, _>>()`** — collect iterator of Results, short-circuit on error'''
+5. **`.collect::<Result<Vec<_>, _>>()`** — collect iterator of Results, short-circuit on error"""
     ),
 ]
-"""

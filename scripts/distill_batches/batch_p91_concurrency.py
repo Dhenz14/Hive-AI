@@ -388,4 +388,3 @@ CSP patterns:
 5. **Select** — wait on multiple channels, process first available'''
     ),
 ]
-"""

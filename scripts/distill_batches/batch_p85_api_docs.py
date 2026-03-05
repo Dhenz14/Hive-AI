@@ -436,4 +436,3 @@ REST API design patterns:
 5. **URL versioning** — `/api/v2/` is simplest, most widely supported'''
     ),
 ]
-"""

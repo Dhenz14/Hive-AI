@@ -538,4 +538,3 @@ LOG_LEVEL=debug
 5. **Sensible defaults** — development should work with minimal config'''
     ),
 ]
-"""

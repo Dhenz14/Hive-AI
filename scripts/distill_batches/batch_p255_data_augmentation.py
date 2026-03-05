@@ -468,4 +468,3 @@ Key patterns:
 5. **Chinchilla ratios** — empirically optimal mix: ~45% web, ~20% code, ~15% books'''
     ),
 ]
-"""

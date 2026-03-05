@@ -370,4 +370,3 @@ Key patterns:
 5. **Shared attention** — some architectures (Zamba) share a single attention layer across all positions'''
     ),
 ]
-"""

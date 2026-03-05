@@ -179,4 +179,3 @@ Common mistakes to avoid:
 5. **Not compiling** — `re.compile()` once vs re-parsing in every call'''
     ),
 ]
-"""

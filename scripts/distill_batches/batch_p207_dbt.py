@@ -1206,4 +1206,3 @@ Key patterns:
 7. **Grain documentation** -- always document the grain (one row per X) in model descriptions'''
     ),
 ]
-"""

@@ -1417,4 +1417,3 @@ Key patterns:
 7. **Combined checking** -- try OCSP first (faster), fall back to CRL, and log all failures'''
     ),
 ]
-"""

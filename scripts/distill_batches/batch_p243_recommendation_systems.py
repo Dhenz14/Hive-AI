@@ -376,4 +376,3 @@ Key patterns:
 5. **ANN index (HNSW)** — approximate nearest neighbor search over millions of items in < 10ms'''
     ),
 ]
-"""

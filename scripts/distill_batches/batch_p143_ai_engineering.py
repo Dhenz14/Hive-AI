@@ -586,4 +586,3 @@ MoE architecture patterns:
 5. **Total vs active params** — Mixtral 8x7B has 47B params but only 13B active per token'''
     ),
 ]
-"""

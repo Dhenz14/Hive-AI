@@ -4,7 +4,7 @@ PAIRS = [
     (
         "devops/systemd",
         "Show systemd service patterns: unit files, socket activation, timers, and service management.",
-        '''systemd service patterns:
+        """systemd service patterns:
 
 ```ini
 # --- /etc/systemd/system/myapp.service ---
@@ -142,12 +142,12 @@ systemd patterns:
 2. **Security hardening** — `ProtectSystem=strict`, `NoNewPrivileges`, capability bounding
 3. **`Restart=on-failure`** — auto-restart with rate limiting via `StartLimitBurst`
 4. **Timer units** — cron replacement with `OnCalendar`, `Persistent` survives downtime
-5. **`PartOf=`** — worker restarts/stops when main service restarts/stops'''
+5. **`PartOf=`** — worker restarts/stops when main service restarts/stops"""
     ),
     (
         "devops/nginx-config",
         "Show nginx configuration patterns: reverse proxy, SSL/TLS, rate limiting, caching, and load balancing.",
-        '''nginx configuration patterns:
+        """nginx configuration patterns:
 
 ```nginx
 # --- /etc/nginx/nginx.conf ---
@@ -308,12 +308,12 @@ nginx patterns:
 2. **`limit_req_zone`** — per-IP rate limiting with burst allowance
 3. **`proxy_cache`** — response caching with per-status TTLs and bypass headers
 4. **`try_files $uri /index.html`** — SPA client-side routing fallback
-5. **`ssl_protocols TLSv1.2 TLSv1.3`** — modern TLS only, with OCSP stapling'''
+5. **`ssl_protocols TLSv1.2 TLSv1.3`** — modern TLS only, with OCSP stapling"""
     ),
     (
         "devops/shell-scripting",
         "Show bash shell scripting patterns: safe defaults, argument parsing, logging, and common patterns.",
-        '''Bash shell scripting patterns:
+        """Bash shell scripting patterns:
 
 ```bash
 #!/usr/bin/env bash
@@ -512,7 +512,6 @@ Shell scripting patterns:
 2. **`trap cleanup EXIT`** — always clean up temp files, even on error
 3. **Argument parsing** — `while/case` loop with `--long` and `-s` short options
 4. **`run()` wrapper** — dry-run support by prefixing all side-effect commands
-5. **Parallel with `wait`** — background jobs with PID tracking and failure counting'''
+5. **Parallel with `wait`** — background jobs with PID tracking and failure counting"""
     ),
 ]
-"""

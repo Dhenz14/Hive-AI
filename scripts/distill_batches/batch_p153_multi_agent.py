@@ -640,4 +640,3 @@ Key patterns:
 5. **Chunked RAG** — overlap chunks at sentence boundaries; over-fetch then rerank for better precision'''
     ),
 ]
-"""

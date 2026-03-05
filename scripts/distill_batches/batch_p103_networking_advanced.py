@@ -551,4 +551,3 @@ JSON Schema patterns:
 5. **`additionalProperties: false`** — reject unknown fields strictly'''
     ),
 ]
-"""
