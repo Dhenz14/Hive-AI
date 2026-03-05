@@ -1,14 +1,14 @@
-"""
+'''
 Batch P5 — Compiler Design & Language Implementation
 Covers: lexing, parsing, type checking, code generation, optimization.
 Target quality: >0.80 per v5 scorer.
-"""
+'''
 
 PAIRS = [
     (
         "compilers/lexer-parser",
         "Explain the fundamentals of building a programming language compiler frontend including lexical analysis with finite automata, recursive descent parsing, operator precedence climbing, AST construction, and provide a complete Python implementation of a lexer and parser for a simple expression language with variables, functions, if-expressions, and proper error reporting with source locations.",
-        r"""# Building a Compiler Frontend: Lexer & Parser
+        r'''# Building a Compiler Frontend: Lexer & Parser
 
 ## The Compilation Pipeline
 
@@ -782,12 +782,12 @@ if __name__ == "__main__":
 - **Source location tracking** (spans) from the lexer through the AST is essential — without it, error messages are useless and tooling integration (LSP, linters, formatters) is impossible
 - **Error recovery** via synchronization tokens allows the parser to report multiple errors per invocation, which dramatically improves the developer experience compared to stopping at the first error
 - The compiler frontend is **language-agnostic infrastructure** — the same lexer/parser patterns work for programming languages, configuration formats, query languages, and domain-specific languages
-"""
+'''
     ),
     (
         "compilers/type-checking",
         "Explain type checking and type inference for programming languages including Hindley-Milner type inference, unification algorithm, let-polymorphism, constraint generation and solving, and provide a Python implementation of a complete type checker for a simple functional language with integers, booleans, functions, let-bindings, and if-expressions that infers types without explicit annotations.",
-        r"""# Type Checking & Hindley-Milner Type Inference
+        r'''# Type Checking & Hindley-Milner Type Inference
 
 ## Why Type Inference Matters
 
@@ -1287,12 +1287,12 @@ if __name__ == "__main__":
 - **Let-polymorphism** is what makes HM practical: without it, a function like `id = \x -> x` could only be used at one type per scope; with it, each use site gets fresh type variables
 - The **occurs check** prevents infinite types (like `a = a -> int`) which would cause the algorithm to loop forever — this is why the self-application combinator `\x -> x x` is untypable
 - Production type systems (TypeScript, Rust, Kotlin) extend HM with **subtyping**, **row polymorphism**, and **GADTs** — each extension adds expressiveness but makes inference harder or incomplete
-"""
+'''
     ),
     (
         "compilers/code-generation",
         "Explain compiler backend code generation including intermediate representation design, register allocation with graph coloring, instruction selection, and provide a Python implementation of a simple compiler backend that takes an AST, generates stack-based bytecode, and includes a virtual machine to execute it with support for arithmetic, comparisons, function calls, and control flow.",
-        r"""# Compiler Backend: Code Generation & Virtual Machine
+        r'''# Compiler Backend: Code Generation & Virtual Machine
 
 ## From AST to Executable Code
 
@@ -1859,6 +1859,6 @@ if __name__ == "__main__":
 - The **call frame** (instruction pointer + base pointer) enables function calls by saving and restoring execution context — this is the same mechanism used by hardware call stacks
 - **Production VMs** add: garbage collection, JIT compilation (converting hot bytecode to native code), inline caching (for dynamic dispatch), and escape analysis (for stack allocation) — each is a separate area of study
 - Understanding bytecode compilation makes you better at debugging performance issues in Python, Java, and JavaScript because you can reason about what the VM is actually doing with your code
-"""
+'''
     ),
 ]
