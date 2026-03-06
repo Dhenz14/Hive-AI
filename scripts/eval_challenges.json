@@ -2562,5 +2562,271 @@
       "non-comparative"
     ],
     "test_code": "assert radix_sort([170, 45, 75, 90, 802, 24, 2, 66]) == [2, 24, 45, 66, 75, 90, 170, 802]\nassert radix_sort([]) == []\nassert radix_sort([1]) == [1]\nassert radix_sort([5, 5, 5]) == [5, 5, 5]\nassert radix_sort([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]) == [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]\nassert radix_sort([100, 10, 1, 1000]) == [1, 10, 100, 1000]\nassert radix_sort([0, 0, 0]) == [0, 0, 0]\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-sdk-005",
+    "category": "hive_sdk",
+    "topic": "dhive_broadcast",
+    "difficulty": 3,
+    "instruction": "Write a Python function `broadcast_post(author, title, body, tags, wif)` that broadcasts a blog post to the Hive blockchain using the beem library. The function should: (1) Create a Hive instance with the provided WIF key, (2) Set the posting authority, (3) Construct proper permlink from the title (lowercase, hyphenated, max 255 chars), (4) Include a JSON metadata object with tags and app name, (5) Broadcast the comment operation, (6) Return the transaction ID on success or raise an appropriate error. Handle edge cases: empty title, special characters in permlink, duplicate tags.",
+    "expected_concepts": [
+      "beem",
+      "Hive",
+      "Comment",
+      "permlink",
+      "json_metadata",
+      "posting",
+      "wif",
+      "broadcast"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-006",
+    "category": "hive_sdk",
+    "topic": "delegation_management",
+    "difficulty": 3,
+    "instruction": "Write Python functions using beem to manage Hive Power delegation: (1) `delegate_hp(delegator, delegatee, hp_amount, wif)` that converts HP to VESTS and broadcasts a delegate_vesting_shares operation, (2) `get_delegations(account)` that returns a list of active outgoing delegations with delegatee name and HP amount, (3) `undelegate(delegator, delegatee, wif)` that removes a delegation (delegates 0 VESTS). Include proper HP-to-VESTS conversion using the dynamic global properties.",
+    "expected_concepts": [
+      "delegate_vesting_shares",
+      "VESTS",
+      "HP",
+      "dynamic_global_properties",
+      "total_vesting",
+      "delegation"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-007",
+    "category": "hive_sdk",
+    "topic": "streaming_operations",
+    "difficulty": 4,
+    "instruction": "Write a Python class `HiveStreamProcessor` using beem that processes real-time blockchain operations. It should: (1) Connect to the Hive blockchain and stream operations starting from a given block number, (2) Filter operations by type (e.g., only \"transfer\", \"vote\", \"custom_json\"), (3) Call a user-provided callback function for each matching operation, (4) Maintain a checkpoint of the last processed block number (saved to a JSON file) so it can resume after restart, (5) Handle network disconnections with exponential backoff retry. Include a usage example that monitors all transfers above 100 HIVE.",
+    "expected_concepts": [
+      "Blockchain",
+      "stream",
+      "ops_in_block",
+      "transfer",
+      "custom_json",
+      "checkpoint",
+      "exponential backoff",
+      "beem"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-008",
+    "category": "hive_sdk",
+    "topic": "account_creation",
+    "difficulty": 4,
+    "instruction": "Write a Python function `create_hive_account(creator, new_account_name, password, creator_wif, fee_hive=3.0)` using beem that creates a new Hive account. The function should: (1) Derive all 4 key pairs (owner, active, posting, memo) from the password using the standard Hive key derivation, (2) Construct the account_create operation with the proper authority structures, (3) Set a reasonable fee (default 3 HIVE), (4) Broadcast the transaction, (5) Return the new account details including all public keys. Explain the key hierarchy and why each key type exists.",
+    "expected_concepts": [
+      "account_create",
+      "owner",
+      "active",
+      "posting",
+      "memo",
+      "key_derivation",
+      "authority",
+      "fee",
+      "PasswordKey"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-econ-004",
+    "category": "hive_economics",
+    "topic": "hbd_conversion",
+    "difficulty": 3,
+    "instruction": "Write Python functions that model HBD (Hive Backed Dollars) conversion mechanics: (1) `convert_hbd_to_hive(hbd_amount, median_price)` that calculates the HIVE received after a 3.5-day HBD-to-HIVE conversion using the median price feed, (2) `convert_hive_to_hbd(hive_amount, median_price)` for the instant collateralized conversion (introduced in HF25), (3) `calculate_hbd_interest(hbd_in_savings, apr, days)` that computes accrued interest on HBD in savings. Explain the difference between the two conversion directions and their timeframes.",
+    "expected_concepts": [
+      "HBD",
+      "conversion",
+      "median_price",
+      "collateralized",
+      "savings",
+      "interest",
+      "APR",
+      "price_feed"
+    ],
+    "test_code": "assert abs(convert_hbd_to_hive(100, 0.50) - 200.0) < 0.01\nassert abs(convert_hive_to_hbd(100, 0.50) - 50.0) < 0.01\nassert abs(calculate_hbd_interest(1000, 0.20, 365) - 200.0) < 1.0\nassert abs(calculate_hbd_interest(1000, 0.20, 30) - 16.44) < 0.5\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hive-econ-005",
+    "category": "hive_economics",
+    "topic": "witness_voting",
+    "difficulty": 3,
+    "instruction": "Write Python functions for Hive witness voting mechanics: (1) `calculate_witness_vote_weight(voter_hp, total_vesting_fund)` that returns the vote weight in VESTS, (2) `get_top_witnesses(n=21)` using beem that returns the top N witnesses ranked by total votes, (3) `approve_witness(voter, witness_name, wif)` that casts a witness approval vote. Explain the DPoS consensus mechanism: 21 top witnesses produce blocks, how backup witnesses work, and why witness voting is crucial for Hive governance.",
+    "expected_concepts": [
+      "witness",
+      "DPoS",
+      "approval",
+      "vote_weight",
+      "top 21",
+      "block production",
+      "governance",
+      "consensus"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-arch-004",
+    "category": "hive_architecture",
+    "topic": "custom_json_dapp",
+    "difficulty": 4,
+    "instruction": "Design and implement a simple decentralized application protocol on Hive using custom_json operations. Create: (1) A protocol specification using a custom_json id (e.g., \"myapp\"), (2) `broadcast_action(account, action_type, payload, wif)` that broadcasts a custom_json with your protocol format, (3) `index_actions(start_block, end_block)` that reads the blockchain and indexes all custom_json operations matching your protocol id, (4) A schema validator that ensures incoming actions match expected formats. Show a concrete example: a simple on-chain voting/poll system where users can create polls and cast votes via custom_json.",
+    "expected_concepts": [
+      "custom_json",
+      "protocol",
+      "id",
+      "posting_auth",
+      "index",
+      "schema",
+      "validate",
+      "dApp"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-arch-005",
+    "category": "hive_architecture",
+    "topic": "virtual_operations",
+    "difficulty": 4,
+    "instruction": "Write a Python module that processes Hive virtual operations for analytics. Implement: (1) `get_virtual_ops(block_num)` using beem that retrieves all virtual operations from a specific block, (2) `parse_author_reward(vop)` that extracts author name, payout amounts (HBD, HIVE, VESTS) from an author_reward virtual operation, (3) `parse_curation_reward(vop)` that extracts curator name, reward in VESTS, author, and permlink, (4) `aggregate_daily_rewards(start_block, end_block)` that summarizes total author and curation rewards across a range of blocks. Explain what virtual operations are and why they differ from regular operations.",
+    "expected_concepts": [
+      "virtual_operation",
+      "author_reward",
+      "curation_reward",
+      "vesting",
+      "payout",
+      "block_range",
+      "aggregate"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sec-003",
+    "category": "hive_security",
+    "topic": "transaction_signing",
+    "difficulty": 4,
+    "instruction": "Write a Python module for Hive transaction signing and verification: (1) `sign_transaction(tx_dict, wif)` that takes a transaction dictionary, serializes it, and produces a valid signature, (2) `verify_signature(tx_dict, signature, public_key)` that verifies a transaction signature against a known public key, (3) `derive_public_key(wif)` that extracts the public key from a WIF private key. Explain the cryptographic flow: secp256k1 curve, SHA-256 transaction digest, DER-encoded signatures, and why Hive uses the \"STM\" prefix for public keys.",
+    "expected_concepts": [
+      "secp256k1",
+      "SHA-256",
+      "WIF",
+      "signature",
+      "public_key",
+      "digest",
+      "serialize",
+      "verify"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-layer2-004",
+    "category": "hive_layer2",
+    "topic": "hive_engine_market",
+    "difficulty": 3,
+    "instruction": "Write Python functions to interact with the Hive Engine decentralized exchange: (1) `get_token_price(symbol)` that fetches the current best bid/ask from the Hive Engine market API, (2) `place_buy_order(account, symbol, quantity, price, wif)` that places a limit buy order via custom_json sscjs operation, (3) `get_open_orders(account, symbol)` that retrieves open orders for an account, (4) `cancel_order(account, order_id, wif)` that cancels an open order. Use the ssc-mainnet1.hive-engine.com API for reads and custom_json for writes.",
+    "expected_concepts": [
+      "Hive Engine",
+      "ssc",
+      "market",
+      "buy",
+      "sell",
+      "custom_json",
+      "tokens",
+      "order"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-009",
+    "category": "hive_sdk",
+    "topic": "beem_account_history",
+    "difficulty": 2,
+    "instruction": "Write a Python function `get_transfer_history(account_name, days=30, min_amount=0)` using beem that: (1) Fetches the account history for the given account, (2) Filters for transfer operations within the specified number of days, (3) Returns a list of dicts with fields: timestamp, from_account, to_account, amount, asset (HIVE or HBD), memo. (4) Optionally filters by minimum amount. Also write `summarize_transfers(transfers)` that returns total received, total sent, and net balance for each asset type.",
+    "expected_concepts": [
+      "Account",
+      "history",
+      "transfer",
+      "memo",
+      "HIVE",
+      "HBD",
+      "filter",
+      "beem"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-sdk-010",
+    "category": "hive_sdk",
+    "topic": "recurrent_transfer",
+    "difficulty": 3,
+    "instruction": "Write Python functions for Hive recurrent transfers (subscription payments): (1) `create_recurrent_transfer(sender, receiver, amount, asset, recurrence_hours, executions, wif)` that sets up a recurring payment using beem, (2) `list_recurrent_transfers(account)` that shows all active incoming and outgoing recurrent transfers, (3) `cancel_recurrent_transfer(sender, receiver, wif)` that cancels a recurring transfer by sending amount 0. Explain how recurrent transfers work on Hive, their use cases (subscriptions, salary, DCA), and limitations.",
+    "expected_concepts": [
+      "recurrent_transfer",
+      "recurrence",
+      "executions",
+      "subscription",
+      "cancel",
+      "amount",
+      "pair_id"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-econ-006",
+    "category": "hive_economics",
+    "topic": "dhf_proposal",
+    "difficulty": 4,
+    "instruction": "Write Python functions for interacting with the Hive Decentralized Hive Fund (DHF/DAO): (1) `create_proposal(creator, title, permlink, daily_pay, start_date, end_date, wif)` that submits a new funding proposal, (2) `vote_proposal(voter, proposal_ids, approve, wif)` that votes for or against proposals, (3) `list_active_proposals()` that returns currently active proposals sorted by total votes, (4) `get_return_proposal_threshold()` that finds the return proposal and calculates how many votes a proposal needs to be funded. Explain how the DHF works, the return proposal mechanism, and why it is important for decentralized governance.",
+    "expected_concepts": [
+      "DHF",
+      "proposal",
+      "daily_pay",
+      "return_proposal",
+      "threshold",
+      "vote",
+      "governance",
+      "funding"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-arch-006",
+    "category": "hive_architecture",
+    "topic": "keychain_auth",
+    "difficulty": 3,
+    "instruction": "Write a JavaScript module for Hive Keychain browser extension integration. Implement: (1) `isKeychainInstalled()` that checks if window.hive_keychain is available, (2) `requestSignBuffer(username, message)` that asks the user to sign a message for authentication, (3) `verifySignature(username, message, signature)` that validates the signature server-side, (4) `requestBroadcast(username, operations)` that broadcasts operations through Keychain without exposing private keys. Include a complete login flow example using Hive Keychain for a web dApp.",
+    "expected_concepts": [
+      "hive_keychain",
+      "requestSignBuffer",
+      "requestBroadcast",
+      "verify",
+      "authentication",
+      "dApp",
+      "operations"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "hive-layer2-005",
+    "category": "hive_layer2",
+    "topic": "nft_minting",
+    "difficulty": 3,
+    "instruction": "Write Python functions for minting and managing NFTs on Hive Engine: (1) `create_nft_collection(creator, symbol, name, metadata_schema, wif)` that creates a new NFT definition via custom_json, (2) `mint_nft(creator, symbol, to_account, properties, wif)` that mints a new NFT instance with the given properties, (3) `transfer_nft(from_account, to_account, nft_ids, wif)` that transfers NFTs between accounts, (4) `get_nfts_owned(account, symbol)` that queries the Hive Engine API for NFTs owned by an account. Include proper custom_json formatting for ssc operations.",
+    "expected_concepts": [
+      "NFT",
+      "mint",
+      "transfer",
+      "ssc",
+      "custom_json",
+      "properties",
+      "symbol",
+      "collection"
+    ],
+    "test_code": null
   }
 ]
