@@ -18,6 +18,11 @@ from hiveai.config import (
 
 logger = logging.getLogger(__name__)
 logging.getLogger("instructor").setLevel(logging.WARNING)
+
+# Connection-pooled session for llama-server / local HTTP backends.
+# Reuses TCP connections (Keep-Alive) instead of opening a new socket per request.
+_http_session = requests.Session()
+_http_session.headers.update({"Content-Type": "application/json"})
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
@@ -48,61 +53,74 @@ if MOLORA_ENABLED:
         logger.warning(f"MoLoRA init failed, falling back to standard routing: {e}")
 
 # ---------------------------------------------------------------------------
-# Circuit Breaker — stop hammering a dead endpoint after repeated failures.
-# After CIRCUIT_BREAKER_THRESHOLD consecutive failures, open the circuit for
-# CIRCUIT_BREAKER_COOLDOWN seconds. During cooldown, all calls fail immediately
-# instead of waiting for timeouts.
+# Per-Backend Circuit Breakers — isolate failures so one dead backend
+# doesn't block calls to healthy ones.
 # ---------------------------------------------------------------------------
-_circuit_breaker_failures = 0
-_circuit_breaker_open_until = 0.0  # timestamp when circuit closes
-_circuit_breaker_lock = threading.Lock()
+class _CircuitBreaker:
+    """Per-backend circuit breaker with half-open recovery."""
+    __slots__ = ("name", "failures", "open_until", "_lock")
 
+    def __init__(self, name: str):
+        self.name = name
+        self.failures = 0
+        self.open_until = 0.0
+        self._lock = threading.Lock()
 
-def _check_circuit_breaker():
-    """
-    Check if the circuit breaker is open. If open, raise immediately.
-    Returns True if OK to proceed, raises RuntimeError if circuit is open.
-    """
-    import time as _time
-    from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
-    global _circuit_breaker_failures, _circuit_breaker_open_until
+    def check(self):
+        import time as _time
+        from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
+        with self._lock:
+            now = _time.time()
+            if self.open_until > now:
+                remaining = int(self.open_until - now)
+                raise RuntimeError(
+                    f"Circuit breaker [{self.name}] OPEN: {CIRCUIT_BREAKER_THRESHOLD} consecutive "
+                    f"failures. Cooling down for {remaining}s."
+                )
+            if self.failures >= CIRCUIT_BREAKER_THRESHOLD:
+                self.failures = 0
+                logger.info(f"Circuit breaker [{self.name}]: cooldown expired, resetting")
 
-    with _circuit_breaker_lock:
-        now = _time.time()
-        if _circuit_breaker_open_until > now:
-            remaining = int(_circuit_breaker_open_until - now)
-            raise RuntimeError(
-                f"Circuit breaker OPEN: LLM endpoint had {CIRCUIT_BREAKER_THRESHOLD} consecutive failures. "
-                f"Cooling down for {remaining}s. Will retry automatically."
-            )
-        # If we were in cooldown but it's expired, reset (half-open state)
-        if _circuit_breaker_failures >= CIRCUIT_BREAKER_THRESHOLD:
-            _circuit_breaker_failures = 0
-            logger.info("Circuit breaker: cooldown expired, resetting to closed state")
+    def record_success(self):
+        with self._lock:
+            if self.failures > 0:
+                self.failures = 0
 
+    def record_failure(self):
+        import time as _time
+        from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
+        with self._lock:
+            self.failures += 1
+            if self.failures >= CIRCUIT_BREAKER_THRESHOLD:
+                self.open_until = _time.time() + CIRCUIT_BREAKER_COOLDOWN
+                logger.error(
+                    f"Circuit breaker [{self.name}] OPENED: {self.failures} failures. "
+                    f"Pausing for {CIRCUIT_BREAKER_COOLDOWN}s."
+                )
 
-def _record_circuit_success():
-    """Record a successful LLM call — reset failure counter."""
-    global _circuit_breaker_failures
-    with _circuit_breaker_lock:
-        if _circuit_breaker_failures > 0:
-            _circuit_breaker_failures = 0
+_circuit_breakers = {
+    "llama": _CircuitBreaker("llama-server"),
+    "ollama": _CircuitBreaker("ollama"),
+    "openrouter": _CircuitBreaker("openrouter"),
+    "embedding": _CircuitBreaker("embedding"),
+}
 
+def _get_breaker(model: str = None) -> _CircuitBreaker:
+    """Route to the correct circuit breaker based on model/backend."""
+    if model and _is_llama_server_model(model):
+        return _circuit_breakers["llama"]
+    backend = get_active_backend()
+    return _circuit_breakers.get(backend, _circuit_breakers["ollama"])
 
-def _record_circuit_failure():
-    """Record a failed LLM call — increment counter, open circuit if threshold reached."""
-    import time as _time
-    from hiveai.config import CIRCUIT_BREAKER_THRESHOLD, CIRCUIT_BREAKER_COOLDOWN
-    global _circuit_breaker_failures, _circuit_breaker_open_until
+# Legacy API (used throughout the codebase)
+def _check_circuit_breaker(model: str = None):
+    _get_breaker(model).check()
 
-    with _circuit_breaker_lock:
-        _circuit_breaker_failures += 1
-        if _circuit_breaker_failures >= CIRCUIT_BREAKER_THRESHOLD:
-            _circuit_breaker_open_until = _time.time() + CIRCUIT_BREAKER_COOLDOWN
-            logger.error(
-                f"Circuit breaker OPENED: {_circuit_breaker_failures} consecutive failures. "
-                f"Pausing LLM calls for {CIRCUIT_BREAKER_COOLDOWN}s."
-            )
+def _record_circuit_success(model: str = None):
+    _get_breaker(model).record_success()
+
+def _record_circuit_failure(model: str = None):
+    _get_breaker(model).record_failure()
 
 
 def _detect_ollama():
@@ -209,10 +227,9 @@ def get_client(model: str | None = None):
     reraise=True,
 )
 def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.", model=None, max_tokens=8192, temperature=0.3, use_cache=True):
-    _check_circuit_breaker()
-
     if not model:
         model = _get_model_for_backend("reasoning")
+    _check_circuit_breaker(model)
 
     # Check LLM response cache (only for deterministic temperature <= 0.3)
     if use_cache and temperature <= 0.3:
@@ -233,7 +250,7 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
             temperature=temperature,
             extra_body=extra or None,
         )
-        _record_circuit_success()
+        _record_circuit_success(model)
         content = response.choices[0].message.content
 
         # Cache the response for future identical queries
@@ -242,7 +259,7 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
 
         return content
     except Exception as e:
-        _record_circuit_failure()
+        _record_circuit_failure(model)
         logger.error(f"LLM call failed with model {model}: {e}")
         raise
 
@@ -255,16 +272,15 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
     Yields dicts: {"token": "..."} for each token, {"done": True, "full_response": "..."} at end.
     Routing is automatic — llama-server models (e.g. hiveai-v1) use SSE format.
     """
-    _check_circuit_breaker()
-
     if not model:
         model = _get_model_for_backend("reasoning")
+    _check_circuit_breaker(model)
 
     # ---- llama-server path (OpenAI SSE) ----
     if _is_llama_server_model(model):
         try:
             import json as _json
-            resp = requests.post(
+            resp = _http_session.post(
                 f"{LLAMA_SERVER_BASE_URL}/v1/chat/completions",
                 json={
                     "model": model,
@@ -301,7 +317,7 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
                     except (ValueError, KeyError):
                         continue
 
-            _record_circuit_success()
+            _record_circuit_success(model)
             full = "".join(full_response)
             # Strip thinking blocks from visible response
             if "</think>" in full:
@@ -309,7 +325,7 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
             yield {"done": True, "full_response": full}
 
         except Exception as e:
-            _record_circuit_failure()
+            _record_circuit_failure(model)
             logger.error(f"llama-server streaming failed: {e}")
             yield {"error": str(e), "done": True}
         return
@@ -317,7 +333,7 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
     # ---- Ollama native path (/api/chat NDJSON) ----
     try:
         import json as _json
-        resp = requests.post(
+        resp = _http_session.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             json={
                 "model": model,
@@ -348,17 +364,17 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
                     full_response.append(content)
                     yield {"token": content}
                 if data.get("done"):
-                    _record_circuit_success()
+                    _record_circuit_success(model)
                     yield {"done": True, "full_response": "".join(full_response)}
                     return
             except (ValueError, KeyError):
                 continue
 
-        _record_circuit_success()
+        _record_circuit_success(model)
         yield {"done": True, "full_response": "".join(full_response)}
 
     except Exception as e:
-        _record_circuit_failure()
+        _record_circuit_failure(model)
         logger.error(f"Streaming LLM call failed: {e}")
         yield {"error": str(e), "done": True}
 
@@ -454,16 +470,27 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
         return reason(prompt, max_tokens=max_tokens)
 
 
+_instructor_clients = {}  # Cache instructor-wrapped clients per backend key
+
 def _structured_call(prompt, response_model, model_type="fast", max_tokens=4096):
     try:
         model = _get_model_for_backend(model_type)
         if _is_llama_server_model(model):
-            raw_client = OpenAI(base_url=f"{LLAMA_SERVER_BASE_URL}/v1", api_key="llama")
+            backend_key = "llama"
         elif get_active_backend() == "ollama":
-            raw_client = OpenAI(base_url=f"{OLLAMA_BASE_URL}/v1", api_key="ollama")
+            backend_key = "ollama"
         else:
-            raw_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
-        patched_client = instructor.from_openai(raw_client, mode=instructor.Mode.JSON)
+            backend_key = "openrouter"
+
+        if backend_key not in _instructor_clients:
+            if backend_key == "llama":
+                raw_client = OpenAI(base_url=f"{LLAMA_SERVER_BASE_URL}/v1", api_key="llama")
+            elif backend_key == "ollama":
+                raw_client = OpenAI(base_url=f"{OLLAMA_BASE_URL}/v1", api_key="ollama")
+            else:
+                raw_client = OpenAI(base_url=OPENROUTER_BASE_URL, api_key=OPENROUTER_API_KEY)
+            _instructor_clients[backend_key] = instructor.from_openai(raw_client, mode=instructor.Mode.JSON)
+        patched_client = _instructor_clients[backend_key]
         result = patched_client.chat.completions.create(
             model=model,
             messages=[
@@ -624,7 +651,14 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     
     if uncached_texts:
         global _embedding_cache_dirty
-        new_embeddings = model.encode(uncached_texts, normalize_embeddings=True, show_progress_bar=False)
+        # Batch encode in chunks to prevent OOM on large batches
+        _EMBED_BATCH = 256
+        if len(uncached_texts) <= _EMBED_BATCH:
+            new_embeddings = model.encode(uncached_texts, normalize_embeddings=True, show_progress_bar=False)
+        else:
+            import numpy as np
+            chunks = [uncached_texts[i:i+_EMBED_BATCH] for i in range(0, len(uncached_texts), _EMBED_BATCH)]
+            new_embeddings = np.vstack([model.encode(c, normalize_embeddings=True, show_progress_bar=False) for c in chunks])
         with _embedding_cache_lock:
             for idx, emb in zip(uncached_indices, new_embeddings):
                 emb_list = emb.tolist()

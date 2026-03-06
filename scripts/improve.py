@@ -118,7 +118,21 @@ def step_train(max_steps: int = 0, resume: bool = False) -> bool:
         return False
 
     if adapter_safetensors.exists():
-        logger.info(f"Training complete in {elapsed/3600:.1f}h")
+        # Validate adapter integrity
+        size_mb = adapter_safetensors.stat().st_size / 1e6
+        config_file = ADAPTER_DIR / "adapter_config.json"
+        if size_mb < 50:
+            logger.error(f"Adapter suspiciously small ({size_mb:.0f} MB) — possible corrupt training")
+            return False
+        if not config_file.exists():
+            logger.error("adapter_config.json missing — incomplete adapter")
+            return False
+        try:
+            cfg = json.loads(config_file.read_text(encoding="utf-8"))
+            logger.info(f"Training complete in {elapsed/3600:.1f}h — adapter {size_mb:.0f} MB, "
+                        f"r={cfg.get('r', '?')}, alpha={cfg.get('lora_alpha', '?')}")
+        except Exception:
+            logger.info(f"Training complete in {elapsed/3600:.1f}h — adapter {size_mb:.0f} MB")
         return True
 
     logger.error("Training finished but no adapter file found")
@@ -160,14 +174,20 @@ def step_deploy(quant: str = DEFAULT_QUANT) -> str | None:
     return gguf_path
 
 
+DRAFT_MODEL = PROJECT_ROOT / "models" / "qwen2.5-coder-0.5b-instruct-q8_0.gguf"
+
 def print_server_command(gguf_path: str):
-    """Print the llama-server launch command."""
+    """Print the llama-server launch command (with speculative decoding if draft model exists)."""
     print(f"\n  To serve:\n")
     print(f"    \"{LLAMA_SERVER_EXE}\" \\")
     print(f"      --model \"{gguf_path}\" \\")
+    if DRAFT_MODEL.exists():
+        print(f"      --model-draft \"{DRAFT_MODEL}\" \\")
     print(f"      --port 11435 --n-gpu-layers 999 --ctx-size 8192 \\")
     print(f"      --flash-attn on --cache-type-k q8_0 --cache-type-v q4_0 \\")
     print(f"      --no-mmap --mlock\n")
+    if DRAFT_MODEL.exists():
+        print(f"    (speculative decoding enabled — 0.5B draft for 1.5-2x speed)\n")
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +215,7 @@ def step_eval() -> dict | None:
         sys.executable, str(eval_script),
         "--model", MODEL_NAME,
         "--base-url", LLAMA_SERVER_URL,
+        "--workers", "3",
     ]
 
     logger.info(f"Running eval: {MODEL_NAME} via {LLAMA_SERVER_URL}")
@@ -282,9 +303,26 @@ def step_prep() -> bool:
     v5_jsonl = PROJECT_ROOT / "loras" / "training_data" / "v5.jsonl"
     if v5_jsonl.exists():
         import shutil
+        pair_count = sum(1 for _ in open(v5_jsonl, encoding="utf-8"))
+        if pair_count < 1000:
+            logger.error(f"Only {pair_count} pairs in v5.jsonl — expected 1000+, aborting prep")
+            return False
+
+        # Check thinking pair ratio
+        thinking_count = 0
+        with open(v5_jsonl, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                    if "<think>" in row.get("output", ""):
+                        thinking_count += 1
+                except Exception:
+                    pass
+        thinking_ratio = thinking_count / pair_count if pair_count else 0
+
         shutil.copy2(v5_jsonl, NEXT_TRAINING_DATA)
-        pair_count = sum(1 for _ in open(NEXT_TRAINING_DATA, encoding="utf-8"))
-        logger.info(f"Next training data ready: {NEXT_TRAINING_DATA} ({pair_count} pairs)")
+        logger.info(f"Next training data ready: {NEXT_TRAINING_DATA} "
+                     f"({pair_count} pairs, {thinking_ratio:.0%} thinking)")
         return True
 
     logger.error("v5.jsonl not found after prep")
@@ -515,6 +553,21 @@ Examples:
         save_history(history)
         sys.exit(1)
 
+    # --- ROLLBACK GATE: check for regression before proceeding ---
+    history = load_history()
+    prev_score = None
+    if history:
+        prev_complete = [h for h in history if h.get("status") == "complete" and h.get("eval_score", 0) > 0]
+        if prev_complete:
+            prev_score = prev_complete[-1]["eval_score"]
+
+    current_score = eval_data.get("overall_score", 0) if eval_data else 0
+    regressed = False
+    if prev_score and current_score < prev_score * 0.95:
+        logger.warning(f"REGRESSION DETECTED: {prev_score:.3f} -> {current_score:.3f} ({(current_score - prev_score):+.3f})")
+        logger.warning("Score dropped >5%. Flagging cycle as REGRESSED.")
+        regressed = True
+
     # HUNT
     if not args.skip_hunt:
         from scripts.weakness_hunter import analyze_weaknesses
@@ -532,16 +585,28 @@ Examples:
     # REPORT
     step_report(eval_data, weaknesses, pairs_generated, gguf_path, cycle_start)
 
-    # Save cycle to history
-    history = load_history()
+    # Save rich cycle history
+    by_cat = eval_data.get("by_category", {}) if eval_data else {}
+    worst_cat = min(by_cat.items(), key=lambda x: x[1].get("score", 0)) if by_cat else ("?", {"score": 0})
+    best_cat = max(by_cat.items(), key=lambda x: x[1].get("score", 0)) if by_cat else ("?", {"score": 0})
+    dim_scores = eval_data.get("dimension_averages", {}) if eval_data else {}
+
     history.append({
         "cycle": len(history) + 1,
         "model": MODEL_NAME,
-        "eval_score": eval_data.get("overall_score", 0) if eval_data else 0,
+        "eval_score": current_score,
+        "delta": round(current_score - prev_score, 4) if prev_score else None,
         "pairs": pairs_generated,
         "weaknesses": len(weaknesses),
+        "worst_category": worst_cat[0],
+        "worst_score": round(worst_cat[1].get("score", 0), 3),
+        "best_category": best_cat[0],
+        "best_score": round(best_cat[1].get("score", 0), 3),
+        "dimensions": {k: round(v, 3) for k, v in dim_scores.items()} if dim_scores else {},
+        "by_category": {k: round(v.get("score", 0), 3) for k, v in by_cat.items()} if by_cat else {},
+        "elapsed_min": round((time.time() - cycle_start) / 60, 1),
         "timestamp": datetime.now().isoformat(),
-        "status": "complete",
+        "status": "regressed" if regressed else "complete",
     })
     save_history(history)
 

@@ -561,6 +561,14 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.info(f"Smoke test: trimmed dataset to {len(dataset)} samples "
                         f"(from {pair_count})")
 
+    # Split 5% for validation (early stopping) — only for full runs
+    eval_dataset = None
+    if max_steps == 0 and len(dataset) > 200:
+        split = dataset.train_test_split(test_size=0.05, seed=42)
+        dataset = split["train"]
+        eval_dataset = split["test"]
+        logger.info(f"Validation split: {len(dataset)} train, {len(eval_dataset)} eval")
+
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
     sample = dataset[0]["text"]
@@ -885,10 +893,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         disable_tqdm=True,
         gradient_checkpointing=True,
         optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
-        dataloader_num_workers=0,
-        dataloader_pin_memory=False,
-        dataloader_persistent_workers=False,
-        dataloader_prefetch_factor=None,
+        dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
+        dataloader_pin_memory=True,
+        dataloader_persistent_workers=True,
+        dataloader_prefetch_factor=2,
         dataloader_drop_last=True,
         logging_first_step=True,
         save_total_limit=3,
@@ -900,6 +908,15 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
                                           # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
     )
+    # Early stopping: eval every 50 steps, stop if val_loss stagnates for 150 steps
+    if eval_dataset is not None:
+        sft_kwargs["eval_strategy"] = "steps"
+        sft_kwargs["eval_steps"] = 50
+        sft_kwargs["load_best_model_at_end"] = True
+        sft_kwargs["metric_for_best_model"] = "eval_loss"
+        sft_kwargs["greater_is_better"] = False
+        logger.info("Early stopping enabled: eval every 50 steps, patience ~150 steps")
+
     if max_steps > 0:
         sft_kwargs["max_steps"] = max_steps
         sft_kwargs["save_steps"] = max_steps + 1
@@ -907,12 +924,20 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     sft_config = SFTConfig(**sft_kwargs)
 
+    # Early stopping callback
+    callbacks = [V5LoggingCallback()]
+    if eval_dataset is not None:
+        from transformers import EarlyStoppingCallback
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
+        logger.info("EarlyStoppingCallback added (patience=3 evals)")
+
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
         train_dataset=dataset,
+        eval_dataset=eval_dataset,
         args=sft_config,
-        callbacks=[V5LoggingCallback()],
+        callbacks=callbacks,
     )
 
     # Preserve curriculum ordering

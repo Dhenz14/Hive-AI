@@ -206,27 +206,42 @@ class MoLoRARouter:
         return model in (self._available_models or set())
 
     def _refresh_available_models(self):
-        """Query ollama list to get available models."""
+        """Query Ollama and/or llama-server for available models."""
+        models = set()
+
+        # Check llama-server first (primary backend)
+        try:
+            import requests
+            from hiveai.config import LLAMA_SERVER_BASE_URL, LLAMA_SERVER_MODELS
+            resp = requests.get(f"{LLAMA_SERVER_BASE_URL}/v1/models", timeout=3)
+            if resp.status_code == 200:
+                for m in resp.json().get("data", []):
+                    mid = m.get("id", "")
+                    if mid:
+                        models.add(mid.split(":")[0])
+                logger.debug(f"MoLoRA: {len(models)} models from llama-server")
+            # Also add configured llama-server models (they may be loadable)
+            models.update(LLAMA_SERVER_MODELS)
+        except Exception:
+            pass
+
+        # Also check Ollama (fallback)
         try:
             result = subprocess.run(
                 ["ollama", "list"], capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
-                # Parse model names from ollama list output
-                models = set()
-                for line in result.stdout.strip().split("\n")[1:]:  # skip header
+                for line in result.stdout.strip().split("\n")[1:]:
                     if line.strip():
-                        # First column is model name (e.g., "hiveai-v5:latest")
                         name = line.split()[0].split(":")[0]
                         models.add(name)
-                self._available_models = models
-                logger.debug(f"MoLoRA: {len(models)} models available in Ollama")
-            else:
-                logger.warning("MoLoRA: ollama list failed")
-                self._available_models = set()
-        except Exception as e:
-            logger.warning(f"MoLoRA: could not query Ollama: {e}")
-            self._available_models = set()
+                logger.debug(f"MoLoRA: found Ollama models too")
+        except Exception:
+            pass
+
+        self._available_models = models
+        if not models:
+            logger.warning("MoLoRA: no models found on any backend")
 
     def get_status(self) -> dict:
         """Return router status for dashboard/debugging."""

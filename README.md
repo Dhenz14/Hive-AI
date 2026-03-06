@@ -47,11 +47,16 @@ It operates fully offline with Ollama — no API keys required — while seamles
 - **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
 - **Merge Cycling** — Train LoRA → merge into base → train new LoRA on improved base → repeat. Each cycle bakes specialization deeper into core weights
 - **MoLoRA (Mixture of LoRA Experts)** — Domain-specialized LoRAs with intelligent keyword-based query routing. Each domain gets its own merged Ollama model with graceful fallback to the generalist
-- **Continuous Improvement Loop** — One-command orchestrator (`scripts/improve.py`): train → deploy → eval → hunt weaknesses → generate targeted pairs → prep next cycle. Each cycle compounds on the last with no ceiling
+- **Continuous Improvement Loop** — One-command orchestrator (`scripts/improve.py`): train → deploy → eval → hunt weaknesses → generate targeted pairs → prep next cycle. Includes regression rollback gate (>5% score drop flagged), adapter validation, data quality checks, and rich cycle history tracking (per-category scores, dimensions, deltas)
 - **Weakness Hunter** — Analyzes eval results by category, identifies gaps, auto-generates targeted training pairs using the miner/distiller to close specific weaknesses
-- **Eval System** — 150 coding challenges across 18 categories and 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%)
+- **Early Stopping** — 5% validation split with EarlyStoppingCallback (patience=3 evals / 150 steps) prevents overtraining and saves hours
+- **Eval System** — 165 coding challenges across 18 categories and 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%). Supports parallel evaluation (`--workers 3` for 3x speed)
 - **Model Benchmark Harness** — 12-task harness across 4 categories (single-shot generation, refactoring, debugging, context retention) measuring tokens/sec, TTFT, VRAM, speculative decoding acceptance rate, and task success. Built-in model comparison mode
+- **Speculative Decoding** — 0.5B draft model (Qwen2.5-Coder-0.5B) for 1.5-2x faster inference via llama-server's `--model-draft` flag
 - **Multi-Backend Serving** — Ollama for standard models, llama-server for LoRA adapters, OpenRouter for cloud models. Automatic routing via `smart_call()`
+- **Per-Backend Circuit Breakers** — Isolated failure tracking per backend (llama-server, Ollama, OpenRouter, embedding) prevents cascading failures
+- **Connection Pooling** — Persistent HTTP sessions with Keep-Alive for all local backend communication
+- **RAG Query Cache** — 30-minute TTL cache for repeated knowledge queries (40-50% of queries are repeats)
 
 ### Blockchain Publishing
 - **Hive Blockchain Integration** — Publishes Golden Books to Hive with configurable multipart splitting for large content
@@ -274,8 +279,9 @@ After training completes, merge the LoRA adapter and export GGUF for llama-serve
 # Deploy: merge LoRA + export GGUF (run in WSL)
 python scripts/deploy_v6.py --quant q5_k_m
 
-# Serve with llama-server (run on Windows)
+# Serve with llama-server + speculative decoding (run on Windows)
 llama-server --model models/hiveai-v6/*.gguf \
+  --model-draft models/qwen2.5-coder-0.5b-instruct-q8_0.gguf \
   --port 11435 --n-gpu-layers 999 --ctx-size 8192 \
   --flash-attn on --cache-type-k q8_0 --cache-type-v q4_0
 
@@ -347,7 +353,7 @@ When enabled, `smart_call()` classifies each query's domain (Python, Hive, JavaS
 
 ### Eval System
 
-Evaluate model quality with 150 coding challenges across 18 categories:
+Evaluate model quality with 165 coding challenges across 18 categories:
 
 ```bash
 # Eval against Ollama model
@@ -355,6 +361,9 @@ python scripts/run_eval.py --model qwen3:14b
 
 # Eval against llama-server (LoRA adapter)
 python scripts/run_eval.py --model hiveai-v6 --base-url http://localhost:11435
+
+# Parallel eval (3x faster)
+python scripts/run_eval.py --model hiveai-v6 --base-url http://localhost:11435 --workers 3
 
 # Compare with baseline
 python scripts/run_eval.py --model hiveai-v6 --compare qwen3:14b
@@ -393,7 +402,7 @@ Results are saved as timestamped JSON in `bench/results/` for tracking improveme
 | v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
 | v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
 | v5 | Qwen3.5-9B / Qwen3.5-4B | Failed | — | — | VLM architecture incompatible with QLoRA (loss diverged) |
-| v6 | Qwen2.5-Coder-14B | Training | 5,585 | — | QLoRA r=32, seq=4096, loss 0.31 at step 508/621 |
+| v6 | Qwen2.5-Coder-14B | Training | 5,585 | — | QLoRA r=32, seq=4096, loss 0.34-0.57 at step 585/621, 5% val split + early stopping |
 | v7 | Qwen2.5-Coder-14B | Prep | 6,698 | — | v6 data + 995 new pairs, ready for next cycle |
 
 #### Claude Opus Distillation Corpus
@@ -655,7 +664,7 @@ Immutable Record
 | **LoRA Training** | Unsloth, PEFT, transformers, trl | QLoRA fine-tuning with merge cycling |
 | **Code Sandbox** | subprocess (isolated) | Safe Python/JS execution |
 | **Blockchain** | Hive RPC (beem) | Immutable publishing + DBC |
-| **Domain Router** | MoLoRA | Keyword-based query→model routing |
+| **Domain Router** | MoLoRA | Keyword-based query→model routing (Ollama + llama-server) |
 
 ---
 
@@ -742,7 +751,7 @@ hiveai-knowledge-refinery/
 ├── scripts/
 │   ├── improve.py             # One-command improvement loop (train→deploy→eval→hunt→prep)
 │   ├── weakness_hunter.py     # Eval-driven weakness analysis + targeted pair generation
-│   ├── run_eval.py            # 150-challenge eval harness (18 categories, 4 dimensions)
+│   ├── run_eval.py            # 165-challenge eval harness (18 categories, 4 dimensions, parallel --workers)
 │   ├── train_v5.py            # QLoRA training (Qwen2.5-Coder-14B via Unsloth)
 │   ├── deploy_v6.py           # Post-training deployment (Unsloth merge → GGUF → llama-server)
 │   ├── deploy_v5.py           # Legacy deployment (PEFT merge → GGUF → Ollama)

@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -714,6 +715,8 @@ def main():
     parser.add_argument("--max-tokens", type=int, default=4096, help="Max tokens per response")
     parser.add_argument("--base-url", type=str, default=None,
                         help="Use llama-server instead of Ollama (e.g. http://localhost:11435)")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="Parallel eval workers (default 1, try 3 for 3x speed)")
     args = parser.parse_args()
 
     # --- Wire llama-server URL if given ---
@@ -802,21 +805,59 @@ def main():
 
     t_start = time.time()
     results = []
+    n_workers = max(1, args.workers)
 
-    for i, challenge in enumerate(challenges, 1):
-        logger.info(f"\n[{i}/{len(challenges)}] {challenge['id']}")
-        result = evaluate_challenge(challenge, args.model)
-        results.append(result)
+    if n_workers == 1:
+        # Sequential mode (original behavior)
+        for i, challenge in enumerate(challenges, 1):
+            logger.info(f"\n[{i}/{len(challenges)}] {challenge['id']}")
+            result = evaluate_challenge(challenge, args.model)
+            results.append(result)
 
-        # Progress summary every 10 challenges
-        if i % 10 == 0:
-            scored_so_far = [r for r in results if not r["error"]]
-            if scored_so_far:
-                avg = sum(r["scores"]["overall"] for r in scored_so_far) / len(scored_so_far)
-                elapsed = time.time() - t_start
-                eta = (elapsed / i) * (len(challenges) - i)
-                logger.info(f"\n  --- Progress: {i}/{len(challenges)} | avg_score={avg:.3f} | "
-                           f"ETA {eta/60:.1f}min ---\n")
+            if i % 10 == 0:
+                scored_so_far = [r for r in results if not r["error"]]
+                if scored_so_far:
+                    avg = sum(r["scores"]["overall"] for r in scored_so_far) / len(scored_so_far)
+                    elapsed = time.time() - t_start
+                    eta = (elapsed / i) * (len(challenges) - i)
+                    logger.info(f"\n  --- Progress: {i}/{len(challenges)} | avg_score={avg:.3f} | "
+                               f"ETA {eta/60:.1f}min ---\n")
+    else:
+        # Parallel mode — N workers evaluate challenges concurrently
+        logger.info(f"Parallel eval with {n_workers} workers")
+        results = [None] * len(challenges)
+        completed = 0
+
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            future_to_idx = {
+                executor.submit(evaluate_challenge, ch, args.model): idx
+                for idx, ch in enumerate(challenges)
+            }
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                try:
+                    results[idx] = future.result()
+                except Exception as e:
+                    results[idx] = {
+                        "id": challenges[idx]["id"],
+                        "category": challenges[idx]["category"],
+                        "topic": challenges[idx]["topic"],
+                        "difficulty": challenges[idx]["difficulty"],
+                        "error": str(e),
+                        "scores": {"code_validity": 0, "test_passing": 0,
+                                   "concept_coverage": 0, "explanation": 0, "overall": 0},
+                        "duration_ms": 0,
+                        "response_preview": "",
+                    }
+                completed += 1
+                if completed % 10 == 0:
+                    scored = [r for r in results if r and not r.get("error")]
+                    if scored:
+                        avg = sum(r["scores"]["overall"] for r in scored) / len(scored)
+                        elapsed = time.time() - t_start
+                        eta = (elapsed / completed) * (len(challenges) - completed)
+                        logger.info(f"  --- Progress: {completed}/{len(challenges)} | "
+                                   f"avg_score={avg:.3f} | ETA {eta/60:.1f}min ---")
 
     elapsed_total = time.time() - t_start
 

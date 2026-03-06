@@ -1,8 +1,25 @@
 import re
 import logging
+import hashlib
+import time as _time
 import threading
 from hiveai.models import SessionLocal, Job, GoldenBook, BookSection, Community
 from hiveai.llm.client import embed_text, rerank_sections
+
+# RAG query result cache — avoids re-embedding + re-searching for repeated questions.
+# Key: hash(query), Value: (timestamp, sections, source_books, books)
+_rag_cache = {}
+_rag_cache_lock = threading.Lock()
+_RAG_CACHE_TTL = 1800  # 30 minutes
+_RAG_CACHE_MAX = 200
+
+def _rag_cache_store(key, sections, books, all_books):
+    """Store RAG results in cache with eviction."""
+    with _rag_cache_lock:
+        if len(_rag_cache) >= _RAG_CACHE_MAX:
+            oldest = min(_rag_cache, key=lambda k: _rag_cache[k][0])
+            del _rag_cache[oldest]
+        _rag_cache[key] = (_time.time(), sections, books, all_books)
 
 STOP_WORDS = {
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
@@ -196,6 +213,15 @@ def _expand_short_query(question, history=None):
 
 
 def search_knowledge_sections(question, db, history=None):
+    # Check RAG cache for repeated questions
+    cache_key = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
+    with _rag_cache_lock:
+        if cache_key in _rag_cache:
+            ts, cached_sections, cached_books, cached_all = _rag_cache[cache_key]
+            if _time.time() - ts < _RAG_CACHE_TTL:
+                logging.getLogger(__name__).debug(f"RAG cache hit for: {question[:50]}")
+                return cached_sections, cached_books, cached_all
+
     try:
         query_str = _expand_short_query(question, history)
 
@@ -289,12 +315,15 @@ def search_knowledge_sections(question, db, history=None):
 
             source_books = list(set(s["book_title"] for s in top_sections))
             books = db.query(GoldenBook).all()
+            _rag_cache_store(cache_key, top_sections, source_books, books)
             return top_sections, source_books, books
 
     except Exception as e:
         logging.getLogger(__name__).warning(f"Vector search failed, falling back to keyword search: {e}")
 
-    return keyword_search_sections(question, db, history=history)
+    result = keyword_search_sections(question, db, history=history)
+    _rag_cache_store(cache_key, *result)
+    return result
 
 
 def build_conversation_context(history):
