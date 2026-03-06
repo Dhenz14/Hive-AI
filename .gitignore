@@ -10,6 +10,9 @@ replit.md
 .config/
 attached_assets/
 
+# Large training data exports (build artifacts, regenerate with prepare_v5_data.py --export)
+loras/training_data/v5.jsonl
+
 # Python
 __pycache__/
 *.pyc
