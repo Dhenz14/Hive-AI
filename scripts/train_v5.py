@@ -48,7 +48,7 @@ TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v5.jsonl"
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v5")
 
 # Qwen 2.5 Coder — code-specialized base model
-BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen2.5-coder-7b")
+BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen2.5-coder-14b")
 
 # ---------------------------------------------------------------------------
 # v5 Training Configuration — Aggressive Dense LoRA
@@ -315,7 +315,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 unsloth_model_name = model_path
                 logger.info(f"  Using local weights: {unsloth_model_name}")
             else:
-                unsloth_model_name = "unsloth/Qwen2.5-Coder-7B"
+                unsloth_model_name = "unsloth/Qwen2.5-Coder-14B"
                 logger.info(f"  Using Unsloth HF model: {unsloth_model_name}")
 
         _model, _tokenizer = FastLanguageModel.from_pretrained(
@@ -338,7 +338,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            load_path = "Qwen/Qwen2.5-Coder-7B"
+            load_path = "Qwen/Qwen2.5-Coder-14B"
             logger.info(f"  Local path not found, using HF model: {load_path}")
 
         bnb_config = BitsAndBytesConfig(
@@ -923,7 +923,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     meta = {
         "version": "v5.0",
         "base_model": model_path,
-        "base_model_name": "Qwen2.5-Coder-7B",
+        "base_model_name": "Qwen2.5-Coder-14B",
         "architecture": "dense",
         "unsloth": use_unsloth,
         "pair_count": pair_count,
@@ -1004,8 +1004,8 @@ if __name__ == "__main__":
 
     if not os.path.exists(model_path):
         logger.error(f"Base model not found: {model_path}")
-        logger.error("Download: huggingface-cli download Qwen/Qwen2.5-Coder-7B "
-                      "--local-dir models/qwen2.5-coder-7b")
+        logger.error("Download: huggingface-cli download Qwen/Qwen2.5-Coder-14B "
+                      "--local-dir models/qwen2.5-coder-14b")
         sys.exit(1)
 
     optimize_system_pre_load()

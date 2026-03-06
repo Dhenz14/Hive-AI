@@ -350,7 +350,7 @@ Results are saved as timestamped JSON in `bench/results/` for tracking improveme
 | v2 | Qwen3.5-35B-A3B | Killed | — | — | Superseded by v3 |
 | v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
 | v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
-| v5 | Qwen2.5-Coder-7B | Ready to Train | 6,176 | — | 5,596 unique pairs + Hive 2x oversample, thinking curriculum, DoRA r=16, KL-anchored SFT |
+| v5 | Qwen2.5-Coder-14B | Ready to Train | 6,176 | — | 5,596 unique pairs + Hive 2x oversample, thinking curriculum, DoRA r=16, KL-anchored SFT |
 
 #### Claude Opus Distillation Corpus
 
