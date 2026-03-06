@@ -296,16 +296,14 @@ The polling approach gives you the most control and reliability. WebSocket strea
         "hive/head-block-tracking",
         r'''How do I track the head block and irreversible block on Hive? What is the difference and why does it matter?''',
         r'''<think>
-On Hive:
-- Head block: the latest block produced (may be reversed in rare cases)
-- Last irreversible block (LIB): the last block that cannot be reversed (confirmed by 2/3 of witnesses)
+The user wants to understand head block vs irreversible block on Hive. At first glance this could be similar to Bitcoin confirmations... but wait, Hive uses DPoS not PoW, so the finality mechanism is fundamentally different. In Bitcoin you never get true irreversibility, just probabilistic confidence. On Hive, irreversibility is deterministic because it is based on witness consensus.
 
-The gap between head and LIB is typically 15-20 blocks (45-60 seconds). For financial applications, you should wait for irreversibility. For social features (votes, posts), head block is usually fine.
+Let me work through the details. The head block is the latest block produced, which could theoretically be reversed in a micro-fork. The last irreversible block (LIB) is confirmed by 2/3+ of the active witnesses. Hmm, I initially thought the gap might be around 40-50 blocks, but actually since there are 21 witnesses and each produces one block per round, you need about 14 witnesses (2/3 of 21) to confirm. Therefore the gap works out to roughly 15-20 blocks, which is 45-60 seconds at 3-second block times.
 
-This distinction matters for:
-- Exchange deposits: must wait for irreversibility
-- Bot operations: usually head block is fine
-- Indexers: need to handle potential micro-forks near head
+I considered whether social operations like votes and posts also need to wait for irreversibility, but actually that would be overkill -- the worst case in a micro-fork is a vote gets replayed, which is harmless. Financial operations are the real concern, since a transfer that appears in the head block could vanish if that fork is abandoned. So the distinction really matters for:
+- Exchange deposits: must wait for irreversibility to avoid crediting a deposit that gets reversed
+- Bot operations: head block is usually fine, since re-executing is low risk
+- Indexers: need to handle potential micro-forks near head, or just trail behind at LIB
 </think>
 
 The head block and last irreversible block (LIB) serve different purposes on Hive. Here is how to track both and when each matters:

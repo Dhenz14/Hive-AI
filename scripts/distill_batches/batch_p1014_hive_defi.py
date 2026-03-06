@@ -8,7 +8,11 @@ PAIRS = [
         "hive-defi-liquidity-pools",
         r'''How do I provide liquidity to a Hive Engine token pool on Tribaldex, and how do liquidity pool mechanics work on Hive's sidechain?''',
         r'''<think>
-The user wants to understand Hive Engine liquidity pools via Tribaldex. These work through the marketpools contract on Hive Engine sidechain. Liquidity providers deposit equal value of two tokens and receive LP tokens. The custom_json operations go through ssc-mainnet-hive. I need to cover the mechanics and show working code for adding liquidity.
+Hive Engine liquidity pools -- this could be similar to Uniswap on Ethereum, but wait, there are important differences since Hive Engine is a sidechain with its own smart contract layer rather than an EVM chain. The operations go through custom_json on Hive layer-1 using the "ssc-mainnet-hive" id, and the sidechain processes them via the marketpools contract.
+
+I initially assumed you would need the posting key for this, but actually adding liquidity modifies token balances, so it requires the active key and goes through required_auths, not required_posting_auths. Getting this wrong would cause the transaction to fail silently on the sidechain.
+
+Hmm, how do LP tokens work here? I considered that they might be issued as separate tradeable tokens like on Uniswap, but actually Hive Engine tracks LP positions in a liquidityPositions table rather than issuing transferable LP tokens. Therefore you cannot trade your LP position directly -- you have to remove liquidity to exit. The user also needs to understand that depositing unbalanced amounts does not revert; instead the sidechain partially fills and refunds the excess, which can be confusing if you do not match the current pool ratio.
 </think>
 
 Hive Engine liquidity pools operate through the **marketpools** contract on the sidechain. Tribaldex is the primary DEX interface. When you add liquidity, you deposit a pair of tokens (e.g., SWAP.HIVE:BEE) and receive LP tokens representing your share of the pool. Fees from swaps (typically 0.25%) are distributed proportionally to LP holders.
@@ -225,7 +229,11 @@ The `minAmountOut` parameter is your slippage guard -- if the pool moves between
         "hive-defi-yield-farming",
         r'''How can I build a yield farming strategy on Hive that combines multiple income streams like curation, HBD savings, and diesel pool rewards?''',
         r'''<think>
-The user wants a comprehensive yield farming strategy combining Hive's native yields with sidechain opportunities. Hive has unique DeFi characteristics: HBD savings pays 20% APR (set by witnesses), curation rewards come from the reward pool, and Hive Engine diesel pools offer LP rewards. I should build a strategy manager that tracks and optimizes across these sources.
+A yield farming strategy on Hive... my first thought was to focus on diesel pool LP rewards since those tend to have the highest advertised APRs, but wait -- those high APRs come with impermanent loss risk and sidechain trust assumptions. Actually, a proper strategy needs to balance multiple income streams with different risk profiles.
+
+Let me map out what is available. HBD savings pays 20% APR set by witness consensus -- this is protocol-level, so the risk is very low (essentially Hive platform risk only). Curation rewards come from the inflation-funded reward pool and typically yield 8-12% APR on staked HP. Diesel pools offer variable yields but carry impermanent loss. Hmm, I considered treating these as independent choices, but since the user asked about combining them, the real value is in building a manager that tracks all three simultaneously and shows the aggregate yield.
+
+One thing I almost overlooked: HBD savings interest accrues continuously but is only paid out when you initiate a withdrawal, and withdrawals have a 3-day lock. Therefore compounding is not free -- you lose 3 days of earning each cycle. The strategy manager should account for this when projecting effective yields.
 </think>
 
 Hive offers multiple concurrent yield sources that can be combined into a diversified farming strategy. The major streams are: HBD savings (currently 20% APR set by witness consensus), curation rewards (variable, typically 8-12% APR on staked HP), and Hive Engine diesel pool LP rewards. Here is a Python strategy manager:

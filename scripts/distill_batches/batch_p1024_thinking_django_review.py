@@ -42,38 +42,19 @@ class Follow(models.Model):
     following = models.ForeignKey(User, on_delete=models.CASCADE, related_name='followers')
     created = models.DateTimeField(auto_now_add=True)
 ```''', r'''<think>
-Let me review these Django models for design issues, missing constraints, performance concerns, and data integrity problems.
+Let me review these Django models for design issues, missing constraints, and performance problems.
 
-1. Profile model:
-- Uses ForeignKey instead of OneToOneField. A user could have multiple profiles, which is almost certainly not intended.
-- follower_count and following_count are denormalized counters that can get out of sync with the actual Follow table. This is a common source of bugs -- need signals or triggers to keep them in sync.
-- No related_name set, so Django auto-generates `profile_set` instead of a clean `profile` accessor.
+Starting with Profile -- it uses ForeignKey to User. At first glance that could be intentional for a multi-profile system... but wait, this is clearly a social media app with a single bio and avatar per user. ForeignKey allows multiple Profile rows per User, which is almost certainly a bug. Should be OneToOneField. Hmm, also no related_name, so Django auto-generates `profile_set` instead of a clean `profile` accessor.
 
-2. Post model:
-- tags stored as comma-separated string -- this is a classic antipattern. Cannot query efficiently, no referential integrity, no normalization. Should use a ManyToManyField or a library like django-taggit.
-- likes_count is denormalized like the profile counters. Same sync risk.
-- view_count as IntegerField will cause contention under high traffic if every page view does an UPDATE. Consider a separate analytics system.
-- No indexes defined -- queries filtering by author, created date, or tags will be slow.
+The follower_count and following_count fields on Profile are interesting. I considered whether these might be acceptable denormalization for read performance... but actually, without signals or triggers to keep them in sync with the Follow table, they will inevitably drift. Every code path that creates or deletes a Follow must manually update these counters -- that is a guaranteed source of bugs since developers will forget.
 
-3. Comment model:
-- parent FK with on_delete=CASCADE means deleting a parent comment deletes all replies, which may not be the desired behavior. Often SET_NULL is better so replies remain visible.
-- No ordering defined -- comments will come back in arbitrary order.
-- No max depth enforcement for nested comments.
+Now the Post model -- tags stored as a comma-separated CharField. Could this be a pragmatic choice for simplicity? No, wait, this is a classic antipattern because you cannot index individual tags, enforce referential integrity, or query without LIKE. Should be a ManyToManyField or django-taggit. Also likes_count has the same denormalization risk as the profile counters. And view_count as IntegerField will cause write contention under high traffic since every page view triggers an UPDATE on the same row.
 
-4. Like model:
-- No unique_together constraint on (user, post). A user can like the same post multiple times.
-- No related_name specified.
+For Comment, the parent FK uses on_delete=CASCADE. I initially thought that might be fine for threaded comments... but actually, deleting a parent comment wipes out the entire reply chain, which is rarely the desired UX. SET_NULL would preserve replies as orphaned comments. No ordering defined either, so comments come back in arbitrary order.
 
-5. Follow model:
-- No unique_together constraint on (follower, following). A user can follow the same person multiple times.
-- No constraint preventing self-follows (follower == following).
+The Like model is missing a unique_together on (user, post). Without it, a user can like the same post unlimited times -- that is a data integrity hole, not a feature. Similarly, Follow has no unique constraint on (follower, following) and no CheckConstraint preventing self-follows (follower == following).
 
-6. General issues:
-- No __str__ methods on any model -- admin interface will show "Post object (1)".
-- No Meta classes with ordering, indexes, or verbose names.
-- No related_name on most ForeignKeys -- will cause clashes or confusing reverse accessors.
-
-Let me structure this review.
+General issues across all models: no __str__ methods (admin shows "Post object (1)"), no Meta classes with indexes or ordering, and missing related_name on most ForeignKeys which leads to confusing auto-generated reverse accessors. Let me structure this review by severity.
 </think>
 
 ## Code Review: Django Social Media Models
@@ -221,36 +202,19 @@ class CommentView(View):
         comment.delete()
         return JsonResponse({'deleted': True})
 ```''', r'''<think>
-Let me review these Django views for N+1 queries, security, error handling, and design issues.
+Let me review these Django views systematically. The first thing that jumps out is post_list.
 
-1. N+1 Query Problems:
-- post_list: `Post.objects.all()` then for each post: `Comment.objects.filter(post=post).count()` (N queries), `post.author.username` (N queries for author), `post.author.profile.avatar_url` (N queries for profile). This is 3N+1 queries. With 100 posts, that is 301 queries.
+Looking at post_list -- it does `Post.objects.all()` then loops over each post calling `Comment.objects.filter(post=post).count()`, accessing `post.author.username`, and `post.author.profile.avatar_url`. That could be fine for a small dataset... but wait, each of those is a separate query per post. That is 3N+1 queries. With 100 posts, we are hitting the database 301 times. This is textbook N+1 and should use select_related plus annotate.
 
-2. Security:
-- delete_post has no authorization check -- any logged-in user can delete any post. Must check post.author == request.user.
-- CommentView.delete has the same issue -- no ownership check.
-- CommentView.post does not require login (no LoginRequiredMixin).
-- create_post does no input validation or sanitization. request.POST['title'] will raise KeyError if field is missing.
-- like_post allows unlimited likes from the same user.
-- delete_post accepts GET requests -- should require POST/DELETE for destructive actions.
+Now for security -- delete_post catches my eye. It has @login_required, so I initially thought it might be okay... but actually there is no authorization check at all. Any logged-in user can delete any other user's post. That is a privilege escalation vulnerability. CommentView.delete has the same problem. And hmm, CommentView.post does not even have LoginRequiredMixin, so anonymous users can create comments.
 
-3. Error handling:
-- Every .get() call can raise DoesNotExist, resulting in 500 errors. Should use get_object_or_404.
-- json.loads(request.body) can raise JSONDecodeError.
-- data['body'] can raise KeyError.
+I considered whether delete_post accepting GET requests might be intentional for some AJAX workflow, but no -- destructive actions must never respond to GET. A prefetching browser or a simple <img> tag could trigger deletion.
 
-4. Data integrity:
-- post_detail does `post.view_count += 1; post.save()` which is a race condition. Two simultaneous requests can read the same count and both write count+1 instead of count+2. Use F() expression.
-- like_post has the same race condition with likes_count.
-- post.save() in post_detail saves ALL fields, potentially overwriting concurrent changes to other fields. Use update() or save(update_fields=['view_count']).
+The error handling is concerning too. Every Post.objects.get(id=post_id) call will raise DoesNotExist for invalid IDs, returning a raw 500 error instead of 404. Should be get_object_or_404. Similarly, json.loads(request.body) can raise JSONDecodeError and request.POST['title'] raises KeyError if the field is missing.
 
-5. Design:
-- Hardcoded URL '/posts/' in redirects instead of using reverse().
-- No CSRF protection consideration for JSON endpoints.
-- No pagination on post_list.
-- No form class for create_post.
+For data integrity, post_detail does `post.view_count += 1; post.save()`. I first thought this might be acceptable for low-traffic views... but actually it is a classic race condition. Two simultaneous requests read the same count N, both write N+1 instead of N+2. Must use F('view_count') + 1. The same problem exists in like_post. Also, post.save() saves ALL fields, potentially overwriting concurrent edits to title or body since there is no update_fields restriction.
 
-Let me write the structured review.
+Other issues: hardcoded '/posts/' URLs instead of reverse(), no pagination, no CSRF handling for JSON endpoints, and no Django Form class for create_post.
 </think>
 
 ## Code Review: Django Views
@@ -415,36 +379,17 @@ def auto_moderate_post(sender, instance, **kwargs):
             logger.warning(f'Post by {instance.author.username} flagged: {instance.title}')
             break
 ```''', r'''<think>
-Let me review these Django signals for performance, reliability, and design issues.
+Let me review these Django signal handlers. The first thing I notice is create_user_profile -- it does three things: creates a Profile, sends an email, and hits an external analytics API. All synchronously inside a signal.
 
-1. Performance / Blocking operations in signals:
-- create_user_profile calls send_mail() synchronously in a signal handler. This blocks the request thread. If the mail server is slow, user creation will be slow.
-- create_user_profile also calls requests.post() to an external analytics service. This is even worse -- if analytics.example.com is down, the User.save() call will hang or fail.
-- notify_followers_on_new_post sends an email per follower, synchronously, in a loop. If an author has 10,000 followers, this sends 10,000 emails during the request. The user will see a timeout.
+Could the synchronous send_mail be acceptable if the SMTP server is fast? Hmm, actually no -- this signal fires during User.save(), which means the request thread blocks on SMTP. If the mail server is slow or unreachable, user creation hangs. But wait, the requests.post() to analytics.example.com is even worse. If that external service is down, the entire User.save() fails because there is no try/except. The user does not get a profile at all because an unrelated analytics call raised ConnectionError. That is a critical reliability issue.
 
-2. N+1 queries in signals:
-- notify_followers_on_new_post: `follow.follower.email` triggers a query per follower to load the User object. Need select_related('follower').
-- update_follow_counts: Each call does 4 queries (2 profile loads + 2 saves). And it accesses instance.follower.profile which is not select_related.
+Then there is notify_followers_on_new_post. I initially thought it might be tolerable for small follower counts... but actually it sends one email per follower synchronously in a loop. An author with 10,000 followers triggers 10,000 blocking SMTP calls during the post creation request. The user will absolutely see a timeout. Also, `follow.follower.email` triggers a lazy load per follower -- that is an N+1 query on top of the N blocking emails. Needs select_related('follower').
 
-3. Race conditions:
-- update_follow_counts does `+= 1` in Python, same non-atomic pattern. Two concurrent follows will lose one increment.
-- The like count signals use `.count()` which is better (gets current truth), but calling `post.save()` saves all fields on the post, potentially overwriting concurrent edits.
+For the counter signals, update_follow_counts does `instance.follower.profile.following_count += 1` which is a read-modify-write in Python. I considered whether this might be safe under low concurrency... but no, two concurrent follows will both read the same count and one increment is lost. The like count signals are smarter -- they use .count() to get the true value -- but then they call post.save() which saves ALL fields, potentially overwriting concurrent edits to the post title or body.
 
-4. Error handling:
-- No try/except around send_mail or requests.post. If any of these fail, the entire save transaction fails. The user profile might not get created because the analytics POST failed.
-- decrease_follow_counts assumes profile exists. If the profile was deleted, this crashes.
+Wait, there is also a field name mismatch: the model defines `follower_count` but the signal references `followers_count`. That is a runtime AttributeError -- this code has never been tested successfully.
 
-5. Signal design issues:
-- These signals create hidden side effects. A developer calling User.objects.create() has no idea it will send emails and hit external APIs.
-- update_like_count calls post.save(), which triggers post_save on Post, which triggers notify_followers_on_new_post (if it checks for created, it won't fire, but it's still confusing cascading behavior).
-- The field name inconsistency: model has follower_count but signal references followers_count.
-
-6. Moderation signal:
-- auto_moderate_post has naive word matching. "spam" matches "wingspan". Should use word boundary matching.
-- banned_words is hardcoded -- should be in database or config.
-- is_published field is referenced but not defined in the original model.
-
-Let me structure the review.
+The moderation signal has naive word matching where "spam" in "wingspan" is a false positive. The banned_words list is hardcoded rather than stored in config, and is_published is referenced but never defined in the original model. These signals also create hidden coupling -- a developer calling User.objects.create() has no idea it triggers emails and external API calls.
 </think>
 
 ## Code Review: Django Signal Handlers
@@ -597,33 +542,19 @@ class BulkDeleteForm(forms.Form):
     def execute(self):
         Post.objects.filter(id__in=self.cleaned_data['post_ids']).delete()
 ```''', r'''<think>
-Let me carefully review these Django form classes.
+Let me carefully review these Django form classes. Starting with RegistrationForm.
 
-1. RegistrationForm:
-- user.password = self.cleaned_data['password'] stores the PASSWORD IN PLAIN TEXT. This is the most critical issue. Django expects hashed passwords. Must use user.set_password() or User.objects.create_user().
-- Actually, User.objects.create() does not hash the password either. Should be User.objects.create_user(username, email, password).
-- No uniqueness check on username or email -- will raise IntegrityError.
-- No password strength validation at all.
-- save() is not wrapped in a transaction -- if Profile creation fails, we have a user without a profile.
+The save() method does `user.password = self.cleaned_data['password']` -- wait, that stores the password in PLAIN TEXT. Django's User model expects a hashed value in the password field. Every user's password is stored raw. Actually, looking more carefully, User.objects.create() also does not hash the password. The correct approach is User.objects.create_user(username, email, password) which handles hashing. This is the most critical security issue here.
 
-2. PostForm:
-- fields = '__all__' exposes every field, including author, likes_count, view_count, created, updated. A user could set themselves as a different author or set arbitrary like counts. This is a mass-assignment vulnerability.
+Beyond the password, there is no uniqueness check on username or email. I considered whether Django might handle this at the model level... but no, without form-level validation, the create() call will raise IntegrityError which surfaces as an ugly 500 error. Also no password strength validation at all, and save() is not wrapped in a transaction -- if Profile creation fails, we get an orphaned user without a profile.
 
-3. CommentForm:
-- fields = '__all__' again. Exposes author, post, parent fields. A user could impersonate another user as comment author.
+Now PostForm uses fields = '__all__'. Could this be intentional for an admin form? Hmm, but it is a regular ModelForm, not an admin form. This exposes author, likes_count, view_count, and timestamps to user input. A malicious user can set themselves as a different author or inflate like counts. This is a mass-assignment vulnerability. CommentForm has the same problem -- exposing author and post fields.
 
-4. ProfileUpdateForm:
-- Exposes is_verified and follower_count! A user can verify themselves and set arbitrary follower counts. These should be admin-only fields.
+ProfileUpdateForm is alarming -- it includes is_verified and follower_count in the editable fields. A user can literally verify themselves and set follower_count to 999999. These are clearly admin-only fields that slipped into the user-facing form.
 
-5. SearchForm:
-- SQL INJECTION! Using f-string with raw() to build a query from user input. An attacker can inject arbitrary SQL via the search query field.
+The SearchForm is where things get really dangerous. It uses `f"SELECT * FROM myapp_post WHERE title LIKE '%%{q}%%'"` with raw(). That is textbook SQL injection. An attacker can inject arbitrary SQL through the search query field, potentially dumping the entire database or deleting tables.
 
-6. BulkDeleteForm:
-- No authorization check -- any user could delete any posts.
-- clean_post_ids will raise ValueError if any ID is not a number, but this becomes an unhandled exception rather than a validation error.
-- int(id) -- `id` shadows the built-in.
-
-Let me structure this review.
+BulkDeleteForm has no authorization check -- any user can delete any posts by ID. And clean_post_ids will raise ValueError on non-numeric input, but since it is not caught and converted to ValidationError, it becomes an unhandled 500 error. Also `int(id)` shadows the built-in, though that is minor compared to the other issues.
 </think>
 
 ## Code Review: Django Forms
@@ -834,39 +765,19 @@ def api_stats(request):
     }
     return JsonResponse(stats)
 ```''', r'''<think>
-Let me review this Django API code.
+Let me review this Django API code. The first thing I notice is @csrf_exempt on every single view.
 
-1. CSRF and Authentication:
-- Every view uses @csrf_exempt, completely disabling CSRF protection. This allows cross-site request forgery attacks on all endpoints including POST.
-- api_posts POST allows setting author_id from request data -- any client can impersonate any user
-- api_feed accesses request.user but has no @login_required. For anonymous users, request.user is AnonymousUser, and the query will fail or return empty results silently.
-- No authentication on any endpoint.
+Could the csrf_exempt be intentional for a JSON API? Possibly, but without any alternative authentication (token auth, API keys), this just disables CSRF protection entirely. Any malicious website can submit POST requests on behalf of authenticated users. And api_posts POST lets the client set author_id directly from request data -- so any user can create posts attributed to anyone. That is author impersonation.
 
-2. N+1 queries:
-- api_posts GET: for each post, accesses post.author.username (lazy load), post.author.profile.avatar_url (lazy load), and runs Comment.objects.filter(post=post).count(). This is 3N+1 queries again.
-- api_trending: post.author.username in the loop without select_related.
+Looking at api_feed, it accesses request.user but has no @login_required decorator. I initially thought Django might handle this gracefully... but wait, for anonymous users, request.user is AnonymousUser, and filtering Follow objects by AnonymousUser will either fail or return empty results silently. No authentication on any endpoint is a fundamental security gap.
 
-3. Input validation:
-- int(request.GET.get('page', 1)) -- if someone passes page=abc, this raises ValueError and returns 500.
-- per_page has no upper bound -- a client can request per_page=1000000.
-- json.loads(request.body) has no error handling.
-- data['author_id'], data['title'], data['body'] can all raise KeyError.
+The N+1 query pattern appears again in api_posts GET. For each post in the loop, we access post.author.username (lazy load), post.author.profile.avatar_url (another lazy load), and run Comment.objects.filter(post=post).count() (yet another query). With the default per_page=50, that is 151 database queries. api_trending has the same issue -- post.author.username in the loop without select_related.
 
-4. Caching issues in api_feed:
-- Cache is never invalidated. When a followed user publishes a new post, the feed stays stale until TTL expires.
-- cache.set without TTL means the entry may persist indefinitely depending on backend.
-- The cache stores serialized Django model data, but the response wraps it in JsonResponse. This double-serializes: serialize('json', posts) produces a JSON string, which then gets JSON-encoded again inside JsonResponse, resulting in escaped JSON inside JSON.
+For input validation, `int(request.GET.get('page', 1))` will crash with ValueError if someone passes page=abc. I considered whether this might be caught by middleware... but no, there is no error handling, so it returns a raw 500. Also per_page has no upper bound -- a client can request per_page=1000000, loading the entire table into memory.
 
-5. Query issues:
-- api_trending annotates with Count('comment'). This needs the related_name to be correct. Also, mixing F() expressions with Count() in annotate can produce incorrect results due to the join producing duplicate rows. The count will be inflated by the join.
-- api_posts uses tags__contains which does a substring match on the comma-separated tags string. Searching for "art" would match "smart", "start", etc.
-- following_ids is converted to list() unnecessarily -- Django querysets work fine as subqueries.
+The caching in api_feed is particularly broken. serialize('json', posts) produces a JSON string, which then gets passed to JsonResponse({'posts': data}). Wait, that means JsonResponse encodes it again -- the client receives escaped JSON inside JSON, like `{"posts": "[{\"model\": ...}]"}`. The data is double-serialized. Additionally, cache.set has no TTL, so entries persist indefinitely, and there is no invalidation when followed users publish new posts.
 
-6. Performance:
-- api_stats runs 4 separate database queries with no caching. This could be expensive on large tables.
-- No database indexes implied for the query patterns used.
-
-Let me write the structured review.
+The annotation in api_trending mixes F() with Count() in a single annotate call. Because the Count('comment') join duplicates post rows, the F('likes_count') and F('view_count') values get multiplied by the number of comments. The engagement score is inflated. This is a subtle but well-known Django ORM gotcha.
 </think>
 
 ## Code Review: Django API Views

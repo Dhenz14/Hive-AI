@@ -5,13 +5,13 @@ PAIRS = [
         "hive/hive-engine-token-creation",
         r'''How do I create a custom token on Hive Engine? Show the complete process including configuration and issuance.''',
         r'''<think>
-Hive Engine is a sidechain that runs on top of Hive. Token operations are broadcast as custom_json with id "ssc-mainnet-hive". Creating a token involves:
-1. Create the token (costs 100 BEE)
-2. Configure properties (staking, delegation, etc.)
-3. Issue tokens to accounts
-4. Optionally enable staking and delegation
+The user wants to create a custom token on Hive Engine. I could be thinking of this as a base-layer Hive operation... but wait, Hive Engine is a sidechain, not part of the Hive base layer. Token operations are broadcast to the Hive blockchain as custom_json, but they are interpreted by the Hive Engine sidechain nodes, not by Hive witnesses.
 
-The token contract handles all fungible token operations. NFTs use a separate "nft" contract.
+Hmm, what custom_json id does Hive Engine use? I considered "ssc-mainnet" which was the old Steem Engine id, but actually on Hive it is "ssc-mainnet-hive". That distinction matters because using the wrong id means the sidechain nodes will not pick up your transaction at all.
+
+Now for the creation process itself. My first thought was that creating a token is a single operation, but actually it involves multiple steps: first you create the token (which costs 100 BEE as a sidechain fee), then you configure optional properties like staking and delegation, and finally you issue the initial supply. The order matters here -- you cannot enable staking on a token that does not exist yet, and you cannot issue tokens before creation. Therefore, the workflow is: create, then configure, then issue.
+
+Wait, what about NFTs? Those use a separate "nft" contract rather than the "tokens" contract. Since the user specifically asked about custom token creation, I should focus on fungible tokens via the "tokens" contract and its actions like "create", "issue", "enableStaking", and "enableDelegation".
 </think>
 
 Creating a token on Hive Engine involves broadcasting custom_json operations to the sidechain. Here is the complete workflow:

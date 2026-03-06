@@ -223,11 +223,19 @@ function SectionError({ title }: { title: string }) {
 '''),
 
     ("react/rsc_server_client_boundary", r'''<think>
-One of the trickiest parts of React Server Components is understanding the server/client boundary. I need to show how to properly compose server and client components, pass data across the boundary, and use the "use client" directive correctly. Common mistakes include putting "use client" too high in the tree and unnecessarily making things client components.
+One of the trickiest parts of React Server Components is understanding the server/client boundary. My first instinct is to mark entire page components as "use client" when they need any interactivity, but wait - that defeats the purpose of RSC because it sends all the component code to the client bundle. The correct approach is pushing "use client" as far down the tree as possible.
+
+I need to show how to properly compose server and client components. A key insight that I initially missed: client components CAN render server components, but only if they are passed as children or props - not imported directly. This is because the server component gets rendered on the server and the serialized output (not the code) crosses the boundary.
+
+Hmm, another subtlety - what can actually cross the serialization boundary? Only JSON-serializable values. Functions, classes, Symbols, Maps, Sets cannot be passed as props from server to client. I considered showing a workaround using server actions for function passing, but actually that is a separate pattern. For this example, I will focus on the data serialization constraint and the composition patterns.
 </think>
 
 Build React Server Component patterns showing proper server/client composition, including passing server data to interactive client components, serialization boundaries, and component composition strategies.''', r'''<think>
-The key insight is that server components can import and render client components, passing serializable props across the boundary. Client components cannot import server components but can accept them as children. I will demonstrate several composition patterns.
+The key insight is that server components can import and render client components, passing serializable props across the boundary. I initially thought this was a one-way street, but actually client components CAN render server components - they just have to receive them as children/props rather than importing them. This is the "donut pattern" where a client component wraps server-rendered content.
+
+I will demonstrate several composition patterns. For the product page example, I considered fetching all data in the page component and drilling props down, but wait - that creates unnecessary coupling. Each section can fetch its own data in parallel as separate async server components. The client components only receive the pre-fetched serializable results.
+
+One thing to be careful about: Date objects get serialized as ISO strings when crossing the boundary. So client components that receive dates need to parse them back with `new Date()`. This is a common gotcha that catches developers off guard.
 </think>
 
 // Pattern 1: Server component wrapping client interactivity

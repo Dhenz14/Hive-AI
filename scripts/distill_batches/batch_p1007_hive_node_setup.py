@@ -5,21 +5,13 @@ PAIRS = [
         "hive/api-node-configuration",
         r'''How do I set up and configure a Hive API node for production use? Show the config.ini and Docker setup.''',
         r'''<think>
-Setting up a Hive API node requires:
-1. Sufficient hardware (16+ GB RAM for API node, 64+ GB for full node)
-2. Proper plugin configuration for the APIs you need
-3. Shared memory file configuration
-4. P2P seed nodes for syncing
+Setting up a Hive API node... this could be straightforward if we just need a witness node, but wait -- the user said "API node for production use," which is a different beast entirely. A witness node only needs minimal plugins, whereas a full API node needs to serve arbitrary read queries, so the plugin list and hardware requirements are much heavier.
 
-API nodes serve read requests. Full nodes with all plugins can serve any API call. Witness nodes only need the witness plugin and minimal APIs.
+Let me think about what matters here. I initially considered recommending 8 GB RAM since that works for witness nodes, but actually that would be wrong for an API node -- because account_history alone can consume significant memory, you really need 16+ GB minimum, and 64+ GB for a full node with all history. Hmm, and there is the question of shared memory configuration. You could put shared-file-dir on disk, but since random reads dominate API workloads, /dev/shm (tmpfs) is far better because it avoids disk I/O bottlenecks entirely.
 
-For production, you typically want:
-- condenser_api (backward compat)
-- database_api (modern queries)
-- block_api (block data)
-- account_history_api (transaction history)
-- rc_api (resource credits)
-- A reverse proxy (nginx) for HTTPS and rate limiting
+For the plugin selection: the user probably wants condenser_api for backward compatibility with older tools, database_api for modern queries, block_api, account_history_api, and rc_api. I considered skipping account_history_api to simplify things, but wait -- most production dApps actually depend on it for transaction lookups, so leaving it out would make the node much less useful. Therefore, include it but note the RocksDB backend since it is more efficient than the default.
+
+One more thing -- a bare hived process should never face the public internet directly. A reverse proxy like nginx is essential because it provides HTTPS termination, rate limiting, and CORS headers. Without rate limiting, a single misbehaving client could overwhelm the node.
 </think>
 
 Here is a complete guide to setting up a Hive API node for production:

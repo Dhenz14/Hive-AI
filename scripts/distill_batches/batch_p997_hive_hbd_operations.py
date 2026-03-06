@@ -5,17 +5,13 @@ PAIRS = [
         "hive/hbd-savings-operations",
         r'''How do I deposit and withdraw HBD from savings on Hive to earn the 20% APR interest? Show the code.''',
         r'''<think>
-HBD savings on Hive offer 20% APR (set by witness consensus). The key mechanics:
-- Deposit is instant
-- Withdrawal has a 3-day waiting period (security feature)
-- Interest accrues continuously and compounds on each savings operation
-- The APR rate is set by witnesses via the hbd_interest_rate parameter
-- Interest is calculated using a simple daily rate: annual_rate / 365
+The user wants to work with HBD savings for the 20% APR. Let me think about the mechanics here. The deposit should be instant... but what about withdrawals? Could they be instant too? No, wait -- withdrawals have a 3-day waiting period, and that is a deliberate security feature. If someone compromises your active key, you have 3 days to recover your account before they can drain your savings. That is actually quite clever.
 
-The operations are:
-- transfer_to_savings: move HBD into savings
-- transfer_from_savings: initiate withdrawal (3-day delay)
-- cancel_transfer_from_savings: cancel a pending withdrawal
+Now, how does interest work exactly? I was initially thinking it compounds daily like a traditional savings account, but actually the blockchain calculates interest continuously and only pays it out when you perform a savings operation (deposit, withdrawal, etc.). Hmm, so if you never touch your savings, does the interest just accumulate invisibly? Yes -- it accrues but is not credited to your balance until the next savings operation triggers the interest payment. Therefore making periodic small deposits can force interest collection and improve compounding.
+
+The APR itself -- is it hardcoded at 20%? No, it is set by witness consensus through the hbd_interest_rate parameter. Each witness votes on a rate, and the blockchain uses the median. So the 20% could change if witnesses decide to adjust it.
+
+Which key do these operations need? I considered posting key since savings feel like a "personal" action, but actually all savings operations require the active key because they involve moving funds. Makes sense -- you would not want a compromised posting key to be able to initiate withdrawals.
 </think>
 
 HBD (Hive Backed Dollars) savings earn 20% APR interest, set by witness consensus. Here is how to manage savings operations:

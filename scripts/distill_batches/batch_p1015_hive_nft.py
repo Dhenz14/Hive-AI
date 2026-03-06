@@ -8,7 +8,11 @@ PAIRS = [
         "hive-nft-creation",
         r'''How do I create and issue NFTs on Hive Engine using the nft contract? Show me the complete process from defining the NFT to minting instances.''',
         r'''<think>
-NFTs on Hive Engine use the "nft" contract. The process involves: (1) creating an NFT definition (symbol, name, properties), (2) adding data properties to the NFT schema, (3) enabling issuance, and (4) minting individual instances. All operations are custom_json broadcasts through ssc-mainnet-hive. I need to show the full lifecycle with real contract actions.
+NFTs on Hive Engine... I think they use some kind of token contract. Could be the "tokens" contract since that handles fungible tokens, but wait -- NFTs are non-fungible, so there must be a separate "nft" contract specifically for this. Let me think through the steps.
+
+The process could be as simple as just minting tokens directly, but actually that would skip the definition step. You first need to create an NFT definition (symbol, name, properties), then add data properties to the schema, and only then can you mint instances. I initially considered whether enabling issuance was a separate step, but hmm, looking at the contract design, issuance is controlled by the authorizedIssuingAccounts field set during creation, so it is part of the create action rather than a standalone step.
+
+All operations are custom_json broadcasts through ssc-mainnet-hive -- not ssc-mainnet1, since that was the old Steem Engine identifier. Therefore I need to show the full lifecycle with real contract actions, because a partial example would leave the reader unable to actually mint anything.
 </think>
 
 NFTs on Hive Engine are managed through the **nft** contract. The process involves creating an NFT definition, configuring its properties, and then minting individual token instances. Each NFT symbol is unique on the sidechain and can have custom data properties attached to every instance.
@@ -286,7 +290,11 @@ Important marketplace details: the `fee` parameter on sell orders is in basis po
         "hive-nft-collection-management",
         r'''How do I build an NFT collection management system on Hive that tracks ownership, handles royalties, and manages collection metadata?''',
         r'''<think>
-Building a collection management system requires querying NFT instances, tracking transfers for provenance, and implementing royalty logic. Hive Engine NFTs do not have built-in royalties like ERC-2981, so royalties must be enforced at the application layer or through custom smart contracts. I will build a comprehensive manager that handles all of this.
+Building a collection management system... this could involve several approaches. My first thought was to just query NFT instances and display ownership, but wait -- the user also wants royalties and provenance tracking, which are fundamentally different problems.
+
+For provenance, I considered using account_history to trace transfers, but actually the sidechain stores its own transfer history in the NFT instances table, so querying Hive Engine directly makes more sense since it avoids parsing every custom_json on the main chain.
+
+Now for royalties -- hmm, do Hive Engine NFTs have built-in royalty support like ERC-2981 on Ethereum? Let me think... no, they do not. The nft and nftmarket contracts have no royalty enforcement mechanism. Therefore royalties must be enforced at the application layer or through a custom wrapper contract. This is a significant limitation, because sellers could simply bypass any off-chain royalty system. I will build a comprehensive manager that calculates royalties owed from trade history, even though enforcement remains a social-layer problem.
 </think>
 
 Hive Engine NFTs do not have protocol-level royalties, so collection management requires application-layer logic. Here is a comprehensive collection manager in Python:
@@ -667,7 +675,11 @@ Best practices: (1) Always use IPFS for images and extended metadata -- HTTP URL
         "hive-nft-gaming",
         r'''Show me how to build an NFT-based game item system on Hive where items have mutable stats that change through gameplay.''',
         r'''<think>
-Gaming NFTs on Hive Engine need mutable properties -- stats like level, XP, power that change as players use them. The nft contract supports mutable properties (isReadOnly: false), and the game server updates them via custom_json. The key challenge is ensuring only the authorized game contract or account can modify properties. I will show a complete game item system.
+Gaming NFTs on Hive Engine need properties that change over time -- stats like level, XP, power. But wait, can NFT properties even be modified after minting? On most blockchains they cannot, which would make this impossible. Hmm, actually Hive Engine's nft contract has an isReadOnly flag per property. If isReadOnly is set to false, the property can be updated after minting via setProperties. That is the key mechanism here.
+
+I initially thought any account could call setProperties on any NFT, but that would be a disaster for game integrity since players could just set their own stats. Actually, only the authorizedIssuingAccounts (the game server account) can modify properties, so the security model is built into the contract authorization layer. Therefore the game server acts as a trusted intermediary -- it validates gameplay events and then broadcasts the stat changes.
+
+The remaining challenge is ensuring the game server key is kept secure, because if it leaks, someone could forge stat updates for any item. Since all state changes are recorded on the sidechain, at least any cheating would be auditable after the fact.
 </think>
 
 Hive Engine NFTs support mutable properties, making them ideal for game items with evolving stats. The game server (an authorized account) updates properties via custom_json. Here is a complete game item system:

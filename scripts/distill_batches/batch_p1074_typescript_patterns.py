@@ -193,7 +193,11 @@ const sql = new QueryBuilder()
 '''),
 
     ("typescript/patterns_result", r'''<think>
-The Result type (also called Either) is a crucial pattern for error handling without exceptions. In TypeScript, we can make this fully type-safe with discriminated unions. I need to implement Ok/Err variants, provide map/flatMap/match operations, and show how to chain operations that can fail.
+The Result type (also called Either) is a crucial pattern for error handling without exceptions. I could implement this as a simple union type `{ ok: true, value: T } | { ok: false, error: E }`, but wait - that would not support method chaining. To get a fluent API with map/flatMap, I need class instances.
+
+I considered using a single Result class with a discriminant field, but actually separate Ok and Err classes give better type narrowing. When you check `result.isOk()`, TypeScript can narrow the type to Ok<T, E> and expose `.value` without a cast. With a single class you would need manual assertion.
+
+Hmm, one tricky design question: should flatMap on Err skip the callback or throw? It should skip - that is the whole point of monadic chaining. The error propagates automatically through the chain without the caller checking at each step. This is why Result is so powerful compared to try/catch.
 
 Key methods needed:
 - map/mapErr for transforming the inner values
@@ -204,7 +208,11 @@ Key methods needed:
 </think>
 
 Build a comprehensive Result type in TypeScript with Ok/Err variants, functional combinators (map, flatMap, match), async support, and error accumulation for collecting multiple validation errors.''', r'''<think>
-I will implement a discriminated union Result type with a rich API for functional error handling. The key is making the type narrow correctly in each branch and providing ergonomic chaining methods.
+I will implement a discriminated union Result type with a rich API for functional error handling. The key is making the type narrow correctly in each branch - I initially planned to use a `kind` string discriminant, but actually using boolean `ok` and `err` fields is more ergonomic since you can write `if (result.ok)` directly.
+
+For the Ok class, methods like mapErr and flatMap's error path need to preserve the error type parameter even though they do not use it. I considered omitting the E parameter from Ok entirely, but wait - that would break the Result<T, E> union since Ok and Err need compatible type signatures. Therefore Ok<T, E> carries E as a phantom type.
+
+I also need a collectAll utility for error accumulation - this is different from flatMap chaining because we want ALL errors, not just the first one. This is critical for form validation where showing all field errors at once is better UX.
 </think>
 
 // Discriminated union Result type

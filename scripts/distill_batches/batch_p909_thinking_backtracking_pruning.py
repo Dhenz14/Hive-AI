@@ -1,19 +1,19 @@
 PAIRS = [
     ("thinking/algorithms", r'''Solve the N-Queens problem using backtracking with bitmasking for efficient constraint checking. Place N queens on an NxN chessboard so that no two queens threaten each other. Return all distinct solutions.''', r'''<think>
-N-Queens with bitmasking: instead of using arrays/sets to track which columns and diagonals are attacked, use bitmasks for O(1) checking.
+N-Queens with bitmasking. My first thought was to use arrays or sets to track attacked columns and diagonals, but wait -- that would require O(N) lookup per constraint check in the worst case. Can I do better?
 
-Three bitmasks:
+Yes! Bitmasks allow O(1) constraint checking. I need three bitmasks:
 - `cols`: which columns are occupied
-- `diag1`: which "\" diagonals (row - col + N - 1) are occupied
-- `diag2`: which "/" diagonals (row + col) are occupied
+- `diag1`: which "\" diagonals are occupied
+- `diag2`: which "/" diagonals are occupied
 
-At each row, the available positions are: ~(cols | diag1 | diag2) & ((1 << N) - 1)
+At each row, the available positions are: ~(cols | diag1 | diag2) & ((1 << N) - 1). This single bitwise expression gives me all valid placements at once -- no loops needed.
 
-We can extract available positions one by one using the trick: bit = available & (-available) to get the lowest set bit.
+But hmm, how do I extract individual positions from the available bitmask? I could iterate through bits with a for loop and check each one... actually, there is a much better trick: bit = available & (-available) gives the lowest set bit directly (two's complement trick). Then I remove it with available ^= bit and repeat. This visits only the set bits, skipping zeros entirely.
 
-This is extremely fast because all constraint checking is done with bitwise operations — no loops needed to verify placement.
+I initially worried about how the diagonal masks propagate between rows. Let me think carefully: when I place a queen at column bit in row r, the "\" diagonal constraint shifts right as we go to the next row (because row increases but the diagonal index stays relative), and the "/" diagonal shifts left. So the update is: diag1 = (diag1 | bit) >> 1 and diag2 = (diag2 | bit) << 1. Actually wait, I need to double-check this direction. A "\" diagonal has constant (row - col), so going down one row means the column constraint moves right -- yes, shift right is correct. And "/" has constant (row + col), so going down means column constraint moves left -- shift left. Good.
 
-Time: still O(N!) in the worst case (we try all valid placements), but pruning makes it much faster in practice. For N=12, the bitmask approach is orders of magnitude faster than array-based checking.
+Time: still O(N!) in the worst case since we try all valid placements, but the bitmask pruning makes it orders of magnitude faster in practice. For N=12, the bitmask approach solves in milliseconds versus seconds for array-based checking.
 </think>
 
 ## N-Queens with Bitmask Backtracking
@@ -153,23 +153,23 @@ if __name__ == "__main__":
     ("thinking/algorithms", r'''Implement a Sudoku solver using backtracking with constraint propagation. Use the "naked singles" and "hidden singles" techniques to reduce the search space before resorting to trial-and-error.''', r'''<think>
 Sudoku solver: 9x9 grid, fill 1-9 in each cell such that each row, column, and 3x3 box has all digits 1-9.
 
-Pure backtracking: try each possibility at each empty cell. Very slow for hard puzzles.
+My first idea was pure backtracking: try each possibility at each empty cell. But wait, that could be horrendously slow for hard puzzles -- up to 9^81 branches in the worst case. There must be a better way.
 
-Constraint propagation:
-1. Naked singles: if a cell has only one possible value, fill it in.
-2. Hidden singles: if a value can only go in one cell within a row/column/box, place it there.
+Constraint propagation can eliminate most possibilities before we even start guessing:
+1. Naked singles: if a cell has only one possible value, it must be that value
+2. Hidden singles: if a value can only go in one cell within a row/column/box, place it there
+
+I initially thought naked singles alone would be sufficient, but actually many puzzles require hidden singles too. Consider a row where digit 7 is possible in cells A, B, and C. Naked singles would not help here (each cell has multiple candidates). But if after checking the column and box constraints, only cell B can actually hold 7 in that row, then 7 must go in B. That is a hidden single.
 
 Strategy:
-- Maintain a "possible" set for each empty cell.
-- Apply constraint propagation until no more deductions can be made.
-- If stuck, pick the cell with fewest possibilities (MRV heuristic) and try each.
-- Backtrack if contradiction found.
+- Maintain a "possible" set for each empty cell
+- Apply constraint propagation until no more deductions can be made
+- If stuck, pick the cell with fewest possibilities (MRV heuristic) and try each
+- Backtrack if contradiction found (a cell has zero possibilities)
 
-Data structures:
-- possible[r][c] = set of possible digits
-- For efficiency, also maintain sets for each row, column, and box tracking which digits are still needed.
+Hmm, which cell should I branch on when stuck? I considered random selection, but the MRV (Minimum Remaining Values) heuristic is much better. A cell with 2 possibilities has at most 1 wrong guess before finding the right value, while a cell with 8 possibilities could waste 7 attempts. So MRV minimizes the branching factor and causes contradictions to surface faster.
 
-I'll implement using sets and the MRV (Minimum Remaining Values) heuristic for choosing which cell to branch on.
+For data structures, I will use possible[r][c] = set of possible digits. I also need deep copies when branching, since backtracking requires restoring the previous state.
 </think>
 
 ## Sudoku Solver with Constraint Propagation
@@ -423,19 +423,17 @@ if __name__ == "__main__":
     ("thinking/algorithms", r'''Solve Word Search II (LeetCode 212): given a 2D board of characters and a list of words, find all words that can be formed by sequentially adjacent cells (horizontally or vertically). Each cell may only be used once per word. Use a Trie for efficient pruning.''', r'''<think>
 Word Search II: find all words from a dictionary that exist as paths on a 2D grid.
 
-Brute force: for each word, run a DFS from each cell. O(W * M * N * 4^L) where W = words, L = max word length.
+Brute force would be: for each word, run a DFS from each cell. That is O(W * M * N * 4^L) where W = words, L = max word length. With W up to 30,000 and grids up to 12x12, this could be way too slow.
 
-Better: build a Trie from all words, then DFS from each cell using the Trie. This way:
-- We search for all words simultaneously
-- If a prefix doesn't exist in the Trie, we prune immediately
-- We can remove found words from the Trie to avoid redundant searches
+Could I search for all words simultaneously? Yes -- if I build a Trie from all words, then DFS from each cell using the Trie. Shared prefixes are explored only once, which is a huge win. For example, if I have "apple" and "application", the prefix "appl" is searched just once rather than twice.
 
-Key optimizations:
-1. Trie pruning: if current node has no children, remove it (backtrack)
-2. Mark found words and prune their Trie branches
-3. Don't revisit cells (mark as visited during DFS)
+But wait, I need to be careful about pruning. If I find the word "apple" at some point, I should remove it from the Trie to avoid finding it again from a different starting cell. Actually, I can just set word = None at the leaf to deduplicate, but should I also remove the Trie branch? Hmm, yes -- if a Trie node has no remaining children and no word, it is a dead end. Removing it prevents future DFS from exploring a path that cannot lead to any word. This progressive pruning is critical for performance.
 
-Time: O(M * N * 4^L) where L = max word length, but Trie pruning makes it much faster in practice.
+I also considered using a hash set of prefixes instead of a Trie, but that would not support the progressive pruning trick. The Trie structure is essential here because it lets me incrementally remove branches as words are found.
+
+One more thing: I must not revisit cells within a single word path. I will mark cells with '#' during DFS and restore them on backtrack. This is cleaner than maintaining a separate visited set since it avoids hash overhead.
+
+Time: O(M * N * 4^L) worst case, but Trie pruning makes it dramatically faster in practice.
 </think>
 
 ## Word Search II with Trie Pruning
@@ -585,24 +583,24 @@ if __name__ == "__main__":
 '''),
 
     ("thinking/algorithms", r'''Implement a function to generate all valid combinations of N pairs of parentheses. Use backtracking with the constraint that at every point, the number of closing parentheses used must not exceed the number of opening ones.''', r'''<think>
-Generate all valid parentheses — a classic backtracking problem.
+Generate all valid parentheses -- a classic backtracking problem.
 
-The constraint is simple:
+My first instinct is to generate all 2^(2n) binary strings and filter valid ones... but that is exponentially wasteful. Most strings would be invalid, and for n=10 we would generate over a million strings just to keep about 16,000.
+
+A much better approach: build the string character by character with constraints that guarantee every generated string is valid. The key invariant is:
 - At any point in the string, open_count >= close_count
 - Total: open_count = close_count = n
 
-We can build the string character by character:
+So at each position:
 - If open_count < n, we can add '('
 - If close_count < open_count, we can add ')'
 - When len(string) == 2*n, we have a valid combination
 
-The number of valid combinations is the Nth Catalan number: C(n) = C(2n, n) / (n+1).
+Wait, could there be a case where I get stuck -- where neither condition holds? Let me check: if open_count == n and close_count == open_count, then the string has length 2n and we are done. If open_count == n and close_count < open_count, then we can still add ')'. If open_count < n, we can always add '('. So no, we never get stuck. The algorithm naturally produces exactly the valid combinations without any dead ends. That is elegant -- this is a perfectly pruned backtracking where zero work is wasted.
 
-Time: O(4^n / sqrt(n)) — the number of valid sequences is the Catalan number, and generating each takes O(n).
+The number of valid combinations is the Nth Catalan number: C(n) = C(2n, n) / (n+1). For n=3: ((())), (()()), (())(), ()(()), ()()() -- 5 combinations (C_3 = 5). Let me verify: C_3 = C(6,3)/4 = 20/4 = 5. Correct.
 
-This is already naturally pruned — we never generate invalid prefixes. No additional pruning needed because the constraints are enforced at each step.
-
-For n=3: ((())), (()()), (())(), ()(()), ()()() — 5 combinations (C_3 = 5).
+Time: O(4^n / sqrt(n)) since the Catalan number grows as 4^n / (n^(3/2) * sqrt(pi)), and generating each string takes O(n). This is optimal because we generate every valid string exactly once.
 </think>
 
 ## Generate Valid Parentheses
@@ -741,18 +739,28 @@ Combination Sum II: candidates may have duplicates, each used at most once, find
 
 The key challenge is avoiding duplicate combinations. For example, if candidates = [1, 1, 2] and target = 3, we should return [[1, 2]] only once, not twice (once for each '1').
 
-Strategy:
-1. Sort the candidates
-2. Backtrack with index parameter (only consider candidates at index >= current)
-3. Dedup: if candidates[i] == candidates[i-1] and i > start, skip candidates[i] — this ensures we don't start a branch with the same value twice at the same level
+My first thought was to use a set to track seen combinations... but that would require hashing lists (converting to tuples), and more importantly it would still generate all the duplicates before filtering them. That is wasteful.
 
-This works because sorting groups duplicates together, and the skip condition ensures that among duplicate values, we only explore the one that appears first at each recursion level.
+A better strategy: prevent duplicates from being generated at all.
+1. Sort the candidates -- this groups duplicates together
+2. Backtrack with an index parameter (only consider candidates at index >= current)
+3. Dedup: if candidates[i] == candidates[i-1] and i > start, skip candidates[i]
 
-Additional pruning:
-- If current candidate > remaining target, break (since array is sorted, all subsequent are also too large)
-- If sum > target, prune
+Wait, why does the condition i > start matter? Because at a given recursion level, we are choosing which value to branch on. The first occurrence of a value (at index start) includes all possible combinations using 1, 2, ..., k copies of that value. If we also branched on the second occurrence, we would re-explore a subset of those same combinations. So we skip it. But if i == start, this is the first element we are considering at this level and we must include it.
 
-Time: O(2^N) in the worst case (power set), but pruning makes it much faster.
+Hmm, let me trace through an example to make sure. candidates = [1, 1, 2], target = 3.
+- Sorted: [1, 1, 2]. Start backtrack at index 0.
+- i=0: pick 1, recurse with start=1, remaining=2.
+  - i=1: pick 1, recurse with start=2, remaining=1.
+    - i=2: pick 2 > remaining 1, break. Dead end.
+  - i=2: pick 2, recurse with start=3, remaining=0. Found [1, 2]!
+- i=1: candidates[1]==candidates[0] and i > 0, so SKIP. This prevents the duplicate.
+- i=2: pick 2, remaining=1, no further options. Dead end.
+Result: [[1, 2]]. Correct -- no duplicates.
+
+Additional pruning: if current candidate > remaining target, break immediately since the array is sorted and all subsequent values are even larger.
+
+Time: O(2^N) in the worst case (power set), but pruning makes it much faster in practice.
 </think>
 
 ## Combination Sum with Deduplication

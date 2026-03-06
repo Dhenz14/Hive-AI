@@ -1,28 +1,22 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement the Activity Selection Problem: given n activities with start and finish times, find the maximum number of non-overlapping activities that can be performed by a single person.''', r'''<think>
-The Activity Selection Problem is a classic greedy algorithm problem. The key insight is that we should always pick the activity that finishes earliest, because that leaves the most room for subsequent activities.
+The Activity Selection Problem. I need to maximize the number of non-overlapping activities.
 
-Let me reason through why greedy works here. If we sort by finish time, picking the earliest-finishing activity is optimal because:
-1. It never blocks more activities than any alternative choice would
-2. Any solution that picks a later-finishing activity can be transformed to pick the earlier one without losing count
+My first idea was to sort by start time and greedily pick the earliest starting activity... but wait, that is wrong. An activity that starts early but finishes very late could block many shorter activities. For example, (0, 100) starts earliest but blocks everything from 0 to 100.
 
-Algorithm steps:
+What about sorting by duration? Pick the shortest activity first? That also fails -- a short activity in the middle could overlap with two non-overlapping activities that together give a better count.
+
+Actually, the correct greedy choice is to sort by finish time and always pick the earliest-finishing activity. Why? Because finishing early leaves the maximum remaining time for subsequent activities. Let me convince myself with the exchange argument: suppose an optimal solution OPT picks some activity a_k first instead of a1 (the earliest finisher). Since a1 finishes no later than a_k, replacing a_k with a1 cannot invalidate any subsequent selection. So the modified solution has the same count but starts with a1. By induction on the remaining subproblem, greedy matches OPT.
+
+Algorithm:
 1. Sort activities by finish time
 2. Pick the first activity (earliest finish)
 3. For each subsequent activity, if its start time >= last selected finish time, select it
-4. Return the selected activities
 
-Edge cases to consider:
-- Empty input
-- All activities overlap (only pick one)
-- No overlaps at all (pick all)
-- Activities with same finish time but different start times
-- Activities with zero duration (start == finish)
+Hmm, I should clarify the boundary condition: is start == finish of previous a conflict? If activities are [start, finish) (half-open), then start >= last_finish allows back-to-back scheduling. If [start, finish] (closed), then start > last_finish is needed. I will use >= since half-open intervals are the standard convention.
 
-Time complexity: O(n log n) for sorting, O(n) for selection = O(n log n) total.
-Space complexity: O(n) for storing the result, O(1) extra if we sort in place.
-
-This greedy approach is provably optimal. A formal proof uses exchange argument: suppose an optimal solution OPT does not include the earliest-finishing activity a1. Replace the first activity in OPT with a1. Since a1 finishes no later, the replacement is valid and the count stays the same. By induction, greedy matches OPT.
+Time: O(n log n) for sorting + O(n) for selection.
+Space: O(n) for storing results.
 </think>
 
 **Activity Selection Problem -- Greedy Approach**
@@ -82,30 +76,24 @@ Maximum activities: 4
 - Space: O(n) for the result list'''),
 
     ("thinking/algorithms", r'''Implement Huffman Coding: given a string or frequency table, build the Huffman tree and generate variable-length prefix codes. Include both encoding and decoding functions.''', r'''<think>
-Huffman coding is a greedy algorithm for lossless data compression. The idea is to assign shorter bit codes to more frequent characters and longer codes to less frequent ones.
+Huffman coding: assign shorter codes to frequent characters, longer codes to rare ones.
 
-Algorithm:
-1. Count frequency of each character
-2. Create a leaf node for each character, put them all in a min-heap (priority queue) keyed by frequency
-3. While the heap has more than one node:
-   a. Extract the two nodes with lowest frequency
-   b. Create a new internal node with these two as children, frequency = sum of their frequencies
-   c. Insert the new node back into the heap
-4. The remaining node is the root of the Huffman tree
-5. Traverse the tree: left edge = 0, right edge = 1, leaf paths give the codes
+I initially considered a simple approach: sort characters by frequency and assign codes 0, 1, 00, 01, 10, 11, etc. But wait, that does not produce a prefix code -- "0" would be a prefix of "00", making decoding ambiguous. I need a tree-based construction to guarantee the prefix-free property.
 
-Why greedy works: By always merging the two least frequent symbols, we ensure the least frequent symbols end up deepest in the tree (longest codes). This minimizes the weighted path length, which equals the total encoded length.
+The Huffman algorithm builds a binary tree bottom-up:
+1. Create a leaf node for each character with its frequency
+2. Put all nodes in a min-heap keyed by frequency
+3. While heap has more than one node: extract two smallest, merge into a new internal node, reinsert
+4. The remaining node is the root
 
-Edge cases:
-- Single character string (code is "0" by convention)
-- Empty string
-- All characters have equal frequency (balanced tree)
-- Two characters only
+But why always merge the two LEAST frequent? I considered merging the two MOST frequent first (to get them out of the way), but that would actually give them the longest codes -- exactly the opposite of what we want. Since the merge order determines tree depth, and deeper nodes get longer codes, we want rare characters to be merged first (pushed deeper). The two least frequent characters should be siblings at the maximum depth because they contribute the least total bits (frequency * code_length) from being deep.
 
-Time complexity: O(n log n) where n is number of distinct characters -- each heap operation is O(log n) and we do O(n) of them.
-Space complexity: O(n) for the tree and code table.
+Hmm, there is an edge case I almost overlooked: what if there is only one unique character (e.g., "aaaa")? Then the heap starts with one node and we never enter the merge loop. The tree is just a single leaf with no edges, so the character has no code. By convention, I should assign it code "0" so it can still be encoded.
 
-The resulting code is a prefix code -- no codeword is a prefix of another -- which allows unambiguous decoding.
+Time: O(n log n) where n is distinct characters. Each of the n-1 merges involves two heap operations at O(log n) each.
+Space: O(n) for the tree and code table.
+
+The result is a prefix code: since codes correspond to root-to-leaf paths in a binary tree, no code is a prefix of another, which guarantees unambiguous decoding.
 </think>
 
 **Huffman Coding -- Complete Implementation**
@@ -215,30 +203,25 @@ print(f"Decoded matches: {decoded == text}")
 - Space: O(n) for tree + O(m) for encoded output'''),
 
     ("thinking/algorithms", r'''Solve the Fractional Knapsack Problem: given items with weights and values and a knapsack capacity W, maximize the total value. You can take fractions of items.''', r'''<think>
-The Fractional Knapsack problem differs from 0/1 knapsack in that we can take fractions of items. This makes it solvable by a greedy approach, whereas 0/1 knapsack requires DP.
+Fractional Knapsack: we can take fractions of items. My first instinct was to use dynamic programming like the 0/1 knapsack... but wait, fractions make this fundamentally different. In 0/1, we face a discrete choice (take or leave), which requires DP. With fractions, there are no discrete decisions to force suboptimal local choices -- we can always take exactly the right amount.
 
-Key insight: We should prioritize items by their value-to-weight ratio (value density). Take as much as possible of the highest-density item first, then the next, and so on until the knapsack is full.
+This means greedy should work. The key insight: prioritize items by value-to-weight ratio (value density). Take as much as possible of the highest-density item first.
 
-Why greedy is optimal here: If we have remaining capacity c, filling it with the highest value-per-unit-weight material gives the maximum possible value for that capacity. No rearrangement can improve it because every unit of weight we add comes from the best available source.
+But hmm, why is greedy provably optimal here? Suppose we have remaining capacity c. Filling it with the highest-ratio material gives value = c * best_ratio. Any alternative allocation uses some capacity on lower-ratio material, giving less total value for the same weight. Since fractions are allowed, there is no "wasted capacity" from partially taking items. Each unit of weight contributes its item's ratio to the total value, and we maximize by always using the best ratio.
+
+I initially wondered: could it be better to save capacity for a heavy-but-high-value item later? No, because with fractions we can take just a fraction of that item. We are never forced to take all-or-nothing, so there is no benefit to reserving capacity.
+
+Contrast with 0/1 knapsack where greedy fails: items (10,60) and (20,100) with capacity 20. Greedy by ratio picks item 0 (ratio 6.0) for value 60, but item 1 (ratio 5.0, value 100) is better. This only fails because we cannot take a fraction of item 1 in the 0/1 case.
 
 Algorithm:
 1. Compute value/weight ratio for each item
-2. Sort items by ratio in descending order
-3. For each item in sorted order:
-   a. If item fits entirely, take it all
-   b. Otherwise, take the fraction that fills remaining capacity
-   c. Stop when capacity is exhausted
+2. Sort by ratio descending
+3. Greedily take items: whole if they fit, fractional if they do not
 
-Edge cases:
-- Capacity is 0 -- return 0
-- All items fit -- take everything
-- Item with weight 0 but positive value -- infinite ratio, take it (handle division carefully)
-- Single item heavier than capacity -- take fraction
+Edge case: item with weight 0 but positive value gives infinite ratio. I should handle division carefully, perhaps treating it as float('inf').
 
 Time: O(n log n) for sorting.
-Space: O(n) for the ratio array (or O(1) extra if we sort in place).
-
-This is one of the simplest greedy proofs: at each step we are extracting maximum value per unit weight, and since fractions are allowed, there is no "waste" from partial items.
+Space: O(n) for the indexed array.
 </think>
 
 **Fractional Knapsack -- Greedy Solution**
@@ -332,33 +315,30 @@ Item selections:
 - Space: O(n) for indexed array'''),
 
     ("thinking/algorithms", r'''Solve the Job Scheduling with Deadlines problem: given n jobs each with a deadline and profit, schedule jobs on a single machine (one job per time slot) to maximize total profit. Each job takes exactly one unit of time.''', r'''<think>
-This is the classic Job Sequencing with Deadlines problem. Each job has a deadline d_i and profit p_i. We can do at most one job per time slot. We want to maximize total profit.
+Job Sequencing with Deadlines: each job has a deadline and profit, one job per time slot, maximize total profit.
 
-Greedy strategy: Sort jobs by profit in descending order. For each job, try to schedule it as late as possible (at or before its deadline). This is greedy because we prioritize high-profit jobs and place them as late as possible to leave earlier slots open for other jobs.
+My first thought was to sort by deadline and schedule greedily... but wait, that prioritizes urgency over value. A job with deadline 1 and profit 5 would be scheduled before a job with deadline 2 and profit 100. We should prioritize profit instead.
 
-Why "as late as possible"? If we place a job in the latest available slot before its deadline, we preserve earlier slots for jobs with earlier deadlines. This maximizes flexibility.
+Greedy strategy: Sort jobs by profit in descending order. For each job, try to schedule it.
 
-Implementation approaches:
-1. Simple array-based: O(n^2) -- for each job, scan backwards from min(deadline, n) to find an empty slot
-2. Disjoint Set (Union-Find): O(n * alpha(n)) -- nearly linear
+But at WHICH slot should I schedule it? I initially thought: the earliest available slot before its deadline. But actually, scheduling it as LATE as possible is better. Why? Because earlier slots are more constrained (they might be needed by jobs with earlier deadlines). Placing a job as late as possible preserves earlier slots for future jobs. This maximizes scheduling flexibility.
 
-I will implement both for educational value but focus on the array approach for clarity.
+Let me trace an example: jobs A(deadline=2, profit=100), C(deadline=2, profit=27), E(deadline=3, profit=15).
+- Sort by profit: A(100), C(27), E(15)
+- A: latest slot before deadline 2 -> slot 2. Assign.
+- C: latest slot before deadline 2 -> slot 2 taken, try slot 1. Assign.
+- E: latest slot before deadline 3 -> slot 3. Assign.
+- Total: 100 + 27 + 15 = 142. All scheduled!
 
-Algorithm (array-based):
-1. Sort jobs by profit descending
-2. Create a slot array of size max_deadline, initialized to -1 (empty)
-3. For each job in sorted order:
-   a. Start from min(deadline-1, max_slot-1) and go backwards
-   b. Find the first empty slot
-   c. If found, assign the job there and add its profit
-4. Return total profit and schedule
+If I had placed A at slot 1 instead (earliest available), then C would need slot 2, and E slot 3 -- same result here. But in other cases, "latest available" prevents conflicts.
 
-Edge cases:
-- All jobs have same deadline (only one can be scheduled at that slot, but earlier slots might be available)
-- Deadline is 0 (impossible to schedule)
-- All deadlines exceed n (all jobs can potentially be scheduled)
+Implementation:
+1. Simple array-based: O(n^2) -- scan backwards from deadline for each job
+2. Union-Find optimization: O(n * alpha(n)) -- find(d) gives the latest available slot <= d, and union merges a slot with its predecessor when used
 
-Time: O(n^2) for the simple version, O(n log n) with union-find optimization.
+The Union-Find approach is clever: initially each slot points to itself. When slot t is used, union(t, t-1) so that future find(t) returns t-1, the next available slot. This avoids the linear scan.
+
+Time: O(n^2) for simple, O(n log n) with union-find (sorting dominates).
 Space: O(n) for the slot array.
 </think>
 

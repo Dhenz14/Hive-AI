@@ -1,18 +1,18 @@
 PAIRS = [
     ("thinking/algorithms", r'''Merge K sorted linked lists into one sorted linked list. Return the head of the merged list. Each list may have up to 500 nodes, and there can be up to 10^4 lists. Design an efficient solution.''', r'''<think>
-Let me think about the different approaches.
+Let me think about the different approaches for merging K sorted lists.
 
-**Brute force**: Collect all values, sort them, build a new list. Time: O(N log N) where N is total number of nodes. Space: O(N). This works but doesn't leverage the fact that the lists are already sorted.
+**Brute force**: Collect all values, sort them, build a new list. Time: O(N log N) where N is total number of nodes. This works but... wait, it completely ignores the fact that the lists are already sorted. We should be able to do better.
 
-**Compare one by one**: At each step, compare the heads of all K lists and pick the minimum. Time: O(N * K) — for each of the N nodes, we scan K heads. Too slow for K = 10^4.
+**Compare one by one**: At each step, compare the heads of all K lists and pick the minimum. Time: O(N * K) -- for each of the N nodes, we scan K heads. For K = 10^4, that is way too slow.
 
-**Priority Queue / Min-Heap**: Maintain a min-heap of size K containing the current head of each list. Pop the minimum, advance that list's pointer, push the next node. Time: O(N log K). Space: O(K). This is optimal.
+**Priority Queue / Min-Heap**: Maintain a min-heap of size K containing the current head of each list. Pop the minimum, advance that list's pointer, push the next node. Why O(N log K)? Because each of the N nodes is pushed and popped exactly once, and the heap has at most K elements, so each operation is O(log K). This is optimal since we need to look at every node at least once.
 
-Why O(N log K)? Each of the N nodes is pushed and popped from the heap exactly once. Each heap operation is O(log K) since the heap has at most K elements.
+I initially considered **Divide and Conquer** (merging lists in pairs like merge sort). That is also O(N log K) -- log(K) rounds, each processing N total nodes. But actually, the heap approach is simpler to implement and has the same asymptotic complexity, so I will go with the heap.
 
-**Divide and Conquer**: Merge lists in pairs, like merge sort. log(K) rounds, each round processes N total nodes. Time: O(N log K). Same asymptotic complexity but heap approach is simpler to implement.
+Hmm, one Python gotcha I almost missed: heapq compares tuples lexicographically. If two nodes have equal values, Python will try to compare the ListNode objects as the tiebreaker, which will raise a TypeError because ListNode does not implement __lt__. I need to add a monotonically increasing counter as the second tuple element to break ties. This ensures comparisons never reach the ListNode objects themselves.
 
-I'll go with the heap approach. One Python gotcha: heapq compares tuples lexicographically. If two nodes have equal values, Python will try to compare the ListNode objects, which will fail. I need a tiebreaker — I'll use an incrementing counter as the second tuple element.
+Actually, I considered adding __lt__ to ListNode instead, but modifying the node class just for heap comparison feels wrong. The counter approach is cleaner and does not pollute the data structure.
 </think>
 
 ## Merge K Sorted Lists with a Min-Heap
@@ -110,28 +110,26 @@ The heap always contains at most K elements, so each push/pop is O(log K). Every
 '''),
 
     ("thinking/algorithms", r'''Design a class that finds the K-th largest element in a stream of numbers. Implement the constructor that takes K and an initial array, and an `add(val)` method that adds a new value and returns the K-th largest element.''', r'''<think>
-Let me think about this carefully.
+Let me think about this carefully. I need the K-th largest element in a stream, updated efficiently with each add() call.
 
-The K-th largest element in a collection of n numbers — if we sort descending, it's the element at index K-1. We need this to be efficient for repeated `add()` calls.
+**Naive approach**: Keep all elements sorted, return the K-th from end. Each add is O(n) for insertion into sorted position. For a stream of millions of elements, this becomes impractical.
 
-**Naive approach**: Keep all elements sorted, return the K-th from end. Each add is O(n) for insertion into sorted position.
+Could I use a max-heap? I could pop K times to get the K-th largest... but wait, that would destroy the heap state, requiring a rebuild after each query. That is O(K log n) per add, which is worse than naive for large K.
 
-**Better: Min-heap of size K**: This is the classic trick.
-- Maintain a min-heap of exactly K elements, representing the K largest seen so far.
-- The K-th largest is always the root (minimum of these K elements).
-- When a new value arrives:
-  - If heap size < K: push it
-  - Else if val > heap[0]: pop the min and push val
-  - Return heap[0]
+Actually, the right approach is a **min-heap of size K**. This is counterintuitive at first -- why a min-heap for finding largest elements? The key insight: I only care about the top K elements. A min-heap of size K gives me instant access to the smallest among those K, which is exactly the K-th largest overall. When a new value arrives:
+- If heap size < K: just push it
+- Else if val > heap[0]: the new value displaces the current K-th largest (pop min and push val)
+- Else: the new value is not in the top K, discard it
+- Return heap[0] in all cases
 
-Why a min-heap and not a max-heap? Because we want quick access to the smallest of the K largest — that's the K-th largest. If a new element is bigger than this smallest, it displaces it.
+Hmm, I initially thought I needed to handle the case where val == heap[0] specially, but actually no -- if val equals the current K-th largest, it does not displace anything. The condition val > heap[0] is correct.
 
-Time per add: O(log K)
-Space: O(K)
+Time per add: O(log K) -- much better than O(n).
+Space: O(K) -- we only store K elements regardless of stream size.
 
-This is much better than O(n) per add or O(n log n) re-sorting.
+One optimization: Python's heapq has heapreplace(heap, val), which does pop + push in a single sift operation. This is faster than separate heappop + heappush because it only percolates once instead of twice.
 
-Edge case: what if K equals the total number of elements? Then every element is in the heap and the K-th largest is the minimum of all elements.
+Edge case: what if K equals the total number of elements? Then every element is in the heap and the K-th largest is simply the minimum of all elements.
 </think>
 
 ## K-th Largest Element in a Stream
@@ -211,29 +209,25 @@ Using `heapreplace` (combined pop-push) is faster than separate `heappop` + `hea
 '''),
 
     ("thinking/algorithms", r'''Given a string s, rearrange it so that no two adjacent characters are the same. If not possible, return an empty string. Example: "aab" -> "aba", "aaab" -> "" (impossible).''', r'''<think>
-Let me think about when this is possible and how to construct the arrangement.
+Let me think about when rearranging is possible and how to construct a valid arrangement.
 
-**When is it impossible?** If any character appears more than ceil(n/2) times, it's impossible. For a string of length n, the most frequent character can fill at most every other position, giving ceil(n/2) slots.
+**When is it impossible?** If any character appears more than ceil(n/2) times, it is impossible. Why? Because the most frequent character can fill at most every other position (positions 0, 2, 4, ...), giving ceil(n/2) slots. If it exceeds that count, two copies must be adjacent.
 
 **Greedy approach with max-heap:**
-At each step, place the character with the highest remaining frequency. But we can't place the same character twice in a row, so if the most frequent character is the same as the last placed character, we place the second most frequent instead.
+At each step, place the character with the highest remaining frequency. But wait -- we cannot place the same character twice in a row. So what if the most frequent character is the same as the one we just placed?
 
-Algorithm:
-1. Count frequencies
-2. Build a max-heap (negate frequencies for Python's min-heap)
-3. At each step:
-   - Pop the most frequent character
-   - If it's the same as the last placed, pop the second most frequent instead (and push the first back)
-   - Place the character, decrement its count, push back if count > 0
+I initially thought: just pop the second most frequent instead, push the first one back, and continue. But this gets complicated with edge cases -- what if the second most frequent is also the same as the last placed? Actually no, that cannot happen since each character is distinct.
 
-Wait, there's a simpler way to think about this. I can maintain a "previous" character that's temporarily excluded:
+Hmm, there is a simpler and more elegant approach. I can maintain a "previous" character that is temporarily excluded from the heap:
 
-1. Pop top from heap -> (count, char)
-2. Append char to result
-3. If there's a "previous" waiting to be re-added with count > 0, push it back
-4. Set current (count-1, char) as the new "previous"
+1. Pop the most frequent character from the heap
+2. Append it to the result
+3. If there is a "previous" character waiting to be re-added (with remaining count > 0), push it back into the heap now
+4. Set the current character (with decremented count) as the new "previous"
 
-This ensures we never pick the same character twice in a row because the last-used character is always held out of the heap for one round.
+This guarantees we never pick the same character twice in a row because the last-used character is always held out of the heap for exactly one round. When it re-enters the heap on the next iteration, at least one different character has been placed in between.
+
+But wait, could the heap be empty when we need to pop? Only if there is just one character left and it is the "previous" being held out. That would mean we have remaining copies of a character that we just placed, with nothing else to interleave. But our impossibility check at the start catches exactly this case (max_freq > ceil(n/2)), so if we pass the check, the heap always has something to offer.
 
 Time: O(n log A) where A is alphabet size (26 for lowercase). Since log 26 is constant, effectively O(n).
 Space: O(A) = O(1) for the heap.
@@ -335,40 +329,35 @@ The "hold out one round" trick guarantees no character can appear adjacent to it
     ("thinking/algorithms", r'''Implement a Task Scheduler. Given a list of tasks represented by characters and a cooldown period n, find the minimum number of intervals needed to complete all tasks. Each interval is 1 unit. The same task must be separated by at least n intervals. You can insert idle intervals.
 
 Example: tasks = ["A","A","A","B","B","B"], n = 2 -> Output: 8 (A B idle A B idle A B)''', r'''<think>
-Let me think through this problem carefully.
+Let me think through this problem carefully. How do we minimize total intervals including idle time?
 
-First, the key insight: the task with the highest frequency determines the minimum time. Let's call the max frequency `f_max` and the number of tasks that have this max frequency `count_max`.
+My first instinct was to simulate: use a max-heap of task frequencies, pop the most frequent task each interval, track cooldowns with a queue. But wait, that would be O(total_intervals * log(26)) which could be large. Is there a closed-form solution?
 
-**Greedy formula approach:**
-Consider task A with frequency f_max. We need f_max - 1 gaps of size n+1 between consecutive A's:
+Let me think about what determines the minimum time. The bottleneck is the most frequent task. Consider task A with frequency f_max. We need at least n intervals of cooldown between consecutive A's:
 
 ```
 A _ _ A _ _ A
 ```
 
-Each gap has n+1 slots (including the A). The last group doesn't need trailing idles.
+Each group has n+1 slots (one A plus n cooldown slots). There are f_max - 1 such groups, plus the final A. So the framework is: (f_max - 1) * (n + 1) + 1.
 
-Framework time = (f_max - 1) * (n + 1) + count_max
+But hmm, what if multiple tasks share the maximum frequency? For example, if both A and B appear 3 times with cooldown 2, the last group needs both A and B: "A B idle A B idle A B". The final group has count_max elements. So the formula becomes: (f_max - 1) * (n + 1) + count_max.
 
-But this formula might give a value less than the total number of tasks (when cooldown is small relative to variety of tasks). In that case, the answer is simply len(tasks) because we can interleave without any idle time.
-
-So: answer = max(len(tasks), (f_max - 1) * (n + 1) + count_max)
+Wait, could this formula give a value less than the total number of tasks? Yes! When the cooldown is small relative to the variety of tasks, there are enough different tasks to fill all cooldown slots with no idle time needed. In that case, the answer is simply len(tasks). So: answer = max(len(tasks), (f_max - 1) * (n + 1) + count_max).
 
 Let me verify with the example:
 - tasks = ["A","A","A","B","B","B"], n = 2
 - f_max = 3, count_max = 2 (both A and B appear 3 times)
 - Formula: (3-1) * (2+1) + 2 = 6 + 2 = 8
 - len(tasks) = 6
-- max(6, 8) = 8 ✓
+- max(6, 8) = 8. Correct!
 
 Another test: tasks = ["A","A","A","B","B","B"], n = 0
 - Formula: (3-1) * 1 + 2 = 4
 - len(tasks) = 6
-- max(6, 4) = 6 ✓ (no cooldown, just do all 6)
+- max(6, 4) = 6. Correct -- no cooldown, just do all 6 back to back.
 
-I could also simulate this with a max-heap + queue approach, which would be more intuitive but O(n * total_tasks). The formula approach is O(n) and more elegant.
-
-Let me implement both — the formula for efficiency and a simulation to verify.
+I will implement both the O(n) formula and a simulation with max-heap + cooldown queue, so I can cross-verify the results.
 </think>
 
 ## Task Scheduler with Cooldown
@@ -476,24 +465,25 @@ When there are many distinct tasks (more than n+1 types), the idle slots get fil
     ("thinking/algorithms", r'''Meeting Rooms II: Given a list of meeting time intervals [start, end), find the minimum number of conference rooms required so that no two overlapping meetings share a room.
 
 Example: intervals = [[0,30],[5,10],[15,20]] -> 2 rooms needed (meetings 1 and 2 overlap).''', r'''<think>
-Classic interval scheduling problem. Let me consider approaches:
+Classic interval scheduling problem. I need the minimum number of rooms so no two overlapping meetings share a room.
 
 **Approach 1: Sort + Min-Heap**
-Sort meetings by start time. Use a min-heap tracking the end times of active meetings (one per room). For each meeting:
-- If the earliest ending room is free (heap top ≤ current start), reuse it (pop and push new end)
+Sort meetings by start time. Use a min-heap tracking end times of active meetings. For each meeting:
+- If the earliest ending room is free (heap top <= current start), reuse it (pop and push new end)
 - Otherwise, allocate a new room (just push new end)
-The heap size at the end is the answer.
 
-Time: O(n log n) for sorting + O(n log n) for heap operations = O(n log n)
+This works because we process meetings in chronological order, and we always reuse the room that frees up earliest. The heap size at the end equals the answer.
 
 **Approach 2: Event sweep / chronological ordering**
-Create events: +1 for each start, -1 for each end. Sort all events by time (break ties: end before start, so a room freed at time t can be reused by a meeting starting at time t). Sweep through and track the running count; the maximum is the answer.
+Create events: +1 for each start, -1 for each end. Sort and sweep.
 
-Time: O(n log n)
+Hmm, but wait -- there is a subtle tie-breaking issue. If a meeting ends at time t and another starts at time t, do they overlap? The intervals are [start, end), meaning half-open. So they do NOT overlap and can share a room. Therefore end events should be processed before start events at the same time.
 
-Both are optimal. The sweep approach is elegant and has lower constant factor since it avoids heap operations.
+I initially thought I should sort by (time, type) where end=-1 and start=+1. Since -1 < +1, ends get processed first at the same timestamp. Actually, let me double-check: if I use the delta values (-1 for end, +1 for start) as the secondary sort key, then at the same time, -1 comes before +1. That means we decrement (free a room) before incrementing (need a room), which correctly allows reuse. Good.
 
-Wait, for the sweep approach tie-breaking: if a meeting ends at time t and another starts at time t, they don't overlap (intervals are [start, end)). So end events should come before start events at the same time. This means: sort by (time, type) where end=0 and start=1.
+But wait, what if I got the tie-breaking wrong and processed starts before ends? Then a meeting ending at t=10 and one starting at t=10 would momentarily need 2 rooms, when really 1 suffices. That would give an incorrect (too high) answer. So the tie-breaking is critical for correctness.
+
+Both approaches are O(n log n) and optimal. The sweep approach is arguably more elegant since it avoids heap operations, but the heap approach can be extended to track which room each meeting uses, which is useful for room assignment problems.
 
 Let me implement both approaches.
 </think>

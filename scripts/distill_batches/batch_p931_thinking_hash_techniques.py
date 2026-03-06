@@ -1,22 +1,17 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement rolling hash (Rabin-Karp) for substring matching. Explain the math behind it, how to handle hash collisions, and demonstrate finding all occurrences of a pattern in a text.''', r'''<think>
-Rolling hash is the foundation of Rabin-Karp string matching. The idea is to compute a hash for each substring of length m in the text using O(1) updates as we slide the window.
+Rolling hash is the foundation of Rabin-Karp string matching. The naive approach would recompute the hash from scratch for each window position, but that costs O(m) per window. Could we do better? Yes -- by treating the string as a polynomial in some base, we can update the hash in O(1) as the window slides.
 
-The hash function: treat the string as a polynomial in some base. For string s[0..m-1], hash = s[0]*base^(m-1) + s[1]*base^(m-2) + ... + s[m-1], all mod some large prime.
-
-When we slide the window from position i to i+1, we remove the contribution of s[i] and add s[i+m]:
+For string s[0..m-1], hash = s[0]*base^(m-1) + s[1]*base^(m-2) + ... + s[m-1], all mod some large prime. When sliding from position i to i+1, we subtract the contribution of s[i] and add s[i+m]:
 new_hash = (old_hash - s[i] * base^(m-1)) * base + s[i+m], all mod p.
 
-Key considerations:
-1. Choose a large prime modulus (e.g., 10^9 + 7 or 10^9 + 9)
-2. Choose a base larger than the alphabet size (e.g., 31 or 131)
-3. Handle collisions by verifying matches with actual string comparison
-4. Precompute base^(m-1) mod p to avoid recomputation
-5. Be careful with negative values in modular arithmetic
+Now, choosing the right parameters matters more than I initially thought. I considered using a small prime modulus for speed, but actually that leads to frequent collisions. With mod = 10^9 + 7, the collision probability per window is roughly 1/(10^9), which is negligible for practical inputs. The base should be larger than the alphabet size -- I initially considered base=26 for lowercase letters, but wait, that would map 'a'*base + 'b' the same as some other combination. Using 131 or 256 avoids this ambiguity.
 
-For multiple pattern matching, we can use multiple hash functions (double hashing) to reduce collision probability. The probability of a false positive with one hash is roughly 1/p, so with two independent hashes it becomes 1/p^2.
+One subtle pitfall: the subtraction in the rolling formula can produce negative values. In Python, the % operator handles this correctly (always returns non-negative), but in C/Java you must add the modulus explicitly. I almost forgot about this.
 
-Edge cases: empty pattern, pattern longer than text, all characters the same (worst case for collisions with bad hash parameters).
+For multiple pattern matching, we can use double hashing -- two independent hash functions with different bases and moduli. The probability of a false positive drops from 1/p to 1/(p1*p2), which is essentially zero. I considered whether we still need string verification with double hashing. Technically yes for correctness guarantees, but in practice the collision probability is so low that many implementations skip it.
+
+Edge cases to handle: empty pattern, pattern longer than text, all characters the same (where poor hash parameters could cause every window to collide).
 </think>
 
 ## Rolling Hash (Rabin-Karp Algorithm)
@@ -114,23 +109,17 @@ print(f"Double hash: {dh.match(text, pattern)}")  # [0, 3, 6]
 - Longest common substring via binary search + hash set'''),
 
     ("thinking/algorithms", r'''Implement polynomial hashing with the ability to compute hash of any substring in O(1) after O(n) preprocessing. Show how to compare arbitrary substrings efficiently.''', r'''<think>
-Polynomial hashing with prefix hashes allows O(1) substring hash queries. The idea: precompute prefix hashes and powers of the base, then extract any substring hash using the formula:
+Polynomial hashing with prefix hashes allows O(1) substring hash queries. But how? My first idea was to store hashes for every possible substring, but that would require O(n^2) space. Instead, we precompute prefix hashes and extract any substring hash using subtraction.
 
-hash(s[l..r]) = (prefix_hash[r+1] - prefix_hash[l] * base^(r-l+1)) mod p
+The formula: hash(s[l..r]) = (prefix_hash[r+1] - prefix_hash[l] * base^(r-l+1)) mod p, where prefix_hash[i] = hash of s[0..i-1].
 
-Where prefix_hash[i] = hash of s[0..i-1].
+Wait, why does this subtraction work? Let me think through the math carefully. prefix_hash[i] = s[0]*b^(i-1) + s[1]*b^(i-2) + ... + s[i-1]. For substring [l..r], we want s[l]*b^(r-l) + ... + s[r]. Now prefix_hash[r+1] contains all terms for positions 0..r, and prefix_hash[l] * b^(r-l+1) contains all terms for positions 0..l-1 but shifted by b^(r-l+1) to align the powers correctly. Subtracting removes the prefix contribution. Hmm, I initially got the power exponent wrong -- it is (r-l+1), not (r-l), because we need to shift by the length of the substring.
 
-The math: prefix_hash[i] = s[0]*b^(i-1) + s[1]*b^(i-2) + ... + s[i-1]
+I need to precompute the powers array to avoid recalculating base^k each query. One subtle issue: the subtraction can go negative in modular arithmetic. In Python this is fine since % always returns non-negative, but it is a common source of bugs in other languages.
 
-For substring [l..r]:
-hash(s[l..r]) = s[l]*b^(r-l) + s[l+1]*b^(r-l-1) + ... + s[r]
-             = prefix_hash[r+1] - prefix_hash[l] * b^(r-l+1)
+For comparing substrings from different strings, I considered building separate hash structures and comparing across them. Actually, as long as both use the same base and modulus, we can directly compare hash values. This enables O(1) substring equality testing with collision probability roughly 1/p per comparison.
 
-This is because prefix_hash[r+1] contains terms for positions 0..r, and subtracting prefix_hash[l] * b^(r-l+1) removes the contribution of positions 0..l-1 (shifted appropriately).
-
-I need to precompute the powers array. For comparing substrings from different strings, I can use the same base and modulus. This enables O(1) substring comparison with high probability.
-
-Applications: longest common prefix via binary search, lexicographic comparison, finding repeated substrings.
+Applications: longest common prefix via binary search (O(log n) per query), lexicographic comparison of substrings, and finding all repeated substrings of a given length. The binary search for LCP works because "the first k characters match" is a monotonic property -- if they match for length k, they match for all shorter lengths too.
 </think>
 
 ## Polynomial Hashing with O(1) Substring Queries
@@ -229,24 +218,18 @@ for i in range(len(s) - 2):
 - **Collision probability**: ~1/p per comparison (~10^-9 with good prime)'''),
 
     ("thinking/algorithms", r'''Build a hash map from scratch in Python (without using dict). Implement open addressing with linear probing, including insert, search, delete, and dynamic resizing. Analyze the expected time complexity.''', r'''<think>
-Building a hash map from scratch with open addressing and linear probing. Key design decisions:
+Building a hash map from scratch with open addressing. My first decision: which collision resolution? I considered chaining (linked lists at each slot), but open addressing with linear probing is more cache-friendly since probes hit adjacent memory locations. The tradeoff is that linear probing suffers from primary clustering -- runs of occupied slots grow and merge, making future collisions more likely.
 
-1. Hash function: use Python's built-in hash() then reduce modulo table size. Table size should be a prime or power of 2.
+Hash function: use Python's built-in hash() then reduce modulo table size. I considered using a prime table size to reduce clustering, but powers of 2 are simpler and Python's hash() already has good distribution. Actually, for linear probing specifically, prime sizes might help more than for chaining, but I will keep it simple with powers of 2.
 
-2. Linear probing: on collision, check the next slot, then the next, etc. This has the issue of clustering but is cache-friendly.
+Deletion is trickier than I initially thought. I cannot simply empty a slot because that would break probe chains -- a later search would stop at the empty slot and miss elements that were inserted after the deleted one. Wait, could I re-insert all elements in the broken chain? That would work but is complex. The simpler approach is a sentinel "DELETED" marker: on insert, we can reuse DELETED slots; on search, we skip over them.
 
-3. Deletion: cannot simply empty a slot (would break probe chains). Use a sentinel "DELETED" marker. On insert, we can reuse DELETED slots. On search, we skip over them.
+Dynamic resizing: when load factor exceeds 0.7, double and rehash. But hmm, what about shrinking? After many deletes, the table could be mostly DELETED markers, which degrades probe length. So I should also shrink when load factor drops below 0.2 (but never below a minimum capacity of 8 to avoid thrashing on small tables).
 
-4. Dynamic resizing: when load factor exceeds a threshold (say 0.7), double the table size and rehash everything. When load factor drops below 0.2 (after many deletes), shrink.
-
-5. The expected time for operations with load factor alpha:
-   - Successful search: O(1/(1-alpha)) on average
-   - Unsuccessful search: O(1/(1-alpha)^2) on average
-   - This assumes uniform hashing, which linear probing approximates poorly due to clustering
-
-Edge cases: duplicate keys on insert (update value), searching for non-existent keys, resize during iteration, hash of None or unhashable types.
-
-Let me implement this cleanly with proper resize logic.
+Expected probe lengths with load factor alpha:
+- Successful search: O(1/(1-alpha)) on average
+- Unsuccessful search: O(1/(1-alpha)^2) on average
+These assume uniform hashing; linear probing is somewhat worse in practice due to clustering, but the cache locality often compensates.
 </think>
 
 ## Hash Map from Scratch with Open Addressing
@@ -382,20 +365,17 @@ print(f"Updated key0: {hm.get('key0')}")  # 999
 Linear probing suffers from **primary clustering** but has excellent cache locality, often making it faster in practice than chaining despite theoretical disadvantages.'''),
 
     ("thinking/algorithms", r'''Implement consistent hashing for distributed systems. Show the ring-based approach with virtual nodes, supporting add/remove servers and key lookup. Explain why it minimizes key redistribution.''', r'''<think>
-Consistent hashing maps both keys and servers onto a circular hash space (ring). Each key is assigned to the nearest server clockwise on the ring. When a server is added or removed, only keys between the affected server and its predecessor need to move.
+Consistent hashing maps both keys and servers onto a circular hash space (ring). Each key goes to the nearest server clockwise. The key advantage over simple modular hashing (key % n): when a server is added or removed, only keys between the affected server and its predecessor need to move -- roughly 1/n of all keys, not (n-1)/n.
 
-Virtual nodes: each physical server gets multiple positions on the ring (virtual nodes). This improves load balancing because with few physical servers, the ring partitions can be very uneven. With V virtual nodes per server, the standard deviation of load drops from O(1/sqrt(n)) to O(1/sqrt(n*V)).
+But wait, with just a few physical servers, the ring partitions can be very uneven. I initially thought we could just hash each server name to one position, but that gives poor load balancing with small n. For example, with 3 servers, one might end up with 60% of the ring arc. Virtual nodes fix this: each physical server gets V positions on the ring (e.g., V=150). With more points, the law of large numbers kicks in and the standard deviation of load drops from O(1/sqrt(n)) to O(1/sqrt(n*V)).
 
-Implementation:
-1. Use a sorted list (or balanced BST) of hash positions on the ring
-2. Each position maps to a physical server
-3. For key lookup: hash the key, find the next position on the ring (binary search)
-4. For add server: insert V virtual nodes, keys in affected ranges migrate
-5. For remove server: remove V virtual nodes, keys go to next server
+Implementation decisions:
+- I considered using a balanced BST for the ring, but Python's bisect module on a sorted list is simpler and gives O(log(n*V)) lookup via binary search. Good enough.
+- For the hash function, I initially thought to use Python's hash(), but actually that is not deterministic across runs (Python randomizes hash seeds for security). Since consistent hashing in distributed systems requires all nodes to agree on the same hash, I should use hashlib (MD5 or SHA) instead. The cryptographic strength is overkill, but determinism across machines is essential.
 
-I will use Python's bisect module for efficient sorted list operations. The hash function should be uniform -- I will use hashlib for consistent hashing across machines (Python's hash() is not deterministic across runs).
+For key lookup: hash the key, use bisect_right to find the next position on the ring, wrap around if past the end. For add/remove server: insert/remove V virtual node positions.
 
-For the redistribution analysis: with n servers, adding one new server only moves ~1/n of the keys. Compare with simple modular hashing where adding a server moves ~(n-1)/n keys.
+Hmm, one thing I considered: should removed keys be actively migrated or lazily discovered? In practice (e.g., Redis Cluster), migration happens actively in the background, but for this implementation the ring lookup handles it transparently -- keys simply map to a different server after the topology changes.
 </think>
 
 ## Consistent Hashing with Virtual Nodes
@@ -512,22 +492,17 @@ for s, count in sorted(dist2.items()):
 | 1000+        | Excellent   | High   | Slightly slower |'''),
 
     ("thinking/algorithms", r'''Implement cuckoo hashing with two hash functions and two tables. Explain the insertion algorithm with eviction chains, detect cycles, and handle rehashing. Compare with other collision resolution strategies.''', r'''<think>
-Cuckoo hashing uses two (or more) hash tables, each with its own hash function. Every key has exactly two possible positions: h1(key) in table1, h2(key) in table2. Lookup is O(1) worst case because we check exactly two positions.
+Cuckoo hashing gives O(1) worst-case lookup -- not amortized, actual worst case. That is remarkable compared to chaining or linear probing where worst case is O(n). The trick: every key has exactly two possible positions (h1(key) in table1, h2(key) in table2), so lookup checks at most two slots.
 
-Insertion algorithm:
-1. Try to place key in table1[h1(key)]
-2. If occupied, evict the existing key and place new key there
-3. The evicted key goes to its alternate position (in the other table)
-4. If that position is also occupied, evict again
-5. Continue until we find an empty slot or detect a cycle
+The insertion algorithm is where it gets interesting. I initially thought we could just try both positions and fail if both are occupied. But actually, cuckoo hashing uses eviction: place the new key in table1[h1(key)], evicting whatever was there. The evicted key then goes to its alternate position in the other table. If that is also occupied, evict again. This chain continues until we find an empty slot.
 
-Cycle detection: if we evict more than some threshold (typically 6*log(n) or just a constant like the table size), we assume a cycle and trigger a rehash with new hash functions.
+But wait -- what if we enter a cycle? For example, key A evicts key B, which evicts key C, which evicts key A again. We would loop forever. So we need cycle detection: if we exceed a threshold number of evictions (I considered using the table size, but 6*log(n) or even a small constant like 20 works well in practice), we assume a cycle and trigger a rehash with completely new hash functions.
 
-Rehashing: choose new hash functions and reinsert all keys. With random hash functions, the probability of needing a rehash is low when load factor < 0.5 (per table), giving an overall load factor < 1.0.
+Rehashing: choose new random salts for both hash functions and reinsert everything. Could this also cycle? Yes, but the probability is low -- with random hash functions and load factor below 0.5 per table, the expected number of rehashes before success is O(1). Hmm, but in the worst case we might need multiple rehash attempts. In practice this almost never happens.
 
-The amortized insertion cost is O(1) assuming good hash functions. The worst case for a single insertion before rehash is O(n), but rehashing itself is O(n), and it happens rarely.
+One design tradeoff I considered: using three hash functions and three tables instead of two. This raises the achievable load factor from ~50% to ~91%, at the cost of checking three positions per lookup instead of two. For most applications, two tables with 50% load is acceptable.
 
-For implementation, I will use two separate arrays and two hash functions (parameterized by different salts). I will track the eviction chain to detect cycles.
+For implementation, I will use two arrays and two hash functions parameterized by different random salts. The eviction chain is tracked to detect cycles.
 </think>
 
 ## Cuckoo Hashing

@@ -688,11 +688,19 @@ export function InvoiceForm() {
 '''),
 
     ("react/forms_file_upload", r'''<think>
-File upload forms need special handling: drag and drop, file type validation, size limits, preview generation, progress tracking, and multiple file support. I should build a complete file upload component with these features.
+File upload forms need special handling compared to regular form inputs. I initially thought about using a simple input[type=file] with onChange, but wait - that misses drag and drop support, which is the expected UX for modern file uploads. The component needs to handle dragenter, dragover, dragleave, and drop events on a dropzone area.
+
+For preview generation, I could use FileReader.readAsDataURL, but hmm - that creates a base64 data URL which can be very large for high-resolution images. URL.createObjectURL is more efficient since it creates a blob URL that references the file in memory without encoding it. But I need to remember to revoke the object URL on cleanup to avoid memory leaks.
+
+For upload progress, fetch API does not support upload progress tracking (only download progress via ReadableStream). Therefore I need to use XMLHttpRequest, which provides an upload.onprogress event. This is one of the few cases where XHR is still preferable to fetch.
 </think>
 
 Build a React file upload component with drag-and-drop, file type/size validation, image preview, upload progress tracking, and retry support for failed uploads.''', r'''<think>
-I will create a comprehensive file upload component that handles drag and drop events, validates files before upload, shows previews for images, tracks upload progress with XMLHttpRequest, and supports retrying failed uploads.
+I will create a comprehensive file upload component. For the drag and drop implementation, I need to be careful about the dragenter/dragleave counter trick - browsers fire dragleave when entering a child element, which causes the dropzone highlight to flicker. I considered using pointer-events: none on children, but actually a counter (increment on dragenter, decrement on dragleave, show highlight when counter > 0) is the standard solution.
+
+For file validation, I should validate BEFORE uploading to avoid wasting bandwidth. I initially planned to check only file.type, but wait - file extensions can be spoofed and some browsers report empty MIME types. Checking both the extension and the MIME type gives better coverage, though server-side validation is still essential.
+
+For retry support, each file needs its own upload state (pending, uploading, success, error) so that retrying one file does not re-upload successfully completed files. I will use a Map keyed by a generated file ID to track individual upload states.
 </think>
 
 // components/FileUpload.tsx

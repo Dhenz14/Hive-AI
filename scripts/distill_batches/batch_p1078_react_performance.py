@@ -235,11 +235,19 @@ export { DataTable, AnalyticsChart };
 '''),
 
     ("react/perf_virtualization", r'''<think>
-Virtualization is critical for rendering large lists efficiently. I need to show how to implement windowed rendering that only renders visible items, including support for variable height items, infinite scroll, and keyboard navigation. I will build on the concept used by react-window and react-virtuoso but show a from-scratch approach for understanding.
+Virtualization is critical for rendering large lists efficiently. I could just show how to use react-window or react-virtuoso, but wait - understanding the underlying mechanics is more valuable for debugging and customization. I will build on the concepts these libraries use but show a from-scratch approach.
+
+The core algorithm is: calculate which items fall within the visible viewport based on scroll position, and only render those plus a small overscan buffer. I initially thought a fixed-height assumption would simplify things, but actually variable height support is essential for real-world use cases like chat messages or card lists. This means I need to measure items after render and cache their heights.
+
+Hmm, there is a chicken-and-egg problem with variable heights: you need to know item heights to calculate positions, but you need to render items to measure heights. The standard solution is to use estimated heights initially and correct them after measurement. This causes a small layout shift on first render, but it is unavoidable without pre-measuring (which would require rendering all items offscreen, defeating the purpose).
 </think>
 
 Build a virtualized list component in React/TypeScript that renders only visible items for large datasets, supporting variable heights, scroll restoration, infinite loading, and keyboard navigation.''', r'''<think>
-The core concept is measuring the viewport, calculating which items are visible based on scroll position, and only rendering those items plus a small overscan buffer. For variable heights, I need to measure items after render and cache their heights.
+The core concept is measuring the viewport, calculating which items are visible based on scroll position, and only rendering those items plus a small overscan buffer. I considered using IntersectionObserver for visibility detection, but actually that fires asynchronously and can lag behind fast scrolling. A synchronous calculation from scrollTop is more responsive.
+
+For variable heights, I need to measure items after render and cache their heights. I initially planned to use a ResizeObserver on each item, but hmm - that adds overhead proportional to visible items. A simpler approach is measuring once in a useEffect after render and storing heights in a ref. If items can resize (e.g., expandable rows), then ResizeObserver becomes necessary, but for static content it is overkill.
+
+The overscan buffer is important - without it, fast scrolling shows blank areas before new items render. I will default to 5 items of overscan above and below the viewport, which balances rendering cost against visual smoothness.
 </think>
 
 // components/VirtualList.tsx

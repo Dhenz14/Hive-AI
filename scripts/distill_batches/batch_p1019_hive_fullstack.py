@@ -8,7 +8,11 @@ PAIRS = [
         "hive-fullstack-nextjs",
         r'''How do I build a full-stack Next.js application that integrates with the Hive blockchain for posting, voting, and displaying content?''',
         r'''<think>
-A Next.js + Hive dApp needs several components: server-side data fetching for SEO (using getServerSideProps or App Router server components), client-side signing via Hive Keychain, API routes for backend operations, and proper handling of the dhive library (which has Node.js dependencies that need careful handling in Next.js). I should show a complete structure with both read operations (server) and write operations (client via Keychain).
+A Next.js + Hive dApp... my first instinct is to just import dhive everywhere and call the API from components, but wait -- Next.js has both server and client contexts, and dhive has Node.js dependencies (like crypto) that will break if bundled for the browser. So I need to be careful about where dhive is used.
+
+For reading blockchain data, I could do it client-side with useEffect, but that would hurt SEO since crawlers would see empty pages. Actually, the better approach is server-side rendering via getServerSideProps (Pages Router) or server components (App Router), because Hive content should be indexable. Therefore read operations belong on the server, while write operations (posting, voting) must happen client-side through Hive Keychain since we never want private keys on the server.
+
+Hmm, but there is another challenge I almost overlooked -- API routes. Some operations need a backend intermediary, for example if the dApp has its own posting key for automated actions like beneficiary posts. These should go in Next.js API routes where Node.js dependencies work fine. I considered whether to use the Pages Router or App Router pattern, and since both are common, I should show the Pages Router approach for broader compatibility.
 </think>
 
 Building a Next.js dApp with Hive requires server-side rendering for content (SEO), client-side Keychain integration for signing, and API routes for backend logic. Here is a complete application structure:

@@ -133,17 +133,23 @@ type DeepMerge<A, B> = {
 '''),
 
     ("typescript/generics_mapped", r'''<think>
-Mapped types in TypeScript are powerful for transforming existing types. I should demonstrate advanced patterns like key remapping, template literal type manipulation with mapped types, and creating type-safe form builders using mapped types.
+Mapped types in TypeScript are powerful for transforming existing types. I could just show basic Record and Pick usage, but those are too simple - the real power is in key remapping and template literal manipulation within mapped types.
+
+I initially thought about focusing on utility types like Partial and Required, but wait - those are built-in and well-documented already. The more valuable patterns are things like auto-generating getter/setter interfaces, which developers actually need to build from scratch.
 
 The key concepts to cover:
-1. Key remapping with `as` clause
-2. Template literal types for generating method names
+1. Key remapping with `as` clause - this is what makes mapped types truly powerful
+2. Template literal types for generating method names (e.g., getName, setName from a "name" property)
 3. Mapped type modifiers (+/- readonly, +/- optional)
-4. Conditional mapped types that vary behavior per property
+4. Conditional mapped types that vary behavior per property - hmm, I considered showing this separately but actually it combines naturally with key remapping since you can filter keys in the `as` clause using conditional types
 </think>
 
 Build advanced TypeScript mapped types for a type-safe API layer including getter/setter generation, event handler types, and a form field builder that derives validation from the source type.''', r'''<think>
-I will show practical mapped type patterns that solve real problems: auto-generating getter/setter interfaces, creating event handler types from a state shape, and building form field definitions from a data model. Each pattern demonstrates key remapping and template literal types.
+I will show practical mapped type patterns that solve real problems. I considered organizing these by complexity, but actually organizing by use case is more instructive since developers look for patterns by what they are trying to accomplish.
+
+For the getter/setter generation, I need Capitalize from the built-in template literal types. I almost forgot - TypeScript provides Capitalize, Uncapitalize, Uppercase, and Lowercase as intrinsic types. That is much cleaner than trying to do string manipulation at the type level manually.
+
+For the form field builder, I initially wanted to derive required/optional from the source type automatically. But wait, how do I detect optional properties? The trick is checking `undefined extends T[K]` - if the property accepts undefined, it was likely optional. This is not perfectly accurate for explicitly `| undefined` union types, but it covers the common case well enough for form generation.
 </think>
 
 // Auto-generate getter/setter interface from a plain object type

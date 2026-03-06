@@ -8,7 +8,11 @@ PAIRS = [
         "hive-bot-voting",
         r'''How do I build a curation voting bot on Hive that votes on posts matching specific criteria with configurable vote weight and timing?''',
         r'''<think>
-A curation bot needs to: monitor new posts, evaluate them against criteria (tags, authors, word count, etc.), and cast votes with appropriate weight and timing. Vote timing matters because curation rewards are maximized when voting early on posts that will get large payouts. I need to handle RC costs, vote power regeneration (20% per day, full at 10000), and avoid double-voting.
+A curation bot needs to monitor new posts and vote on them. My first instinct is to just stream blocks and vote immediately on anything matching the criteria, but wait -- vote timing actually matters a lot for curation rewards. Voting too early (within the first few minutes) used to be penalized by a reverse auction, and voting too late means less curation reward because the post's reward curve has already been captured by earlier voters. So the bot needs a configurable delay.
+
+I also need to think about vote power. Could the bot just vote at 100% on everything? No, that would drain voting mana too fast. Vote power regenerates at 20% per day from a max of 10000, so a full-power vote costs 2% of mana. Therefore the bot needs to manage vote weight dynamically based on remaining mana -- hmm, actually it should also consider how many posts it expects to vote on per day, since that determines the sustainable vote weight.
+
+Another thing I almost overlooked: RC (Resource Credits) costs. Each vote operation consumes RC, and if the account runs out, broadcasts will fail. The bot should check RC balance before voting and pause if it drops too low.
 </think>
 
 A curation voting bot monitors the blockchain for new posts and votes based on configurable rules. Key considerations include vote power management (regenerates 20% per day from 10000 max), curation reward timing, and RC costs. Here is a production-ready bot:
@@ -388,7 +392,11 @@ This bot supports five matching modes: keyword search, @mention detection, tag f
         "hive-bot-trading",
         r'''How do I build a market-making trading bot for Hive Engine tokens that manages order books with spread and inventory control?''',
         r'''<think>
-A market-making bot needs to maintain both buy and sell orders around a mid price, manage inventory to avoid excessive exposure to one side, and dynamically adjust spreads based on volatility and inventory. On Hive Engine, orders go through the "market" contract via custom_json. The bot needs to cancel stale orders and replace them as the market moves. This is a complex topic requiring careful risk management.
+A market-making bot... could I just place a buy and sell order at fixed prices and leave them? That would be the simplest approach, but wait -- the market moves, so those orders would quickly become stale. Either the buy side gets filled and the price keeps dropping (leaving me holding a depreciating asset), or the sell side gets filled and the price keeps rising (meaning I sold too cheap). Therefore the bot must continuously cancel and replace orders as the mid price shifts.
+
+On Hive Engine, I initially assumed orders go through the "tokens" contract, but actually market orders use the "market" contract via custom_json. The actions are "buy" and "sell" for placing orders, and "cancel" for removing them. Hmm, but there is a subtlety here -- the bot needs to track its own open orders so it knows what to cancel. Since Hive Engine does not push notifications, the bot must poll the order book to find its own outstanding orders.
+
+Inventory management is the hardest part. If the bot accumulates too much of one token, it is overexposed to price risk on that side. The standard approach is to skew the spread -- widening the buy side when holding excess inventory, because that discourages further accumulation while still providing liquidity. This requires careful risk parameters that I should make configurable.
 </think>
 
 A market-making bot on Hive Engine places simultaneous buy and sell orders around a mid price, profiting from the spread. It must manage inventory risk and adapt to price changes. Here is a production-grade implementation:

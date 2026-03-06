@@ -8,7 +8,11 @@ PAIRS = [
         "hive-migration-steem-differences",
         r'''What are the key technical differences between Steem and Hive blockchain that developers need to know when migrating?''',
         r'''<think>
-Hive forked from Steem at block 41818752 on March 20, 2020. Since then, Hive has diverged significantly with multiple hard forks adding new features and changing parameters. Key differences include: governance changes (removing the ninja-mined stake), faster power down (changed in HF28), HBD interest rate (20% vs Steem's 0%), Resource Credits improvements, API endpoint differences, and new features like recurring transfers, community improvements, and HAF. I need to be comprehensive about the technical delta.
+Hive forked from Steem at some point in 2020... I believe it was around March, at block 41818752. Since then the chains have diverged, but how much? My initial thought was that they are mostly the same with just different governance, but actually multiple hard forks on the Hive side have introduced substantial technical differences that developers need to know about.
+
+Let me think through the major changes. Governance is obvious -- Hive removed the ninja-mined stake from witness voting. Power down period -- could it still be 13 weeks like Steem? No, wait, HF28 changed it to 3 days, which is a massive difference for any app that tracks vesting schedules. HBD interest rate is currently 20% on savings, while Steem's SBD interest has been sitting at essentially 0%.
+
+I also considered whether the API layer is mostly compatible, and it is for the core condenser_api methods, but hmm, there are important naming differences -- SBD fields became HBD fields, STEEM references became HIVE, and the sidechain custom_json id changed from ssc-mainnet1 to ssc-mainnet-hive. Therefore a developer cannot just swap node URLs and expect everything to work; they need to audit all string literals referencing token names and field names too. I should also cover HAF and recurring transfers since those are Hive-only features with no Steem equivalent.
 </think>
 
 Hive forked from Steem at block 41818752 (March 20, 2020). Since then, significant technical divergence has occurred across multiple hard forks. Here is a comprehensive comparison for developers:

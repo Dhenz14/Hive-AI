@@ -20,13 +20,13 @@ result = asyncio.run(fetch_data())
 I tried using `loop.run_until_complete()` too but got the same error. What's going on?''', r'''<think>
 Let me analyze this error carefully. The user is getting "This event loop is already running" when calling asyncio.run() from a Jupyter notebook.
 
-The key detail here is "Jupyter notebook." Jupyter itself runs on top of an asyncio event loop (via tornado). When you call asyncio.run(), it tries to create a new event loop and run it, but there is already an event loop running in the current thread -- the one Jupyter is using.
+My first instinct is that asyncio.run() is just broken somehow... but wait, that does not make sense because asyncio.run() works fine in normal scripts. The key detail here is "Jupyter notebook." Could it be a version issue with asyncio? Hmm, no -- I considered that, but the error message is specifically about an already-running loop, not a missing API.
 
-This is a well-known issue. asyncio.run() calls loop.run_until_complete() internally, and that method checks if the loop is already running. If it is, it raises RuntimeError.
+Actually, the real cause is that Jupyter itself runs on top of an asyncio event loop (via tornado). When you call asyncio.run(), it tries to create a new event loop and run it, but there is already an event loop running in the current thread -- the one Jupyter is using. Since Python only allows one event loop per thread, this fails. Therefore, asyncio.run() is fundamentally incompatible with environments that already have a running loop.
 
-The standard fix is to use `await` directly in Jupyter cells (since Jupyter supports top-level await), or use the nest_asyncio library which patches asyncio to allow nested event loops.
+Wait, could the user be running this outside Jupyter? I considered that possibility, but this error almost exclusively happens in environments with a pre-existing event loop (Jupyter, some web frameworks, etc.). The user explicitly mentions Jupyter, so that confirms it.
 
-Let me also consider: could the user be running this outside Jupyter? Unlikely -- this error almost exclusively happens in environments with a pre-existing event loop (Jupyter, some web frameworks, etc.).
+The standard fix is to use `await` directly in Jupyter cells (since Jupyter supports top-level await), or use the nest_asyncio library which patches asyncio to allow nested event loops. I initially thought about suggesting loop.run_until_complete() as an alternative, but actually that has the same underlying problem because asyncio.run() calls loop.run_until_complete() internally, and that method checks if the loop is already running.
 </think>
 
 This is a classic Jupyter notebook issue. Jupyter (via IPython and tornado) already has an asyncio event loop running in the background. When you call `asyncio.run()`, it attempts to start a new event loop, but Python only allows one event loop per thread, and one is already active.
@@ -109,15 +109,13 @@ print(results)  # prints [<coroutine object>, <coroutine object>, ...]
 ```
 
 Why am I getting coroutine objects instead of actual HTML?''', r'''<think>
-Let me look at this code carefully. The warning says "coroutine 'fetch_page' was never awaited" and points to line 11.
+Let me look at this code carefully. The warning says "coroutine 'fetch_page' was never awaited" and points to line 11. Could it be a threading issue? Hmm, no -- the error message is very specific about unawaited coroutines, not threads.
 
-Looking at line 11: `result = fetch_page(url)` -- there is no `await` keyword. When you call an async function without `await`, Python does not execute it. Instead, it returns a coroutine object. The coroutine is created but never actually run.
+Looking at line 11: `result = fetch_page(url)` -- wait, there is no `await` keyword. When you call an async function without `await`, Python does not execute it. Instead, it returns a coroutine object. The coroutine is created but never actually run. So `results` ends up being a list of unawaited coroutine objects, not the actual HTML content. That explains both the warning and the unexpected output.
 
-So `results` ends up being a list of unawaited coroutine objects, not the actual HTML content.
+I initially thought the fix is just adding `await`... but actually, I should also point out that even with `await`, this code is sequential -- it awaits each page one at a time in a for loop. For a web scraper, the user probably wants concurrent fetching, since the whole point of async is parallelism on I/O. Therefore I should suggest asyncio.gather() for proper concurrency.
 
-The fix is simple: add `await`. But I should also point out that this code is sequential -- it awaits each page one at a time. For a web scraper, the user probably wants concurrent fetching. I should suggest asyncio.gather() for that.
-
-Also, creating a new ClientSession for each request is wasteful. The session should be shared across requests.
+Also, creating a new ClientSession for each request is wasteful because each session spins up its own connection pool. The session should be shared across requests to benefit from connection reuse and keep-alive.
 </think>
 
 The bug is on line 11: you are calling `fetch_page(url)` without `await`. In Python, calling an async function without `await` does not execute it -- it merely creates a coroutine object and returns it immediately. The actual function body never runs.
@@ -195,18 +193,18 @@ asyncio.run(main())
 ```
 
 The task.cancel() call does nothing for 30 seconds. The cancellation only takes effect after process_batch() finishes. How do I make cancellation immediate?''', r'''<think>
-This is a fundamental misunderstanding about how asyncio cancellation works. Let me think through this.
+The user says cancellation is "ignored" for 30 seconds. Could there be a bug in task.cancel()? Hmm, no -- task.cancel() is well-tested in the stdlib. Let me think about what actually happens here.
 
 asyncio.Task.cancel() works by injecting a CancelledError at the next await point. The key phrase is "next await point." If the code is running synchronous CPU-bound work (process_batch() taking 30 seconds), there are no await points during that time. The event loop is completely blocked -- it cannot process the cancellation until control returns to the event loop.
 
-So the cancellation is not "ignored" -- it is queued and will be delivered at the next await, which is `await save_results(data)`. That is why it takes ~30 seconds.
+Wait, so the cancellation is not actually "ignored" -- it is queued and will be delivered at the next await, which is `await save_results(data)`. That is why it takes ~30 seconds. The user's mental model assumes cancel() is like killing a thread, but actually asyncio is cooperative, not preemptive.
 
-Solutions:
-1. Run the CPU-bound work in an executor (run_in_executor) so it does not block the event loop
-2. Break the work into smaller chunks with periodic await points
-3. Use multiprocessing for true CPU-bound work
+I considered suggesting run_in_executor as the primary fix since it moves blocking work off the event loop... but actually, run_in_executor itself is not directly cancellable either. The thread will continue running even if the future is cancelled. Therefore, for true cancellability of CPU-bound work, you need either multiprocessing with proper signal handling, or you need to break the work into smaller chunks with periodic await checkpoints.
 
-But wait -- run_in_executor itself is not directly cancellable either. The thread will continue running even if the future is cancelled. For true cancellability of CPU-bound work, you need multiprocessing with proper signal handling.
+So the solutions in order of practicality are:
+1. Break the work into smaller chunks with periodic await points
+2. Run the CPU-bound work in an executor so at least the event loop stays responsive
+3. Use multiprocessing for true CPU-bound work with actual interruption
 </think>
 
 The issue is that asyncio cancellation only works at `await` points. When `process_batch()` is running synchronous CPU-bound code for 30 seconds, the event loop is completely blocked. No other coroutines run, no cancellation can be delivered, nothing happens until that synchronous call returns.
@@ -308,18 +306,15 @@ ValueError: B failed!
 ```
 
 The problem is task_c never completes. When task_b fails, everything stops. I want all tasks to run to completion and then handle errors. But when I use return_exceptions=True, I'm not sure how to properly distinguish results from exceptions.''', r'''<think>
-The user has two related problems:
+The user has two related problems. Let me untangle them.
 
-1. Without return_exceptions=True, asyncio.gather cancels remaining tasks when one fails (task_c never finishes)
-2. With return_exceptions=True, they need to distinguish successful results from exceptions in the results list
+First, without return_exceptions=True, asyncio.gather cancels remaining tasks when one fails (task_c never finishes). Could this be a bug in gather? No -- this is actually the documented default behavior. Gather propagates the first exception and cancels the rest.
 
-Let me think about the best pattern for this.
+Second, with return_exceptions=True, they need to distinguish successful results from exceptions in the results list. The obvious approach is `isinstance(result, Exception)`. But wait -- what if a task legitimately returns an Exception object as its value? That is rare but technically possible, and it would be a false positive. Hmm, in practice this almost never happens though, so isinstance is fine for most codebases.
 
-With `return_exceptions=True`, gather returns a list where each element is either the return value or the exception object. You check with `isinstance(result, Exception)`. But there is a subtlety -- what if a task legitimately returns an Exception object? That is rare but possible.
+I considered recommending only the return_exceptions=True pattern, but actually a better modern approach (Python 3.11+) is asyncio.TaskGroup, which provides structured concurrency. The user might not be on 3.11+ though. Therefore I should provide both approaches -- the gather-based pattern for older Python and TaskGroup for 3.11+.
 
-A better modern approach (Python 3.11+) is asyncio.TaskGroup, which provides structured concurrency. But the user might not be on 3.11+.
-
-Let me provide both approaches.
+Let me also think about whether TaskGroup solves the "collect all results even on failure" problem directly... actually no, TaskGroup by default cancels all tasks if one fails (like gather without return_exceptions). You need to wrap each task in a try/except inside the group to collect all results. So it is not strictly simpler for this use case.
 </think>
 
 The default behavior of `asyncio.gather` is to cancel all remaining tasks when any one task raises an exception. This is why task_c never completes. Here is how to handle this properly:
@@ -456,19 +451,13 @@ web.run_app(app)
 ```
 
 Under 500 concurrent requests, this crashes. How do I fix it?''', r'''<think>
-The user is creating a new ClientSession for every incoming request. This is a major problem because:
+Let me look at this error. "Too many open files" under 500 concurrent requests... could this be an OS-level ulimit issue? That might be part of it, but wait -- the code is creating a new ClientSession for every incoming request. That is the real problem.
 
-1. Each ClientSession creates its own connection pool (TCPConnector)
-2. Under 500 concurrent requests, that is 500 separate connection pools, each potentially opening multiple TCP connections
-3. This exhausts file descriptors ("Too many open files")
-4. ClientSession is designed to be reused -- it handles connection pooling, keep-alive, cookie sharing internally
+Each ClientSession creates its own connection pool (TCPConnector). Under 500 concurrent requests, that is 500 separate connection pools, each potentially opening multiple TCP connections. So you could have thousands of file descriptors open simultaneously. Therefore the "too many open files" error is a direct consequence of the session-per-request pattern, not just an OS config issue.
 
-The fix is to create a single ClientSession at app startup and reuse it across all requests. aiohttp's documentation explicitly warns against creating a session per request.
+I initially thought about just increasing ulimit as a fix, but actually that only masks the underlying problem. The real fix is to create a single ClientSession at app startup and reuse it across all requests. aiohttp's documentation explicitly warns against creating a session per request, because ClientSession is designed to be long-lived -- it handles connection pooling, keep-alive, and cookie sharing internally.
 
-Additional considerations:
-- Set explicit connection limits via TCPConnector
-- Use cleanup_ctx or on_startup/on_shutdown hooks to manage session lifecycle
-- Consider adding timeouts to prevent hanging connections from accumulating
+Hmm, I should also consider: what about timeouts? Even with a shared session, if the upstream API is slow, connections could accumulate. So I need to set explicit connection limits via TCPConnector and add request timeouts to prevent hanging connections from piling up. And the session lifecycle should be managed via on_startup/on_shutdown hooks to ensure clean shutdown.
 </think>
 
 The root cause is creating a new `aiohttp.ClientSession` for every incoming request. Each session creates its own TCP connection pool, so 500 concurrent requests means 500 separate connection pools, each opening new TCP connections. This quickly exhausts the OS file descriptor limit.

@@ -227,11 +227,19 @@ export { AddTodoForm, TodoList };
 '''),
 
     ("react/nextjs_caching", r'''<think>
-Next.js has a complex caching system with multiple layers. I need to explain and demonstrate the different caching behaviors: request memoization, data cache, full route cache, and router cache. Showing how to control each layer is critical for production apps.
+Next.js has a complex caching system with multiple layers, and honestly the caching behavior catches most developers off guard. I initially assumed fetch calls in server components would behave like normal fetch (no caching), but wait - Next.js extends fetch to cache by default in the data cache layer. This means a fetch in a server component is cached indefinitely unless you opt out.
+
+The four caching layers are: request memoization (dedupes same fetch calls within a single render), data cache (persists fetch results across requests), full route cache (caches rendered HTML for static routes), and router cache (client-side cache of visited routes). I considered covering all four in depth, but actually request memoization and data cache are the most actionable since developers interact with them directly via fetch options.
+
+Hmm, one thing that confuses people: `revalidate: 0` is NOT the same as `cache: "no-store"`. Setting revalidate to 0 means "revalidate on every request" but still uses the cache for the first request. Using `cache: "no-store"` skips the cache entirely. For truly dynamic data, `cache: "no-store"` is what you want. This distinction matters for production performance.
 </think>
 
 Build Next.js caching strategy patterns showing request memoization, data cache with tags, ISR revalidation, cache control headers, and a cache warming utility.''', r'''<think>
-I will demonstrate each caching layer in Next.js with practical examples, showing how to control caching behavior at different levels and implement cache warming for production deployments.
+I will demonstrate each caching layer in Next.js with practical examples. I considered showing the layers in isolation, but actually they interact in ways that matter - for example, request memoization only works within a single server component render tree, while the data cache persists across requests.
+
+For tag-based revalidation, I initially thought about using path-based revalidation everywhere, but wait - revalidatePath only invalidates one specific URL. If a blog post update should invalidate both the post page and the homepage feed, tag-based revalidation with revalidateTag is much cleaner because multiple fetches can share the same tag.
+
+For the cache warming utility, I need to hit the routes after deployment so the first real user does not wait for a cold cache. I considered using a simple curl loop, but actually making it configurable with priority ordering (warm critical pages first) and concurrency control is more production-ready. The warming should run after deployment but before switching traffic.
 </think>
 
 // lib/cache.ts - Cache utilities for Next.js App Router

@@ -5,14 +5,13 @@ PAIRS = [
         "hive/rc-calculate-costs",
         r'''How do I calculate the Resource Credit (RC) cost of different operations on the Hive blockchain?''',
         r'''<think>
-The RC system on Hive replaces traditional transaction fees. Each account has RC that regenerates over 5 days (like mana). The cost of an operation depends on three resource pools:
-1. State memory (new data stored in chain state)
-2. History size (data stored in block log)
-3. Execution time (CPU cycles to validate)
+The user wants to calculate RC costs for different operations. My first thought was that RC works like a simple gas fee system, but actually it is more nuanced than that. There are three separate resource pools -- state memory, history size, and execution time -- and each operation draws differently from each pool.
 
-Each operation type has different weights for these resources. For example, a transfer is cheap (small state change), while account_create is expensive (permanent state entry).
+Let me think about which operations are expensive vs cheap. A transfer is mostly just updating two balances in state, so it should be cheap. But hmm, what about account_create? That adds a permanent entry to the chain state that can never be pruned, so it must be much more expensive. Wait, I initially assumed custom_json would be cheap since it does not modify core state, but it still writes to the block log (history size), so it depends heavily on payload size.
 
-The rc_api provides methods to calculate costs and check account RC.
+The regeneration period is... 3 days? No, actually it is 5 days (432000 seconds) for a full 0-to-100% regeneration. This is important because it means an account effectively has a "bandwidth budget" over a rolling 5-day window. Since more Hive Power means more max RC, accounts with very little HP can get stuck unable to transact at all.
+
+I should use the rc_api endpoints to show concrete cost numbers, because abstract explanations are less useful than seeing "a vote costs X RC while a comment costs Y RC." The beem RC class already wraps these calculations nicely.
 </think>
 
 The Resource Credits system on Hive is a bandwidth allocation mechanism that replaces transaction fees. Here is how to query and calculate RC costs:

@@ -5,20 +5,13 @@ PAIRS = [
         "hive/curation-rewards-calculation",
         r'''How are curation rewards calculated on Hive? Explain the formula and factors that affect curation returns.''',
         r'''<think>
-Curation rewards on Hive changed significantly with HF25:
-- 50% of post rewards go to curators (50/50 split)
-- Reverse auction window was removed (was 5 minutes)
-- Curation rewards are proportional to vote weight and timing
-- Earlier voters get a larger share if the post gets more votes later
-- Vote weight decays with voting frequency (voting power)
+The user is asking about curation reward calculations on Hive. This could be about the current system or the old one... but wait, Hive has gone through several hard forks that changed curation mechanics significantly, so I need to be precise about which rules apply now.
 
-The formula:
-1. Total reward pool for a post is split 50% author / 50% curation
-2. Curation share is distributed proportionally by rshares (weighted voting power)
-3. The earlier you vote, the more of the curation pie you capture
-4. But voting too early on bad content wastes your voting power
+I initially thought the reverse auction window was still in effect -- you know, the old 5-minute penalty where voting early meant part of your curation went back to the reward pool. But actually, HF25 removed that entirely. So since HF25, there is no timing penalty at all within the 7-day window. That simplifies things considerably.
 
-Since HF25, there is no penalty for voting at any time within the 7-day window.
+Hmm, but does that mean timing does not matter at all? Let me reconsider. The curation pool for a post is split proportionally by rshares among all voters. If you vote early and the post accumulates more votes afterward, your share of the total curation pool is larger because your rshares represent a bigger fraction of the early total. Wait, no -- the final distribution is based on the final rshares proportions, not when you voted. Actually, I need to be more careful here. The curation share is indeed proportional to each voter's rshares relative to total rshares, and the order/timing within the window does not create a bonus or penalty since HF25.
+
+The formula itself is straightforward: total post rewards are split 50/50 between author and curators. The curator half is distributed proportionally based on each voter's rshares contribution. Therefore, the key factors are your effective HP (including delegations), your current voting power (which regenerates 20% per day), and the vote weight you choose. Since a 100% vote consumes 2% of your voting power, you can sustainably cast about 10 full-power votes per day.
 </think>
 
 Curation rewards on Hive follow a specific formula. Since HF25, the reverse auction window was removed, making the timing dynamics simpler but still strategic:

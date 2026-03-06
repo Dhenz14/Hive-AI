@@ -5,16 +5,13 @@ PAIRS = [
         "hive/witness-price-feed",
         r'''How do I publish a price feed as a Hive witness using Python? What are the best practices for feed publishing?''',
         r'''<think>
-Hive witnesses are required to publish a price feed that reports the HIVE/USD exchange rate. This feed is used to:
-1. Calculate the conversion rate for HBD (Hive Backed Dollars)
-2. Determine the median price used by the blockchain for conversions
-3. Affect the HBD print rate and debt ratio calculations
+The user wants to publish a price feed as a Hive witness. Let me think about what key is needed here -- could it be the posting key? No, wait, price feed publishing is a financial/consensus operation, so it requires the active key. That is an important distinction since using the wrong key type would just fail silently or throw an auth error.
 
-Best practices:
-- Publish every hour or when price changes significantly (>3%)
-- Use multiple price sources to avoid manipulation
-- Add a bias/discount for safety (typically 0-5%)
-- Handle API failures gracefully with fallback sources
+Now, how often should the feed be published? I was going to say every block (every 3 seconds), but actually that would be wasteful and burn through RC unnecessarily. The standard practice is roughly once per hour, or whenever the price changes by more than 3%. Hmm, but what constitutes a "significant" change? Some witnesses use 1%, others 5%. I think 3% is a reasonable threshold because it balances responsiveness against RC costs.
+
+For price sources, my first thought was to just use CoinGecko, but that is risky -- if CoinGecko goes down or returns stale data, the witness would either stop publishing or publish bad data. Therefore using multiple sources (CoinGecko, Binance, Upbit) and taking the median is much safer, since a single source failing or being manipulated gets filtered out by the median calculation.
+
+One more thing -- should there be a bias/discount on the published price? Some witnesses add a small discount (0-5%) as a safety buffer, since overpricing HIVE relative to HBD could affect the debt ratio negatively. I will mention it but default to 0% bias and let the user decide.
 </think>
 
 Publishing a price feed is one of the core responsibilities of a Hive witness. The blockchain uses the median of all active witness feeds to determine the HIVE/USD price for HBD conversions.

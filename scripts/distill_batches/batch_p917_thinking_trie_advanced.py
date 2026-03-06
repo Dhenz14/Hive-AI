@@ -1,29 +1,14 @@
 PAIRS = [
     ("thinking/algorithms", r'''Solve Word Search II: given an m x n board of characters and a list of words, find all words that can be formed by sequentially adjacent cells (horizontal or vertical). Each cell can be used at most once per word.''', r'''<think>
-Word Search II (LeetCode 212) is a classic Trie + DFS/backtracking problem. The naive approach would run a separate DFS for each word, giving O(words * m * n * 4^L). Using a Trie, we search for all words simultaneously.
+The naive approach runs a separate DFS for each word: O(words * m * n * 4^L). Could I speed this up by checking all words at once? That is exactly what a Trie enables -- I build a Trie from all target words, then each DFS simultaneously searches for all words whose prefixes match the current path.
 
-Strategy:
-1. Build a Trie from all target words
-2. For each cell in the board, start a DFS that follows Trie edges
-3. When we reach a Trie node marked as a word end, add that word to results
-4. Use backtracking (mark visited cells, then unmark)
+I initially considered using a hash set of words and checking at each DFS step whether the current path string is in the set. But wait -- that approach cannot prune early. If no word starts with "xyz", the DFS would still explore all "xyz..." paths before failing at the membership check. The Trie prunes immediately when the current character has no matching child, which is a huge difference in practice.
 
-Optimization details:
-- Store the full word at leaf nodes to avoid reconstructing it
-- After finding a word, remove it from the Trie (prune) to avoid duplicate results and speed up future searches
-- Prune Trie branches that have no remaining words (no children and not a word end)
+For optimization, I should store the complete word at leaf nodes rather than reconstructing it from the path. And after finding a word, I set node.word = None to prevent duplicate results. Hmm, but there is a subtlety: after nullifying a word, I should also prune the Trie branch if the node has no children. Otherwise dead branches accumulate and slow down future DFS calls. The pruning works by deleting the child entry from the parent's dictionary after the recursive call returns, but only if that child node is now both childless and wordless.
 
-The Trie acts as a filter: we only explore board paths that are prefixes of at least one target word. This is far more efficient than checking each word independently.
+One edge case I almost missed: words that are prefixes of other words. For example, "app" and "apple" share the same Trie path up to "app". The DFS should report "app" when it reaches that node but continue deeper to find "apple". Since I store words at intermediate nodes (not just leaves), this works naturally -- the DFS does not stop after finding a word, it keeps exploring children.
 
-Edge cases:
-- Word longer than total board cells
-- Board has no matching characters for any word
-- Overlapping words sharing prefixes
-- Single cell board
-- Words that are prefixes of other words
-
-Time complexity: O(m * n * 4^L) in worst case where L is max word length, but the Trie prunes most branches in practice.
-Space: O(total characters in words) for the Trie + O(L) for recursion stack.
+Time: O(m * n * 4^L) worst case, but the Trie makes this much faster in practice because most branches are pruned early. Space: O(total characters) for the Trie plus O(L) for the recursion stack.
 </think>
 
 **Word Search II -- Trie + Backtracking**
@@ -135,37 +120,21 @@ After finding a word, we remove it from the Trie. If a node becomes a childless 
 - Space: O(sum of word lengths) for Trie + O(L) recursion stack'''),
 
     ("thinking/algorithms", r'''Design an autocomplete system: implement a data structure that, given a prefix typed by the user, returns the top-k most frequently used sentences that match the prefix. Support adding new sentences with frequencies.''', r'''<think>
-This is LeetCode 642 (Design Search Autocomplete System). We need a Trie where each node can efficiently return top-k sentences matching the prefix.
+I need a data structure that returns top-k sentences matching a prefix as the user types. Could I just store all sentences in a list and filter by prefix each time? That would be O(N * L) per keystroke where N is the number of sentences and L is the average length -- too slow for a responsive autocomplete system.
 
-Design considerations:
-1. Trie for prefix matching
-2. At each node, maintain a frequency map or sorted list of sentences passing through that node
-3. On query, traverse to the prefix node and return top-k by frequency
+A Trie is the natural choice for prefix matching. But how do I efficiently get the top-k results? I considered two approaches:
 
-Two approaches:
-A) Store frequency at leaf + DFS from prefix node to collect all sentences, sort by frequency, return top-k. Simple but slow for queries (must traverse entire subtree).
+Approach A: Store frequency only at leaf nodes, then DFS from the prefix node to collect all matching sentences, sort by frequency, return top-k. This is simple but the query cost is O(subtree size), which could be the entire dataset if the prefix is short (like a single letter).
 
-B) At each Trie node, maintain a sorted list of top-k (sentence, frequency) pairs. Updates propagate up. Queries are O(prefix_length). This is faster for queries but slower for updates.
+Approach B: At each Trie node, maintain a dict of {sentence: frequency} for all sentences passing through that node. Queries become O(N_matches * log N_matches) for sorting at that node. Hmm, this is still potentially expensive, but in practice the sorting happens on a smaller set than the full DFS approach.
 
-I will implement approach A with some caching, plus show how to do approach B for comparison.
+Wait, there is actually a hybrid that works well for the interactive use case: since the user types one character at a time, I can track the "current node" as the user types. Each new character just moves one step deeper in the Trie. If I store the sentence-frequency map at every node along the insertion path, then each keystroke only needs to sort the map at the current node -- no DFS needed.
 
-For the complete system:
-- insert(sentence, times): Add sentence with frequency
-- search(prefix): Return top 3 sentences matching prefix, sorted by frequency (ties broken lexicographically)
+One subtlety: when the user submits a sentence (types '#'), I need to insert it into the Trie and update the frequency maps at every node along its path. I initially forgot this propagation step, but it is essential because each ancestor node's sentence map must reflect the updated frequency.
 
-The search involves:
-1. Walk the Trie to the prefix node
-2. DFS to find all sentences in the subtree
-3. Sort by (-frequency, sentence) and return top 3
+For tie-breaking, sentences with equal frequency are ordered lexicographically. Since Python's sorted() is stable and I sort by (-frequency, sentence), this handles ties correctly.
 
-Edge cases:
-- Empty prefix returns all sentences
-- No match returns empty list
-- Sentence is both a prefix and a complete match
-- Adding the same sentence increases its frequency
-
-Time: insert O(L), search O(prefix + total chars in subtree) for approach A.
-Space: O(total characters across all sentences).
+Time per character: O(1) to navigate + O(M log M) to sort matches where M is the number of matching sentences at that node. Space: O(total_chars * avg_sentences_per_node) which is the trade-off for fast queries.
 </think>
 
 **Autocomplete System -- Trie with Frequency Tracking**
@@ -272,29 +241,19 @@ print("Type '#':", ac.input("#"))
 - Space: O(total_chars * avg_sentences_per_node)'''),
 
     ("thinking/algorithms", r'''Solve the Palindrome Pairs problem: given a list of unique words, find all pairs (i, j) where the concatenation words[i] + words[j] forms a palindrome.''', r'''<think>
-Palindrome Pairs (LeetCode 336) is a hard problem. The brute force is O(n^2 * k) where k is average word length. We can do O(n * k^2) using a Trie or hash map.
+Brute force checks all O(n^2) pairs, verifying each concatenation is a palindrome in O(k) time, giving O(n^2 * k). For large word lists this is too slow. Could I use a Trie to speed up matching? Yes, but let me think about the hash map approach first since it is conceptually simpler.
 
-Key observation: For words[i] + words[j] to be a palindrome, one of these cases must hold:
-1. words[j] is the reverse of words[i] (and i != j)
-2. words[i] is longer than words[j]: the first part of words[i] (reversed) equals words[j], and the remaining suffix of words[i] is itself a palindrome
-3. words[j] is longer than words[i]: the last part of words[j] (reversed) equals words[i], and the remaining prefix of words[j] is itself a palindrome
+The key observation is: for words[i] + words[j] to be a palindrome, the shorter word must "mirror" part of the longer word, and the leftover part of the longer word must itself be a palindrome. I initially thought there were only two cases (exact reversal and one word is a suffix of the reverse of the other), but actually there are three distinct cases:
 
-Hash map approach:
-1. Build a map from reversed_word -> index
-2. For each word, check all possible splits:
-   - Split word into left + right
-   - If left is a palindrome AND reverse(right) is in the map, then reverse(right) + word is a palindrome
-   - If right is a palindrome AND reverse(left) is in the map, then word + reverse(left) is a palindrome
+1. words[j] is exactly the reverse of words[i] -- the simplest case.
+2. words[i] is longer: some prefix of words[i] reversed equals words[j], and the remaining suffix of words[i] is a palindrome.
+3. words[j] is longer: some suffix of words[j] reversed equals words[i], and the remaining prefix of words[j] is a palindrome.
 
-We check all k+1 split positions for each word, and each check involves palindrome verification (O(k)) and hash lookup (O(k)), giving O(n * k^2) total.
+Wait, do I really need to handle all three separately? Let me think about this differently. For each word, I try all k+1 split positions (left + right). If left is a palindrome and reverse(right) exists in my map, then reverse(right) prepended to the word forms a palindrome. If right is a palindrome and reverse(left) exists in the map, then the word followed by reverse(left) forms a palindrome. Hmm, but I need to be careful about double-counting: when cut=0, left is empty (a palindrome), and I check if reverse(word) exists -- this covers case 1. When cut=n, right is empty, and I check the same thing from the other direction. To avoid duplicates, I skip cut=n for the second case (the `cut < n` guard).
 
-Edge cases:
-- Empty string in the list (pairs with any palindrome word)
-- Single character words
-- Words that are themselves palindromes
-- Duplicate handling (pairs must use distinct indices)
+The empty string edge case is subtle: if "" is in the word list, it pairs with every word that is itself a palindrome. My split-based approach handles this naturally because when we process "", all its splits produce empty strings, and the palindrome check on empty strings returns True, so it will match with reversed versions of palindromic words in the map.
 
-I will implement the hash map approach for clarity.
+Time: O(n * k^2) -- for each word, k+1 splits, each requiring O(k) palindrome check and O(k) hash lookup.
 </think>
 
 **Palindrome Pairs -- Hash Map Approach**
@@ -390,32 +349,17 @@ Palindrome pairs:
 - Space: O(n * k) for the reverse map'''),
 
     ("thinking/algorithms", r'''Solve Maximum XOR of Two Numbers in an Array: given an array of non-negative integers, find the maximum XOR of any two elements. Implement an efficient O(n * 32) solution using a Trie.''', r'''<think>
-The brute force approach checks all pairs in O(n^2). We can achieve O(n * 32) = O(n) using a bitwise Trie.
+The brute force checks all O(n^2) pairs which is too slow for large arrays. Could I sort the array and use some clever binary search? Hmm, XOR does not respect sorted order -- 3 XOR 5 = 6 but 4 XOR 5 = 1, so sorting does not help in the usual way.
 
-Key insight: XOR is maximized when corresponding bits differ. For each number, we want to find another number in the array that differs as much as possible in the high-order bits.
+The key insight is that XOR is maximized when high-order bits differ. So I should think bit-by-bit, from the most significant bit downward. A binary Trie is perfect for this: each number becomes a path from MSB to LSB, and for each number I greedily take the opposite bit at each level to maximize the XOR.
 
-Trie approach:
-1. Build a binary Trie where each number is represented as a 32-bit path (from MSB to LSB)
-2. For each number, traverse the Trie greedily trying to take the opposite bit at each level
-   - If we need bit b at position p, try to go to (1-b) branch (this makes that XOR bit = 1)
-   - If opposite branch does not exist, take the same branch (XOR bit = 0)
-3. Track the maximum XOR found
+I initially worried about the bit width -- should I always use 32 bits? Actually, I only need enough bits to represent the maximum value in the array. Using max_val.bit_length() avoids unnecessary Trie depth and wasted comparisons.
 
-Why this works: By processing bits from MSB to LSB and always preferring the opposite bit, we greedily maximize the XOR. The Trie gives us O(1) per bit lookup, and we process 32 bits per number.
+Wait, there is a subtlety in the order of operations. If I insert all numbers first and then query each one, a number would find itself as its own best match (XOR with itself is 0, which is actually the worst). But that is not a problem because the query greedily seeks the opposite bit, so it naturally finds a different number. Hmm, actually what if all numbers are identical? Then every query returns XOR = 0, which is correct since that is the only possible result. For the general case, I can also insert and query interleaved: insert nums[0], then for each subsequent number, query first (finding the best match among previously inserted numbers), then insert it. This naturally avoids self-matching.
 
-Alternative approach using hash set (also O(n * 32)):
-- Build the answer bit by bit from MSB to LSB
-- For each bit position, try setting it to 1
-- Use XOR property: if a ^ b = c, then a ^ c = b
-- Check if any two numbers in the set can produce the candidate XOR
+The hash set approach is an interesting alternative: build the answer bit by bit from MSB to LSB, using the property that if a ^ b = c then a ^ c = b. At each bit level, we try setting the current bit to 1 and check if any pair of prefixes can achieve it. Since there are at most 32 bit levels and each level processes O(n) prefixes, this is also O(32n).
 
-I will implement both approaches.
-
-Edge cases:
-- Array of size 1 (XOR with itself = 0, but problem says two elements)
-- All same numbers (XOR = 0)
-- Array contains 0
-- Very large numbers (need enough bits)
+Both approaches are effectively O(n) for fixed-width integers.
 </think>
 
 **Maximum XOR -- Binary Trie Approach**
@@ -538,37 +482,17 @@ Binary: 00101 ^ 11001 = 11100
 - Both are effectively O(n) for fixed-width integers'''),
 
     ("thinking/algorithms", r'''Implement a Stream Checking class: given a list of words, design a data structure that checks if any suffix of the characters streamed so far matches any word in the list. Each call to query(char) adds a character to the stream and returns True if any word is a suffix of the current stream.''', r'''<think>
-This is LeetCode 1032. The challenge is efficiently checking if any suffix of the stream matches a word in the dictionary.
+The challenge is checking whether any suffix of the stream matches a word in the dictionary, and we must do this efficiently after each new character. The naive approach would check all possible suffixes against all words after every character -- that could be O(stream_length * total_word_chars) per query, which is way too slow.
 
-Naive approach: After each character, check all suffixes against all words. Very slow.
+My first idea was to use Aho-Corasick, feeding characters one at a time into the automaton. That would work, but it is complex to implement with the failure links and output links. Could there be a simpler approach?
 
-Better approach using a reversed Trie:
-1. Insert all words reversed into a Trie
-2. Maintain a buffer of recent characters
-3. On each query, walk backwards through the buffer, following the Trie
-4. If we reach a word-end node, return True
+Actually, yes -- a reversed Trie is the key insight. If I reverse all the words and build a Trie, then checking if any suffix of the stream matches a word is equivalent to reading the recent characters backwards and checking if that forms a prefix in the reversed-word Trie. This is exactly what a standard Trie prefix lookup does. I was initially confused about the direction -- wait, let me think again. The stream is "...xyz" and I want to check if "xyz" matches some word. If I reverse "xyz" to get "zyx" and check against the reversed-word Trie... hmm, no. I should read the buffer backwards directly: the most recent character first (z, then y, then x), and follow the reversed-word Trie from the root. Since the word "xyz" was inserted as "zyx", the path z->y->x in the Trie matches. Yes, that works.
 
-Even better: Since we only need to check suffixes up to the maximum word length, we can use a circular buffer of that size.
+One optimization I considered: do I need to keep the entire stream history? No -- I only need the last max_word_length characters, because no word can match a suffix longer than the longest word. A deque with maxlen handles this cleanly, automatically discarding old characters.
 
-The key insight is: if we reverse the words and build a Trie, then checking if any suffix of the stream matches a word is equivalent to checking if any prefix of the reversed recent characters matches a reversed word -- which is exactly what a Trie does.
+A subtlety: during the backward walk, I should return True as soon as I hit any word-end node, not just at the end of the walk. This handles shorter words that are suffixes of longer words. For example, if both "f" and "ef" are in the dictionary and the stream ends with "...ef", I should find "f" first (one step back) before even reaching "ef".
 
-Algorithm:
-1. Build a Trie from reversed words
-2. Keep a deque of recent characters (max length = max word length)
-3. On query(ch):
-   a. Append ch to the deque
-   b. Walk the Trie from root, reading characters from the deque in reverse order (most recent first)
-   c. If we hit a word-end node at any point, return True
-   d. If we fall off the Trie or exhaust the deque, return False
-
-Edge cases:
-- Single character words
-- Word is the entire stream so far
-- No match at all
-- Multiple words share suffixes
-
-Time per query: O(max_word_length) since we traverse at most that many Trie nodes.
-Space: O(total chars in words) for Trie + O(max_word_length) for buffer.
+Time per query: O(max_word_length) for the backward Trie walk. Space: O(total chars in words) for the Trie plus O(max_word_length) for the buffer.
 </think>
 
 **Stream Checker -- Reversed Trie Approach**

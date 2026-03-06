@@ -1,29 +1,16 @@
 PAIRS = [
     ("thinking/algorithms", r'''Explain and implement the amortized analysis of dynamic array resizing (like Python's list or Java's ArrayList). Show that append operations are O(1) amortized even though individual resizes are O(n).''', r'''<think>
-Dynamic arrays are the canonical example of amortized analysis. The key question: if we double the array when full, and individual resize copies all elements (O(n)), how can append be O(1) amortized?
+Dynamic arrays are the canonical example of amortized analysis. The puzzle: doubling the array when full means individual resizes copy all elements -- that is O(n) for one operation. So how can append possibly be O(1) amortized?
 
-Three methods to prove amortized O(1):
+My initial instinct was "the resizes are rare enough to not matter," but that is hand-wavy. Let me think through three rigorous proof methods.
 
-1. Aggregate method:
-   - Start with size 1. Resizes happen at sizes 1, 2, 4, 8, ..., 2^k
-   - After n appends, total copy work = 1 + 2 + 4 + ... + 2^(floor(log n)) < 2n
-   - Total work for n appends: n (for actual inserts) + 2n (for copies) = 3n
-   - Amortized cost per append: 3n/n = O(1)
+1. Aggregate method: resizes happen at sizes 1, 2, 4, 8, ..., 2^k. Total copy work = 1 + 2 + 4 + ... + 2^(floor(log n)) < 2n. So total work for n appends = n (inserts) + 2n (copies) = 3n. Amortized = 3n/n = 3. But wait, could the geometric series sum to more than 2n? No -- the sum of a geometric series with ratio 2 is always less than twice its largest term, and the largest term is at most n. So 2n is correct.
 
-2. Accounting method:
-   - Charge each append operation $3 (instead of $1)
-   - $1 pays for the append itself
-   - $2 is saved as "credit" on the newly inserted element
-   - When resize happens (say from size k to 2k), the k elements in the second half each have $2 credit, which pays for copying all 2k elements (k new half each donate $2, total $2k, enough for copying k old + k new)
+2. Accounting method: charge $3 per append. $1 for the insert, $2 saved as credit. I initially thought we need $2 credit per element to pay for copying just itself, but actually when resize happens from k to 2k, we need to copy all k elements. The key insight: only the k elements in the "second half" (inserted since last resize) have credits, and their $2 each totals $2k, which covers copying all 2k elements. Hmm, does that arithmetic work? Each of k elements donates $2, giving $2k total. We need to copy k old elements + move k elements = 2k copies. Yes, exactly enough.
 
-3. Potential method:
-   - Potential function: Phi = 2 * num_elements - capacity
-   - When not resizing: amortized = 1 + 2 = 3 (actual 1, potential increases by 2)
-   - When resizing from cap to 2*cap: actual = n + 1 (copy n elements + insert 1), potential change = 2(n+1) - 2n - (2n - n) = 2 - n. Amortized = (n+1) + (2-n) = 3.
+3. Potential method: Phi = 2 * num_elements - capacity. When not resizing: amortized = actual(1) + delta_Phi(2) = 3. When resizing from cap to 2*cap: actual = n+1, delta_Phi = 2(n+1) - 2n - (2n - n) = 2 - n. Amortized = (n+1) + (2-n) = 3. Beautiful -- the potential absorbs the spike.
 
-I will implement a dynamic array from scratch, tracking the actual costs, and demonstrate that the amortized cost per operation converges to O(1).
-
-Shrinking: We can also shrink when the array is 1/4 full (not 1/2, to avoid thrashing). This maintains amortized O(1) for deletions too.
+For shrinking, I considered shrinking at 1/2 full, but that causes thrashing: alternating insert/delete at the boundary triggers O(n) resize every operation. Shrinking at 1/4 full avoids this because after shrinking, the array is half full, providing a buffer before the next resize in either direction.
 </think>
 
 **Dynamic Array -- Amortized Analysis**
@@ -144,27 +131,18 @@ print(f"  Surplus (credits): ${3*n - n - da.total_copies}")
 - Space: between n and 4n'''),
 
     ("thinking/algorithms", r'''Explain splay trees and implement the splay operation. Show how splaying provides O(log n) amortized time per operation through rotations that move accessed nodes to the root.''', r'''<think>
-A splay tree is a self-adjusting BST where every access (search, insert, delete) splays the accessed node to the root using rotations. This provides O(log n) amortized time per operation without maintaining any balance information.
+A splay tree is a self-adjusting BST where every access splays the accessed node to the root. No balance information is stored anywhere -- the tree restructures itself through rotations. Could this really provide O(log n) amortized? My first instinct says no, because what if the tree degenerates into a linked list? But actually, that is exactly the scenario where splaying helps most.
 
-Splay operation: Move node x to the root using three cases:
-1. Zig: x is a child of the root. Single rotation.
-2. Zig-zig: x and its parent are both left children (or both right children). Rotate parent first, then x.
-3. Zig-zag: x is a left child and parent is a right child (or vice versa). Rotate x twice (like AVL double rotation).
+Splay operation moves node x to the root using three cases:
+1. Zig: x is child of root -- single rotation.
+2. Zig-zig: x and parent are both left (or both right) children -- rotate parent first, then x.
+3. Zig-zag: x is left child, parent is right child (or vice versa) -- rotate x twice.
 
-The zig-zig case is what makes splay trees special. Unlike simple rotation-to-root (which can be O(n) amortized), the zig-zig case rotates the grandparent first, which reshapes the tree structure beneficially.
+I initially thought we could just do simple rotate-to-root (always rotate x with its parent). But wait -- Sleator and Tarjan showed that simple rotation can be O(n) amortized on adversarial sequences. The zig-zig case is what makes splay trees work: by rotating the grandparent first instead of the parent, we flatten the path for all nodes along it, not just the accessed one. This is the crucial difference.
 
-Amortized analysis uses a potential function:
-- Phi = sum over all nodes x of log(size(x))
-- where size(x) = number of nodes in subtree rooted at x
-- Amortized cost of splay = O(log n)
+For the amortized analysis, the potential function is Phi = sum over all nodes x of log(size(x)), where size(x) = number of nodes in x's subtree. The amortized cost of a splay operation works out to O(log n). The proof is somewhat involved, but the key insight is that zig-zig rotations significantly reduce the potential of deep paths, "paying forward" for future operations on those paths.
 
-The proof is somewhat involved (Sleator and Tarjan, 1985) but the key insight is that zig-zig rotations reduce the potential of deep paths, paying for future operations.
-
-Properties:
-- No explicit balance information stored
-- Recently accessed elements are near the root (cache-friendly)
-- Working set property: if you access k distinct items repeatedly, amortized cost is O(log k) per access
-- O(log n) amortized for any sequence of operations
+Hmm, one thing that surprised me: splay trees have the "working set property." If you repeatedly access only k distinct items, the amortized cost drops to O(log k) per access, since those items cluster near the root. This makes splay trees adaptive in a way that balanced BSTs like AVL or red-black trees are not.
 
 I will implement splay with all three cases, plus insert, search, and delete.
 </think>
@@ -394,31 +372,19 @@ print(f"After accessing 0..499: height={st2.height()}")
 - Space: O(n)'''),
 
     ("thinking/algorithms", r'''Explain Fibonacci heap operations and their amortized complexity. Implement the key operations: insert, find-min, extract-min, and decrease-key. Show why decrease-key is O(1) amortized.''', r'''<think>
-Fibonacci heaps are designed to make decrease-key O(1) amortized, which is crucial for algorithms like Dijkstra's (O(V log V + E) with Fibonacci heap vs O((V+E) log V) with binary heap).
+Fibonacci heaps are designed to make decrease-key O(1) amortized. Why does this matter? Because Dijkstra's algorithm calls decrease-key up to E times. With a binary heap that is O(log V) each, giving O(E log V). With a Fibonacci heap at O(1) each, Dijkstra becomes O(V log V + E) -- a significant improvement for dense graphs.
 
-Structure:
-- A collection of heap-ordered trees (min-heap property: parent <= children)
-- Trees are NOT necessarily binomial trees (unlike binomial heaps)
-- A pointer to the minimum root
-- Trees are stored in a circular doubly-linked list
-- Each node has a "mark" bit for cascading cuts
+The structure is a collection of heap-ordered trees stored in a circular doubly-linked list, with a pointer to the minimum root. I initially thought these would be binomial trees (like a binomial heap), but actually they are not -- the cascading cut mechanism means trees can have irregular shapes. Each node has a "mark" bit that tracks whether it has lost a child since it was last made a child of another node.
 
-Operations and amortized costs:
-- insert: O(1) -- just add a new single-node tree to the root list
-- find-min: O(1) -- return the min pointer
-- union: O(1) -- concatenate root lists
-- extract-min: O(log n) amortized -- remove min, add its children to root list, then consolidate (merge trees of same degree)
-- decrease-key: O(1) amortized -- decrease the key, if heap property violated, cut the node from its parent, add to root list. If parent was already marked, cascade (cut parent too, recursively).
-- delete: O(log n) amortized -- decrease-key to -infinity, then extract-min
+Operations:
+- insert: O(1) -- just add a new single-node tree. I considered maintaining sorted order, but that would ruin the O(1) bound.
+- find-min: O(1) -- return the min pointer.
+- extract-min: O(log n) amortized -- remove min, add its children to root list, then consolidate. The consolidation step merges trees of the same degree, similar to binary addition in binomial heaps.
+- decrease-key: O(1) amortized -- this is the interesting one.
 
-Why decrease-key is O(1) amortized:
-The potential function: Phi = t(H) + 2*m(H) where t = number of trees, m = number of marked nodes.
-- A cascade of c cuts: actual cost = O(c), but it unmarks c-1 nodes and adds c trees.
-- Change in potential = (c - (c-1)) + 2*(c new trees - c+1 unmarks) -- the math works out to O(1) amortized.
+For decrease-key: decrease the key, and if the heap property is violated, cut the node from its parent and add it to the root list. But wait -- if we just cut freely, a parent could lose all its children, making the tree very flat with too many roots. The cascading cut mechanism prevents this: if a parent was already marked (already lost one child), we cascade -- cut it too and recurse upward. This ensures any node loses at most one child before being cut itself, which bounds the maximum degree to O(log n).
 
-The cascading cut mechanism ensures that any node loses at most one child before being cut itself. This bounds the maximum degree of any node to O(log n).
-
-I will implement a simplified version focusing on the key operations.
+Why is decrease-key O(1) amortized? The potential function Phi = t(H) + 2*m(H) where t = number of trees, m = number of marked nodes. A cascade of c cuts has actual cost O(c), but unmarks c-1 nodes. The potential change is roughly c (new trees) - 2*(c-1) (unmarked nodes) = -(c-2). So amortized cost = O(c) + (-(c-2)) = O(1). Hmm, the constants need careful tracking, but the key idea is that cascading cuts "pay for themselves" by reducing the number of marked nodes.
 </think>
 
 **Fibonacci Heap -- Key Operations**
@@ -653,31 +619,20 @@ print(f"  Sorted: {results == sorted(results)}")
 - extract-min: O(log n) amortized (consolidation)'''),
 
     ("thinking/algorithms", r'''Implement Union-Find (Disjoint Set Union) with union by rank and path compression. Prove that the amortized time per operation is O(alpha(n)), the inverse Ackermann function.''', r'''<think>
-Union-Find (Disjoint Set Union / DSU) is a data structure for maintaining a partition of elements into disjoint sets. With two optimizations -- union by rank and path compression -- each operation takes O(alpha(n)) amortized time, where alpha is the inverse Ackermann function (effectively constant for all practical purposes, since alpha(n) <= 5 for n up to 2^65536).
+Union-Find (DSU) maintains a partition of elements into disjoint sets. The naive approach uses linked lists or simple trees, but without optimization, find can be O(n) -- imagine a degenerate chain where every element points to the next.
 
-Operations:
-1. make_set(x): Create a new set containing only x
-2. find(x): Return the representative (root) of x's set
-3. union(x, y): Merge the sets containing x and y
+Could we fix this with just one optimization? I considered path compression alone (make every node on the find path point directly to the root). That gives O(log n) amortized. And union by rank alone (attach shorter tree under taller) also gives O(log n) per operation. But wait -- Tarjan showed in 1975 that combining both gives O(alpha(n)) amortized, where alpha is the inverse Ackermann function.
 
-Optimizations:
-1. Path compression (in find): Make every node on the path point directly to the root. This flattens the tree, speeding up future operations.
-
-2. Union by rank: Attach the shorter tree under the taller tree's root. "Rank" is an upper bound on tree height. This keeps trees shallow.
-
-Without optimizations: O(n) per operation worst case.
-With union by rank only: O(log n) per operation.
-With path compression only: O(log n) amortized.
-With both: O(alpha(n)) amortized (Tarjan, 1975).
-
-The inverse Ackermann function alpha(n) grows incredibly slowly:
-- alpha(1) = 0
-- alpha(2) = 1
+The inverse Ackermann function alpha(n) grows so slowly it is effectively constant:
 - alpha(65536) = 3
 - alpha(2^65536) = 4
-- For all practical n, alpha(n) <= 5
+- For all practical n (up to atoms in the universe), alpha(n) <= 5
 
-I will implement DSU with both optimizations plus some utility methods.
+So in practice, Union-Find with both optimizations is O(1) per operation. I initially thought path compression alone might be sufficient, but actually the amortized bound degrades without union by rank -- there exist sequences where path compression alone is Theta(log n) per operation.
+
+How path compression works: during find(x), every node on the path from x to root gets its parent pointer updated to point directly to the root. This "flattens" the tree for all future operations on these nodes. Union by rank keeps trees shallow by attaching the shorter tree under the taller one's root, where "rank" is an upper bound on height.
+
+Hmm, one subtlety: after path compression, the rank no longer equals the actual height -- it becomes an upper bound. I considered tracking exact heights, but that would require updating heights during compression, which is expensive. Since rank as an upper bound is sufficient for the amortized analysis, we leave it as is.
 </think>
 
 **Union-Find with Path Compression and Union by Rank**
@@ -840,31 +795,20 @@ This makes Union-Find operations effectively O(1) in practice.
 - Space: O(n)'''),
 
     ("thinking/algorithms", r'''Explain incremental rehashing in hash tables: how to resize a hash table gradually rather than all at once, and prove the amortized cost remains O(1) per operation.''', r'''<think>
-Traditional hash table resizing copies all elements at once when the load factor exceeds a threshold. This causes an O(n) spike. Incremental rehashing spreads the resize work across subsequent operations.
+Traditional hash table resizing copies all elements at once when the load factor threshold is exceeded. Even though this is O(1) amortized, the worst-case single operation is O(n) -- a latency spike that is unacceptable in real-time systems. Could we avoid this spike entirely?
 
-The idea (used in Redis, for example):
-1. When resize is triggered, allocate the new (larger) table but keep the old one
-2. During each subsequent insert/lookup/delete operation, also migrate a small constant number of entries from the old table to the new table
-3. New insertions go into the new table
-4. Lookups check both tables
-5. When all entries have been migrated, discard the old table
+The idea (used in Redis, for example) is incremental rehashing: spread the resize work across subsequent operations. When resize is triggered, allocate the new table but keep the old one. Then during each subsequent operation, migrate a small constant number of entries from old to new.
 
-This ensures no single operation takes more than O(1) extra work, while still completing the resize in O(n) total work spread over O(n) operations.
+I initially wondered: what if a lookup happens during migration and the key is in the old table? We need to check both tables. And where do new insertions go? They should go into the new table, since the old table is being drained. This means lookups must check both tables, which adds a constant factor but does not change the asymptotic bound.
 
-Amortized analysis:
-- If we migrate k entries per operation, and there are n entries to migrate:
-  - Migration completes in n/k operations
-  - Since n new operations are needed before the next resize (assuming doubling), this is fine as long as k >= 1
-  - Each operation does O(1) regular work + O(k) migration work = O(1) if k is constant
+Amortized analysis: if we migrate k entries per operation and there are n entries to migrate, migration completes in n/k operations. But wait -- will migration finish before the next resize is triggered? Since we double the table, n new operations must happen before the load factor is exceeded again. As long as k >= 1, we migrate at least one entry per operation, so migration completes in at most n operations -- well before the next n insertions trigger another resize. Therefore each operation does O(1) regular work + O(k) migration work = O(1) for constant k.
 
-Trade-offs:
-- During migration, we maintain two tables (2x memory temporarily)
-- Lookups must check both tables (slight overhead)
-- Implementation is more complex
+Trade-offs I considered:
+- Memory: during migration we maintain two tables (roughly 2x). I thought about freeing old buckets as they are migrated, but the old table array itself cannot be partially freed.
+- Complexity: the implementation is significantly more complex than simple all-at-once rehashing.
+- Latency: the whole point -- no O(n) spikes, every operation is O(1) worst case.
 
-I will implement a hash table with incremental rehashing.
-
-Alternative: Linear hashing extends this idea further, growing the hash table one bucket at a time.
+Alternative approach: linear hashing grows the table one bucket at a time, which is even more granular.
 </think>
 
 **Incremental Rehashing -- Gradual Hash Table Resize**

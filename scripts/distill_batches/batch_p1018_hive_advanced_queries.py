@@ -8,7 +8,11 @@ PAIRS = [
         "hive-advanced-ranked-posts",
         r'''How do I query ranked posts on Hive using the bridge API, including trending, hot, created, and community-specific feeds?''',
         r'''<think>
-The bridge API (Hivemind) provides the primary way to query ranked content on Hive. The old condenser_api methods like get_discussions_by_trending are deprecated in favor of bridge.get_ranked_posts which is more flexible and performant. I need to show all the sort options, filtering, pagination, and community-scoped queries.
+Querying ranked posts on Hive... my first thought is to use condenser_api.get_discussions_by_trending, since that is what older tutorials show. But wait, I recall those methods were deprecated in favor of the bridge API. Let me think about why -- the old condenser_api discussion methods were tied directly to the node's memory and scaled poorly, whereas the bridge API (powered by Hivemind, a separate social consensus layer) is specifically designed for content queries.
+
+So the correct approach is bridge.get_ranked_posts, which replaces all the separate get_discussions_by_* methods with a single endpoint that takes a "sort" parameter. Hmm, but what sort options are available? I need to cover trending, hot, created, promoted, and payout at minimum. There could also be community-specific feeds -- actually yes, you pass the community name (like "hive-139531") as the "tag" parameter, which is a bit confusing because it overloads the tag field to mean either a topic tag or a community identifier.
+
+For pagination, I initially considered using offset/limit, but the bridge API uses cursor-based pagination with start_author and start_permlink from the last result. This is more efficient for the server since it avoids scanning skipped rows. Therefore I should demonstrate both single-page queries and full pagination through all results.
 </think>
 
 The **bridge API** (powered by Hivemind) is the recommended way to query ranked content on Hive. The old `condenser_api.get_discussions_by_*` methods are deprecated. Here is a comprehensive query library:

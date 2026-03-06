@@ -122,17 +122,15 @@ Account name rules: 3-16 characters, starts with a letter, only lowercase a-z, d
         "hive/claimed-account-creation",
         r'''How do I use claimed account tokens to create free accounts on Hive? Explain the claim_account and create_claimed_account process.''',
         r'''<think>
-Hive has a two-step free account creation process:
-1. claim_account: Spend RC (not HIVE) to claim an account creation token
-2. create_claimed_account: Use the token to create the actual account (no HIVE fee)
+The user is asking about claimed account creation on Hive. I could be thinking of the old Steem account creation system... but wait, Hive forked from Steem and changed some mechanics. Let me think through how this actually works on Hive specifically.
 
-This system was designed for onboarding -- large stakeholders can claim tokens when they have excess RC and use them later to create accounts for new users. The RC cost of claiming varies based on the pending claims pool.
+So there are two ways to create accounts: paying the fee directly, or using claimed tokens. The claimed token path is a two-step process -- claim_account first, then create_claimed_account. I initially considered whether claim_account costs HIVE, but actually no, the whole point is that it costs RC instead. The fee field is set to "0.000 HIVE" to signal "pay with RC." That is the key distinction.
 
-Key points:
-- Claiming costs only RC, not HIVE
-- Claimed tokens are stored on the claimer's account
-- Tokens do not expire
-- The create_claimed_account operation is free (0 HIVE fee)
+Hmm, do claimed tokens expire? I was going to say they have a time limit, but actually they do not expire at all. They sit on the creator account indefinitely. That is why onboarding services like Hiveonboard can stockpile them during periods of low RC demand and spend them later when new users show up.
+
+The RC cost of claiming varies based on the pending claims pool -- because the chain uses a resource credit pricing model where demand drives cost up. Therefore, when many accounts are claiming simultaneously, the RC cost spikes. Since large stakeholders regenerate RC proportional to their HP, they are the ones best positioned to claim tokens efficiently.
+
+Wait, one more thing -- the create_claimed_account operation itself is essentially free (no HIVE fee, minimal RC). So the entire economic cost is front-loaded into the claim step. This makes the system flexible because you decouple the cost (claiming) from the action (creating).
 </think>
 
 The claimed account system lets you spend RC to pre-claim account creation tokens, then use them later to create accounts for free. This is the primary mechanism for onboarding new users:

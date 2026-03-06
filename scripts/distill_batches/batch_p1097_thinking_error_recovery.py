@@ -5,15 +5,13 @@ PAIRS = [
         "thinking/error-handling",
         r'''How do I implement checkpoint and restart for long-running data processing jobs? I have a pipeline that processes millions of records and I cannot afford to start over from scratch when it fails halfway through.''',
         r'''<think>
-Checkpoint/restart is essential for long-running batch jobs. Key design decisions:
-1. What state to checkpoint (progress marker, partial results, position in input)
-2. Where to store checkpoints (local file, database, object storage)
-3. How often to checkpoint (every N records, every N seconds, or both)
-4. How to resume from a checkpoint (idempotent processing required)
-5. Handling partial writes (atomic checkpoint updates)
+Checkpoint/restart for a pipeline processing millions of records. My first thought is to save progress to a JSON file every N records. But wait -- what if the process crashes WHILE writing the checkpoint file? You end up with a corrupted half-written checkpoint and lose your progress anyway. So checkpoint writes themselves must be atomic.
 
-I need to show a robust implementation that handles edge cases like
-crashes during checkpoint writes.
+I considered using a database for checkpoint storage since databases handle atomicity natively. But actually, for a batch job that might run on a bare worker with no database, a file-based approach is more portable. The trick is write-then-rename: write the new checkpoint to a temp file, fsync it, then atomically rename it over the old checkpoint. On most filesystems, rename is atomic, so you either get the old checkpoint or the new one -- never a corrupted one.
+
+How often to checkpoint? Every record is safe but slow (fsync per record kills throughput). Every 10,000 records is fast but you lose up to 10,000 records of work on crash. Hmm, the right answer is a hybrid: checkpoint every N records OR every M seconds, whichever comes first. That bounds both the I/O overhead and the maximum re-work on crash.
+
+There is another subtlety I almost missed: idempotent processing. When resuming from a checkpoint, the last batch before the crash might have partially completed. If processing has side effects (sending emails, charging credit cards), re-processing those records could cause duplicates. Therefore, either each record needs a unique processing ID for deduplication, or the checkpoint must track which records within the last batch were fully committed.
 </think>
 
 Checkpoint/restart requires atomic state persistence and idempotent processing. Here is a production-ready pattern:
@@ -225,19 +223,15 @@ pipeline.run(iter(records), process_record, total_records=len(records))
         "thinking/error-handling",
         r'''What is the write-ahead log (WAL) pattern and how do I implement it in my application for crash recovery? I want to make sure I never lose data even if the process crashes mid-operation.''',
         r'''<think>
-Write-ahead logging is used by databases (PostgreSQL, SQLite) for crash recovery.
-The core idea:
-1. Before modifying data, write the intended change to a sequential log
-2. After writing to the log, apply the change to the actual data
-3. On crash recovery, replay the log to restore consistent state
-4. Periodically compact/truncate the log after changes are confirmed
+Write-ahead logging for application-level crash recovery. The user probably knows WAL from database internals (PostgreSQL, SQLite), but how does this translate to application code?
 
-I should show a practical implementation for an application-level WAL,
-not a full database engine. Key concerns:
-- Log format and serialization
-- fsync for durability
-- Recovery replay logic
-- Log compaction
+My initial thought is: just append JSON records to a log file before doing the actual operation. But wait -- appending to a file without fsync gives no durability guarantee. The OS might buffer the write and lose it on crash. So I need fsync after each WAL entry. But fsync is expensive... could I batch multiple entries before fsyncing? Actually yes, but that changes the durability semantics: you might lose the last N entries instead of zero. For critical operations (financial transactions), every entry needs its own fsync. For less critical workloads, batched fsync with a configurable flush interval is a reasonable trade-off.
+
+I considered using a binary format for the log (like Protocol Buffers) for performance. Hmm, but binary formats make manual debugging and recovery harder. If the WAL itself gets corrupted, you want to be able to read it with a text editor. JSON lines (one JSON object per line) is a good balance -- human readable, easy to parse, and each line is self-contained so corruption in one entry does not affect others.
+
+Recovery replay logic has a subtle requirement: operations must be idempotent. If the process crashed after writing to the WAL but before (or during) applying the change, replay will re-apply it. If the operation is "set balance to 100" that is idempotent, but "add 50 to balance" is not. Therefore the WAL should record the intended final state, not the delta.
+
+Log compaction is also critical -- without it, the WAL grows forever. After confirmed changes, old entries should be truncated. I need to track a "confirmed through" watermark and compact entries below it.
 </think>
 
 Write-ahead logging ensures durability by recording intent before action. Here is an application-level implementation:
@@ -555,21 +549,19 @@ store.set("user:42", {"name": "Alice", "balance": 100})
         "thinking/error-handling",
         r'''What is the "crash-only software" design philosophy? How do I design my application so that crashes are just normal restarts rather than catastrophic failures?''',
         r'''<think>
-Crash-only software is a design philosophy from a 2003 paper by Candea and Fox.
-The key ideas:
-1. The only way to stop the software is to crash it
-2. The only way to start is to recover from a crash
-3. Therefore, crash recovery IS normal startup
-4. No distinction between clean shutdown and crash
-5. All state is either persistent (survives crashes) or reconstructable
+Crash-only software -- from the 2003 Candea and Fox paper. The radical idea: there should be NO clean shutdown path at all. The only way to stop the software is to crash it, and the only way to start is to recover from a crash. Therefore crash recovery IS the normal startup path.
 
-Practical implications:
-- No "clean shutdown" logic that differs from crash recovery
-- All operations are idempotent
-- State is always in a recoverable form
-- No long-lived in-memory state that cannot be rebuilt
+My first reaction is "that sounds extreme -- surely clean shutdown is better?" But actually, the insight is that having two code paths (clean shutdown and crash recovery) means the crash recovery path is rarely tested. When a real crash happens, the untested recovery code often fails. By making crash recovery the ONLY path, it gets exercised on every restart and therefore is well-tested.
 
-I should show how to design a service following these principles.
+I considered whether this applies to all applications. Hmm, it works well for stateful services (databases, queues, workers) but what about stateless HTTP servers? Actually, even "stateless" servers have state -- open connections, in-flight requests, connection pool handles. A crash-only design forces you to handle those correctly.
+
+Wait, there is a practical concern: some resources NEED graceful cleanup. File locks, for instance -- if you crash while holding a lock, the lock file persists and blocks the next startup. The crash-only answer is: do not use file locks. Use lock files with heartbeats (stale detection) or lease-based locks that auto-expire. Similarly, do not rely on in-memory state that cannot be rebuilt from persistent storage.
+
+The practical implications cascade through the whole architecture:
+- All operations must be idempotent (since recovery might re-execute partial operations)
+- State is either durable (survives crashes) or reconstructable from durable state
+- No long-lived in-memory caches without a warm-up-from-disk fallback
+- Startup always runs the recovery routine, which is a no-op if there is nothing to recover
 </think>
 
 Crash-only software treats every startup as crash recovery. This eliminates an entire class of bugs where clean shutdown logic diverges from crash recovery. Here is how to design for it:
@@ -854,15 +846,15 @@ class CrashOnlyService:
         "thinking/error-handling",
         r'''How do I build self-healing capabilities into my services? I want the application to detect problems and fix itself without human intervention when possible.''',
         r'''<think>
-Self-healing is about automated detection and remediation. Key patterns:
-1. Health checks that detect degraded states (not just up/down)
-2. Automatic connection pool recovery
-3. Cache invalidation on detected inconsistency
-4. Worker thread restart on deadlock detection
-5. Automatic failover to backup resources
+Self-healing systems -- the user wants automated detection AND remediation. My first thought is health checks, but basic health checks only report up/down. A self-healing system needs to detect DEGRADED states (slow queries, connection pool exhaustion, memory leaks) before they become outages.
 
-I should show practical self-healing patterns with detection logic,
-not just theoretical concepts.
+Could I just restart the whole service when degradation is detected? That is the Kubernetes approach (liveness probes). But wait, restarting is a sledgehammer -- it drops all in-flight requests and takes time to warm up. I considered it as a last resort, but the first line of defense should be surgical remediation: reset the specific subsystem that is degraded.
+
+For example, if the database connection pool has stale connections (common after a network blip), I should detect it via failed health-check queries and then drain and recreate just the pool -- not restart the whole service. Similarly, if a worker thread appears deadlocked (no progress for N seconds), I should terminate and replace that specific thread.
+
+Hmm, but automated remediation can be dangerous. What if the detection logic has a false positive? You could be repeatedly restarting a healthy connection pool, causing the very instability you are trying to prevent. Therefore, I need safeguards: rate-limit remediation actions (at most once per N minutes per subsystem), require multiple consecutive health check failures before acting, and log every remediation action for review.
+
+Actually, the pattern I want is: detect -> verify -> remediate -> verify again -> alert if remediation failed. The second verification step is critical -- if the self-healing action did not fix the problem, escalate to human operators rather than retrying in a loop.
 </think>
 
 Self-healing systems detect degradation and apply automatic remediation. Here are the key patterns:
@@ -1178,16 +1170,13 @@ class CacheConsistencyHealer:
         "thinking/error-handling",
         r'''How do I implement graceful shutdown in a service that is processing in-flight requests, running background tasks, and holding connections to external services? I need to shut down cleanly without losing work.''',
         r'''<think>
-Graceful shutdown requires:
-1. Stop accepting new work
-2. Wait for in-flight work to complete (with a deadline)
-3. Save any incomplete state for later recovery
-4. Close connections cleanly (database, message broker, etc.)
-5. Handle the case where shutdown times out
+Graceful shutdown -- this could seem simple (stop accepting work, wait, close connections), but the ordering is everything. You cannot close the database connection before background tasks that use it have finished, and you cannot stop the health check endpoint until the load balancer has deregistered this instance.
 
-The ordering matters -- you cannot close the database before
-background tasks that use it have finished. I need to show
-a shutdown coordinator with dependency-aware ordering.
+My first thought for ordering: just do everything in sequence. But wait, some shutdown steps can run in parallel (e.g., draining the HTTP server and draining the message queue consumer are independent). Sequential shutdown wastes time during deployments, and a slow shutdown means Kubernetes sends SIGKILL after the grace period, losing in-flight work. So I need parallel phases with dependency ordering.
+
+I considered a simple priority-based ordering (phase 1, phase 2, phase 3), but that does not capture real dependencies. What if component A depends on both B and C, but B and C are independent? Priority levels would force B and C into different phases even though they could shut down in parallel. Actually, what I need is a DAG-based shutdown coordinator -- each component declares its dependencies, and the coordinator computes the topological order, running independent shutdowns in parallel.
+
+Hmm, there is another case I almost missed: what happens when shutdown times out? Some tasks will not finish in time. The coordinator needs a hard deadline after which it force-closes everything. But it should also save the state of incomplete work so it can be recovered on the next startup. This ties back into the checkpoint/restart pattern -- incomplete tasks should be checkpointed during shutdown so they resume after redeployment rather than being lost.
 </think>
 
 Graceful shutdown requires careful ordering: stop accepting work, drain in-flight tasks, then close resources in reverse dependency order. Here is a complete implementation:

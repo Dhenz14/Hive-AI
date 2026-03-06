@@ -5,18 +5,13 @@ PAIRS = [
         "hive/custom-indexer-python",
         r'''How do I build a custom blockchain indexer for Hive that stores operations in a SQL database?''',
         r'''<think>
-A custom indexer processes the Hive blockchain sequentially and stores relevant data in a database. Key design decisions:
-1. Use irreversible blocks only (for consistency)
-2. Checkpoint progress to resume after crashes
-3. Index only the operations you need (for efficiency)
-4. Use batch inserts for performance
-5. Handle chain reorganizations (micro-forks) if processing head blocks
+A custom indexer needs to process Hive blocks sequentially and store relevant data. My first instinct is to just stream every block and insert each operation one at a time, but wait -- that would be extremely slow at scale because individual inserts have high overhead per round-trip. Batch inserts are the way to go here, since you can amortize the commit cost across hundreds of rows.
 
-The typical architecture is:
-- Block fetcher: reads blocks from the chain
-- Operation filter: selects relevant ops
-- Data transformer: converts ops to database rows
-- Database writer: batch inserts with transactions
+Now, should we process head blocks or only irreversible blocks? I considered tracking head blocks for lower latency, but actually that introduces a nasty complication: micro-forks. Hive can have short-lived forks where the last few blocks get replaced, meaning any data you indexed from those blocks becomes invalid. Therefore, for a first implementation, sticking to irreversible blocks is much safer -- you trade a few minutes of latency for guaranteed consistency.
+
+Hmm, what about crash recovery? If the indexer dies mid-batch, we could end up with partial data. The solution is to checkpoint progress inside the same database transaction as the data writes. That way either both the data and the checkpoint commit, or neither does. I initially thought about using a separate state file on disk, but that would break atomicity -- you could update the checkpoint but crash before the data is flushed, or vice versa.
+
+The architecture breaks down into: a block fetcher that reads from the chain, an operation filter that selects only the op types we care about (since indexing everything is wasteful for most use cases), a transformer to reshape ops into database rows, and a batch writer that groups inserts into transactions.
 </think>
 
 Here is a production-grade custom indexer for Hive that processes operations into a PostgreSQL database:

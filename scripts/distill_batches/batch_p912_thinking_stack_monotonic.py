@@ -4,34 +4,29 @@ PAIRS = [
 Example: heights = [2,1,5,6,2,3] -> Output: 10 (the rectangle spans bars with heights 5 and 6, giving 5*2=10).''', r'''<think>
 This is the classic "Largest Rectangle in Histogram" problem. Let me think through the approaches.
 
-**Brute force**: For each bar i, expand left and right while heights are >= heights[i]. Area = heights[i] * width. O(n^2) time.
+**Brute force**: For each bar i, expand left and right while heights are >= heights[i]. Area = heights[i] * width. That is O(n^2) time. Could be acceptable for small n, but I need O(n).
 
-**Monotonic stack approach**: This is the O(n) solution. The key insight is: for each bar, we want to find the nearest shorter bar on the left and right. The rectangle using bar i as the limiting height extends from (left_boundary + 1) to (right_boundary - 1).
+My first instinct for an O(n) solution was to precompute the nearest shorter bar on the left and right for each bar using two separate passes... but wait, that requires two monotonic stack passes. Can I do it in one pass?
 
-The stack maintains indices in increasing order of heights:
-1. Iterate through bars. For each bar:
-   - While the stack top has height >= current bar's height, pop it
-   - The popped bar's rectangle extends from the new stack top + 1 to current index - 1
-   - Calculate area for each popped bar
-2. After iteration, process remaining bars in the stack
+Actually yes -- the **single-pass monotonic stack** approach handles both boundaries simultaneously. The stack maintains indices in increasing order of heights. When we pop index `mid` because heights[i] < heights[mid]:
+- Right boundary is i (the first shorter bar to the right)
+- Left boundary is the new stack top + 1 (the first shorter bar to the left is at the new top)
+- Width = i - stack_top - 1
 
-Why does this work? When we pop index `mid` because `heights[i] < heights[mid]`:
-- Right boundary: i (first shorter bar to the right)
-- Left boundary: new stack top + 1 (first shorter bar to the left is at the new top)
-- Width: i - stack_top - 1
+Hmm, but what if the stack is empty after popping? That means there is no shorter bar to the left, so the rectangle extends all the way to the beginning. The width becomes i (from index 0 to i-1).
 
-If the stack is empty after popping, left boundary is 0, so width = i.
-
-Let me trace through the example: [2, 1, 5, 6, 2, 3]
+Let me trace through the example to make sure: [2, 1, 5, 6, 2, 3]
 - i=0: push 0. Stack: [0]
-- i=1: h[1]=1 < h[0]=2. Pop 0: width=1, area=2*1=2. Push 1. Stack: [1]
+- i=1: h[1]=1 < h[0]=2. Pop 0: stack empty, width=1, area=2*1=2. Push 1. Stack: [1]
 - i=2: h[2]=5 > h[1]=1. Push 2. Stack: [1,2]
 - i=3: h[3]=6 > h[2]=5. Push 3. Stack: [1,2,3]
-- i=4: h[4]=2 < h[3]=6. Pop 3: width=4-2-1=1, area=6*1=6. Pop 2: width=4-1-1=2, area=5*2=10. Push 4. Stack: [1,4]
+- i=4: h[4]=2 < h[3]=6. Pop 3: width=4-2-1=1, area=6*1=6. Pop 2: width=4-1-1=2, area=5*2=10. Now h[4]=2 >= h[1]=1, stop. Push 4. Stack: [1,4]
 - i=5: h[5]=3 > h[4]=2. Push 5. Stack: [1,4,5]
-- End: Pop 5: width=6-4-1=1, area=3. Pop 4: width=6-1-1=4, area=2*4=8. Pop 1: width=6, area=1*6=6.
+- End: Pop 5: width=6-4-1=1, area=3. Pop 4: width=6-1-1=4, area=2*4=8. Pop 1: stack empty, width=6, area=1*6=6.
 
-Max = 10. Correct!
+Max = 10. Correct! The key insight I almost missed: after the main loop ends, there may still be bars on the stack. These bars have no shorter bar to their right, so their right boundary is n (the end of the array). I need to process the remaining stack elements with this understanding.
+
+Each index is pushed once and popped once, so total work is O(2n) = O(n). That is optimal since we must examine each bar at least once.
 </think>
 
 ## Largest Rectangle in Histogram — Monotonic Stack
@@ -109,11 +104,13 @@ Each index is pushed onto the stack exactly once and popped at most once. Total 
     ("thinking/algorithms", r'''Given an array of daily temperatures, return an array where answer[i] is the number of days you have to wait after day i to get a warmer temperature. If there is no future warmer day, answer[i] = 0.
 
 Example: temperatures = [73,74,75,71,69,72,76,73] -> [1,1,4,2,1,1,0,0]''', r'''<think>
-This is a classic "next greater element" problem, which screams monotonic stack.
+This is a "next greater element" problem. My first thought was to scan forward from each day to find the next warmer one, but that would be O(n^2) -- too slow for large inputs.
 
-**Brute force**: For each day, scan forward to find the next warmer day. O(n^2).
+Could I use binary search somehow? Hmm, the temperatures are not sorted, so binary search does not directly apply. What about precomputing some structure?
 
-**Monotonic stack (decreasing)**: We maintain a stack of indices whose temperatures are in decreasing order (from bottom to top). When we encounter a temperature warmer than the stack top, we've found the answer for that stack top.
+Actually, this is a classic monotonic stack problem. The key insight: I maintain a stack of indices whose temperatures are in decreasing order. When I encounter a temperature warmer than the stack top, I have found the answer for that stack top.
+
+But wait, why does a decreasing stack work here? Let me think about this carefully. If I push index j with temperature 71 onto the stack, and later encounter index i with temperature 72, then i is the first day after j with a warmer temperature -- because everything between j and i (if anything) was also on the stack, meaning it was <= 71 and was already popped by something, or it is still there with a value between 71 and 72 and will be popped now too. Actually, the stack invariant guarantees that all indices between j and the current stack state have already been resolved. So when 72 pops 71, it is indeed the nearest warmer day.
 
 Algorithm:
 1. Iterate i from 0 to n-1
@@ -123,18 +120,18 @@ Algorithm:
 3. Push i onto stack
 4. Any indices remaining in the stack get answer = 0 (already initialized)
 
-Why decreasing stack? Because we're looking for the NEXT GREATER element. A decreasing stack ensures that when a larger element arrives, it resolves all smaller elements waiting on the stack.
-
-Let me trace: [73, 74, 75, 71, 69, 72, 76, 73]
-- i=0(73): stack empty, push 0. Stack: [0]
+Let me trace to verify: [73, 74, 75, 71, 69, 72, 76, 73]
+- i=0(73): push 0. Stack: [0]
 - i=1(74): 74>73, pop 0, ans[0]=1. Push 1. Stack: [1]
 - i=2(75): 75>74, pop 1, ans[1]=1. Push 2. Stack: [2]
 - i=3(71): 71<75, push 3. Stack: [2,3]
 - i=4(69): 69<71, push 4. Stack: [2,3,4]
-- i=5(72): 72>69, pop 4, ans[4]=1. 72>71, pop 3, ans[3]=2. 72<75, push 5. Stack: [2,5]
+- i=5(72): 72>69, pop 4, ans[4]=1. 72>71, pop 3, ans[3]=2. 72<75, stop. Push 5. Stack: [2,5]
 - i=6(76): 76>72, pop 5, ans[5]=1. 76>75, pop 2, ans[2]=4. Push 6. Stack: [6]
 - i=7(73): 73<76, push 7. Stack: [6,7]
-- Remaining: ans[6]=0, ans[7]=0. ✓
+- Remaining: ans[6]=0, ans[7]=0.
+
+Result: [1,1,4,2,1,1,0,0]. Correct! Each index is pushed and popped at most once, giving O(n) total.
 </think>
 
 ## Daily Temperatures — Monotonic Decreasing Stack
@@ -198,26 +195,24 @@ This guarantees each element is pushed and popped at most once, giving O(n) tota
     ("thinking/algorithms", r'''Given a circular array of integers, find the Next Greater Element for every element. The next greater element of an element x is the first element greater than x encountered when traversing the array in circular fashion. If no greater element exists, output -1.
 
 Example: nums = [1,2,1] -> [2,-1,2] (for nums[2]=1, the next greater wrapping around is nums[0]=... wait, we continue to nums[1]=2, which is greater)''', r'''<think>
-This is "Next Greater Element II" — the circular variant.
+This is "Next Greater Element II" -- the circular variant. In a non-circular array, a single pass with a monotonic stack suffices. But in a circular array, element at index n-1 might have its next greater element at index 0 or 1. How do I handle the wrap-around?
 
-In a non-circular array, we use a single pass with a monotonic decreasing stack. For the circular version, the trick is to iterate through the array twice (i from 0 to 2n-1, using i % n for indexing). The second pass lets elements "wrap around" to find their next greater element.
+My first idea was to concatenate the array with itself [nums + nums] and run the standard algorithm... but that doubles the space and creates duplicate indices that I would need to deduplicate. That feels messy.
 
-But we only push indices during the first pass (i < n), or more precisely, we can push during both passes but only care about results for indices 0..n-1.
+A cleaner approach: iterate i from 0 to 2n-1, using i % n for indexing. This simulates the wrap-around without actually duplicating the array. The second pass lets elements find greater values that appear earlier in the original array.
 
-Actually, the standard approach: iterate i from 0 to 2n-1. Use i % n to get the actual index. Only push onto the stack during any iteration, but the answer array is only for indices [0, n-1].
+But wait, I need to be careful about what I push onto the stack. If I push during both passes, I would push the same index twice, leading to incorrect results. So I should only push indices during the first pass (i < n). During the second pass, I only pop -- resolving any remaining elements whose next greater element wraps around.
 
-Wait let me think more carefully. The approach:
-1. Initialize result = [-1] * n
-2. Stack holds indices (in [0, n-1])
-3. For i in range(2 * n):
+Let me verify: result = [-1] * n, stack holds indices [0, n-1].
+For i in range(2 * n):
    - While stack and nums[i % n] > nums[stack[-1]]:
      - Pop j, result[j] = nums[i % n]
-   - Only push if i < n (otherwise we'd be pushing duplicate indices)
+   - Only push if i < n
 
-This works because the second pass allows elements from the first pass to find greater elements that appear before them in the array.
+Hmm, could any element remain unresolved after two passes? Only if there is no greater element in the entire array -- i.e., the element is the global maximum (or tied for it). In that case, result stays -1, which is correct since no greater element exists even with wrap-around.
 
-Time: O(n) — each index pushed at most once, popped at most once.
-Space: O(n)
+Time: O(n) -- each index is pushed at most once (first pass only) and popped at most once (during either pass). The second pass does at most n pops total.
+Space: O(n) for the stack and result.
 </think>
 
 ## Next Greater Element in Circular Array
@@ -302,9 +297,11 @@ matrix = [
   ["1","0","0","1","0"]
 ]
 Output: 6 (the rectangle spanning rows 1-2, columns 2-4)''', r'''<think>
-This is "Maximal Rectangle" — a classic hard problem. The key insight is reducing it to the "Largest Rectangle in Histogram" problem.
+This is "Maximal Rectangle" -- a classic hard problem. My first thought is to check all possible rectangles defined by top-left and bottom-right corners, but that would be O(rows^2 * cols^2) -- way too slow.
 
-**Approach**: For each row, build a histogram where the height at column j is the number of consecutive 1s above (and including) the current row. Then apply the largest rectangle in histogram algorithm.
+Could I use dynamic programming? I considered DP where dp[r][c] represents the largest rectangle ending at (r,c), but the state space gets complicated because rectangles can have different aspect ratios.
+
+Wait, there is a brilliant reduction. I can convert each row into a histogram problem! For each row, the "height" at column j is the number of consecutive 1s above (and including) the current row. Then I apply the O(n) Largest Rectangle in Histogram algorithm to each row's histogram.
 
 For the example matrix:
 - Row 0: heights = [1, 0, 1, 0, 0]
@@ -312,19 +309,16 @@ For the example matrix:
 - Row 2: heights = [3, 1, 3, 2, 2]
 - Row 3: heights = [4, 0, 0, 3, 0]
 
+Hmm, let me verify row 3. Column 0 has been all 1s from row 0 through row 3, so height = 4. Column 2 was 1 in rows 0-2 but is 0 in row 3, so height resets to 0. That is correct -- a 0 in the matrix breaks the consecutive run and resets the height.
+
 For row 2 with heights [3, 1, 3, 2, 2]:
-- The largest rectangle is 2*3 = 6 (heights 3, 2, 2 with min height 2... wait, that's width 3, min 2 = 6. Or heights 2,2 with width 2, area 4. Or 3,2,2 width 3, min 2, area 6. Yes, 6.)
+- Using bar of height 1 (index 1) with full width: area = 1*5 = 5
+- Using bar of height 2 spanning indices 2-4: width 3, area = 2*3 = 6
+- Using bar of height 3 (index 0 or 2): width 1, area = 3
 
-Actually let me check: the bars are [3, 1, 3, 2, 2].
-- Using bar of height 1 (index 1): width is entire array = 5, area = 5
-- Using bar of height 2 (indices 2-4): width 3, area = 6
-- Using bar of height 3 (index 0): width 1, area = 3
-- Using bar of height 3 (index 2): width 1, area = 3
-So max is 6. Correct!
+So max for row 2 is 6. Actually, could there be a larger rectangle I am missing? Let me check: index 3 and 4 have heights 2 and 2, so a rectangle of height 2, width 2 = 4. Indices 2,3,4 have min height 2, so 2*3=6. That matches. The overall answer is max across all rows = 6. Correct!
 
-Time complexity: O(rows * cols) — building histograms is O(rows * cols), and for each row we run the O(cols) histogram algorithm.
-
-Space: O(cols) for the heights array and stack.
+Time: O(rows * cols) since building each histogram row is O(cols) and the histogram algorithm is O(cols). Space: O(cols) for the heights array and stack.
 </think>
 
 ## Maximal Rectangle in Binary Matrix
@@ -429,37 +423,37 @@ Each row takes O(cols) to build the histogram and O(cols) for the stack algorith
 Rules: When two asteroids meet, the smaller one explodes. If equal size, both explode. Asteroids moving the same direction never meet.
 
 Example: asteroids = [5,10,-5] -> [5,10] (10 and -5 collide, 10 survives)''', r'''<think>
-This is a stack problem. Let me think about when collisions happen:
-- A collision only occurs when a positive (right-moving) asteroid meets a negative (left-moving) one
-- Specifically: when the stack top is positive and the current asteroid is negative
-- Two negatives never collide (both going left)
-- Two positives never collide (both going right)
-- Negative then positive never collide (moving apart)
+This is an asteroid collision problem. Let me think about when collisions actually happen.
+
+My first instinct was that any two asteroids next to each other with different signs collide, but actually that is wrong. A negative asteroid moving left and a positive asteroid to its right moving right are moving APART -- they never meet. Collisions only happen when a positive (right-moving) asteroid is followed by a negative (left-moving) one. Specifically: when the stack top is positive and the current asteroid is negative.
+
+So the collision conditions are:
+- (+) followed by (-): COLLISION
+- (+) followed by (+): same direction, no collision
+- (-) followed by (-): same direction, no collision
+- (-) followed by (+): moving apart, no collision
+
+This naturally suggests a stack approach. But wait, there is a tricky part I need to handle carefully: a large negative asteroid can destroy multiple positive ones in sequence. For example, [5, 3, -10] -- the -10 first destroys 3, then destroys 5. So I need a while loop, not just an if statement.
 
 Algorithm using a stack:
-1. For each asteroid:
-   - While the stack top is positive AND current is negative AND |current| > stack top:
-     - Pop the stack top (it gets destroyed)
-   - If the stack top is positive AND current is negative AND they're equal:
-     - Pop the stack top (both destroyed), don't push current
-   - If the stack top is positive AND current is negative AND |current| < stack top:
-     - Current is destroyed, don't push it
-   - Otherwise (no collision): push current
+1. For each asteroid, while the stack top is positive AND current is negative:
+   - If |current| > stack top: pop (stack top destroyed), continue checking
+   - If |current| == stack top: pop (both destroyed), stop
+   - If |current| < stack top: current destroyed, stop
+2. If current survived all collisions, push it
 
-Let me code this carefully. The tricky part is the while loop — a large negative asteroid can destroy multiple positive ones.
+Hmm, I need to track whether the current asteroid is still "alive" through the while loop. Let me use a boolean flag.
 
 Let me trace [5, 10, -5]:
 - Push 5. Stack: [5]
 - Push 10. Stack: [5, 10]
-- Current: -5. Stack top 10 > 0, current < 0: collision. |(-5)| = 5 < 10. Current destroyed.
-- Result: [5, 10] ✓
+- Current: -5. Stack top 10 > 0, current < 0: collision. |-5| = 5 < 10. Current destroyed, alive=False.
+- Result: [5, 10]. Correct!
 
-Another trace: [-2, -1, 1, 2]:
-- Push -2. Stack: [-2]
-- Push -1. Stack: [-2, -1]
-- Current: 1. Stack top -1 < 0, so no collision (moving apart). Push. Stack: [-2, -1, 1]
-- Current: 2. Stack top 1 > 0, current 2 > 0, same direction. Push. Stack: [-2, -1, 1, 2]
-Result: [-2, -1, 1, 2] ✓ (no collisions)
+Another trace: [10, 5, 2, -10]:
+- Stack builds to [10, 5, 2]. Current: -10.
+- |-10|=10 > 2: pop 2. |-10|=10 > 5: pop 5. |-10|=10 == 10: pop 10, both destroyed.
+- Result: []. Both the big asteroid and everything it hit are gone. Correct!
 </think>
 
 ## Asteroid Collision Simulation

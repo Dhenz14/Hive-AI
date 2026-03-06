@@ -5,13 +5,17 @@ PAIRS = [
         "thinking/error-handling",
         r'''My async Python application has unhandled exceptions in tasks that silently disappear. I create tasks with asyncio.create_task() but never see the errors. How do I ensure no async exceptions are lost?''',
         r'''<think>
-When you create a task with asyncio.create_task() and never await it or retrieve its result, any exception raised in that task is silently ignored (with a warning in Python 3.8+). This is one of the most common async bugs.
+The user says async exceptions silently disappear. My first thought is they are not awaiting the tasks -- but wait, could it also be that they have a bare except clause somewhere swallowing everything? Let me re-read... no, they specifically mention create_task() and never seeing errors, so this is the classic fire-and-forget problem.
 
-The fixes are:
-1. Always store task references and handle results
-2. Use task groups (Python 3.11+)
-3. Set a global exception handler
-4. Add done callbacks to tasks
+When you create a task with asyncio.create_task() and never await it or retrieve its result, any exception raised in that task is silently lost. Python 3.8+ at least logs a warning ("Task exception was never retrieved"), but that is easy to miss in noisy logs.
+
+I considered suggesting they just wrap every task body in try/except and log manually. But actually that is fragile -- every new task needs to remember the wrapper, and one missed task silently breaks again. A more robust approach is systemic:
+
+1. Use task groups (Python 3.11+) since they force structured concurrency -- you cannot accidentally orphan a task
+2. Set a global exception handler via loop.set_exception_handler() as a safety net
+3. Add done callbacks to tasks for the cases where task groups do not fit
+
+Hmm, but task groups cancel ALL tasks on any failure, which might not be what they want. Therefore I should also show asyncio.gather with return_exceptions=True for cases where partial failure is acceptable. The done-callback approach is probably the best general-purpose fix since it works on all Python 3.7+ without changing the task structure.
 </think>
 
 Tasks created with `asyncio.create_task()` silently swallow exceptions if the task result is never retrieved. Here is how to prevent lost exceptions:
@@ -247,13 +251,16 @@ async def handle_request():
         "thinking/error-handling",
         r'''How do I handle task group exceptions in Python 3.11+ when I want some tasks to be allowed to fail while others are critical? TaskGroup cancels all tasks when any one fails, but I want partial failure tolerance.''',
         r'''<think>
-asyncio.TaskGroup has an all-or-nothing approach: if any task fails, all other tasks are cancelled and an ExceptionGroup is raised. This is good for operations that must all succeed, but bad for operations where some tasks are optional.
+The user is hitting TaskGroup's all-or-nothing behavior. Could I just tell them to catch ExceptionGroup and pick out the failures? But wait, by the time ExceptionGroup is raised, all the other tasks have already been cancelled. So the damage is done -- you cannot selectively let some tasks continue after one fails within the same TaskGroup.
 
-Solutions:
-1. Wrap non-critical tasks in try/except so they never raise
-2. Use asyncio.gather with return_exceptions=True for mixed criticality
-3. Create separate TaskGroups for critical vs non-critical tasks
-4. Build a custom task group that handles partial failures
+I initially considered building a custom TaskGroup subclass that overrides the cancellation behavior. Actually, that is fighting against the design of structured concurrency. The whole point of TaskGroup is that task lifetimes are scoped -- breaking that creates the same orphaned-task problems we are trying to avoid.
+
+Better solutions that work WITH the design:
+1. Wrap non-critical tasks in try/except so they never propagate exceptions -- the TaskGroup never sees the failure. This is simple but requires discipline.
+2. Use separate TaskGroups for critical vs non-critical work. The non-critical group can fail without affecting the critical one.
+3. Use asyncio.gather with return_exceptions=True when you genuinely want mixed criticality, since gather does not cancel siblings on failure.
+
+Hmm, but gather has its own problem -- it does not cancel remaining tasks if the calling coroutine itself is cancelled. Therefore, for true mixed-criticality scenarios, I should show a custom partial-failure-tolerant task runner that combines the structured lifetime of TaskGroup with the per-task error isolation of gather. That gives the best of both approaches.
 </think>
 
 `asyncio.TaskGroup` cancels all tasks on any failure. For partial failure tolerance, you need different strategies for critical vs non-critical tasks:
@@ -511,18 +518,19 @@ async def with_per_task_timeout():
         "thinking/error-handling",
         r'''How do I properly handle cancellation in async Python? When a task is cancelled, I need to ensure resources are cleaned up, but CancelledError can interrupt at any await point.''',
         r'''<think>
-Cancellation in asyncio is tricky because:
-1. CancelledError is raised at the next await point after cancel() is called
-2. It can interrupt any await, including in cleanup code
-3. In Python 3.9+, CancelledError inherits from BaseException, not Exception
-4. You should almost never suppress CancelledError
-5. Resources must be cleaned up even during cancellation
+Cancellation in asyncio -- this could seem simple at first (just catch CancelledError and clean up), but there are several nasty subtleties.
 
-Proper patterns:
-1. Use try/finally for cleanup (works with cancellation)
-2. Shield critical sections from cancellation
-3. Handle CancelledError explicitly when needed
-4. Use asyncio.shield() for operations that must complete
+First, CancelledError is raised at the next await point after cancel() is called. But wait -- what if your cleanup code also has await points? The cancellation can interrupt your cleanup! I initially thought wrapping cleanup in try/except CancelledError would work, but actually in Python 3.9+, CancelledError inherits from BaseException, not Exception. So a bare "except Exception" will NOT catch it, and code that worked on Python 3.8 silently breaks on 3.9. That is a migration landmine.
+
+I considered just using synchronous cleanup (no awaits), but sometimes cleanup requires async operations -- like flushing a write buffer to a network socket or committing a database transaction. You cannot make those synchronous without blocking the event loop.
+
+The real answer is asyncio.shield() for operations that absolutely must complete even during cancellation. But hmm, shield has its own gotcha: if the outer task is cancelled, shield prevents the inner coroutine from being cancelled, but the outer await still raises CancelledError. So the shielded operation continues running as an orphaned task unless you store a reference to it.
+
+Therefore the correct pattern is:
+1. Use try/finally for cleanup (works with cancellation since finally always runs)
+2. Shield critical async cleanup operations so they complete
+3. Never suppress CancelledError -- always re-raise after cleanup, because suppressing it breaks the caller's cancellation semantics
+4. Handle CancelledError explicitly only when you need to do async cleanup before re-raising
 </think>
 
 Cancellation in asyncio requires careful resource management because `CancelledError` can interrupt at any `await` point:
@@ -771,14 +779,18 @@ async def operation_with_timeout(coro, timeout, cleanup=None):
         "thinking/error-handling",
         r'''How do I implement "error boundaries" in async Python similar to how React error boundaries work? I want to contain errors within a scope so they do not crash the entire application.''',
         r'''<think>
-Error boundaries in React catch rendering errors in child components. In async Python, the equivalent is containing errors within a defined scope so they do not propagate to the main application loop.
+Error boundaries -- the user is drawing an analogy from React. In React, error boundaries catch rendering errors in child components and display a fallback UI. Could I do something similar in async Python? At first I thought "just use try/except" -- but that misses the point. A proper error boundary is a reusable structural component, not ad-hoc exception handling scattered through the code.
 
-This involves:
-1. Try/except around task groups
-2. Scoped error handlers
-3. Fallback rendering/responses
-4. Error recovery and retry
-5. Nested error boundaries (outer catches what inner misses)
+I considered making each async task responsible for its own error handling, but that leads to inconsistency -- some tasks log errors, some swallow them, some crash the whole application. An error boundary pattern needs to be a centralized, composable wrapper.
+
+The async Python equivalent involves:
+1. A boundary wrapper that catches exceptions from a group of tasks and provides a fallback result
+2. Scoped error handlers -- different boundaries can handle different exception types
+3. Nested boundaries where the inner boundary handles specific errors and the outer catches anything the inner missed
+
+Wait, there is a subtlety: in React, an error boundary re-renders with a fallback. In async Python, what is the "fallback"? It depends on context -- for an HTTP handler, it is an error response; for a background worker, it might be logging and continuing; for a pipeline stage, it could be a default value. Therefore the boundary needs to accept a fallback strategy as a parameter rather than hardcoding one behavior.
+
+Actually, this maps well to a decorator/context-manager pattern: wrap an async function or block, catch errors within it, invoke the fallback, and optionally retry. That gives the composability of React error boundaries in Python's async model.
 </think>
 
 Error boundaries in async Python contain failures within a scope, providing fallbacks and preventing cascading crashes:
@@ -1068,18 +1080,18 @@ async def resilient_service_call():
         "thinking/error-handling",
         r'''How do I implement timeout with proper cleanup for async operations? I want to cancel timed-out operations AND clean up resources, but asyncio.wait_for cancels the task and cleanup code might not run.''',
         r'''<think>
-asyncio.wait_for has a specific behavior:
-1. It creates an internal task for the coroutine
-2. On timeout, it cancels the task and raises TimeoutError
-3. The cancelled task's finally blocks may or may not run completely
-4. If the task is shielded, the underlying operation continues
+asyncio.wait_for and timeout handling -- this could seem straightforward, but there is a nasty interaction between timeouts and resource cleanup.
 
-The issue is that cleanup in the cancelled task might need async operations, and those might not complete if the task is being cancelled.
+When wait_for times out, it cancels the internal task and raises TimeoutError. But wait -- the cancelled task might be in the middle of writing to a file or holding a database connection. Its finally blocks run, but if those finally blocks contain await expressions, they might get interrupted by ANOTHER cancellation. So cleanup is not guaranteed to complete.
 
-Solutions:
-1. Use try/finally with shield in the task itself
-2. Use asyncio.timeout() context manager (Python 3.11+) which is more predictable
-3. Separate the timeout from the cleanup
+I initially thought asyncio.shield() was the answer: shield the cleanup operations from cancellation. But actually, shield has a subtle problem here too. If the outer coroutine gets a TimeoutError and moves on, the shielded inner operation is still running as a detached task. If nobody holds a reference to it, its exceptions will be silently lost -- the exact same fire-and-forget problem from earlier.
+
+Hmm, what about asyncio.timeout() (Python 3.11+)? It is a context manager approach which is more predictable because the scope of the timeout is explicit. Unlike wait_for which wraps a single coroutine, timeout() wraps a block of code, so you can structure your cleanup outside the timeout scope. That is cleaner.
+
+The best approach depends on Python version:
+- Python 3.11+: use asyncio.timeout() context manager, because cleanup code after the context manager runs without timeout pressure
+- Older Python: use wait_for but separate the operation from its cleanup -- run the cleanup in a finally block with shield, and store the shielded task reference so its errors are not lost
+- For critical resources: always separate the timeout boundary from the resource cleanup boundary, since mixing them leads to resource leaks
 </think>
 
 `asyncio.wait_for` cancels the task on timeout, which can prevent cleanup. Here is how to ensure proper resource cleanup:

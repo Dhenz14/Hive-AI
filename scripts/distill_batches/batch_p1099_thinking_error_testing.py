@@ -5,16 +5,33 @@ PAIRS = [
         "thinking/error-handling",
         r'''How do I implement chaos engineering in my Python services to test error handling? I want to systematically inject failures to find weaknesses before they hit production.''',
         r'''<think>
-Chaos engineering involves deliberately introducing failures to verify
-that the system handles them correctly. Key aspects:
+Chaos engineering -- the user wants to systematically inject failures.
+My first thought is to point them at Netflix's Chaos Monkey, but wait,
+that operates at the infrastructure level (killing VMs). They said
+"Python services," so they probably want code-level fault injection
+they can run in tests or staging, not infrastructure-level chaos.
+
+Let me think about what kinds of faults matter here:
 1. Fault injection (network errors, latency, exceptions)
 2. Controlled blast radius (don't break production for real)
 3. Hypothesis-driven experiments ("we believe X will happen when Y fails")
 4. Automated chaos with safety controls (kill switch, rollback)
 5. Observability during chaos (metrics, logs)
 
+I considered just showing unittest.mock patches that raise exceptions,
+but actually that is too narrow -- real chaos engineering needs a
+framework that can inject faults probabilistically at runtime, not
+just in test mocks. Since they mentioned "before they hit production,"
+they need something that runs in staging with real traffic patterns.
+
+Hmm, should I use decorators or middleware? Decorators are more
+Pythonic and can target specific functions, whereas middleware only
+works at the request level. Actually, decorators make more sense
+because they can wrap any function -- database calls, HTTP clients,
+internal services -- not just request handlers.
+
 I should show practical fault injection decorators and a chaos
-experiment framework, not just theory.
+experiment framework with a kill switch, not just theory.
 </think>
 
 Chaos engineering systematically verifies error handling by injecting controlled failures. Here is a practical framework:
@@ -293,15 +310,33 @@ with chaos_experiment("test_db_failover", faults):
         "thinking/error-handling",
         r'''How do I implement fault injection for testing in Python without modifying the production code too much? I want to test error paths in unit tests and integration tests.''',
         r'''<think>
-Fault injection for testing can be done several ways:
-1. unittest.mock.patch to replace functions with ones that raise errors
+The user wants to write tests that exercise error paths. My first
+instinct is to just show unittest.mock.patch, but wait -- that only
+covers one approach, and mocking can become brittle when the internal
+implementation changes. Let me think about what actually works well.
+
+Approaches I know:
+1. unittest.mock.patch to replace functions with error-raising ones
 2. Dependency injection (pass error-raising implementations)
 3. Context managers that temporarily break things
 4. Monkey-patching at the module level
 5. Custom test fixtures
 
-The key is making error paths testable without cluttering production code.
-I should show practical patterns for pytest.
+I considered recommending dependency injection as the primary pattern
+since it is the most testable architecture. But actually, most existing
+codebases are not built with DI in mind, so the user probably has
+tightly coupled code they need to test right now. Therefore I should
+show mock.patch for the immediate fix, then show DI as the cleaner
+long-term approach.
+
+Hmm, should I use pytest fixtures or plain context managers? Since
+they are likely already using pytest (it is the de facto standard),
+pytest fixtures with yield would be the most natural fit because
+they handle setup and teardown automatically. Plain context managers
+could work too, but fixtures compose better.
+
+The key is making error paths testable without cluttering production
+code. I should show practical patterns for pytest with both approaches.
 </think>
 
 Test-time fault injection should be clean, targeted, and not require modifying production code. Here are the key patterns:
@@ -614,16 +649,33 @@ def test_error_classification(error_class, error_msg, expected_status):
         "thinking/error-handling",
         r'''How do I measure error path code coverage? I suspect many of my except blocks are never tested. How do I find and test them?''',
         r'''<think>
-Error path coverage is often much lower than happy-path coverage.
-Key techniques:
-1. Coverage.py with branch coverage enabled
-2. Finding untested except blocks
-3. Mutation testing for error handling
-4. Static analysis to find bare except blocks
-5. Systematic approach to identifying all error paths
+The user wants to find untested error paths. My first thought is just
+"run coverage.py," but wait -- standard line coverage does not tell
+you much about error handling. A line inside an except block might be
+"covered" because one test triggers it, but that does not mean every
+exception type or every failure mode is tested.
+
+Let me think about what actually reveals error-handling gaps:
+1. Coverage.py with branch coverage -- this is better than line
+   coverage because it shows whether both the try and except branches
+   were taken. But it still does not tell you if the RIGHT exception
+   was caught.
+2. Finding untested except blocks specifically
+3. Mutation testing -- this could be the most revealing approach,
+   since it actually changes error-handling code and checks if tests
+   notice. But hmm, mutation testing is slow and might be overkill
+   for a first pass.
+4. Static analysis to find bare except blocks (a code smell)
+5. Systematic enumeration of all error paths
+
+Actually, I think the best approach is layered: start with branch
+coverage to find the obvious gaps, then use AST analysis to find
+except blocks that coverage missed, and finally use mutation testing
+for the critical paths. This way you get quick wins first before
+investing in the slower, more thorough techniques.
 
 I should show how to use coverage tools specifically for error paths,
-plus how to find the gaps.
+plus custom scripts to find the gaps that coverage misses.
 </think>
 
 Most codebases have poor error path coverage because except blocks are hard to trigger in tests. Here is how to find and fix the gaps:
@@ -934,15 +986,33 @@ class TestErrorPaths:
         "thinking/error-handling",
         r'''What is property-based testing and how do I use it to find edge cases in my error handling code? I feel like my manually written test cases miss a lot of scenarios.''',
         r'''<think>
-Property-based testing (Hypothesis in Python) generates random inputs
-to find edge cases humans miss. For error handling:
-1. Generate random invalid inputs to test validation
-2. Generate random sequences of operations to test state machines
-3. Test invariants that should hold even when errors occur
+Property-based testing for error handling -- interesting. My initial
+thought is to just show basic Hypothesis examples, but wait, the user
+specifically asked about error handling. That changes things because
+most Hypothesis tutorials focus on testing correctness of happy paths
+(e.g., "sort then unsort gives original"), not on testing that errors
+are raised and handled properly.
+
+What makes error-handling property tests different:
+1. Generate random invalid inputs to test validation -- this is the
+   obvious one, but I need to think about WHAT makes inputs invalid.
+   It could be wrong types, out-of-range values, missing fields...
+2. Generate random sequences of operations to test state machines --
+   hmm, this is actually really powerful because it can find ordering
+   bugs where error recovery leaves the system in a bad state.
+3. Test invariants that should hold EVEN when errors occur -- for
+   example, "the database connection should never be left open after
+   an exception." This is the kind of thing humans forget to test.
 4. Find boundary conditions automatically
 
-I should show Hypothesis strategies for error-handling-specific testing,
-not just basic property testing.
+I considered focusing on just input validation testing since that is
+the simplest use case. But actually, the stateful testing (sequences
+of operations) is where Hypothesis really shines for error handling,
+because it can discover that "if operation A fails, then operation B
+corrupts data" -- scenarios humans rarely think to test manually.
+
+I should show Hypothesis strategies for error-handling-specific testing
+with both stateless and stateful approaches.
 </think>
 
 Property-based testing generates thousands of random inputs to find edge cases your manually written tests miss. Here is how to use it for error handling:
@@ -1229,18 +1299,36 @@ TestBankAccount = BankAccountStateMachine.TestCase
         "thinking/error-handling",
         r'''What is mutation testing and how can it verify that my error handling code actually works? I have tests that pass but I am not confident they are catching real bugs.''',
         r'''<think>
-Mutation testing modifies (mutates) the source code and checks if tests
-catch the changes. If a test suite still passes after a mutation, that
-mutation "survived" -- meaning the tests are weak at that point.
+Mutation testing for error handling -- this is a great question because
+error handling is exactly where mutation testing is most valuable. Let
+me think about why: most developers write happy-path tests, so when a
+mutant removes an except block or changes a caught exception type, the
+tests often still pass. That surviving mutant reveals a real gap.
 
-For error handling specifically:
+Could I just recommend "pip install mutmut and run it"? That would be
+too shallow. The user needs to understand what mutations matter for
+error handling specifically:
 1. Remove an except block -> tests should fail
 2. Change caught exception type -> tests should fail
 3. Remove retry logic -> tests should fail
 4. Change error message -> tests might not catch this (weak tests)
 5. Remove logging in except block -> tests probably won't catch this
 
-I should show mutmut usage and how to interpret results for error handling.
+Wait, points 4 and 5 are interesting. Should tests actually verify
+error messages and logging? I considered saying "no, that is too
+brittle," but actually for error handling, the log output IS the
+observable behavior. If an except block silently swallows an error
+without logging, that is a bug. Therefore, tests should verify that
+errors produce appropriate log output, even if they do not verify
+exact message strings.
+
+Hmm, mutmut can be very slow on large codebases since it runs the
+full test suite for each mutant. I should show how to scope it to
+just error-handling code (specific files or functions) to keep
+runtimes manageable.
+
+I should show mutmut usage, how to interpret results, and how to
+write tests that catch the surviving mutants.
 </think>
 
 Mutation testing verifies that your tests actually detect bugs by systematically breaking your code and checking if tests catch it. Here is how to use it for error handling:

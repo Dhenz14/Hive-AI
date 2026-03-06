@@ -255,11 +255,19 @@ export { renderWithProviders, createTestQueryClient };
 '''),
 
     ("react/testing_msw", r'''<think>
-MSW (Mock Service Worker) is the standard for mocking API calls in React tests. I need to show how to set up handlers, handle different scenarios (success, error, loading), and integrate with the test lifecycle. Key patterns include request handlers, response resolvers, and per-test overrides.
+MSW (Mock Service Worker) is the standard for mocking API calls in React tests. I initially considered using jest.mock to mock fetch directly, but wait - that approach mocks at the wrong layer. It bypasses your actual HTTP client code, so bugs in request construction or response parsing go undetected. MSW intercepts at the network level, which means your entire fetch pipeline runs normally.
+
+I need to show how to set up handlers, handle different scenarios (success, error, loading), and integrate with the test lifecycle. A common mistake is defining all handlers globally - hmm, that makes tests interdependent. Per-test overrides using server.use() with runtime handlers is the right approach because each test can customize responses without affecting others.
+
+Key patterns include request handlers (matching by method + path), response resolvers (returning appropriate data), and the server lifecycle (beforeAll/afterEach/afterAll). I also need to show delayed responses for testing loading states, since without explicit delay the async operations resolve synchronously in tests.
 </think>
 
 Build MSW (Mock Service Worker) integration patterns for React testing including handler setup, scenario-based mocking, per-test overrides, and testing loading/error states.''', r'''<think>
-I will create a complete MSW setup with handlers for a task management API, show how to override handlers per test, and demonstrate testing different API response scenarios including errors and loading states.
+I will create a complete MSW setup with handlers for a task management API. I considered organizing handlers in a single flat file, but actually grouping them by resource (tasks, users, etc.) is more maintainable since you can compose handler arrays for different test scenarios.
+
+For testing error states, I need to show server.use() to temporarily override the default success handler with an error response. I initially thought about using separate handler arrays for each scenario, but wait - that means duplicating the success handlers for every error test. The override approach is cleaner: define happy-path handlers as defaults, then override specific endpoints per test.
+
+For loading state tests, I need to add artificial delay with `delay()` from MSW. Without this, React Query resolves the fetch so fast that the loading state never renders in the test, making it impossible to assert on loading UI.
 </think>
 
 // mocks/handlers.ts

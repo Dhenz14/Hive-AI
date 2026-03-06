@@ -417,12 +417,13 @@ Important editing rules:
         "hive/community-posting",
         r'''How do I post to a specific Hive community? How do communities work at the protocol level?''',
         r'''<think>
-Hive communities are managed by Hivemind (the social consensus layer). At the protocol level, a community post is just a regular comment operation where:
-1. The parent_permlink is the community name (e.g., "hive-12345")
-2. The community is identified by the account name that owns it
-3. Community names follow the pattern "hive-NNNNNN" (hive- followed by digits)
+The user is asking how community posting works at the protocol level on Hive. I could be thinking of communities as a base-layer consensus feature... but wait, they are not. Communities are handled by Hivemind, which is the social consensus layer that runs alongside the blockchain but is not part of the core protocol.
 
-Hivemind indexes these posts and applies community-specific rules (muting, pinning, roles). The community operations themselves are custom_json operations with id "community".
+So how does posting to a community actually work on-chain? I initially considered whether there is a special community operation, but actually no -- it is just a regular comment operation. The trick is that you set parent_permlink to the community name. Hivemind then picks up on this and indexes the post under that community.
+
+Hmm, what format do community names follow? I was going to say they are arbitrary account names, but actually they follow a specific pattern: "hive-" followed by digits (like "hive-163521"). The digits correspond to the account ID of the community owner account. Since these are actual Hive accounts, someone had to create them, and the community metadata is stored via Hivemind operations.
+
+What about community management operations like subscribing, muting, or setting roles? Those use custom_json with the id "community". Therefore, the community system is built entirely on top of existing blockchain primitives -- comment operations for posts and custom_json for management -- without requiring any hard fork or protocol change. Hivemind interprets these operations and builds the community state that front-ends display.
 </think>
 
 Hive communities are managed by Hivemind, the social consensus layer. At the blockchain level, posting to a community means setting the parent_permlink to the community name. Here is how it works:

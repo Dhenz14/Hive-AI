@@ -1,26 +1,18 @@
 PAIRS = [
     ("thinking/algorithms", r'''Solve the Travelling Salesman Problem (TSP) using bitmask DP. Given a weighted adjacency matrix of N cities (N <= 20), find the minimum cost to visit all cities exactly once and return to the starting city. Return both the minimum cost and the optimal tour.''', r'''<think>
-The TSP problem: visit all N cities exactly once and return to start with minimum cost. Brute force would be O(N!) which is way too slow for N=20. Let me think about how to optimize.
+TSP for N up to 20 cities. Brute force tries all N! permutations -- for N=20, that is about 2.4 * 10^18 operations. Way too slow.
 
-Key insight: if I'm at city `i` and have visited a set of cities `S`, it doesn't matter *in what order* I visited the cities in S — only the set matters. This screams bitmask DP.
+I considered greedy approaches (nearest neighbor heuristic) but those do not guarantee optimality. What about branch and bound? It could work but the worst case is still factorial. Let me think about what structure we can exploit.
 
-State: dp[mask][i] = minimum cost to reach city i, having visited exactly the cities in `mask`, starting from city 0.
+Hmm, here is the key observation: if I am at city i and have visited the set of cities S, the minimum cost to complete the tour depends only on i and S, not on the order I visited cities in S. So many different orderings of the same set lead to identical subproblems. That is overlapping subproblems -- this calls for DP.
 
-Base case: dp[1][0] = 0 (we start at city 0, only city 0 visited).
+Wait, how do I represent the set S efficiently? Since N <= 20, I can use a bitmask where bit j is set if city j has been visited. That gives 2^N possible sets, and for each set there are N possible current cities, so the state space is 2^N * N.
 
-Transition: for each state (mask, i), try extending to an unvisited city j:
-  dp[mask | (1 << j)][j] = min(dp[mask | (1 << j)][j], dp[mask][i] + dist[i][j])
+State: dp[mask][i] = min cost to reach city i having visited exactly the cities in mask, starting from city 0. Base case: dp[1][0] = 0 (only city 0 visited, at city 0, cost 0). Transition: for state (mask, u), try extending to unvisited city v: dp[mask | (1<<v)][v] = min(dp[mask | (1<<v)][v], dp[mask][u] + dist[u][v]). Answer: min over all u of dp[full_mask][u] + dist[u][0].
 
-Answer: min over all i of dp[(1<<N)-1][i] + dist[i][0]
+Time: O(2^N * N^2). For N=20: 2^20 * 400 = ~400M operations. Tight but feasible. Space: O(2^N * N) which is about 20 million entries -- that fits in memory. I also need parent pointers for path reconstruction, which doubles the memory but is still fine.
 
-Time complexity: O(2^N * N^2) — for each of 2^N masks and N possible current cities, we try N transitions.
-Space complexity: O(2^N * N).
-
-For N=20: 2^20 * 20^2 = ~400 million operations. Tight but feasible with careful implementation.
-
-I also need to reconstruct the path. I'll store a parent array: parent[mask][i] = previous city.
-
-Let me be careful with initialization — use infinity for all states except the base case.
+Actually, I need to be careful with the path reconstruction. I will store parent[mask][i] = the city we came from. Then trace backwards from the best last city through the parent array, flipping bits off the mask as I go.
 </think>
 
 ## Bitmask DP Solution for TSP
@@ -160,33 +152,17 @@ The bitmask DP approach reduces the factorial state space of brute-force TSP to 
 '''),
 
     ("thinking/algorithms", r'''Implement digit DP to count how many integers in the range [1, N] have a digit sum equal to exactly S. N can be up to 10^18 and S up to 162 (since max digits is 18, max digit is 9, so 18*9=162).''', r'''<think>
-This is a classic digit DP problem. I need to count numbers from 1 to N whose digits sum to exactly S.
+Count integers in [1, N] with digit sum exactly S, where N can be up to 10^18. Brute force iteration is impossible at that scale. This is a digit DP problem.
 
-Let me think about the state:
-- Position in the number (which digit we're placing, from most significant to least)
-- Current digit sum so far
-- `tight`: whether the digits placed so far exactly match the prefix of N (constraining future digits)
-- `started`: whether we've placed a non-zero digit yet (to handle leading zeros)
+I initially thought about the state as (position, sum_so_far, tight). But wait, should I track sum_so_far or remaining_sum? Tracking remaining sum might allow better pruning -- if remaining_sum goes negative, I can cut that branch immediately. Let me use rem_sum = S - (digits placed so far), and prune when rem_sum < 0.
 
-Wait, do I need `started`? Since we're counting from 1 to N, numbers with leading zeros are just smaller numbers. Actually, digit DP typically processes the number digit by digit with a tight constraint. Leading zeros matter because "007" has digit sum 7, not 0+0+7=7 — well that's the same. So leading zeros don't affect digit sum. But I should make sure I don't count 0 itself as a valid number.
+Do I need a "started" flag to handle leading zeros? Let me think... "007" has digit sum 0+0+7 = 7, same as just "7". So leading zeros contribute 0 to the digit sum and do not change the answer. However, I need to be careful not to count the number 0 itself. If S=0, my DP would count "0" as having digit sum 0, but the problem asks for [1, N], so I should subtract 1 in that case.
 
-Approach:
-- Convert N to its digit representation
-- dp(pos, sum_so_far, tight) where:
-  - pos: current digit position (0 to len-1)
-  - sum_so_far: sum of digits placed so far
-  - tight: if True, the next digit is bounded by N's digit at this position
+Hmm, what about the tight constraint? When tight is True, the current digit is bounded by the corresponding digit of N. Once I place a digit smaller than N's digit at this position, tight becomes False for all subsequent positions and I can place any digit 0-9. This is standard digit DP.
 
-Base case: when pos == len(digits), return 1 if sum_so_far == S else 0.
+The state space is: positions (up to 18) times remaining sum (up to 162) times tight (2 values) = 18 * 163 * 2 = 5,868 states. Each state tries up to 10 digits. That is roughly 58,000 operations total -- essentially instant even for N = 10^18. I can use lru_cache for memoization.
 
-At each position, the upper bound for the digit is digits[pos] if tight, else 9.
-
-Time: O(D * S * 2) where D = number of digits (up to 18). Each state has at most 10 transitions.
-So roughly 18 * 162 * 2 * 10 ≈ 58,000 operations. Very fast.
-
-I'll use memoization with functools.lru_cache.
-
-One subtlety: I need to exclude 0 from the count. Since digit sum of 0 is 0, and S >= 1 typically, this is usually fine. But if S=0, the answer should be 0 (since we count from 1 to N). I'll handle that edge case.
+One more optimization: at each position, if the digit d exceeds rem_sum, I can break early since larger digits will only make it worse. This prunes unnecessary branches.
 </think>
 
 ## Digit DP: Count Numbers with Exact Digit Sum
@@ -312,26 +288,17 @@ if __name__ == "__main__":
 '''),
 
     ("thinking/algorithms", r'''Solve the "Burst Balloons" problem using interval DP. Given an array of N balloons with values nums[0..N-1], bursting balloon i earns nums[i-1] * nums[i] * nums[i+1] coins (treating out-of-bounds as 1). Find the maximum coins obtainable by bursting all balloons. (LeetCode 312)''', r'''<think>
-Burst Balloons — this is a tricky DP problem. Let me think carefully.
+Burst Balloons -- tricky DP problem. Let me think about the subproblem structure carefully.
 
-If I burst balloon i first, the subproblems on the left and right are NOT independent because the boundaries change. This is the key difficulty.
+My first instinct is to define the state by which balloon to burst first. If I burst balloon i first, I earn nums[i-1] * nums[i] * nums[i+1], and then the left and right subarrays remain. But wait -- after bursting balloon i, the left and right subarrays become adjacent. So the coins from bursting balloons in the left subarray depend on what remains in the right subarray, and vice versa. The subproblems are NOT independent. This "burst first" approach leads to a tangled dependency mess.
 
-Wrong approach: thinking about which balloon to burst first. The subproblems overlap in a messy way.
+Hmm, what if I flip the perspective? Instead of which to burst first, think about which to burst LAST in a given interval. If balloon k is the last one burst in interval (i, j), then when k is finally burst, all other balloons in (i, j) are already gone. The only neighbors of k at that point are the boundary elements i and j. So the coins are nums[i] * nums[k] * nums[j], and the subproblems dp[i][k] and dp[k][j] are completely independent because they do not interact.
 
-Correct approach: think about which balloon to burst LAST in a given interval. If balloon k is the last one burst in interval (i, j), then when we burst k, the only remaining balloons adjacent to it are i and j (which are boundaries, not part of the interval). So the coins from bursting k last = nums[i] * nums[k] * nums[j].
+Actually, I need to be precise about the interval definition. Let me pad the array: nums = [1] + original + [1]. Then dp[i][j] = max coins from bursting all balloons strictly between indices i and j (exclusive endpoints). The boundaries i and j are never burst -- they just provide the multiplier values.
 
-Let me redefine: pad the array with 1s on both sides. So nums = [1] + original + [1]. Now we want to burst all balloons in (0, n+1) exclusive.
+Base case: when j - i <= 1, there are no balloons between i and j, so dp[i][j] = 0. Transition: for each k in (i+1, ..., j-1), dp[i][j] = max(dp[i][k] + nums[i]*nums[k]*nums[j] + dp[k][j]). I iterate by increasing interval length so smaller intervals are solved first.
 
-dp[i][j] = max coins from bursting all balloons strictly between i and j.
-
-For each k in (i+1, ..., j-1), if k is the last balloon burst:
-  dp[i][j] = max(dp[i][k] + nums[i]*nums[k]*nums[j] + dp[k][j])
-
-Base case: dp[i][j] = 0 when j - i <= 1 (no balloons between i and j).
-
-We iterate by interval length from small to large.
-
-Time: O(N^3), Space: O(N^2).
+Time: O(N^3), Space: O(N^2). For N up to 500, this is about 125 million operations, which is feasible.
 </think>
 
 ## Interval DP: Burst Balloons
@@ -428,25 +395,15 @@ If we think about bursting first, the left and right subarrays share a changing 
 '''),
 
     ("thinking/algorithms", r'''Implement DP on trees to solve the Maximum Independent Set problem: given a tree of N nodes where each node has a weight, find the maximum total weight of a set of nodes such that no two selected nodes are adjacent (connected by an edge).''', r'''<think>
-Maximum Independent Set on a general graph is NP-hard, but on trees it can be solved in O(N) with DP.
+Maximum Independent Set (MIS) -- find a subset of non-adjacent nodes with maximum total weight. On a general graph this is NP-hard, so brute force or approximation is needed. But wait, the input is specifically a tree, which has special structure: no cycles. That means we can decompose the problem with tree DP.
 
-Root the tree at any node (say node 0). For each node u, define:
-- dp[u][0] = max weight of independent set in u's subtree when u is NOT selected
-- dp[u][1] = max weight of independent set in u's subtree when u IS selected
+I considered a greedy approach: always pick the highest-weight unselected node, then remove it and its neighbors. But this does not guarantee optimality. For example, a star graph with center weight 10 and four leaf weights of 3 each: greedy picks the center (10) but the optimal is all four leaves (12).
 
-Transitions:
-- dp[u][1] = weight[u] + sum(dp[child][0] for child in children[u])
-  (if u is selected, no child can be selected)
-- dp[u][0] = sum(max(dp[child][0], dp[child][1]) for child in children[u])
-  (if u is not selected, each child can independently be selected or not)
+The correct approach is DP on the rooted tree. For each node u, define two states: dp[u][0] = max weight when u is NOT selected, dp[u][1] = max weight when u IS selected. If u is selected, none of its children can be selected (independence constraint), so dp[u][1] = weight[u] + sum(dp[child][0]). If u is not selected, each child independently chooses whichever is better, so dp[u][0] = sum(max(dp[child][0], dp[child][1])).
 
-Answer: max(dp[root][0], dp[root][1])
+Hmm, I need to process children before parents (post-order traversal). Recursive DFS would work but could stack overflow for N up to 100K+. Let me use an iterative approach: BFS/stack to build the order, then process nodes in reverse (children first).
 
-Time: O(N), Space: O(N).
-
-I should use iterative DFS to avoid stack overflow for large N. Let me implement with a post-order traversal using a stack.
-
-I also need to reconstruct the actual set. I'll do a second pass from root downward.
+For reconstruction, I will do a top-down pass: at the root, choose selected or not based on which dp value is higher. Then for each node, if it is selected, all children must be unselected. If it is not selected, each child independently picks its better option. This gives O(N) total time.
 </think>
 
 ## Tree DP: Maximum Weight Independent Set
@@ -592,39 +549,19 @@ By rooting the tree, each node's subtree is an independent subproblem once we fi
 '''),
 
     ("thinking/algorithms", r'''Implement broken profile DP (also called profile DP or plug DP) to count the number of ways to tile a W x H grid with 1x2 dominoes. W is small (up to 12) and H can be large (up to 10^9 — use matrix exponentiation for very large H).''', r"""<think>
-Profile DP for domino tiling. The idea: process the grid row by row (or column by column), and the "profile" is the bitmask of the boundary between the current row and the next.
+Domino tiling of a W x H grid. Each 1x2 domino covers exactly 2 adjacent cells. I need to count the number of ways to tile the entire grid.
 
-Let me think carefully. We place dominoes on a W x H grid. Each domino covers exactly 2 adjacent cells.
+My first thought was to use a recursive backtracking approach, placing dominoes one at a time. But that would be exponentially slow for large grids. Could I use a formula? There is a closed-form involving a product of cosines for rectangular grids, but it is numerically unstable and does not generalize to grids with obstacles.
 
-Standard approach for moderate H:
-- Process cell by cell, left to right, top to bottom.
-- The profile (bitmask of width W) indicates which cells in the current "frontier" are already occupied by vertical dominoes placed from the previous row.
-- For each cell, if it's already filled (bit set), skip it. If not, we can:
-  1. Place a vertical domino (fills this cell and the cell below → set bit for next row)
-  2. Place a horizontal domino (fills this cell and the one to the right → requires the right cell to also be free)
+Let me think about DP instead. The key idea in profile DP is to process the grid row by row and track the "boundary" between filled and unfilled regions. But what exactly is the profile? I initially considered tracking the exact positions of all placed dominoes, but that is way too much state.
 
-Actually, let me use a row-by-row transition approach, which is cleaner and also amenable to matrix exponentiation.
+Wait -- actually the profile only needs to encode which cells in the current row are already filled by vertical dominoes extending from the previous row. That is a bitmask of W bits. A set bit means "this cell is already occupied from above." For each row, I need to fill all remaining cells using either horizontal dominoes (within the row) or vertical dominoes (extending into the next row, which sets bits in the output profile).
 
-State: bitmask of W bits representing which cells in the current row "protrude" into the next row (from vertical dominoes).
+Hmm, should I process cell by cell or row by row? Cell-by-cell is more intuitive but row-by-row is cleaner for the transition. For the row transition: given an input profile mask_in, I recursively process columns left to right. If bit j is set in mask_in, the cell is already filled, so I skip to j+1. Otherwise, I can either place a vertical domino (setting bit j in mask_out) or a horizontal domino (requiring bit j+1 in mask_in to be 0 as well, and advancing to j+2).
 
-Transition from row i to row i+1: given input profile `mask_in` (cells already filled in row i+1 due to vertical dominoes from row i), generate all valid ways to fill row i+1 completely, producing output profile `mask_out` (cells protruding into row i+2).
+For large H with small W, the transition between profiles is a fixed linear map -- I could build a 2^W x 2^W matrix and use matrix exponentiation to compute the result in O(2^(3W) * log H). But 2^12 = 4096 would make the matrix 4096x4096, which is about 64 billion operations per multiplication. That is only practical for W <= 8-10. For direct DP with moderate H (up to ~1000), O(H * 2^W * W) works fine.
 
-This transition can be computed via recursive backtracking across columns.
-
-For H up to ~1000, direct DP is fine: O(H * 2^W * W).
-For H up to 10^9, compute the 2^W x 2^W transition matrix and use matrix exponentiation: O(2^(3W) * log H).
-
-With W <= 12, 2^12 = 4096, matrix is 4096 x 4096 — that's 64 billion ops for multiplication. Too slow. So practically W <= 8-10 for matrix exponentiation.
-
-Let me implement both approaches: direct DP for moderate H, and note the matrix exponentiation path.
-
-For the recursive fill of a single row transition:
-- Process columns left to right
-- At column j with profiles (in_mask, out_mask):
-  - If in_mask bit j is set: cell already filled, move to j+1
-  - Else:
-    a) Place vertical domino: set out_mask bit j, move to j+1
-    b) Place horizontal domino: requires bit j+1 of in_mask to be 0, fill both cells, move to j+2
+One important base case: if W*H is odd, the answer is 0 since each domino covers exactly 2 cells and an odd total cannot be fully covered.
 </think>
 
 ## Broken Profile DP: Domino Tiling

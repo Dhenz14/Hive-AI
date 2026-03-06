@@ -1,29 +1,20 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement the KMP (Knuth-Morris-Pratt) pattern matching algorithm. Given a text string and a pattern string, find all occurrences of the pattern in the text. Return the starting indices of all matches.''', r'''<think>
-KMP improves on naive string matching by using information from partial matches to skip unnecessary comparisons.
+KMP improves on naive string matching by using information from partial matches. My first instinct is to think about hashing -- could be a Rabin-Karp approach... but wait, the problem specifically asks for KMP, and besides, hashing has worst-case O(N*M) due to collisions. KMP guarantees linear time because it never backtracks the text pointer.
 
-The key is the "failure function" (also called prefix function or partial match table). For each position i in the pattern, it tells us the length of the longest proper prefix of pattern[0..i] that is also a suffix.
+The key idea is the "failure function" (also called prefix function or partial match table). For each position i in the pattern, it tells us the length of the longest proper prefix of pattern[0..i] that is also a suffix. I considered just storing the full suffix matches, but actually that would be redundant -- the longest proper prefix-suffix is all we need, since shorter ones can be found by chaining: fail[fail[i]-1] and so on.
 
-Naive approach: O(N*M) where N = len(text), M = len(pattern).
-KMP: O(N+M) by never re-examining characters in the text.
+Hmm, how do we build the failure function efficiently? I initially thought we need nested loops comparing all prefixes and suffixes, giving O(M^2). But wait -- we can reuse the failure function itself during construction. When extending from position i-1 to i, if there is a mismatch at length k, we fall back to fail[k-1] and try again. This is essentially the same trick as the search phase. Therefore the construction is O(M) amortized, since k can increase at most M times total across all iterations.
 
-Building the failure function:
-- fail[0] = 0 (no proper prefix/suffix for single char)
-- For i from 1 to M-1: use the previous failure values to find the longest matching prefix-suffix
-
-Matching:
-- Maintain pointer j into the pattern
-- For each character in text, if mismatch, use fail[] to jump j back without moving the text pointer back
-
-Let me trace through an example to make sure I get it right:
+Let me trace through an example to verify my understanding:
 Pattern: "ABABC"
 fail = [0, 0, 1, 2, 0]
 
-At position 2 ('A'), the prefix "A" matches suffix "A" → fail[2] = 1
-At position 3 ('B'), the prefix "AB" matches suffix "AB" → fail[3] = 2
-At position 4 ('C'), no match → fail[4] = 0
+At position 2 ('A'), the prefix "A" matches suffix "A" so fail[2] = 1.
+At position 3 ('B'), we check: pattern[fail[2]] = pattern[1] = 'B' matches pattern[3] = 'B', so fail[3] = fail[2]+1 = 2.
+At position 4 ('C'), pattern[2] = 'A' != 'C', fall back to fail[1] = 0, pattern[0] = 'A' != 'C', so fail[4] = 0.
 
-This looks correct. Let me implement it.
+That checks out. The matching phase works the same way -- when we see a mismatch at position j in the pattern, we jump to fail[j-1] instead of restarting from 0, because everything before that point is already known to match. This is why the text pointer never moves backward, giving O(N) for the search and O(N+M) overall.
 </think>
 
 ## KMP Pattern Matching Algorithm
@@ -141,30 +132,22 @@ For pattern "ABABC":
 
 ### Complexity
 - **Preprocessing:** O(M) to build the failure function
-- **Matching:** O(N) — each character of text is examined at most twice (once when `i` advances, once when `j` falls back)
+- **Matching:** O(N) -- each character of text is examined at most twice (once when `i` advances, once when `j` falls back)
 - **Total:** O(N + M) time, O(M) space
 '''),
 
     ("thinking/algorithms", r'''Implement the Rabin-Karp algorithm for string matching using rolling hash. Support finding all occurrences of a pattern in a text. Handle hash collisions properly by verifying matches.''', r'''<think>
-Rabin-Karp uses hashing to quickly filter candidate positions. The rolling hash allows us to compute the hash of each window in O(1) amortized time.
+Rabin-Karp uses hashing to filter candidate positions. Could I just use Python's built-in `str.find` in a loop? Well, that would work for finding matches, but the whole point here is demonstrating the rolling hash technique, which is especially powerful for multi-pattern search.
 
-Key idea:
-- Compute hash of pattern
-- Slide a window of length M across the text, maintaining a rolling hash
-- When hashes match, verify the actual strings (to handle collisions)
+My first thought for the hash function was something simple like summing character codes. But wait -- that would produce tons of collisions since "ab" and "ba" would hash the same. I need a position-sensitive hash, so a polynomial hash makes sense: hash(s[0..M-1]) = s[0]*base^(M-1) + s[1]*base^(M-2) + ... + s[M-1].
 
-Rolling hash formula (polynomial hash):
-  hash(s[0..M-1]) = s[0]*base^(M-1) + s[1]*base^(M-2) + ... + s[M-1]
-
-Rolling update when sliding window from position i to i+1:
+The rolling update is the clever part. When we slide the window from position i to i+1:
   new_hash = (old_hash - s[i]*base^(M-1)) * base + s[i+M]
+This subtracts the outgoing character's contribution and adds the incoming one, all in O(1).
 
-All arithmetic done modulo a large prime to prevent overflow.
+I considered using double hashing (two different mod values) to reduce collision probability. Actually, for this implementation a single large prime mod should suffice -- because even when hashes match, we verify character-by-character. Double hashing would only help reduce the number of false-positive verifications, which matters mainly when the expected number of collisions is high (like adversarial inputs).
 
-Expected time: O(N + M) average case, O(N*M) worst case (many hash collisions).
-To reduce collisions, I can use double hashing (two different mod values).
-
-Let me use a single large prime for simplicity, with character-by-character verification on match.
+Hmm, one subtlety: the rolling hash subtraction can produce negative values in modular arithmetic. Since Python's modulo handles negatives correctly (unlike C/Java), this should be fine, but I will add an explicit check just to be safe. Therefore the expected time is O(N + M) on average, degrading to O(N*M) only in the pathological case where nearly every position triggers a hash collision and a full verification.
 </think>
 
 ## Rabin-Karp Rolling Hash String Matching
@@ -301,7 +284,7 @@ if __name__ == "__main__":
 ```
 
 ### Complexity
-- **Expected time:** O(N + M) per pattern — hash comparisons are O(1), verification happens only on true matches (or rare collisions)
+- **Expected time:** O(N + M) per pattern -- hash comparisons are O(1), verification happens only on true matches (or rare collisions)
 - **Worst case:** O(N * M) if every position triggers a false positive (extremely unlikely with good hash)
 - **Multi-pattern:** O(N * L + sum(M_i)) where L is the number of distinct pattern lengths
 
@@ -310,17 +293,13 @@ The hash slides like a window: subtract the contribution of the outgoing charact
 '''),
 
     ("thinking/algorithms", r'''Implement the Z-algorithm for string matching. Given a string, compute the Z-array where Z[i] is the length of the longest substring starting at position i that matches a prefix of the string. Then use it to find all occurrences of a pattern in a text.''', r'''<think>
-The Z-algorithm computes the Z-array in O(N) time. Z[i] = length of the longest substring starting at i that matches a prefix of the string.
+The Z-algorithm computes an array where Z[i] = length of the longest substring starting at i that matches a prefix of the string. At first I thought this might require O(N^2) work since each Z[i] could involve comparing up to N characters. But actually the clever part is maintaining a window [L, R) -- the rightmost Z-box found so far.
 
-The trick is maintaining a window [L, R) which is the rightmost Z-box found so far (a substring that matches a prefix). For a new position i:
-- If i < R, we already know something: Z[i] >= min(Z[i-L], R-i). We use this as a starting point.
-- Then extend naively from that point.
+For a new position i, if i < R, we already have useful information: the substring s[i..R-1] is identical to s[i-L..R-L-1] because it falls inside a known Z-box. So Z[i] >= min(Z[i-L], R-i). I initially confused myself about why we take the min here -- could Z[i] be larger than Z[i-L]? Hmm, yes it could, but only if Z[i-L] >= R-i, meaning the match at position i-L extended to the boundary of the Z-box. In that case we only know Z[i] >= R-i and must extend character-by-character beyond R. If Z[i-L] < R-i, then we know the match at i cannot extend further (since the Z-box interior is an exact copy of the prefix), so Z[i] = Z[i-L] exactly. That distinction is what keeps the algorithm O(N) -- R only moves forward, never backward.
 
-For pattern matching: concatenate pattern + "$" + text (where "$" doesn't appear in either), compute Z-array. Any position where Z[i] == len(pattern) is a match.
+For pattern matching, we concatenate pattern + "$" + text and compute the Z-array on the combined string. Any position where Z[i] == len(pattern) indicates a match. The "$" separator is crucial because it prevents Z-values from "leaking" across the boundary. Actually, any character not in the pattern or text would work -- "$" is just conventional.
 
-Time: O(N + M), Space: O(N + M).
-
-Let me implement this carefully. The key invariant is that [L, R) is the Z-box with the rightmost endpoint R.
+Wait, what about Z[0]? By convention Z[0] = N (the whole string matches its own prefix), though some definitions set it to 0 since it is trivially the entire string. I will set Z[0] = N to keep the implementation clean. Therefore the total time is O(N + M) and space is O(N + M) for the concatenated string and Z-array.
 </think>
 
 ## Z-Algorithm for String Matching
@@ -436,7 +415,7 @@ if __name__ == "__main__":
 
 ### How the Z-box Window Works
 
-The algorithm maintains a window `[l, r)` — the rightmost interval where `s[l..r-1] == s[0..r-l-1]`. When computing `Z[i]`:
+The algorithm maintains a window `[l, r)` -- the rightmost interval where `s[l..r-1] == s[0..r-l-1]`. When computing `Z[i]`:
 
 1. **If `i >= r`:** No prior information; extend naively from `i`.
 2. **If `i < r`:** Position `i` corresponds to position `i - l` within the known prefix match. So `Z[i] >= min(Z[i-l], r-i)`. If `Z[i-l] < r-i`, we're done. Otherwise, extend past `r`.
@@ -449,22 +428,13 @@ This guarantees each character is compared at most twice (once when extending, o
 '''),
 
     ("thinking/algorithms", r'''Build a suffix array for a given string in O(N log^2 N) time using the prefix-doubling technique. Also implement an O(N) LCP (Longest Common Prefix) array construction using Kasai's algorithm. Demonstrate using the suffix array for pattern matching.''', r'''<think>
-Suffix array: an array of indices that gives the suffixes in sorted order. Building it naively is O(N^2 log N) due to comparison cost. The prefix-doubling (also called "DC3 light" or "rank-and-sort") approach achieves O(N log^2 N) or O(N log N) with radix sort.
+A suffix array gives all suffixes in sorted order. My first thought was to just sort all N suffixes directly, but each comparison takes O(N) in the worst case, giving O(N^2 log N) total. That is too slow for large strings. Could I use a trie instead? A suffix trie would work but takes O(N^2) space, which is also problematic.
 
-Prefix doubling approach:
-1. Start by ranking suffixes by their first character.
-2. In each step, double the comparison length: sort by (rank[i], rank[i+k]) where k doubles each iteration.
-3. After O(log N) rounds, all suffixes are fully sorted.
+The prefix-doubling approach is the sweet spot. The idea is: in round k, sort suffixes by their first 2^k characters. Since we already have the ranking from round k-1 (which sorts by the first 2^(k-1) characters), each suffix's sort key in round k is just a pair: (rank[i], rank[i + 2^(k-1)]). After O(log N) rounds, all suffixes are fully sorted. Using Python's Timsort for each round gives O(N log N) per round times O(log N) rounds = O(N log^2 N). I considered implementing radix sort to bring it down to O(N log N), but actually Timsort is fast enough in practice and much simpler.
 
-Using Python's built-in sort (Timsort) for each round gives O(N log N) per round × O(log N) rounds = O(N log^2 N).
+For Kasai's LCP algorithm, I initially thought we need to compare each pair of adjacent suffixes in the SA from scratch. But wait -- there is a beautiful invariant: if the LCP between suffix i and its predecessor in sorted order is h, then the LCP between suffix i+1 and its predecessor is at least h-1. Why? Because removing the first character of both suffixes preserves h-1 characters of their common prefix. Therefore we process suffixes in text order (not rank order), and the variable h decreases by at most 1 per step. Since each character comparison increases h by 1, and h drops by at most N total, the total comparisons are at most 2N. That is why Kasai's algorithm is O(N).
 
-Kasai's algorithm for LCP array:
-- Once we have the suffix array (sa) and its inverse (rank), compute LCP between consecutive suffixes in SA.
-- Key insight: if we know LCP(sa[rank[i]-1], sa[rank[i]]) = h, then LCP(sa[rank[i+1]-1], sa[rank[i+1]]) >= h-1.
-- Process suffixes in order of their position in the string, not their rank.
-- Time: O(N) because h decreases by at most 1 per step but increases by amortized O(1).
-
-Pattern matching with suffix array: binary search for the pattern. O(M log N) where M = pattern length.
+Hmm, one subtlety in the binary search for pattern matching: we compare the pattern against a suffix truncated to length M. I need to be careful that the binary search correctly finds the range of suffixes that start with the pattern, rather than just exact matches. Actually, the standard approach works because Python string comparison of a prefix naturally handles this when we slice to length M.
 </think>
 
 ## Suffix Array with Prefix Doubling + Kasai's LCP
@@ -639,7 +609,7 @@ if __name__ == "__main__":
 
 ### Complexity
 - **Suffix Array Construction:** O(N log^2 N) with comparison sort; O(N log N) with radix sort
-- **LCP Array (Kasai):** O(N) — the variable `h` increases at most N times total and decreases by at most 1 per step
+- **LCP Array (Kasai):** O(N) -- the variable `h` increases at most N times total and decreases by at most 1 per step
 - **Pattern Search:** O(M log N) via binary search on the suffix array
 
 ### Why Kasai's Algorithm is O(N)
@@ -647,22 +617,15 @@ The key invariant: if `LCP(rank[i]-1, rank[i]) = h`, then `LCP(rank[i+1]-1, rank
 '''),
 
     ("thinking/algorithms", r'''Implement the Aho-Corasick algorithm for multi-pattern string search. Given a set of pattern strings, build an automaton that can find all occurrences of all patterns in a text in O(N + M + Z) time where N = text length, M = total pattern length, and Z = number of matches.''', r'''<think>
-Aho-Corasick is like KMP generalized to multiple patterns. It builds a trie of all patterns, then adds "failure links" (similar to KMP's failure function) and "output links" to efficiently find all matches in a single pass over the text.
+I need to find all occurrences of multiple patterns in a text simultaneously. Could I just run KMP once per pattern? That would give O(K * (N + M_i)) where K is the number of patterns, which could be very slow if there are thousands of patterns. Aho-Corasick solves this by combining all patterns into a single automaton.
 
-Steps:
-1. Build a trie from all patterns.
-2. Compute failure links using BFS from root. The failure link of node u points to the longest proper suffix of the string represented by u that is also a prefix of some pattern in the trie.
-3. Compute output links: for each node, the output link points to the nearest ancestor (via failure links) that is an accepting state.
-4. Search: walk the automaton character by character over the text. At each position, follow output links to report all matching patterns.
+The core idea is to build a trie of all patterns and then add "failure links" -- similar to KMP's failure function but generalized to a trie structure. The failure link of node u points to the longest proper suffix of the string represented by u that is also a prefix of some path in the trie. I considered whether a simple parent pointer would suffice, but no -- the failure link might jump to a completely different branch of the trie, which is what gives the algorithm its power.
 
-Data structure: I'll use a dictionary-based trie for clarity. Each node has:
-- children: dict[char, node_id]
-- fail: failure link
-- output: list of pattern indices that end at this node
-- dict_suffix_link: link to nearest accepting ancestor via fail links
+Hmm, building the failure links requires careful ordering. I initially thought a DFS would work, but actually BFS (level-order) is essential here. Why? Because when computing the failure link for a node at depth d, we need all failure links at depth d-1 to already be computed. BFS naturally processes nodes in increasing depth order, so each node's failure link target (which is at a strictly smaller depth) is guaranteed to be ready.
 
-Time to build: O(M * alphabet_size) for BFS, but with dict-based children it's O(M).
-Time to search: O(N + Z) where Z is the total number of pattern occurrences.
+There is also the "dictionary suffix link" (or output link). At first I thought we could just check the output list at each node during search. But wait -- a node might not be an accepting state itself, yet its failure chain might pass through an accepting node. Without dictionary suffix links, we would have to walk the entire failure chain at every text position, which could be O(M) per position in the worst case. The dictionary suffix link shortcuts this by pointing directly to the nearest accepting ancestor via failure links. Therefore collecting all matches at each position takes O(1) amortized per match reported, giving O(N + Z) total search time where Z is the number of matches.
+
+For the data structure, I will use dictionary-based children rather than fixed-size arrays. This keeps space proportional to the total pattern length O(M) rather than O(M * alphabet_size).
 </think>
 
 ## Aho-Corasick Multi-Pattern Search
@@ -817,7 +780,7 @@ if __name__ == "__main__":
 
 ### Architecture
 1. **Trie (goto function):** Standard trie of all patterns.
-2. **Failure links:** Like KMP generalized — when a character doesn't match, follow the failure link to the longest suffix that is a trie prefix.
+2. **Failure links:** Like KMP generalized -- when a character doesn't match, follow the failure link to the longest suffix that is a trie prefix.
 3. **Dictionary suffix links:** Shortcut to the nearest accepting ancestor via failure links, ensuring we report all matching patterns in O(1) amortized per match rather than traversing the entire fail chain.
 '''),
 ]

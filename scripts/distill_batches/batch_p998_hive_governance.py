@@ -5,16 +5,21 @@ PAIRS = [
         "hive/dhf-proposal-creation",
         r'''How do I create a DHF (Decentralized Hive Fund) proposal on Hive? Show the complete process including the creation fee and post requirement.''',
         r'''<think>
-The DHF (Decentralized Hive Fund), also known as the Hive Proposal System (HPS) or Hive DAO, allows anyone to request funding from the community treasury. The process involves:
+The user is asking about DHF proposals on Hive. I initially thought this could be a simple transfer operation with some metadata... but wait, the DHF is its own dedicated system with a specific on-chain operation type. Let me think through the actual workflow.
 
+The DHF (Decentralized Hive Fund), also known as the Hive Proposal System (HPS) or Hive DAO, allows anyone to request funding from the community treasury. I considered whether you could just submit a proposal directly with all details inline, but actually that is not how it works -- the proposal operation itself only references a permlink. Therefore you need a published post first, since the chain stores the proposal metadata separately from the full description.
+
+The process involves:
 1. Write a proposal post explaining your project
-2. Broadcast a create_proposal operation (costs 10 HBD + 1 HBD fee)
+2. Broadcast a create_proposal operation -- hmm, what is the fee here? I recall seeing 10 HBD somewhere, but could be higher now. Actually checking the chain constants, it is 10 HBD burned plus 1 HBD additional fee, so 11 HBD total commitment.
 3. Community votes on your proposal
 4. If your proposal has more votes than the "return proposal", it gets funded daily
 
+Wait, the receiver field is interesting -- I almost assumed it must match the creator, but actually the receiver can be a different account entirely. This matters because a project lead could create the proposal while funds go to a multisig or team account.
+
 Key parameters:
 - creator: who creates the proposal
-- receiver: who receives the funds (can be different from creator)
+- receiver: who receives the funds (can be different from creator, since the system separates authorship from payment)
 - start_date / end_date: funding period
 - daily_pay: how much HBD per day
 - subject: title shown in proposal listings

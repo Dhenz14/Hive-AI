@@ -99,35 +99,19 @@ export async function POST(request) {
 ```''', r'''<think>
 Let me review this Next.js App Router code.
 
-1. SSR data fetching issues:
-- ProductsPage: The `sort` parameter from searchParams is passed directly to Prisma's orderBy. An attacker can set sort=password or any other column, potentially exposing data order based on sensitive fields. Also, invalid column names will cause a Prisma error.
-- page parameter: parseInt(searchParams.page) could be negative or very large. No bounds checking.
+Starting with the ProductsPage data fetching. The sort parameter from searchParams is passed directly to Prisma's orderBy as { [sort]: 'asc' }. Could Prisma validate this automatically? Hmm, actually Prisma will throw an error for invalid columns, but the bigger issue is that an attacker can set sort=password or sort=internalNotes to order results by sensitive fields, leaking information through the ordering. This is an information disclosure vulnerability, not just an error case.
 
-2. Over-fetching:
-- ProductsPage includes reviews, seller, and categories for every product on the listing page. The product card probably only needs name, price, and image. Including reviews for 20 products (each with potentially hundreds of reviews) is a massive over-fetch.
-- ProductPage includes relatedProducts which may recursively include their own relations.
+The page parameter uses parseInt(searchParams.page) || 1. I initially thought the || 1 fallback handles edge cases, but actually parseInt("0") returns 0, which is falsy, so page becomes 1 instead of 0. More importantly, there is no upper bound -- page=999999 would generate a huge offset.
 
-3. Sequential queries:
-- ProductsPage makes two sequential queries (findMany then count). These could run in parallel with Promise.all.
-- ProductPage has three sequential queries: findUnique, getCurrentUser, and update. All independent and can be parallelized.
+Over-fetching is significant here. ProductsPage includes reviews, seller, and categories for every product. I considered whether this might be needed for the product cards, but wait -- a product card almost certainly only shows name, price, and maybe an image. Including all reviews for 20 products (each potentially having hundreds of reviews) is a massive over-fetch. That could be megabytes of data for a listing page. ProductPage also includes relatedProducts which could recursively include their own relations, creating a data explosion.
 
-4. Write operation in SSR:
-- ProductPage does a Prisma update (increment viewCount) during server-side rendering. This means:
-  - Every crawler bot increments the view count
-  - If the page is cached/static, the view count is not actually updated on every visit
-  - Write operations during rendering can cause issues with caching and revalidation
+Sequential queries: ProductsPage runs findMany then count sequentially. These are independent and could run in parallel with Promise.all. Same for ProductPage which has three sequential independent queries: findUnique, getCurrentUser, and the view count update.
 
-5. API route issues:
-- GET handler: No pagination on the search query. Returns ALL matching products.
-- POST handler: No authentication. Anyone can create products. No validation on the data.
-- POST uses `data` directly from request body, passing it straight to Prisma create. This is mass assignment -- attacker can set any field including id, createdAt, or admin flags.
+Wait, the view count update is a write operation during server-side rendering! This means every crawler bot increments the view count. And if the page is cached or prerendered, the increment may be skipped on real visits. Write operations during rendering also make the page uncacheable. This should be moved to a client-side API call.
 
-6. No error handling:
-- No try-catch on any database query. A Prisma error (invalid column, connection issue) returns a 500 error page.
-- No null check on product in ProductPage. If the product does not exist, product.name crashes.
+API route issues: the POST handler has no authentication and passes request body data directly to prisma.product.create({ data }). This is mass assignment -- an attacker can set any field including id, createdAt, or admin flags. The GET handler returns ALL matching products with no pagination.
 
-7. Caching:
-- No caching configuration. ProductsPage runs a database query on every request. For high-traffic pages, this creates unnecessary database load.
+No error handling anywhere: no try-catch on database queries, and no null check on product in ProductPage. If the product does not exist, product.name crashes with a TypeError instead of showing a 404 page.
 
 Let me write the review.
 </think>
@@ -341,28 +325,19 @@ export default function UserTable({ users }) {
 ```''', r'''<think>
 Let me review this Next.js admin panel code.
 
-1. Password in user data:
-- AdminUsersPage selects `password: true` from the database. This sends hashed passwords to the client component UserTable via server component props. Even though UserTable does not display the password, the data is serialized to the client in the RSC payload, visible in the network tab.
+First thing I notice in AdminUsersPage: the Prisma query selects password: true. Could this be safe since it is a server component? Hmm, actually no -- the data is passed as props to UserTable, which is a client component ('use client'). Even though UserTable does not render the password column, the data is serialized into the React Server Components payload and is visible in the browser's network tab. So hashed passwords are leaked to every admin who opens this page.
 
-2. Middleware authentication is weak:
-- The middleware only checks if the auth-token cookie EXISTS, not if it is valid. An attacker can set any value for auth-token and pass the middleware check.
-- The actual JWT verification happens in the layout. But middleware lets requests through with invalid tokens, potentially allowing access to API routes that do not have their own auth checks.
+Middleware authentication: it checks if the auth-token cookie EXISTS but not if its value is valid. I initially thought this was just a preliminary check before the layout does the real verification, but wait -- API routes under /api/admin/ are also protected only by this cookie-exists check. An attacker can set auth-token=anything and access admin API endpoints that do not have their own auth.
 
-3. JWT verification without error handling:
-- jwt.verify(token, process.env.JWT_SECRET) throws if the token is expired, malformed, or the signature is invalid. This error is not caught, causing the admin layout to crash with a 500 error instead of redirecting to login.
+JWT verification in the layout: jwt.verify(token, process.env.JWT_SECRET) throws an exception if the token is expired, malformed, or has an invalid signature. There is no try-catch wrapping this call. I considered whether Next.js might handle the error gracefully, but actually it will crash the entire admin layout with a 500 error page instead of redirecting to login. This is a terrible user experience for expired tokens.
 
-4. Security headers:
-- The middleware sets a custom header on ALL requests (the matcher is very broad). But it does not set security headers like CSP, X-Frame-Options, etc.
+The auth duplication between middleware and layout is confusing. Middleware does a weak check (cookie exists), layout does a strong check (JWT verified). But if middleware is bypassed due to a misconfigured matcher, unauthenticated requests reach the layout. And if a new admin page forgets to use AdminLayout, it only has the weak middleware check.
 
-5. Client-side delete without server revalidation:
-- deleteUser makes a DELETE request but only updates local state. The server-side data (from the server component) is now stale. On page refresh, the deleted user may reappear if the server data is cached.
-- No confirmation before delete. No error handling.
+Client-side delete: deleteUser makes a DELETE request and removes the user from local state with setSortedUsers. But the server component's data is now stale. On page refresh or navigation, the deleted user may reappear because the server data is cached. Should call router.refresh() to revalidate. Also, there is no confirmation dialog and no error handling -- what if the DELETE request fails?
 
-6. Middleware and layout auth duplication:
-- Auth is checked in both middleware (cookie exists) and layout (JWT verification). This is redundant but incomplete -- middleware does not verify, layout does. If middleware is bypassed (misconfigured matcher), unauthenticated requests reach the layout.
+Wait, I also notice that redirect('/login') is used in AdminLayout but never imported from 'next/navigation'. This would throw a ReferenceError at runtime.
 
-7. Missing redirect import:
-- AdminLayout uses redirect('/login') but does not import it from 'next/navigation'.
+There is a subtle closure bug too: setSortedUsers(sortedUsers.filter(...)) captures a potentially stale reference to sortedUsers. If multiple deletes happen rapidly, the earlier deletes may be undone. Should use the functional updater form.
 
 Let me write the review.
 </think>
@@ -533,29 +508,15 @@ export async function GET(request) {
 ```''', r'''<think>
 Let me review these Next.js API routes for security issues.
 
-1. Upload route - multiple critical issues:
-- Path traversal: filename comes from the client. A filename like "../../../etc/cron.d/backdoor" writes outside the uploads directory. Must sanitize the filename.
-- No file type validation. Any file type can be uploaded including executables, HTML files (XSS), or server-side scripts.
-- No file size limit. A single request can upload arbitrarily large files.
-- Filename collision: if two users upload "photo.jpg", the second overwrites the first.
-- Writing to public/ means the file is immediately served statically. An uploaded HTML file with JavaScript can execute XSS.
+Upload route first. The filename comes directly from file.name. Could path.join prevent traversal? No -- path.join does not sanitize directory components. A filename like "../../../.env" writes outside the uploads directory and could overwrite the environment file. But wait, it gets worse: the file is written to public/uploads/, which means it is immediately served statically. If someone uploads an HTML file containing JavaScript, any user who navigates to /uploads/evil.html gets XSS. No file type validation, no size limit, and if two users upload "photo.jpg", the second silently overwrites the first.
 
-2. Data route - JSONP XSS:
-- The callback parameter is injected directly into a JavaScript response. If callback contains malicious code like `alert(1)//`, the response becomes `alert(1)//({"data":...})` which executes arbitrary JavaScript. This is a reflected XSS vulnerability via JSONP injection.
+Data route -- I see JSONP support via the callback parameter. Could this be safe if properly validated? Actually no, the callback is injected directly into a JavaScript response with no validation at all. If callback="alert(document.cookie)//", the response becomes alert(document.cookie)//({"data":...}) which executes arbitrary JavaScript. This is a reflected XSS vulnerability. I considered whether Content-Type: application/javascript might mitigate it, but that actually makes it worse because the browser treats it as executable code.
 
-3. Proxy route - SSRF:
-- targetUrl comes from the client with no validation. An attacker can make the server fetch internal services: `?url=http://169.254.169.254/latest/meta-data/` (AWS metadata), `?url=http://localhost:6379/` (Redis), etc. This is Server-Side Request Forgery.
-- Also proxies the response directly, including potentially malicious content.
+Proxy route -- this is Server-Side Request Forgery (SSRF). targetUrl comes from the client with zero validation. An attacker can make the server fetch internal services: ?url=http://169.254.169.254/latest/meta-data/ grabs AWS instance credentials, ?url=http://localhost:6379/INFO probes Redis. Hmm, depending on the fetch implementation, even file:// protocol might work, allowing local file reads.
 
-4. Webhook route:
-- No signature verification. Anyone can send fake webhook events. Most webhook providers (Stripe, GitHub) include a signature header that must be verified.
-- processWebhook runs "in the background" but in a serverless environment (Vercel), the function execution ends after the response is sent. processWebhook may be killed mid-execution.
-- `data: payload` passes raw webhook data directly to Prisma create -- mass assignment.
+Webhook route: no signature verification means anyone can send fake webhook events. I initially thought the data might be validated by the Prisma schema, but `data: payload` passes the raw webhook body directly to Prisma create -- this is mass assignment. Also, processWebhook(payload) runs after the response is sent, but in a serverless environment like Vercel, the function is frozen after the response, potentially killing the background work.
 
-5. Export route:
-- No authentication. Anyone can download all user data (names, emails, phones).
-- No CSV escaping. If a user's name contains a comma or newline, the CSV is malformed. If it contains `=`, `+`, or `@`, it is a CSV injection vulnerability that can execute formulas in Excel.
-- Loads ALL users into memory. For large databases, this causes OOM.
+Export route: no authentication means anyone can download all user data. The CSV construction uses simple template literals with no escaping. If a user's name contains a comma, the CSV is malformed. If it contains =HYPERLINK("http://evil.com","Click"), it executes as a formula in Excel -- that is CSV injection. Also loads ALL users into memory, which causes OOM on large databases.
 
 Let me write the review.
 </think>
@@ -755,29 +716,17 @@ export default function Error({ error, reset }) {
 ```''', r'''<think>
 Let me review this Next.js code.
 
-1. Critical secret exposure:
-- The script tag in RootLayout serializes environment variables to the client:
-  - STRIPE_SECRET_KEY -- this is the SECRET key, not the publishable key. Exposing this gives full access to the Stripe account.
-  - DATABASE_URL -- the database connection string with credentials is exposed to every user.
-  - API_URL is probably fine if it is a public URL.
-- This is a catastrophic security vulnerability. Server-side secrets must NEVER be sent to the client.
+The script tag in RootLayout immediately jumps out. It serializes environment variables to the client via dangerouslySetInnerHTML. Could these be public environment variables? Let me check -- STRIPE_KEY: process.env.STRIPE_SECRET_KEY. Wait, that is the SECRET key, not the publishable key. Exposing this gives full access to the Stripe account: creating charges, issuing refunds, reading customer data. And DATABASE_URL contains the database connection string with credentials. Every user who views page source can see these. This is catastrophic -- server-side secrets must NEVER be sent to the client. I initially thought API_URL might be problematic too, but that is probably a public URL and is fine.
 
-2. Error page leaks stack trace:
-- error.jsx displays error.message AND error.stack. In production, this can expose internal file paths, code structure, and sensitive information. Only show generic error messages.
+Error page: error.jsx displays error.message AND error.stack to the user. In production, this exposes internal file paths, code structure, and potentially sensitive information from database error messages. Hmm, I considered whether Next.js might strip the stack in production builds, but actually client error boundaries receive the full error object regardless of environment. Should show only a generic message and log server-side.
 
-3. User-agent detection in root layout:
-- Calling headers() in the root layout makes the ENTIRE application dynamic (opt out of static generation). This affects every page under this layout, even pages that could be statically generated. User-agent detection should be done client-side or in specific pages that need it.
+User-agent detection in the root layout: headers() is called to detect mobile devices. Could this be scoped to avoid making everything dynamic? Actually no -- calling headers() in the root layout opts the ENTIRE application out of static generation. Every page under this layout becomes dynamically rendered, even static marketing pages that could be pre-generated. This is a significant performance hit because it removes one of Next.js's biggest advantages.
 
-4. Caching inconsistency:
-- getStats is cached for 1 hour. But recentOrders is NOT cached -- it runs a fresh query on every request. The dashboard shows stale stats (up to 1 hour old) next to fresh recent orders. This inconsistency can be confusing.
-- recentOrders includes user and items with products. This is a lot of data for 10 orders.
+Caching inconsistency on the dashboard: getStats is cached for 1 hour via unstable_cache, but recentOrders runs a fresh query on every request. The dashboard shows stale aggregate stats next to fresh order data, which could be confusing -- e.g., the total revenue does not include the most recent order visible in the list.
 
-5. dangerouslySetInnerHTML for env vars:
-- Beyond the secret exposure, using JSON.stringify with user-controllable data in a script tag can enable XSS if any env var contains `</script>`. Should use proper escaping.
+The dangerouslySetInnerHTML usage has an XSS risk beyond the secret exposure. If any env var contains </script>, the script tag is closed prematurely, enabling injection. Even after removing secrets, JSON.stringify output needs proper escaping.
 
-6. Loading and error boundaries:
-- loading.jsx is very basic -- no skeleton UI or meaningful feedback.
-- error.jsx has no logging. Errors are only shown to the user.
+Loading state is minimal (just plain text), and the error boundary does not log errors to any monitoring service.
 
 Let me write the review.
 </think>
@@ -961,31 +910,17 @@ export async function searchProducts(query) {
 ```''', r'''<think>
 Let me review this Next.js config and server actions.
 
-1. CORS configuration:
-- Access-Control-Allow-Origin: '*' allows any website to make requests to the API. Combined with Allow-Methods: '*' and Allow-Headers: '*', this completely disables CORS protection. Any malicious website can call these API endpoints.
-- This is especially dangerous if the API uses cookies for authentication -- the browser will include cookies in cross-origin requests.
+CORS configuration: Access-Control-Allow-Origin: '*' with Allow-Methods: '*' and Allow-Headers: '*'. Could this be acceptable for a public API? Hmm, it depends -- but this completely disables CORS protection for ALL API routes. Any malicious website can call these endpoints. Wait, this is especially dangerous if the API uses cookies for authentication, because browsers will include cookies in cross-origin requests, enabling CSRF-style attacks.
 
-2. Image domains:
-- `domains: ['*']` allows loading images from ANY domain. This can be exploited for SSRF (the Next.js image optimization proxy fetches from attacker-controlled URLs) and can consume server resources optimizing malicious images.
+Image domains: domains: ['*'] allows loading images from any domain. I initially thought this just affects what images can be displayed, but actually the Next.js image optimization endpoint (/_next/image) acts as a server-side proxy. An attacker can use it for SSRF by pointing to internal IP addresses, or exhaust server CPU by requesting optimization of malicious images.
 
-3. Server Actions -- no authentication:
-- createProduct has no auth check. Anyone can create products.
-- deleteProduct has no auth check. Anyone can delete any product.
-- updateUserProfile accepts userId from the form data! A user can change another user's profile by submitting a different userId. The role field is also editable from the form, allowing privilege escalation.
+Server Actions are the most concerning part. I considered whether server actions might have built-in authentication, but they do not -- they are exposed as POST endpoints accessible to anyone. createProduct and deleteProduct have no auth checks whatsoever.
 
-4. Input validation:
-- createProduct: no validation on name, description. parseFloat('abc') returns NaN.
-- updateUserProfile: userId from form data is not verified against the authenticated user.
-- searchProducts: query is user-provided. While Prisma parameterizes queries (no SQL injection), there's no length limit or sanitization.
+But updateUserProfile is worse. The userId comes from formData.get('userId'), meaning a user can modify any other user's profile by submitting a different userId. And the role field is also updatable from the form data! So a regular user can POST with role='admin' and escalate their privileges. Actually, this is a double vulnerability: IDOR (changing another user's data) plus privilege escalation (setting their own role).
 
-5. Rewrite proxy:
-- The /api/v2/ rewrite proxies to BACKEND_URL. If BACKEND_URL is not set, this could proxy to undefined or empty, causing errors. The rewrite also does not forward authentication headers.
+Input validation: parseFloat(formData.get('price')) returns NaN for invalid input like "abc", which would be stored in the database. No validation on name length, description content, or category values. searchProducts passes the query directly to Prisma -- while Prisma parameterizes queries (preventing SQL injection), there is no length limit, so an attacker could send extremely long search strings.
 
-6. Webpack config:
-- Setting fs, net, tls to false suppresses build errors but may cause runtime crashes if server-side code tries to use these modules.
-
-7. Server actions returning data:
-- searchProducts returns Prisma objects directly. These may contain internal fields or be larger than necessary for the client.
+The rewrite proxy for /api/v2/ uses process.env.BACKEND_URL. If this is undefined at build time, the rewrite destination is invalid. The webpack config setting fs/net/tls to false suppresses build errors but masks actual module dependency issues that will crash at runtime.
 
 Let me write the review.
 </think>

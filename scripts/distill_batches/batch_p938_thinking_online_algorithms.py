@@ -1,22 +1,20 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement sliding window maximum: given an array and window size k, find the maximum element in each window position. Use the O(n) deque-based approach and explain why it works.''', r'''<think>
-Sliding window maximum: for each position i, find max(arr[i-k+1..i]).
+Sliding window maximum: for each position i, find max(arr[i-k+1..i]). The naive approach checks all k elements per window, giving O(nk). Could we use a max-heap? That would give O(n log k), but we can do better.
 
-The naive approach checks all k elements per window: O(nk).
+The key insight is a monotonic deque. I initially considered a regular deque storing values, but actually we need to store indices (so we can check if an element has left the window). The invariant: elements in the deque are in decreasing order of their values, and all are within the current window.
 
-The deque approach maintains a monotonic decreasing deque of indices. The invariant: elements in the deque are in decreasing order of their values, and they are all within the current window.
+When adding arr[i]:
+1. Remove from the back while arr[deque.back] <= arr[i]. These elements can never be the window max while arr[i] is present, because arr[i] is both larger and newer.
+2. Add i to the back.
+3. Remove from the front if front index < i - k + 1 (outside window).
+4. The front is the current window maximum.
 
-When adding element arr[i]:
-1. Remove from the back while the back element is <= arr[i] (they can never be the max while arr[i] is in the window)
-2. Add i to the back
-3. Remove from the front if the front is outside the window (index < i - k + 1)
-4. The front of the deque is the maximum of the current window
+Wait, why is this O(n) and not O(nk)? I initially worried that step 1 could remove up to k elements each iteration. But here is the amortized argument: each element enters the deque exactly once and leaves at most once (either popped from the back in step 1, or from the front in step 3). So total operations across all n elements is at most 2n = O(n).
 
-Why O(n): each element is added to the deque once and removed at most once. Total operations across all elements is O(n).
+Hmm, is the correctness obvious? Consider: after step 1, all remaining deque elements are larger than arr[i]. The front element is the oldest and largest. Since we only remove elements that are smaller than newer arrivals, the front is always the true maximum. An element stays in the deque only as long as no later element in the window exceeds it -- this is the monotonic decreasing property.
 
-Why correctness: the front is always the maximum because we remove all smaller elements when adding a new one. An element stays in the deque only if no later element in the window is larger.
-
-Edge cases: k = 1 (every element is its own max), k = n (single window), all elements equal, strictly increasing or decreasing arrays.
+Edge cases: k = 1 (every element is its own max, deque always has exactly one element), k = n (single window), all elements equal (deque fills up fully since nothing gets popped from the back), strictly decreasing (deque also fills up, front drops off one by one).
 </think>
 
 ## Sliding Window Maximum
@@ -119,27 +117,25 @@ The deque maintains a **monotonic decreasing** sequence of values:
 - **Amortized**: O(1) per element'''),
 
     ("thinking/algorithms", r'''Implement an online median finder that supports adding numbers one at a time and querying the current median efficiently. Use the two-heap approach.''', r'''<think>
-The online median problem: maintain a running median as numbers arrive one at a time.
+The online median problem: maintain a running median as numbers arrive. I initially thought about keeping a sorted list and inserting with bisect.insort -- that gives O(n) per insertion due to shifting elements. Could we use a balanced BST for O(log n)? Yes, but Python does not have one in the standard library.
 
-Two-heap approach:
-- max_heap: stores the smaller half of numbers (we want quick access to the largest of the small half)
-- min_heap: stores the larger half (we want quick access to the smallest of the large half)
+The elegant solution uses two heaps. But which elements go where? My first instinct was to split at the current median, but tracking that creates a chicken-and-egg problem. Actually, the split is simpler: max_heap stores the smaller half, min_heap stores the larger half. We want quick access to the largest of the small half and the smallest of the large half -- those two values determine the median.
 
 Invariants:
 1. All elements in max_heap <= all elements in min_heap
 2. |max_heap| == |min_heap| or |max_heap| == |min_heap| + 1
 
-When sizes are equal, median = (max_heap.top + min_heap.top) / 2.
-When max_heap is larger, median = max_heap.top.
+When sizes are equal, median = (max_heap.top + min_heap.top) / 2.0.
+When max_heap has one more element, median = max_heap.top.
 
-Adding a number:
-1. Add to max_heap (negated, since Python heapq is min-heap)
-2. Move the max of max_heap to min_heap (to maintain ordering)
-3. If min_heap is larger, move its min back to max_heap (balance sizes)
+For the insertion procedure, I considered several approaches. One that tripped me up: what if we just add to whichever heap has fewer elements? That does not maintain the ordering invariant. Instead, the correct approach is:
+1. Always add to max_heap first (guarantees it gets first pick).
+2. Move max_heap's top to min_heap (this ensures the ordering invariant, since the largest element from the lower half goes to the upper half).
+3. If min_heap becomes larger, move its top back to max_heap (rebalance sizes).
 
-This ensures O(log n) per insertion and O(1) for median query.
+This three-step process looks redundant -- why not just compare and add directly? Wait, the three-step approach is actually simpler because it handles all cases uniformly. Each step is O(log n), so the total insertion cost is O(log n). Median query is O(1) since we just peek at heap tops.
 
-Python's heapq is a min-heap, so I will negate values for the max-heap.
+Python's heapq is a min-heap only, so I negate values for the max-heap. A common source of bugs is forgetting to negate when peeking or popping.
 </think>
 
 ## Online Median Finder
@@ -243,21 +239,17 @@ Median = 5                    (odd count, lo has extra)
 - **Alternative**: balanced BST (O(log n) for both ops, supports delete)'''),
 
     ("thinking/algorithms", r'''Implement an LRU (Least Recently Used) cache from scratch. Support get and put operations in O(1) time. Use a doubly linked list with a hash map.''', r'''<think>
-LRU cache needs O(1) for both get and put operations. The standard approach combines:
-1. A hash map for O(1) key lookup
-2. A doubly linked list to maintain access order (most recently used at one end, least recently used at the other)
+LRU cache needs O(1) for both get and put. My first thought was: could we just use a dictionary and track timestamps? But finding the minimum timestamp for eviction would be O(n). What about a sorted structure? That gives O(log n) at best.
+
+The trick is combining two data structures: a hash map for O(1) key lookup, and a doubly linked list to maintain access order. I initially considered a singly linked list, but wait -- removing a node from the middle of a singly linked list requires traversing from the head to find the predecessor, which is O(n). A doubly linked list allows O(1) removal given a reference to the node, since we can unlink it using prev/next pointers directly.
 
 When we access a key (get or put):
-- If it exists, move it to the front of the list (most recently used)
-- If it does not exist (put), add it to the front. If capacity is exceeded, remove from the back (least recently used)
+- If it exists, move it to the front (most recently used).
+- If it does not exist (put), add to front. If over capacity, remove from the back (least recently used) and delete it from the hash map too.
 
-The doubly linked list allows O(1) removal of any node (given its reference from the hash map) and O(1) insertion at the front.
+One implementation detail I almost overlooked: edge cases with empty lists, single-element lists, etc. Sentinel nodes (dummy head and tail) eliminate all these special cases. With sentinels, the "real" list is always between head and tail, so we never have to check for null pointers during insert or remove. This is a classic trick but easy to forget.
 
-I will implement:
-1. A Node class with prev/next pointers
-2. Sentinel head and tail nodes to simplify edge cases
-3. Helper methods: _add_to_front, _remove_node, _pop_back
-4. The main get() and put() methods
+Hmm, should the hash map store keys or node references? It must store node references, because when we need to move a node to the front, we need O(1) access to the node itself (not just its value). So cache = {key -> Node}, and each Node stores both key and value. The key is stored in the node so that when we evict the LRU node from the tail, we can look up and delete its entry from the hash map.
 </think>
 
 ## LRU Cache Implementation
@@ -427,23 +419,18 @@ print(f"Correctness test: {'PASS' if verify_lru(5, test_ops) else 'FAIL'}")
 - **Space**: O(capacity) for nodes and hash map'''),
 
     ("thinking/algorithms", r'''Implement an online algorithm for computing approximate stream quantiles (p50, p90, p99) using the t-digest or P-squared algorithm. Handle arbitrary data streams without storing all values.''', r'''<think>
-For streaming quantiles without storing all values, there are several approaches:
+Streaming quantiles without storing all values -- this is trickier than it first appears. The exact solution (sort everything) requires O(n) memory, which defeats the purpose of streaming.
 
-1. P-squared algorithm: maintains 5 markers that track specific quantiles without storing data. Good for a single quantile, not great for multiple.
+I considered several approaches:
+1. P-squared algorithm: maintains only 5 markers -- O(1) space! But it only tracks a single quantile. Could we run multiple instances? Yes, one per quantile, but they are independent and cannot share work.
+2. t-digest: more modern, clusters data points with centroids and counts. Excellent for tail quantiles (p99, p99.9). But complex to implement correctly.
+3. GK algorithm (Greenwald-Khanna): deterministic epsilon-approximate quantiles. Theoretically clean but the implementation has subtle invariants.
 
-2. t-digest: more modern, maintains clusters of data points with centroids and counts. Excellent for tail quantiles (p99, p99.9).
+Hmm, which to implement? I initially leaned toward t-digest, but its merging rules are fiddly. Actually, let me implement P-squared for single quantiles (it is elegant and O(1) space) plus a simple quantile sketch using a sorted buffer with periodic compression for multiple quantiles.
 
-3. GK algorithm (Greenwald-Khanna): deterministic, provides epsilon-approximate quantiles.
+The P-squared algorithm (Jain & Chlamtac) works by maintaining 5 markers at positions that track the min, p/2 quantile, p quantile, (1+p)/2 quantile, and max. As data arrives, marker positions shift, and the algorithm uses parabolic interpolation to adjust marker heights without storing data. Wait, I initially thought the parabolic formula was just for smoothness, but actually it is essential for accuracy -- linear interpolation is the fallback when the parabolic estimate falls outside the neighboring markers.
 
-Let me implement a simplified version that is practical:
-
-Approach: Use a simplified quantile sketch that maintains sorted "buckets" of data. When too many buckets accumulate, merge adjacent ones.
-
-Actually, for clarity and correctness, let me implement the P-squared algorithm for a single quantile, then a simple reservoir-based approach for multiple quantiles, and finally a GK-style sketch.
-
-The P-squared algorithm (Jain & Chlamtac): maintains exactly 5 markers and 5 desired positions. The markers are adjusted using a parabolic formula as new data arrives.
-
-Let me also implement a simpler and more general approach: maintain a sorted buffer, periodically compress by merging adjacent elements. This gives approximate quantiles with bounded error.
+For the simpler sketch approach: maintain a sorted buffer, and when it exceeds a size limit, compress by keeping every other element. This loses information but bounds memory. I considered more sophisticated compression (keeping elements near quantile boundaries), but the simple approach is surprisingly effective in practice, especially if the buffer is large enough (say 500 elements).
 </think>
 
 ## Streaming Quantile Estimation
@@ -631,25 +618,17 @@ print(f"Data points processed: {n}")
 P-squared is ideal for a single quantile; the sketch handles multiple quantiles with bounded memory.'''),
 
     ("thinking/algorithms", r'''Implement an exponential moving average (EMA) for streaming data. Show how to compute EMA efficiently, compare with simple moving average, and implement adaptive EMA that adjusts the smoothing factor based on volatility.''', r'''<think>
-Exponential Moving Average (EMA) is a weighted average where recent values have exponentially higher weight. Unlike SMA (Simple Moving Average), EMA does not require storing a window of values.
+Exponential Moving Average (EMA) gives more weight to recent values. The formula is simple: EMA_t = alpha * x_t + (1 - alpha) * EMA_{t-1}. But I should think about what alpha means and how to choose it.
 
-Formula: EMA_t = alpha * x_t + (1 - alpha) * EMA_{t-1}
-where alpha is the smoothing factor (0 < alpha < 1).
+The typical formula is alpha = 2 / (N + 1) where N is the equivalent window size. I initially thought larger alpha means smoother, but wait -- that is backwards. Larger alpha means MORE weight on the newest value, so the EMA is MORE responsive (less smooth). Smaller alpha means MORE weight on history, so MORE smooth. This is easy to confuse.
 
-Typically alpha = 2 / (N + 1) where N is the equivalent window size.
+Key advantage over SMA: O(1) memory vs O(N). SMA requires storing the last N values in a buffer to subtract the departing value when the window slides. EMA needs only the previous EMA value. But hmm, EMA never truly "forgets" old values -- they just decay exponentially. Is that a problem? Usually not, because the contribution of a value k steps ago is (1-alpha)^k, which decays rapidly.
 
-Advantages over SMA:
-- O(1) memory (vs O(N) for SMA)
-- More responsive to recent changes
-- No need to store window of values
+For Adaptive EMA, I considered simply varying alpha based on some volatility measure. Kaufman's KAMA is a well-known approach: it uses an efficiency ratio ER = |net change over N periods| / sum of |individual changes|. When ER is near 1 (strong trend, price moves consistently in one direction), alpha is high -- track the trend closely. When ER is near 0 (choppy, noisy), alpha is low -- smooth heavily.
 
-Adaptive EMA: adjust alpha based on data characteristics. When volatility is high, use a smaller alpha (smoother). When the trend is strong, use a larger alpha (more responsive). One approach: Kaufman's Adaptive Moving Average (KAMA).
+The formula is: smoothing_constant = ER * (fast_alpha - slow_alpha) + slow_alpha, then alpha = sc^2. Wait, why squared? I initially thought this was arbitrary, but actually squaring makes the transition between fast and slow more aggressive -- when ER is low, sc is close to slow_alpha, and squaring makes it even smaller, providing extra smoothing during noisy periods.
 
-KAMA uses an efficiency ratio: ER = |price change over N periods| / sum of |period-to-period changes|. When ER is high (strong trend), alpha is high. When ER is low (noisy), alpha is low.
-
-alpha = (ER * (fast_alpha - slow_alpha) + slow_alpha)^2
-
-Let me implement standard EMA, SMA, and adaptive EMA (KAMA).
+I will implement all three (SMA, EMA, KAMA) for comparison.
 </think>
 
 ## Exponential Moving Average (EMA)

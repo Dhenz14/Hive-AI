@@ -204,11 +204,19 @@ export async function generateMetadata({ params }: ProjectPageProps) {
 '''),
 
     ("react/nextjs_parallel_routes", r'''<think>
-Parallel routes in Next.js are one of the most powerful App Router features. They allow rendering multiple pages in the same layout simultaneously. I need to show the folder structure conventions (@slot), default.tsx files, and how to conditionally render based on authentication or modal states.
+Parallel routes in Next.js are one of the most powerful App Router features, but also the most confusing. I initially thought they were just a way to split a page into sections, but wait - they are actually independent route segments that can have their own loading, error, and not-found states. This means each slot can load independently and fail independently.
+
+The folder structure uses the @slot convention to create named slots. I need to show default.tsx files - hmm, this is the part that trips most developers up. Without a default.tsx, navigating to a sub-route causes the slot to show a 404 because Next.js does not know what to render when the slot has no matching route for the current URL. The default.tsx provides a fallback for that case.
+
+I considered showing only the basic slot pattern, but actually the combination of parallel routes with intercepted routes for modals is the killer use case. When you click a link from the dashboard, you get a modal overlay (intercepted route in the @modal slot), but navigating directly to that URL gives you a full page. This requires understanding both features together.
 </think>
 
 Build Next.js parallel route patterns for a dashboard with simultaneously rendered slots for metrics, activity feed, and modal overlays using intercepted routes.''', r'''<think>
-Parallel routes use the @folder convention to create named slots. I need to show the file structure, how default.tsx works as a fallback, and a practical example combining parallel routes with intercepted routes for a modal pattern.
+Parallel routes use the @folder convention to create named slots that are passed as props to the layout component. I considered making the layout use conditional rendering based on URL params, but actually the whole point of parallel routes is that the routing framework handles which slot content to show - the layout just positions them.
+
+For the intercepted route modal, I need the (..) convention which matches the parent segment. I initially confused this with (...) which matches the root - wait, the number of dots indicates how many segments up to intercept: (.) is same level, (..) is one level up, (...) is root. For intercepting /tasks/[id] from /dashboard, I need (..)tasks/[id] since tasks is one level up from dashboard.
+
+The default.tsx files should return null for the modal slot (no modal by default) but could render loading states or placeholder content for the metrics and activity slots. This ensures a smooth experience during client-side navigation when the slot content has not been fetched yet.
 </think>
 
 // File structure for parallel routes:

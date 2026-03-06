@@ -5,19 +5,15 @@ PAIRS = [
         "hive/key-derivation",
         r'''How does Hive key derivation work? How are the different key types (owner, active, posting, memo) derived from a master password?''',
         r'''<think>
-Hive uses a hierarchical key system derived from a master password (sometimes called the "master key" or "WIF"). The derivation process:
-1. Take the account name + role + master password
-2. SHA-256 hash them together
-3. Use the hash as a private key seed
-4. Derive the corresponding public key
+The user is asking about key derivation on Hive. Let me think through how this actually works. My initial assumption might be that each key is generated independently, but actually all four keys derive from a single master password -- that is the whole point of the hierarchical system.
 
-The hierarchy is:
-- Owner key: highest authority, can change all other keys, used for account recovery
-- Active key: financial operations (transfers, power up/down, witness votes)
-- Posting key: social operations (voting, posting, following)
-- Memo key: encrypting/decrypting private messages
+The derivation seed is account_name + role + master_password, which then gets SHA-256 hashed. Wait, is the order role + account_name + password, or account_name + role + password? Let me think... it is account_name + role + password. This matters because getting the concatenation order wrong would produce completely different keys.
 
-Each key type has specific operations it can authorize, enforced at the consensus level.
+Now, could the memo key sign transactions? I considered that possibility since it is derived the same way as the others, but no -- the memo key is special. It is only used for ECDH shared-secret derivation (encrypting/decrypting memos). The blockchain consensus rules simply do not accept the memo key as valid authorization for any operation. So even though it is technically a valid secp256k1 keypair, it has no signing authority.
+
+One thing that might confuse people: changing the master password does not automatically update keys on-chain. Since the derivation is purely client-side, you would need to broadcast an account_update operation with the new public keys. Therefore the on-chain keys and the derived keys can get out of sync if someone changes their password without updating the chain.
+
+The hierarchy goes owner > active > posting, where each higher level can do everything the lower levels can. The memo key sits outside this hierarchy entirely because it serves a fundamentally different purpose.
 </think>
 
 Hive uses a deterministic key derivation system where all four key types are derived from a single master password combined with the account name and role. Here is how it works:

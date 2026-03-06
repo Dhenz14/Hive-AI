@@ -12,13 +12,13 @@ SELECT * FROM orders WHERE order_id = '12345abc';
 ```
 
 order_id is INT. Instead of an error, MySQL returns the row with order_id = 12345. What's going on?''', r'''<think>
-This is about MySQL's implicit type coercion behavior.
+Okay, two cases of unexpected query results. My first thought is maybe the index is corrupted or there is some collation issue... but wait, the user specifically mentions different types in the comparison. That is the real clue.
 
-1. When comparing a VARCHAR column to an integer, MySQL converts the VARCHAR to a number. "5551234567-ext100" becomes 5551234567 (parsing stops at the first non-numeric character). So the comparison becomes 5551234567 = 5551234567, which is true.
+Let me think about Case 1: phone_number is VARCHAR(20) but the comparison value 5551234567 is an unquoted integer. I initially considered whether MySQL might cast the integer to a string for comparison, since the column is VARCHAR. But actually, MySQL does the opposite -- it converts the VARCHAR values to numbers. That is because numeric context wins when one operand is a number. So "5551234567-ext100" gets parsed as a number, and parsing stops at the first non-numeric character, giving 5551234567. Therefore 5551234567 = 5551234567 is true, and the wrong row matches.
 
-2. When comparing an INT column to a string, MySQL converts the string to a number. '12345abc' becomes 12345. So order_id = 12345 matches.
+Hmm, Case 2 is the reverse: order_id is INT but compared to '12345abc'. I thought maybe MySQL would raise a type error here since the string is clearly not a valid integer. But no -- MySQL silently converts '12345abc' to 12345 because it parses left-to-right and stops at 'a'. So order_id = 12345 matches without any error.
 
-This is a well-known MySQL gotcha that causes silent data correctness issues and can also prevent index usage.
+Wait, this also means there is a performance problem. Since MySQL converts every VARCHAR value to a number for Case 1, it cannot use an index on phone_number. That forces a full table scan even if the column is indexed, because the conversion happens per-row. So the issue is both data correctness and performance. This is a well-known MySQL gotcha that other databases like PostgreSQL handle more strictly by raising an error.
 </think>
 
 MySQL performs implicit type coercion when comparing values of different types, leading to silent data correctness issues.
@@ -111,13 +111,15 @@ marketing   |               8 |      4000 |       20000
 ```
 
 But engineering has 10 employees and only 5 received bonuses. The AVG should include the 5 employees with NULL bonus (treating NULL as 0), giving avg_bonus = 2500, not 5000. And total_bonus should account for all 10 employees somehow.''', r'''<think>
-SQL aggregate functions (AVG, SUM, COUNT, etc.) ignore NULL values by default. This is the SQL standard behavior.
+The user sees AVG(bonus) = 5000 with 10 employees but only 5 received bonuses. They expect 2500. Let me think about what could cause this discrepancy.
 
-- AVG(bonus) computes the average of non-NULL values only. 5 employees have bonuses totaling 25000. AVG = 25000/5 = 5000.
-- SUM(bonus) sums non-NULL values. 25000 is correct.
-- COUNT(*) counts all rows. COUNT(bonus) would count only non-NULL values.
+Could it be a filtering issue, like a WHERE clause dropping rows? No, COUNT(*) shows 10 total employees, so all rows are present. Maybe the GROUP BY is splitting things unexpectedly? Hmm, but the grouping looks straightforward by department.
 
-The user wants NULL bonuses treated as 0. The fix is to use COALESCE(bonus, 0).
+Wait -- the real issue is how SQL handles NULLs in aggregate functions. I initially assumed AVG would treat NULL as 0, but actually SQL aggregate functions ignore NULL values entirely by default. That is the SQL standard. So AVG(bonus) computes the average of only the 5 non-NULL values: 25000/5 = 5000, not 25000/10 = 2500.
+
+Let me verify this reasoning: SUM(bonus) = 25000 makes sense because it sums only non-NULL values. COUNT(*) = 10 counts all rows regardless of NULLs. But COUNT(bonus) would return 5, counting only non-NULL values. So the divisor in AVG is effectively COUNT(bonus), not COUNT(*).
+
+Therefore the fix is to use COALESCE(bonus, 0) to convert NULLs to 0 before the aggregation. That way AVG(COALESCE(bonus, 0)) divides by 10 since every row now has a numeric value. This is not a bug in SQL -- it is actually well-defined standard behavior, just surprising if you do not expect it.
 </think>
 
 SQL aggregate functions ignore NULL values by default. This is standard SQL behavior, not a bug, but it often produces surprising results.
@@ -243,17 +245,15 @@ employee_id | department  | salary | rank | dept_total | running_total
 ```
 
 dept_total is 460000 (correct for all rows). But running_total accumulates. Why does adding ORDER BY to the window function change SUM from total to running sum?''', r'''<think>
-This is a very common source of confusion with SQL window functions. When you use an aggregate window function (SUM, AVG, etc.) with ORDER BY in the OVER clause, the default frame changes.
+The user has two SUM window functions: one without ORDER BY gives the total (460000 for every row), and one with ORDER BY gives an accumulating value (150000, 270000, 370000, 460000). Why would adding ORDER BY change SUM from a total to a running sum?
 
-Without ORDER BY:
-- Default frame: ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
-- This means the aggregate considers ALL rows in the partition
+My first instinct was that maybe ORDER BY just sorts the output -- but that would not change the actual SUM values. Could there be some implicit LIMIT or filtering? No, the data is the same in both columns.
 
-With ORDER BY:
-- Default frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-- This means the aggregate considers only rows from the start of the partition up to the current row
+Actually, wait -- this is about the default window frame. Without ORDER BY in the OVER clause, the default frame is ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING, meaning the aggregate considers ALL rows in the partition. But when you add ORDER BY, the SQL standard changes the default frame to RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW. That is the key.
 
-So `SUM(salary) OVER (PARTITION BY department ORDER BY salary DESC)` computes a running sum because the default frame is "from the beginning to the current row."
+Hmm, I need to be precise here -- it is RANGE, not ROWS. RANGE means all rows with the same ORDER BY value as the current row are included together. So if two employees had the same salary, they would both get the same running total. That is a subtle but important distinction.
+
+So the fix is explicit: if you want the partition total even with ORDER BY present, you must specify ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING. The SQL standard's implicit frame change when ORDER BY is added is the source of this confusion, and it catches many people off guard because the behavior difference is silent.
 </think>
 
 Adding ORDER BY to a window function's OVER clause changes the default window frame, which changes the behavior of aggregate functions like SUM.
@@ -378,9 +378,13 @@ UPDATE accounts SET balance = balance + 50 WHERE id = 1;   -- waits for row id=1
 ```
 
 Classic deadlock from updating rows in different order. How do I prevent this?''', r'''<think>
-Same pattern as the threading deadlock earlier but at the database level. Transaction 1 locks row 1 then needs row 2. Transaction 2 locks row 2 then needs row 1. Deadlock.
+Classic deadlock scenario. Transaction 1 locks row 1, then needs row 2. Transaction 2 locks row 2, then needs row 1. Circular wait.
 
-Fix: consistent ordering of row locks, or use SELECT FOR UPDATE to acquire all locks upfront, or use a single UPDATE statement.
+My first thought was maybe increasing lock_timeout would help, but wait -- that only changes how long a transaction waits before giving up. It does not prevent the circular dependency itself. The deadlock would still form; you would just fail faster.
+
+I considered whether PostgreSQL's MVCC isolation could avoid this somehow. But no -- UPDATE requires an exclusive row lock regardless of isolation level, because you are mutating data. The lock ordering problem is fundamental and cannot be solved by changing isolation levels.
+
+The real fix has to break the circular wait condition. The simplest approach is consistent lock ordering: always acquire locks in ascending ID order. So both transactions would lock row 1 first, then row 2. Transaction 2 would block on row 1 until Transaction 1 finishes, but there is no cycle. Alternatively, SELECT FOR UPDATE with ORDER BY can grab all needed locks upfront in one statement, which also prevents the interleaving. A single UPDATE with a CASE expression is actually even better since PostgreSQL acquires all row locks atomically within one statement, eliminating the window for deadlock entirely.
 </think>
 
 This is the database equivalent of a threading deadlock. Transaction 1 holds a lock on row 1 and waits for row 2. Transaction 2 holds a lock on row 2 and waits for row 1. PostgreSQL detects this after `deadlock_timeout` (default 1 second) and kills one transaction.
@@ -509,15 +513,13 @@ EXPLAIN ANALYZE SELECT * FROM orders WHERE status = 'pending' AND created_at > '
 ```
 
 The index exists and is valid. Why did the planner switch to a sequential scan?''', r'''<think>
-After the data load, the number of matching rows went from 12 to 4,500,123. The planner correctly determined that when you need 45% of the table (4.5M out of 10M), a sequential scan is faster than an index scan.
+The query went from using an index scan (12 rows matched) to a sequential scan (4.5M rows matched). My first instinct is that something broke -- maybe the index got corrupted or the statistics are stale after the bulk load.
 
-Index scans are efficient when you need a small fraction of the table (typically < 5-15%). For each row found via the index, PostgreSQL must do a random I/O to fetch the actual row from the heap. Random I/O is much slower than sequential I/O. When you need millions of rows, the accumulated random I/O cost exceeds the cost of just reading the entire table sequentially.
+But wait, let me look at the numbers more carefully. 4,500,123 rows out of 10,000,000 is about 45% of the table. Could it be that the planner is actually making the right call here? I considered that maybe forcing the index scan would be faster, but actually no -- for each row found via an index, PostgreSQL does a random I/O to fetch the corresponding heap tuple. Random I/O is 10-100x slower than sequential I/O on spinning disks. When you need 45% of the table, the accumulated random I/O cost from 4.5 million index lookups far exceeds just reading the entire table sequentially.
 
-The "fix" is not to force the index -- it is to recognize that the query is correct and either:
-1. Accept the seq scan for this data distribution
-2. Change the query to be more selective
-3. Use a partial index
-4. Analyze the table to update statistics
+Hmm, but there is still the question of whether the statistics are accurate. If ANALYZE has not run since the bulk load, the planner might be estimating row counts incorrectly. The estimated rows in the EXPLAIN output say 4,500,000 and actual is 4,500,123 -- those are very close, so the statistics look accurate. Therefore the planner genuinely determined that a seq scan is optimal for this selectivity.
+
+So the real fix is not to force the index. Instead, either make the query more selective (narrow the date range, add LIMIT), use a partial index (CREATE INDEX ... WHERE status = 'pending'), or use a covering index to enable index-only scans that avoid the heap entirely. Running ANALYZE after bulk loads is still good practice to keep estimates fresh.
 </think>
 
 The PostgreSQL query planner is actually making the **correct decision**. After the data load, 4.5 million out of 10 million rows match the query (45% of the table). For such a large fraction, a sequential scan IS faster than an index scan.

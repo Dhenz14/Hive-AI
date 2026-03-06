@@ -5,11 +5,11 @@ PAIRS = [
         "hive/whale-tracking",
         r'''How do I build a whale tracker that monitors large HIVE and HBD transfers in real-time?''',
         r'''<think>
-Whale tracking involves streaming transfer operations and filtering by amount. Key considerations:
-- Define a threshold for "whale" activity (e.g., 10,000+ HIVE)
-- Track both HIVE and HBD transfers
-- Log sender/receiver patterns for analysis
-- Optionally integrate with notification systems (Discord, Telegram)
+Whale tracking on Hive... my first thought is to just query account history for large transfers, but wait -- that only gives you historical data for one account at a time. The user wants real-time monitoring across the entire network, so streaming all transfer operations from the blockchain and filtering by amount is the right approach.
+
+Now, what threshold defines a "whale" transfer? This could be 1,000 HIVE, or maybe 100,000. Hmm, I considered setting it very high to reduce noise, but actually 10,000+ HIVE is a reasonable default because it catches meaningful moves without flooding alerts. For HBD, the threshold should be lower (maybe 5,000) since HBD has lower total supply and therefore each unit represents a larger fraction of the market.
+
+I also need to think about what data to capture. Just logging the raw transfer is not enough -- since whale watchers care about patterns, the tracker should aggregate volumes per account over time. That way you can spot accumulation or distribution trends. And because alerts are only useful if they reach someone, the system should support notification callbacks for Discord or Telegram webhooks. I initially thought about building the Discord integration inline, but actually a callback pattern is cleaner because it decouples the tracking logic from the delivery mechanism.
 </think>
 
 Here is a complete whale tracking system for the Hive blockchain:

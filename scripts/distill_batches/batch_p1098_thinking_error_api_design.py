@@ -5,15 +5,17 @@ PAIRS = [
         "thinking/error-handling",
         r'''How should I design error codes for my REST API? I want something more useful than just HTTP status codes but I am not sure how to structure the error response body.''',
         r'''<think>
-API error design needs:
-1. HTTP status codes used correctly (not everything is 400 or 500)
-2. Application-level error codes for programmatic handling
-3. Human-readable messages for developers
-4. Enough detail to debug without exposing internals
-5. Consistent structure across all endpoints
+API error design -- the user says "more useful than just HTTP status codes." My first thought is to add an error code string to the response body. But wait, is a flat error code enough? What about validation errors that affect multiple fields? A single code like "VALIDATION_ERROR" does not tell the client WHICH fields failed.
 
-I should show a well-designed error response schema with examples
-for different error categories, plus how to implement it in a framework.
+I considered following Google's API design guide which uses a structured error with code, message, and details array. That is more expressive, but could be overkill for simple APIs. Hmm, actually, starting with a rich structure and having most fields optional is better than starting simple and bolting on complexity later -- because changing your error format is a breaking change for every client.
+
+The schema needs to balance several tensions:
+- Enough detail to debug without exposing internals (no stack traces, no SQL queries, no file paths)
+- Machine-readable codes for programmatic handling (clients should switch on codes, not parse messages)
+- Human-readable messages for developers reading logs
+- Consistent structure across ALL endpoints, including ones that have not been written yet
+
+I initially thought about using numeric error codes (like 40001, 40002) since they are compact. Actually, string codes like "VALIDATION.EMAIL_INVALID" are much better because they are self-documenting -- a developer reading the response immediately understands what went wrong without looking up a code table. Therefore I should use hierarchical string codes with a registry that prevents duplicates.
 </think>
 
 Good API error design uses HTTP status codes for the category and structured error bodies for the details. Here is a complete design:
@@ -292,16 +294,15 @@ print(resp.to_json())
         "thinking/error-handling",
         r'''What is RFC 7807 Problem Details and how do I implement it properly in my API? I have heard it is the standard way to return errors but I am not sure about all the fields.''',
         r'''<think>
-RFC 7807 defines a standard JSON format for HTTP API error responses.
-The spec defines these members:
-- type: URI identifying the error type (acts as documentation link)
-- title: short human-readable summary (same for all instances of this type)
-- status: HTTP status code
-- detail: human-readable explanation specific to this occurrence
-- instance: URI identifying this specific occurrence
+RFC 7807 (Problem Details for HTTP APIs) -- this is the standard that most API designers reference but few implement correctly. Let me think through what a proper implementation requires.
 
-I should show a proper implementation that follows the spec exactly,
-including content-type header and extensibility.
+The spec defines: type (URI), title, status, detail, instance. My first instinct is to make "type" a simple string like "validation_error". But wait, the spec says "type" MUST be a URI, and it should dereference to human-readable documentation. So "https://api.example.com/errors/validation" is correct but "/errors/validation" or just "validation_error" technically violates the spec. I considered being loose about this, but the whole point of following a standard is interoperability -- if I deviate, clients that expect RFC 7807 will break.
+
+Hmm, the "instance" field is interesting -- it identifies THIS specific occurrence (like a log correlation ID in URI form). Most implementations I have seen skip it, but it is incredibly useful for debugging because a user can report the instance URI and you can look up the exact request in your logs.
+
+The content-type header is another detail people miss: RFC 7807 requires "application/problem+json", not just "application/json". This matters because middleware and API gateways can use the content type to detect error responses and route them differently (e.g., to an error tracking service).
+
+One thing the spec handles well is extensibility -- you can add custom members beyond the five standard ones. So I can include "errors" (array of field-level validation errors), "retry_after" (for rate limits), etc. Since the spec explicitly allows this, clients that understand the extensions use them while generic RFC 7807 clients still work with the standard fields. That is a clean design.
 </think>
 
 RFC 7807 (Problem Details for HTTP APIs) defines a standard error response format. Here is a spec-compliant implementation:
@@ -576,15 +577,15 @@ print(p.to_json())
         "thinking/error-handling",
         r'''How do I handle error localization in my API? I need to return error messages in different languages based on the user's locale, but I also need the errors to be machine-readable.''',
         r'''<think>
-Error localization requires separating:
-1. Machine-readable error codes (never localized)
-2. Human-readable messages (localized per user's locale)
-3. Accept-Language header parsing
-4. Translation storage and lookup
-5. Fallback language handling
+Error localization -- my first thought is to use gettext like you would for a web UI. But wait, API error messages are different from UI strings. API errors have parameters (field names, limits, values) that need to be interpolated into the translated template. If I use simple string formatting, the parameter order might differ between languages, so I need named placeholders, not positional ones.
 
-The key insight: error codes stay in English, messages get translated.
-Parameters in messages need placeholder substitution.
+I considered doing localization on the client side -- just send the error code and parameters, let the client app look up the translation. That is actually cleaner in some ways because the server does not need to know about locales at all. Hmm, but that only works for first-party clients. Third-party API consumers need human-readable messages from the server because they should not have to maintain their own translation tables for MY error codes.
+
+So the server needs to support both: always return the machine-readable code (never localized), AND a human-readable message localized per the Accept-Language header. The code is the stable contract; the message is a convenience.
+
+For fallback handling: what if the requested locale has no translation? I initially thought just fall back to English. Actually, a better chain is: requested locale -> language without region (fr-CA -> fr) -> default locale (en) -> the raw error code. This gives the best possible experience without ever returning an empty message.
+
+One more subtlety: plural forms. "1 item failed" vs "3 items failed" -- different languages have different plural rules (Russian has three forms, Arabic has six). Therefore the translation system needs ICU MessageFormat or similar plural-aware substitution, not just simple string.format().
 </think>
 
 Error localization separates machine-readable codes from human-readable messages. The code is always the same; only the message changes per locale. Here is how to implement it:
@@ -848,15 +849,15 @@ print(err.to_dict())
         "thinking/error-handling",
         r'''How should my API handle rate limiting errors? I want to return useful information so the client knows when to retry, and I want to support different rate limit tiers.''',
         r'''<think>
-Rate limiting error responses need:
-1. Standard HTTP 429 status code
-2. Retry-After header (required by HTTP spec for 429)
-3. Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
-4. Body with machine-readable details (limit, window, remaining, reset time)
-5. Support for multiple rate limit tiers (per-user, per-endpoint, global)
+Rate limiting error responses -- this could seem like just returning a 429 with a Retry-After header. But there is a lot more to get right for good client experience.
 
-I should show both the response format and the server-side implementation
-for tracking and enforcing multiple rate limit tiers.
+First, the Retry-After header: should it be a date or a number of seconds? I considered using a date (HTTP-date format), but that requires the client to parse dates and handle clock skew between client and server. A delta in seconds is simpler and immune to clock issues. Therefore seconds is the safer choice.
+
+What about the X-RateLimit headers? These are not standardized (there is a draft RFC but it is not finalized), yet every major API uses them. The question is: do I report the limit per window, or per tier? If a user has both a per-endpoint limit of 100/min and a global limit of 1000/min, which one goes in the header? Hmm, actually the response should indicate WHICH limit was hit. I initially thought about returning all limits, but that leaks internal rate limiting architecture. Better to return only the limit that triggered the 429.
+
+Wait, there is a subtlety with multiple tiers: the Retry-After value depends on which tier was exhausted. If the per-endpoint limit resets in 30 seconds but the global limit resets in 5 minutes, the client needs the LONGER value (since even after the endpoint limit resets, the global limit might still block them). Actually no -- the client needs the time until the specific exhausted limit resets. If only the endpoint limit was hit, Retry-After should be 30 seconds even if the global limit is also close to exhaustion. Because by the time the endpoint limit resets, the global limit might have gotten more headroom from other requests completing.
+
+I should show both the response format design and the server-side tracking with sliding window counters for multiple tiers.
 </think>
 
 Rate limit errors need both standard HTTP headers and a detailed response body so clients can implement proper backoff. Here is a complete implementation:
@@ -1124,18 +1125,15 @@ for i in range(65):
         "thinking/error-handling",
         r'''How do I design API responses for partial success -- when a batch request succeeds for some items and fails for others? I do not want to return 200 (misleading) or 500 (too broad).''',
         r'''<think>
-Partial success is a common problem with batch APIs. Options:
-1. HTTP 207 Multi-Status (WebDAV, but widely used)
-2. HTTP 200 with per-item status in the body
-3. HTTP 202 Accepted with async results
+Partial success in batch APIs -- this is one of the hardest API design problems. If I send 100 items and 3 fail, what HTTP status code do I return? 200 feels wrong because some items failed. 400 feels wrong because most items succeeded. 500 is definitely wrong because the server is fine.
 
-Key design decisions:
-- Each item needs its own status
-- The overall response needs a summary
-- Clients need to know which items succeeded and which failed
-- Failed items need enough detail to retry or fix
+My first thought is HTTP 207 Multi-Status (from WebDAV). It is designed for exactly this case. But wait -- many HTTP client libraries do not recognize 207 and might treat it as an error. I considered 200 with a per-item status array in the body, which is what most major APIs actually do (Stripe, Twilio). The argument: the HTTP request itself succeeded; the per-item success/failure is application-level semantics.
 
-I should show multiple approaches with their trade-offs.
+Hmm, but returning 200 for a request where some items failed breaks a common client pattern of checking response.ok (which checks for 2xx status). A client that does not parse the body will think everything succeeded. Could I use a custom header like X-Partial-Success: true to signal this? Actually, that is non-standard and clients would ignore it.
+
+The pragmatic answer: it depends on the use case. For synchronous batch endpoints, return 200 with a response body that has a summary (total, succeeded, failed) plus per-item results. For async batch endpoints, return 202 Accepted with a job ID, and let the client poll for results. The key design decision is that each item in the response MUST include: its index or ID (so the client can correlate), its status (success/failure), and for failures, enough detail to fix and retry just that item.
+
+I should show multiple approaches with clear trade-offs so the reader can choose based on their context.
 </think>
 
 Partial success in batch APIs requires per-item status reporting. Here are the proven patterns:

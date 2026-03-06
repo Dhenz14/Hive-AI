@@ -5,13 +5,13 @@ PAIRS = [
         "hive/custom-json-broadcast",
         r'''How do I broadcast a custom_json operation on the Hive blockchain using Python's beem library? I want to send structured data for a dApp.''',
         r'''<think>
-custom_json is one of the most versatile operations on Hive. It allows dApps to store arbitrary JSON data on-chain. The key parameters are:
-- required_auths: list of accounts whose active key must sign (for financial operations)
-- required_posting_auths: list of accounts whose posting key must sign (for social operations)
-- id: a string identifier for the dApp (max 32 chars)
-- json: the actual JSON payload (max 8192 bytes)
+The user wants to broadcast a custom_json operation. Let me think about what that involves. custom_json could be done through several beem methods... I could suggest the commit.custom_json shortcut, but wait -- they said they want to send structured data for a dApp, so they probably need full control over the operation fields.
 
-Most dApps use required_posting_auths since posting key is less risky. Hive Engine uses "ssc-mainnet-hive" as its id.
+The key parameters are required_auths vs required_posting_auths. Hmm, which should I recommend? I was initially thinking required_auths since it sounds more "official," but actually that would be wrong for most dApp use cases -- required_auths needs the active key, which is riskier. Most dApps use required_posting_auths because the posting key has a narrower blast radius if compromised. So posting auth is the safer default here.
+
+Now, the id field -- could be up to 64 characters? No wait, I need to double-check that. The max length for id is 32 characters, not 64. And the json payload is limited to 8192 bytes, which matters because larger payloads will simply be rejected at the node level.
+
+I should show both TransactionBuilder (for full control) and the simpler hive.custom_json method, since different situations call for different approaches. Hive Engine uses "ssc-mainnet-hive" as its id, which is a good real-world reference point.
 </think>
 
 Broadcasting a custom_json operation with beem involves creating the operation dict and pushing it through the TransactionBuilder or using the built-in commit method.
@@ -267,16 +267,13 @@ Each NFT operation costs BEE tokens as a sidechain fee. Creating a collection co
         "hive/custom-json-game-state",
         r'''I am building a blockchain game on Hive. How should I structure custom_json operations for game state updates like player moves, inventory changes, and battle results?''',
         r'''<think>
-For a blockchain game on Hive, the key design decisions are:
-1. What goes on-chain vs off-chain -- on-chain is permanent and verifiable but costly in RC
-2. How to structure the JSON payload for different action types
-3. How to validate moves server-side by replaying the custom_json history
-4. Using posting auth for gameplay actions (lower risk) vs active auth for asset transfers
+A blockchain game on Hive -- interesting. My first instinct is to put all game state on-chain, but wait, that would be extremely expensive in RC terms. Every player move, every inventory update would consume resource credits. So the real question is: what needs to go on-chain vs what can stay off-chain?
 
-The pattern most successful Hive games use (Splinterlands, dCrops, etc.) is:
-- One dApp id for all game operations
-- An "action" field to distinguish operation types
-- A deterministic game engine that replays operations to derive state
+I initially considered having separate custom_json ids for each action type (one for moves, one for crafting, one for trades), but actually that would make indexing harder. Splinterlands and dCrops use a single dApp id with an "action" field inside the JSON to distinguish operation types -- and that makes more sense because you only need to filter on one id when streaming blocks.
+
+Now for auth levels... hmm, should gameplay actions use active or posting authority? Since gameplay moves are non-financial, posting auth is the right call -- it is lower risk if a key leaks. But wait, what about trading in-game assets for tokens? That involves value transfer, so those operations specifically should require active auth. Therefore I need a mixed approach: posting for social/gameplay actions, active for anything involving asset transfers.
+
+The server-side validation pattern is also critical here. Because custom_json is just arbitrary data, the game engine must replay all operations deterministically to derive the current state. Without that, players could broadcast invalid moves.
 </think>
 
 Here is a robust pattern for structuring a Hive blockchain game using custom_json:

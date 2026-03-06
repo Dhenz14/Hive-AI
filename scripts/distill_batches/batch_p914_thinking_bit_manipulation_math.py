@@ -2,38 +2,34 @@ PAIRS = [
     ("thinking/algorithms", r'''Single Number III: Given an integer array where exactly two elements appear once and all others appear exactly twice, find the two unique elements. You must use O(1) extra space and O(n) time.
 
 Example: nums = [1,2,1,3,2,5] -> [3,5] (order doesn't matter)''', r'''<think>
-This is a brilliant bit manipulation problem. Let me build up to the solution.
+This is a bit manipulation problem. Let me build up from simpler cases.
 
-**Single Number I recap**: If only ONE element is unique, XOR all elements. Duplicates cancel out (a ^ a = 0), leaving the unique element.
+**Single Number I recap**: If only ONE element is unique, XOR all elements. Duplicates cancel out (a ^ a = 0), leaving the unique element. Beautiful and simple.
 
-**Two unique elements**: XOR of all elements gives `xor_all = a ^ b` where a and b are the two unique numbers. Since a != b, xor_all != 0. But how do we separate a and b?
+**Two unique elements**: XOR of all elements gives xor_all = a ^ b. Since a != b, xor_all != 0. But how do I separate a from b? I only have their XOR, not the individual values.
 
-**Key insight**: Since xor_all != 0, at least one bit is set. That bit is where a and b differ. We can use ANY set bit to partition all numbers into two groups:
-- Group 1: numbers with that bit set
-- Group 2: numbers with that bit unset
+My first thought was to somehow iterate through possible values... but that would not be O(1) space. I need a way to split the numbers into two groups such that a and b end up in different groups, while every duplicate pair stays together in the same group.
 
-Each duplicate pair lands entirely in one group (both copies have the same bits). And a and b land in different groups (they differ at this bit). So XOR within each group isolates one unique number.
+Hmm, since xor_all != 0, at least one bit position differs between a and b. If I partition all numbers by whether that bit is set, then a and b must land in different groups (they differ at that bit), while every duplicate pair lands in the same group (both copies have identical bits). XOR within each group then isolates one unique number each. That is the key insight!
 
-**Finding a set bit**: The lowest set bit of x is `x & (-x)` (two's complement trick). This gives us a nice mask.
+But which differing bit should I pick? Actually, ANY set bit in xor_all works, since each one represents a position where a and b differ. The easiest to extract is the lowest set bit: diff_bit = xor_all & (-xor_all). This uses the two's complement trick where -x = ~x + 1, so AND-ing with -x isolates the rightmost 1-bit.
+
+Wait, could I also use the highest set bit? Yes, but extracting it is more work (need bit_length). The lowest set bit is cleaner.
 
 Algorithm:
 1. XOR all numbers -> xor_all = a ^ b
-2. diff_bit = xor_all & (-xor_all)  # isolate lowest differing bit
-3. Partition and XOR:
-   - group1_xor = XOR of all nums where (num & diff_bit) != 0
-   - group2_xor = xor_all ^ group1_xor  (or XOR remaining elements)
+2. diff_bit = xor_all & (-xor_all)
+3. XOR all numbers where (num & diff_bit) != 0 -> gives one unique number, call it a
+4. The other number: b = xor_all ^ a
 
-Wait, I could just XOR group1 to get one number, then XOR it with xor_all to get the other. That's cleaner.
+I initially thought I needed two separate XOR groups, but actually I only need one group's XOR and then derive the other from xor_all. That saves a pass.
 
-Time: O(n), two passes (or one pass for step 1, one for step 3).
-Space: O(1).
-
-Let me verify: [1,2,1,3,2,5]
-- xor_all = 1^2^1^3^2^5 = 0^0^(3^5) = 6 (binary: 110)
-- diff_bit = 6 & (-6) = 6 & ...010 = 2 (binary: 010)
-- Group with bit 1 set: 2, 3, 2 -> XOR = 3
+Verification: [1,2,1,3,2,5]
+- xor_all = 1^2^1^3^2^5 = (1^1)^(2^2)^(3^5) = 0^0^6 = 6 (binary: 110)
+- diff_bit = 6 & (-6) = 2 (binary: 010)
+- Group with bit 1 set: 2, 3, 2 -> XOR = 2^3^2 = 3
 - Other number: 6 ^ 3 = 5
-- Result: [3, 5] ✓
+- Result: [3, 5]. Correct!
 </think>
 
 ## Single Number III — Two Unique Elements via Bit Manipulation
@@ -111,35 +107,30 @@ This single-bit mask perfectly separates the two unique numbers: one has this bi
     ("thinking/algorithms", r'''Counting Bits: Given a non-negative integer n, return an array ans of length n+1 where ans[i] is the number of 1-bits (popcount) in the binary representation of i. Solve in O(n) time without using any built-in popcount function for each number.
 
 Example: n = 5 -> [0,1,1,2,1,2] (binary: 0,1,10,11,100,101)''', r'''<think>
-I need O(n) total time, meaning O(1) per number. I can't afford to count bits individually for each number (that would be O(n log n)). I need a DP recurrence.
+I need O(n) total time, meaning O(1) per number. The naive approach of counting bits for each number individually (looping through bits or using Brian Kernighan's trick) would be O(n log n) since each number has up to log(n) bits. I need something faster.
 
-Several DP approaches exist:
+Could I use DP? If I can express bits[i] in terms of some smaller already-computed value, I get O(1) per number.
 
-**Approach 1: Last set bit**
-`bits[i] = bits[i & (i-1)] + 1`
+**Approach 1: Right shift**
+bits[i] = bits[i >> 1] + (i & 1). The idea: i >> 1 removes the last bit, and i & 1 tells us whether that removed bit was 1. Since i >> 1 < i for i > 0, it is already computed. This is clean and intuitive.
 
-`i & (i-1)` clears the lowest set bit. So the popcount of i is 1 more than the popcount of i with its lowest bit removed. And `i & (i-1) < i`, so it's already computed.
+**Approach 2: Last set bit**
+bits[i] = bits[i & (i-1)] + 1. Here i & (i-1) clears the lowest set bit. So the popcount of i is 1 more than the popcount of i with its lowest bit removed. And i & (i-1) < i, so it is already computed.
 
-**Approach 2: Right shift**
-`bits[i] = bits[i >> 1] + (i & 1)`
+Hmm, which is better? Both are O(1) per number, O(n) total. Approach 1 is simpler -- just a shift and an AND. Approach 2 requires understanding the i & (i-1) trick. I will implement Approach 1 as primary and Approach 2 as an alternative for educational value.
 
-i >> 1 removes the last bit. If the last bit was 1, add 1. `i >> 1 < i` for i > 0, so it's already computed.
+Wait, I should double-check that i >> 1 is actually smaller. For i = 0, we have bits[0] = 0 (base case). For i = 1, bits[1] = bits[0] + 1 = 1. For i = 2, bits[2] = bits[1] + 0 = 1. All valid.
 
-**Approach 3: Offset**
-Track the most significant bit. When i reaches the next power of 2, update the offset. `bits[i] = bits[i - offset] + 1`.
-
-All three are O(n) time and O(n) space (for the output).
-
-Approach 2 is the simplest and most elegant. Let me use that.
-
-Verify for n=5:
+Let me verify the full sequence for n=5:
 - bits[0] = 0
 - bits[1] = bits[0] + 1 = 1
 - bits[2] = bits[1] + 0 = 1
 - bits[3] = bits[1] + 1 = 2
 - bits[4] = bits[2] + 0 = 1
 - bits[5] = bits[2] + 1 = 2
-Result: [0, 1, 1, 2, 1, 2] ✓
+Result: [0, 1, 1, 2, 1, 2]. Matches the expected output!
+
+Actually, I also considered Approach 3 (offset-based: track the MSB and use bits[i] = bits[i - offset] + 1), but it requires extra bookkeeping to update the offset at each power of 2. Not worth the complexity when Approach 1 is so simple.
 </think>
 
 ## Counting Bits — O(n) DP Solution
@@ -225,28 +216,20 @@ All run in O(1) per number with no division or modulo — just bit operations an
     ("thinking/algorithms", r'''Find the maximum XOR of two numbers in an array. Given an array of non-negative integers, find the pair (a, b) whose XOR a ^ b is maximized. Solve in O(n * L) time where L is the bit length (typically 32).
 
 Example: nums = [3, 10, 5, 25, 2, 8] -> 28 (XOR of 5 and 25: 00101 ^ 11001 = 11100 = 28)''', r'''<think>
-The brute force checks all pairs: O(n^2). We need O(n * L) which suggests a trie-based approach.
+The brute force checks all O(n^2) pairs. I need O(n * L) where L is the bit length. What data structure supports per-bit decisions?
 
-**Trie approach**: Build a binary trie where each number is inserted bit by bit from the most significant bit to the least. For each number, greedily traverse the trie trying to take the opposite bit at each level (to maximize XOR).
+My first thought was sorting -- maybe the maximum XOR pair has some nice property in sorted order. But actually no, XOR does not respect numerical ordering at all. For example, 5 (101) and 25 (11001) give XOR 28, which is not related to their relative position in sorted order.
 
-Why does this work? XOR is 1 when bits differ. To maximize the XOR, at each bit position starting from the MSB, we want to pair our current number with a number that has the opposite bit. The trie lets us make this greedy choice efficiently.
+A binary trie is the right approach. I insert each number bit by bit from MSB to LSB. Then for each number, I greedily traverse the trie trying to take the opposite bit at each level.
 
-**Algorithm**:
-1. Insert all numbers into a binary trie (MSB first, fixed width of L bits)
-2. For each number, traverse the trie greedily:
-   - At each bit, try to go to the opposite branch (maximizes that bit's contribution)
-   - If opposite branch doesn't exist, go to the same branch
-   - Accumulate the XOR value
-3. Track the maximum
+Why does the greedy work? XOR is 1 when bits differ. Setting bit position k contributes 2^k to the result. Since 2^k > 2^0 + 2^1 + ... + 2^(k-1), maximizing higher bits is always more valuable than any combination of lower bits. Therefore, at each bit from MSB down, we should take the opposite bit if available. The trie lets us make this greedy choice in O(1) per bit.
 
-Time: O(n * L) for building trie + O(n * L) for queries = O(n * L)
-Space: O(n * L) for the trie
+Hmm, but what if taking the opposite bit at level k forces us into a subtree where all subsequent bits match (giving 0 XOR for the remaining bits)? Could taking the same bit at level k lead to a better overall result? Actually no, because the contribution of bit k (2^k) is strictly larger than the maximum possible contribution of all remaining bits combined (2^(k-1) + 2^(k-2) + ... + 1 = 2^k - 1 < 2^k). So the greedy choice at each level is provably optimal.
 
-For L = 32, this is essentially O(32n) = O(n), much better than O(n^2).
+One implementation detail: I need a fixed bit width for all numbers so the trie paths are aligned. I will use the bit length of the maximum number in the array.
 
-I'll implement the trie with a simple node class. Each node has children[0] and children[1].
-
-Alternative approach I considered: bit-by-bit greedy with hash sets. For each bit from MSB to LSB, try to set it in the answer by checking if there exist a, b in the array with the desired prefix. This is also O(n * L) but trie is more intuitive.
+Time: O(n * L) for building + O(n * L) for queries = O(n * L). For L = 32, this is effectively O(n).
+Space: O(n * L) for the trie nodes.
 </think>
 
 ## Maximum XOR of Two Numbers — Binary Trie
@@ -363,23 +346,17 @@ Total: O(n) insertions * O(L) per insertion + O(n) queries * O(L) per query = O(
 5. Check if exactly two bits are set
 
 All operations should be O(1) using bit manipulation, with no loops.''', r'''<think>
-These are fundamental bit manipulation tricks that appear constantly in systems programming and competitive coding.
+These are fundamental bit manipulation tricks. Let me work through each one carefully.
 
-1. **Is power of two**: n > 0 and (n & (n-1)) == 0. The trick: a power of two has exactly one bit set. n-1 flips that bit and all below it, so AND gives 0.
+1. **Is power of two**: My first thought is to check if log2(n) is an integer, but that involves floating point and could have precision issues. A better approach: n > 0 and (n & (n-1)) == 0. Why does this work? A power of two has exactly one bit set (e.g., 8 = 1000). n-1 flips that bit and sets all lower bits (7 = 0111). AND gives 0. For non-powers (e.g., 6 = 110, 5 = 101, AND = 100 != 0), it does not. I also need n > 0 because 0 & (-1) = 0 but 0 is not a power of two.
 
-2. **Next power of two >= n**: Multiple approaches.
-   - If n is already a power of 2, return n.
-   - Otherwise, find the highest set bit and return 2^(position+1).
-   - Clean approach: n -= 1, then propagate the highest bit downward using bit smearing, then add 1.
-   - Even simpler: 1 << (n - 1).bit_length() handles both cases in Python.
+2. **Next power of two >= n**: I considered bit smearing (propagate highest bit down, then add 1), but actually Python's bit_length makes this simpler: 1 << n.bit_length(). Wait, does that work when n is already a power of 2? For n=4 (100), bit_length=3, so 1 << 3 = 8. That is wrong -- I want 4, not 8. So I need to check if n is already a power of two first and return n directly in that case. Hmm, alternatively I could use 1 << (n-1).bit_length(), but for n=1 that gives 1 << 0 = 1, which is correct. For n=4, (4-1)=3, bit_length=2, 1 << 2 = 4. Correct! Actually wait, for n=5, (5-1)=4, bit_length=3, 1 << 3 = 8. Correct. So 1 << (n-1).bit_length() handles all cases cleanly without a special check. But I should still handle n <= 0 separately.
 
-3. **Round down to nearest power of two**: Similar bit smearing, or just 1 << (n.bit_length() - 1).
+3. **Round down to nearest power of two**: 1 << (n.bit_length() - 1). For n=7 (111), bit_length=3, result = 4. Correct.
 
-4. **Count trailing zeros**: (n & -n) gives the lowest set bit as a value. Then take log2. In Python: (n & -n).bit_length() - 1. Or we can use the trick with de Bruijn sequences, but Python's bit_length is cleaner.
+4. **Count trailing zeros**: (n & -n) gives the lowest set bit as a value. Then (n & -n).bit_length() - 1 gives its position. I considered using de Bruijn sequences (common in C), but Python's bit_length is cleaner and avoids lookup tables.
 
-5. **Exactly two bits set**: n & (n-1) removes the lowest set bit. If the result is a power of two (and non-zero), there were exactly 2 bits. So: n > 0 and (m := n & (n-1)) > 0 and (m & (m-1)) == 0.
-
-I should also explain why each trick works, since the educational value is important.
+5. **Exactly two bits set**: Apply n & (n-1) to clear the lowest set bit. If the result m is itself a power of two (and nonzero), there were exactly 2 bits. So: m = n & (n-1), check m > 0 and (m & (m-1)) == 0. I initially thought I could just check n & (n-1) != 0, but that would be true for any n with 2 or more bits set -- I need to verify exactly 2, not "at least 2."
 </think>
 
 ## Power of Two Checks and Bit Manipulation Tricks
@@ -506,32 +483,29 @@ All operations are O(1) with no loops, branches, or lookup tables — pure arith
     ("thinking/algorithms", r'''Generate the n-bit Gray code sequence. A Gray code is a binary numeral system where two successive values differ in only one bit. The sequence should start with 0.
 
 Example: n = 2 -> [0, 1, 3, 2] (binary: 00, 01, 11, 10 — each adjacent pair differs by one bit, including wrapping)''', r'''<think>
-Gray codes have several elegant generation methods. Let me think through them.
+Gray codes: successive values differ by exactly one bit. There are several generation methods. Let me think through them.
 
 **Method 1: Direct formula**
-The i-th Gray code is `i ^ (i >> 1)`. This is the simplest approach:
+The i-th Gray code is i ^ (i >> 1). Let me verify:
 - 0: 0 ^ 0 = 0 (00)
 - 1: 1 ^ 0 = 1 (01)
 - 2: 2 ^ 1 = 3 (11)
 - 3: 3 ^ 1 = 2 (10)
 
-Why does this work? In standard binary, incrementing can flip multiple bits. The XOR with the right-shifted value ensures that only one bit changes between consecutive values. Formally: `G(i) ^ G(i+1) = (i ^ (i>>1)) ^ ((i+1) ^ ((i+1)>>1))` always has exactly one bit set (proof involves case analysis on trailing 1s).
+Each consecutive pair differs by one bit. But why does this formula work in general? My initial intuition was unclear, so let me think more carefully. In standard binary, incrementing i to i+1 can flip multiple bits (e.g., 0111 -> 1000 flips 4 bits). The XOR with i >> 1 "smooths" this: it converts the multi-bit increment into a single-bit change. Formally, G(i) ^ G(i+1) always has exactly one bit set -- this can be proven by case analysis on the number of trailing 1-bits in i.
 
 **Method 2: Reflect-and-prefix**
 - Start with [0, 1] for n=1
-- For each additional bit: take the sequence, reflect it, prepend 0 to originals and 1 to reflected copies
-- n=1: [0, 1]
+- For each additional bit: take current sequence, reverse it, OR the new bit onto the reversed copy, concatenate
 - n=2: [00, 01] + [11, 10] = [0, 1, 3, 2]
-- n=3: [000, 001, 011, 010] + [110, 111, 101, 100] = [0, 1, 3, 2, 6, 7, 5, 4]
 
-This is the classic construction and explains why it's called "reflected" Gray code.
+Wait, does this guarantee the single-bit difference at the seam (where original meets reflected)? The last element of the original [01] and the first element of the reflected [11] differ only in the new high bit. Yes, because the reflected copy is a mirror, so the elements at the junction are the same except for the new prefix bit. That is the key insight of the "reflected" construction.
 
-**Method 3: Backtracking** — generate recursively, but this is O(2^n * n) and unnecessary.
+I initially considered a **backtracking** method (generate all permutations of bits and check the Gray code property), but that would be O(2^n * n) and completely unnecessary when we have O(2^n) methods available.
 
-I'll implement both Method 1 (one-liner, elegant) and Method 2 (educational, shows the recursive structure).
+I will implement both Method 1 (elegant one-liner) and Method 2 (illustrative of the recursive structure).
 
-Time: O(2^n) for both — we must generate 2^n values.
-Space: O(2^n) for the output.
+Time: O(2^n) for both -- optimal since the output has 2^n values.
 </think>
 
 ## Gray Code Generation

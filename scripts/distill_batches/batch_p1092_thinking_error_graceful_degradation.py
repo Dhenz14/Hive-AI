@@ -12,7 +12,9 @@ Fallback strategies provide degraded but functional responses when dependencies 
 4. Queue for later: accept the request and process it when the service recovers
 5. Feature reduction: disable non-critical features
 
-The fallback chain should be: primary -> secondary -> cache -> default.
+My first thought was to just return None or a default on failure, but that is too simplistic -- the caller needs to know whether they got real data or a fallback. Otherwise a cached price from yesterday could be treated as today's price, which could be a costly mistake.
+
+I considered whether the fallback chain should be primary -> cache -> secondary -> default. But wait, the secondary service is more likely to have fresh data than the cache, so it should come before cache. Actually, it depends on latency -- if the secondary is also slow/unreliable, hitting the cache first avoids cascading failures. Hmm, for most cases the right order is: primary -> secondary -> cache -> default, because freshness matters more than speed when you have a working backup provider. The cache is your last resort before the static default.
 </think>
 
 Fallback strategies let your application continue operating when dependencies are down. Here is a comprehensive fallback system:
@@ -329,10 +331,14 @@ Feature flags for graceful degradation need:
 5. User/group targeting
 6. Kill switches for emergencies
 
+I initially considered just using environment variables for feature flags, but that requires a redeploy to change them. Wait -- you could use config file watching to pick up changes without redeployment. But actually, for kill switches in an emergency, even file-based updates are too slow since they depend on deployment pipelines. Therefore some kind of dynamic backend (database, Redis, or a dedicated service) is necessary for production use.
+
 Implementation options:
-- Simple: config file or environment variables
-- Medium: database-backed with caching
+- Simple: config file or environment variables (fine for development, too rigid for production)
+- Medium: database-backed with caching (good balance of flexibility and complexity)
 - Full: dedicated feature flag service (LaunchDarkly, Unleash)
+
+Hmm, what should happen when the flag service itself is down? If you default to "feature enabled," a degraded flag service could accidentally enable unfinished features. Therefore the safe default should always be "feature disabled" -- this means new features are gated behind explicit enablement, which is the safer failure mode.
 
 Let me show a practical in-process implementation.
 </think>
@@ -590,7 +596,9 @@ Progressive enhancement for APIs means:
 4. The client can check degradation markers to adjust its behavior
 5. Partial success is better than total failure
 
-This is different from simple fallbacks -- we actively tell the client what is degraded.
+Could I just omit failed fields from the response entirely? That seems simpler, but wait -- if the client expects a field and it is missing, it might crash or show a blank UI. Actually, silently omitting data is worse than explicitly marking it as unavailable, because the client cannot distinguish "this data does not exist" from "this data could not be fetched right now." Therefore we need degradation markers.
+
+This is different from simple fallbacks -- we actively tell the client what is degraded. I considered using HTTP status codes (like 206 Partial Content) to signal degradation, but that only gives a binary signal at the response level. Per-field degradation markers are more useful since the client can decide which degraded fields matter for its current use case.
 </think>
 
 Progressive enhancement returns partial results with explicit degradation markers, letting the client adapt:
@@ -838,9 +846,9 @@ Batch partial failure handling needs:
 6. Handle the overall batch status (partial success)
 
 Key design decisions:
-- Should the batch stop on first failure or continue?
-- Should successful items be committed or rolled back on partial failure?
-- How to report per-item results?
+- Should the batch stop on first failure or continue? My instinct says continue, since the caller submitted all items expecting results for each. But wait -- if the failure indicates a systemic issue (like database down), continuing would just accumulate identical failures. Actually, a good implementation should distinguish between item-specific errors (bad data) and systemic errors (infrastructure down), and only stop early for systemic ones.
+- Should successful items be committed or rolled back on partial failure? This depends on the domain. For importing CSV rows, keeping successful items is fine. For financial transfers, you might need all-or-nothing. Therefore the API should let the caller choose the strategy.
+- How to report per-item results? I considered just returning a list of errors, but that loses the mapping between items and their outcomes. A per-item result object with status, value, and error is cleaner because the caller can iterate the results in the same order as the input.
 </think>
 
 Partial failure handling in batch operations requires per-item error tracking and clear reporting:
@@ -1092,12 +1100,16 @@ Default values on error are tricky because:
 3. Some fields should never have defaults (security-related)
 4. Defaults should match the expected type
 
+I initially thought "just use None as the default everywhere," but actually None conflates three different states: "value is absent," "value was not fetched," and "value was fetched and is legitimately null." Therefore we need distinct sentinels for different missing-value semantics.
+
+Could you use Optional types to handle this? Hmm, Optional[T] only distinguishes "has value" from "no value" -- it cannot express why the value is missing. A Result type (Ok/Err) is better because it carries the error information, letting the caller decide how to handle the failure rather than silently accepting a default.
+
 Patterns:
-1. Sentinel values (None, NOT_SET, MISSING)
+1. Sentinel values (None, NOT_SET, MISSING) -- but be careful, since None is often a valid value in the domain
 2. Type-safe defaults with Option/Result types
 3. Default factories (computed defaults)
 4. Config-driven defaults
-5. Explicit "unknown" values
+5. Explicit "unknown" values -- wait, these can propagate through calculations and produce nonsense results (e.g., "unknown" + 5). Therefore unknown values should block computation, not silently participate in it.
 </think>
 
 Default values in error handling must be carefully designed to avoid masking bugs. Here are the safe patterns:

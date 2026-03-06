@@ -266,23 +266,15 @@ This tracker provides a complete view of delegation status including own HP, rec
         "hive/rc-delegation-patterns",
         r'''When should I use RC delegation vs HP delegation on Hive? What are the tradeoffs?''',
         r'''<think>
-RC delegation (HF26) vs HP delegation serve different purposes:
+The user is asking about RC delegation vs HP delegation. Let me think about this carefully because these two mechanisms are easy to confuse.
 
-RC delegation:
-- Only shares bandwidth (RC) for transactions
-- Does NOT give voting power
-- Uses posting key (not active)
-- No cooldown on removal
-- Ideal for: bots, new user onboarding, dApp accounts
+My first instinct was that RC delegation is just a lighter version of HP delegation -- but wait, that is not quite right. They are fundamentally different operations. HP delegation shares both voting power and RC, while RC delegation shares only bandwidth. So RC delegation is not a subset of HP delegation; it serves a completely separate purpose.
 
-HP delegation:
-- Shares both RC AND voting power
-- Delegatee can vote with the delegated stake
-- Uses active key
-- 5-day cooldown on removal
-- Ideal for: curation partners, community accounts, investment
+I considered whether RC delegation uses the active key like HP delegation does, but actually it uses the posting key. That makes sense because you are not moving any stake or financial value -- you are just sharing transaction bandwidth. Since the posting key is lower-privilege, this means RC delegation carries less security risk. Therefore, for use cases where you only need to give someone the ability to transact (like onboarding or running a bot), RC delegation is strictly safer.
 
-The key tradeoff is: do you want to share just transaction capacity, or also governance/voting weight?
+Hmm, what about removal cooldowns? HP delegation has a 5-day cooldown when you remove it, because the chain needs time to recalculate voting weights and prevent abuse. But RC delegation has no cooldown at all -- you can revoke it instantly. That is a big deal for situations where you might need to cut off a misbehaving bot or revoke access quickly.
+
+So the key tradeoff comes down to: do you want to share just transaction capacity, or also governance and curation weight? For onboarding new users who just need to post and comment, RC delegation is the right choice. For curation partnerships or community accounts that need to vote with your stake, HP delegation is necessary.
 </think>
 
 RC delegation and HP delegation serve different use cases on Hive. Here is a detailed comparison with code showing when to use each:

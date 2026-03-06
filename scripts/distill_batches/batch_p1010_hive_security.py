@@ -5,13 +5,13 @@ PAIRS = [
         "hive/key-storage-best-practices",
         r'''What are the best practices for storing Hive private keys in different environments (web, mobile, server)?''',
         r'''<think>
-Key storage is the most critical security concern for Hive applications. The key hierarchy (owner > active > posting > memo) means different keys need different protection levels. Owner keys should be cold-stored, active keys need hardware security on servers, posting keys can be more accessible but still need protection.
+Key storage for Hive apps -- this could be simple if the app only needs posting authority, but wait, the user asked about web, mobile, AND server environments, which each have very different threat models. A server can use encrypted keystores or Vault, but a browser cannot safely hold private keys at all since JavaScript memory is inspectable.
 
-Key principles:
-1. Never store keys in source code or environment variables in plaintext
-2. Use the minimum required key type for each operation
-3. Owner key should never be on a connected device
-4. Consider using posting authority delegation instead of sharing keys
+Let me think through the key hierarchy. Hive has four key levels: owner > active > posting > memo. My first thought was to treat them all similarly, but actually that would be a mistake because the risk profile is completely different for each. If someone steals your posting key, they can spam votes and comments but cannot drain your funds. If they steal your active key, they can transfer everything out. And the owner key can change all other keys, so compromising it means total account loss. Therefore, each level needs proportionally stronger protection.
+
+Hmm, what about environment variables? I initially considered recommending them as a reasonable approach for servers, but actually plain-text environment variables are visible in process listings and crash dumps. That is not really "secure" -- it is just "not hardcoded." A proper solution encrypts keys at rest with PBKDF2 or uses a secrets manager like HashiCorp Vault. The env approach is acceptable only as a minimum baseline, not best practice.
+
+One more consideration: rather than sharing keys at all for multi-user dApps, posting authority delegation is almost always better. Since the dApp account receives posting permission without ever seeing the user's actual key, a compromise of the dApp only affects posting-level operations, not funds.
 </think>
 
 Secure key storage depends on your deployment environment. Here are best practices for each:

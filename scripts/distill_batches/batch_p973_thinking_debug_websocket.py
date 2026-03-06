@@ -15,11 +15,13 @@ asyncio.run(listen())
 ```
 
 When the server crashes, `ws.recv()` just hangs indefinitely. No exception is raised. The client thinks it's still connected.''', r'''<think>
-When a server crashes (process killed, power failure), it does not send a TCP FIN or WebSocket close frame. The client's TCP connection remains in the ESTABLISHED state because there is no notification that the server is gone. This is the "half-open connection" problem.
+The client thinks it is still connected but the server is dead. Could this be a bug in the websockets library? Hmm, let me think about what happens at the TCP level when a server crashes.
 
-The recv() call blocks waiting for data that will never come. Eventually, TCP will time out (which can take minutes to hours depending on OS settings), but the default timeout is very long.
+When a server crashes (process killed, power failure), it does NOT send a TCP FIN or WebSocket close frame. The client's TCP stack has no way to know the server is gone because no packet was sent to indicate disconnection. So the connection remains in the ESTABLISHED state -- this is the "half-open connection" problem.
 
-The fix: use ping/pong to detect dead connections, and set a timeout on recv().
+Wait, but shouldn't TCP eventually detect this? Actually, TCP does have a keep-alive mechanism, but the default keep-alive timeout on most operating systems is 2 hours. So the recv() call would block for up to 2 hours before TCP notices the connection is dead. That explains why it "hangs indefinitely" from the user's perspective.
+
+I initially considered just setting a timeout on recv() as the fix, but that alone is not enough -- it would just raise TimeoutError even during normal idle periods when the server has no data to send. Therefore the proper fix is a combination: use WebSocket-level ping/pong to actively probe the connection (the websockets library has built-in support for this), AND add a recv timeout as a fallback. The ping/pong approach is better because it actively verifies the connection is alive rather than just detecting silence.
 </think>
 
 When a server crashes (process kill, power failure, network partition), it does not send a TCP FIN or WebSocket close frame. The client's TCP stack has no way to know the server is gone. The connection appears ESTABLISHED and `recv()` blocks indefinitely waiting for data that will never arrive.
@@ -149,16 +151,17 @@ ws.send(JSON.stringify({ id: 3, type: 'update' }));
 ```
 
 WebSocket runs over TCP which guarantees ordering. So why are messages out of order?''', r'''<think>
-TCP guarantees byte-level ordering within a single connection. If messages arrive out of order, there must be something between the client and server that is reordering them, or there are multiple connections/paths involved.
+WebSocket runs over TCP, which guarantees byte-level ordering. So how can messages arrive out of order? Could TCP itself be broken? No, that is extremely unlikely -- TCP ordering is fundamental and battle-tested.
 
-Possible causes:
-1. Multiple WebSocket connections (e.g., reconnection creates a new connection)
-2. A load balancer distributing messages across multiple server instances
-3. Server-side async processing handling messages in parallel
-4. The client uses multiple WebSocket connections (e.g., multiple tabs)
-5. A proxy or CDN that processes messages in parallel
+Wait, the issue must be at the application layer, not the transport layer. Let me think about what could cause this. Multiple possibilities:
 
-TCP guarantees ordering, but the APPLICATION layer might process messages out of order if using async/parallel processing.
+1. Multiple WebSocket connections -- if the client reconnects, messages sent on different connections have no ordering guarantee relative to each other
+2. A load balancer distributing messages across multiple server instances -- message 1 goes to server A, message 2 goes to server B
+3. Server-side async processing -- hmm, this is interesting. Even if messages arrive in order on a single connection, if each message is processed in a separate async task (create_task), their side effects complete in arbitrary order
+
+Actually, I think cause 3 is the most common one in practice. The server receives messages 1, 2, 3 in order on the TCP stream, but spawns concurrent tasks to process them. Task for message 2 finishes before task for message 1, so the database sees updates in the order 2, 1, 3. The user blames the network, but the real issue is application-level concurrency.
+
+Therefore the fix depends on the cause: for load balancers, use sticky sessions; for async processing, process messages sequentially or add sequence numbers with client-side reordering.
 </think>
 
 TCP guarantees byte-level ordering within a single connection. If messages arrive out of order, the issue is not TCP but rather something at the application level or infrastructure.
@@ -310,9 +313,11 @@ websockets.exceptions.PayloadTooBig: frame exceeds limit: 52428800 > 1048576 byt
 ```
 
 The default message size limit is 1MB. But even after increasing it, large files cause memory issues.''', r'''<think>
-The websockets library has a default max_size of 1MB (1048576 bytes) to prevent denial-of-service attacks. The user needs to increase this limit. But beyond just increasing the limit, large binary transfers over WebSocket need special handling to avoid memory issues.
+The server crashes with "frame exceeds limit: 52428800 > 1048576 bytes." The websockets library has a default max_size of 1MB (1048576 bytes), and the 50MB file exceeds this. Could I just increase the limit? That would work technically, but wait -- even with an increased limit, loading a 50MB message into memory all at once is problematic.
 
-The better approach for large files is to use chunked transfer or streaming.
+Hmm, why? Because the websockets library buffers the entire message in memory before calling the handler. Under concurrent uploads from multiple clients, this means 50MB * N connections of memory usage, which can easily exhaust server RAM. And the event loop is blocked during the read, affecting all other connections.
+
+I initially thought just setting `max_size=100MB` would be sufficient, but actually the better approach for large files is chunked transfer. By breaking the file into small chunks (say 64KB each), you keep memory usage constant regardless of file size, and you can implement progress tracking. Even better, WebSocket is not really designed for bulk file transfers -- HTTP multipart upload handles this more efficiently with built-in flow control. Therefore I should present both the quick fix (increase max_size) and the proper fix (chunked transfer or HTTP upload).
 </think>
 
 The `websockets` library enforces a default maximum message size of 1MB (1,048,576 bytes) to prevent memory exhaustion attacks. A 50MB file exceeds this limit.
@@ -485,18 +490,13 @@ location /ws {
     proxy_set_header Connection "upgrade";
 }
 ```''', r'''<think>
-The Nginx config looks correct for WebSocket. The issue might be:
-1. proxy_read_timeout is too low and Nginx closes the connection before the heartbeat
-2. proxy_buffering is interfering with WebSocket frames
-3. The heartbeat is sent but Nginx buffers it
+The Nginx config looks correct for WebSocket upgrade. The heartbeat sends fine from the server but the client never receives it. Could there be a bug in the client-side code? Hmm, the user says the heartbeat messages are "missing" entirely, not that they are being received and ignored. So the issue is likely between the server and client -- meaning Nginx.
 
-Wait, the user says the heartbeat sends fine but the client doesn't receive it. If Nginx is buffering the response, small messages might be held in the buffer. But WebSocket frames should be forwarded immediately.
+Let me think about what Nginx could be doing wrong. The config has the proper Upgrade and Connection headers, so the WebSocket handshake works. But wait -- what about proxy_read_timeout? The default is 60 seconds. The server's heartbeat logic sends a heartbeat after 60 seconds of no data... that is exactly the default timeout. So Nginx might close the upstream connection at the 60-second mark, just before or at the same time the heartbeat is sent.
 
-Actually, the most likely issue is still proxy_read_timeout. The default is 60s. If the client sends no data for 60s, Nginx closes the upstream connection. The server's heartbeat at 60s might arrive just after Nginx has already timed out.
+I initially considered proxy_buffering as the culprit -- maybe Nginx is buffering the small heartbeat message. But actually, WebSocket frames should bypass normal HTTP buffering since the connection has been upgraded. However, the proxy_buffering directive might still interfere in some edge cases, so it is best to disable it explicitly for WebSocket locations.
 
-Or the issue could be proxy_send_timeout on the client->Nginx direction.
-
-Let me also consider: maybe the heartbeat IS being received but the client code has a bug in handling it.
+Actually, the most likely scenario is the proxy_read_timeout race condition. The fix needs to either increase proxy_read_timeout significantly (like 3600s) or decrease the heartbeat interval to well under 60 seconds. Therefore I should recommend both: a much longer Nginx timeout AND a shorter heartbeat interval (like 30 seconds) to ensure heartbeats arrive well before any timeout fires.
 </think>
 
 The most likely issue is Nginx's `proxy_read_timeout` (default 60 seconds). When no data flows from the backend to Nginx for 60 seconds, Nginx closes the upstream connection. Your heartbeat timeout is also 60 seconds, so the heartbeat may arrive just after Nginx has already timed out.
@@ -638,9 +638,13 @@ connect();
 ```
 
 After 5 reconnections, clicking the button sends "hello" 6 times. After 10 reconnections, it sends 11 times. Memory usage keeps climbing.''', r'''<think>
-Every time `connect()` is called, a new `addEventListener('click', ...)` is added to the button. Event listeners are not removed when the WebSocket closes. After N reconnections, there are N+1 click listeners on the button, each capturing a different `ws` reference (though only the latest one works -- older ones reference closed WebSocket objects).
+After 5 reconnections, clicking the button sends "hello" 6 times. Could this be a WebSocket protocol issue where messages are duplicated? Hmm no, the pattern of N+1 messages after N reconnections is too precise for a network issue. This looks like an event listener leak.
 
-The fix: add the event listener only once, or remove it before adding a new one.
+Let me trace through the code. Every time `connect()` is called (initial + each reconnection), it sets up ws.onopen which adds a NEW addEventListener('click', ...) to the button. Event listeners are cumulative -- calling addEventListener again does NOT replace the old one. After N reconnections, there are N+1 click listeners on the button.
+
+Wait, but do the old listeners even work? Each listener captures `ws` from its closure... actually, `ws` is a module-level variable that gets reassigned on each connect. So all listeners reference the SAME `ws` variable, which always points to the latest connection. That means all N+1 listeners send "hello" on the current connection, resulting in N+1 sends per click. And the old closed WebSocket objects are only referenced transiently during reassignment.
+
+I initially thought about using removeEventListener before adding a new one, but that requires a named function reference. A simpler fix is to just move the addEventListener call outside the connect() function entirely, so it is called only once. Since all listeners share the same `ws` variable anyway, a single listener that reads the current `ws` value works perfectly.
 </think>
 
 Every time `connect()` is called (including on reconnection), a new click event listener is added to the button. Event listeners accumulate because they are never removed. After 10 reconnections, the button has 11 click listeners.

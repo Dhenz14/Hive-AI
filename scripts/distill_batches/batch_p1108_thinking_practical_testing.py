@@ -50,22 +50,21 @@ class OrderService:
 
         return order''',
         r'''<think>
-The user has a complex service class with 5 dependencies and a multi-step place_order method. They are overwhelmed and do not know where to start testing. I need to:
+The user has a complex service class with 5 dependencies and a multi-step place_order method. They are overwhelmed and do not know where to start testing. That is actually a very common feeling -- the codebase feels too big and interconnected to test.
 
-1. Identify the critical paths that MUST be tested
-2. Show them how to write focused tests that are NOT coupled to implementation
-3. Start with the highest-value tests (the happy path, then error handling)
-4. Make the tests readable so they serve as documentation
+My first instinct was to suggest testing every method individually, but wait -- that would produce dozens of tests that mostly verify mock wiring. Instead, I should focus on what actually matters.
 
-The key insight is: you do not need 100% coverage on day one. Start with the tests that protect against the most damaging bugs:
-- Payment charged but order not created (money taken, no product)
+The key insight is: you do not need 100% coverage on day one. Start with the tests that protect against the most damaging bugs. Let me think about what could go wrong with this specific code:
+- Payment charged but order not created (money taken, no product) -- this is the worst case
 - Order created but payment not charged (product given, no money)
 - Stock validation bypassed (overselling)
 - Premium discount applied incorrectly (revenue loss)
 
-The service has good dependency injection already (constructor injection), which makes testing straightforward with mocks.
+Hmm, I also notice the code has a subtle issue: if inventory.reserve() fails after payment is charged, the payment is not refunded. That is a real bug I should highlight in the tests.
 
-Let me write tests in priority order, starting with the most critical business logic.
+I initially considered using integration tests with a real database, but actually that is not the right starting point for someone who has zero tests. Mocked unit tests are faster to write, faster to run, and the service already has good dependency injection (constructor injection), which makes testing straightforward. They can add integration tests later once they have the basics.
+
+Let me write tests in priority order, starting with the most critical business logic. The tests should read like documentation of the business rules, not like a mirror of the implementation.
 </think>
 
 You do not need to test everything at once. Start with the tests that protect against the most expensive bugs. Here is a prioritized approach for your OrderService.
@@ -300,17 +299,23 @@ You do not need 100% coverage to get value from tests. These ~12 tests cover the
         "thinking/practical",
         r'''our tests break every time we refactor anything''',
         r'''<think>
-This is a classic symptom of tests that are coupled to implementation details rather than testing behavior. The user is probably:
-- Testing private methods directly
-- Asserting exact mock call sequences
-- Using deep mocking that mirrors the internal structure
+This is a classic symptom of tests that are coupled to implementation details rather than testing behavior. But what specifically makes tests fragile? Let me think through the patterns:
+
+The user is probably doing one or more of these:
+- Testing private methods directly -- these change constantly during refactoring
+- Asserting exact mock call sequences -- "assert mock.called_with(x, y, z)" breaks if you change parameter order or add a default
+- Using deep mocking that mirrors the internal structure -- if you mock three layers deep, any structural change breaks everything
 - Testing HOW something works rather than WHAT it does
 
-The fix is to refactor tests to test the public interface and observable behavior. Let me show the pattern:
-- BAD: testing that method A calls method B with specific args
+I initially thought the fix was "just use fewer mocks," but actually that is only part of it. The deeper fix is to refactor tests to test the public interface and observable behavior. Let me think about what "observable" means here... it means outputs, return values, state changes, and side effects that matter to the caller -- not internal method calls.
+
+The pattern is:
+- BAD: testing that method A calls method B with specific args (this is testing the wiring, not the behavior)
 - GOOD: testing that given input X, the output is Y and side effect Z occurred
 
-I should show before/after examples of fragile tests becoming resilient tests.
+Wait, I should also address the common objection: "but if I do not test the internals, how do I know my code is correct?" The answer is that you test behavior through the public API. If refactoring changes the internals but produces the same results, your tests should still pass. If they do not, your tests are too tightly coupled.
+
+I should show before/after examples of fragile tests becoming resilient tests, because concrete examples are much more convincing than abstract principles.
 </think>
 
 Your tests are probably coupled to implementation details instead of testing behavior. Here is how to diagnose and fix this.
@@ -531,17 +536,21 @@ def get_weather(city: str) -> dict:
         "description": data["weather"][0]["description"],
     }''',
         r'''<think>
-The user has a function that calls an external API and does not know how to test it. There are several approaches:
+The user has a function that calls an external API and does not know how to test it. This is one of the most common testing questions, and the answer is not straightforward because there are multiple valid approaches.
 
-1. Mock requests.get at the test level (quick, but couples tests to implementation)
-2. Use responses library or httpx mock (cleaner mocking of HTTP layer)
-3. Refactor to inject the HTTP client (best for testability)
-4. Use VCR.py to record real responses and replay them (good for complex APIs)
+My first thought was "just mock requests.get" -- and that works, but it couples your tests to the HTTP library you use. If you switch from requests to httpx, all your tests break. Hmm, is that actually a problem? For a small project, probably not. For a larger project, it matters.
+
+Let me think through the approaches:
+
+1. Mock requests.get at the test level (quick, but couples tests to the requests library)
+2. Use responses library or httpx mock (cleaner mocking of HTTP layer, but still library-specific)
+3. Refactor to inject the HTTP client (best for testability -- but wait, is this over-engineering for a simple API call?)
+4. Use VCR.py to record real responses and replay them (good for complex APIs with large payloads)
 5. Contract testing (verify your code handles the API's actual response format)
 
-I should show multiple approaches since different situations call for different strategies. I will start with the simplest (mock), then show the better architecture (dependency injection), and also show how to write an integration test.
+I initially wanted to recommend only approach 3 (dependency injection) since it is the "clean" answer, but actually different situations call for different strategies. A quick script that calls one API endpoint does not need a full DI architecture. I should show multiple approaches and let the user choose.
 
-The key insight: unit tests mock the external API to test YOUR code's logic (data transformation, error handling). Integration tests actually hit the API (in a controlled way) to verify the contract has not changed.
+The key insight: unit tests mock the external API to test YOUR code's logic (data transformation, error handling). Integration tests actually hit the API (in a controlled way) to verify the contract has not changed. These are different concerns and need different test strategies.
 </think>
 
 There are three levels of testing for code that calls external APIs. You need all three for solid coverage.
@@ -829,21 +838,23 @@ Use approach 2 for new code. Use approach 1 to quickly add tests to existing cod
         "thinking/practical",
         r'''we have 90% code coverage but still find bugs in production''',
         r'''<think>
-This is a great question that reveals a common misconception: coverage measures which lines EXECUTED during tests, not whether those lines were tested CORRECTLY. You can have 100% coverage with zero useful assertions.
+This is a great question that reveals a common misconception. My first reaction is: coverage measures which lines EXECUTED during tests, not whether those lines were tested CORRECTLY. You can have 100% coverage with zero useful assertions.
 
-Common reasons for high coverage + production bugs:
+But wait, is that the whole story? Let me think deeper about why high coverage fails to catch bugs:
 
-1. Tests assert nothing meaningful (they run the code but do not check results)
+1. Tests assert nothing meaningful (they run the code but do not check results) -- I have seen test suites where half the tests just call functions without asserting anything. Coverage is 100%, tests are worthless.
 2. Tests only cover the happy path (errors, edge cases, race conditions untested)
-3. No tests for integration points (each unit works alone, fails when combined)
+3. No tests for integration points (each unit works alone, fails when combined) -- hmm, this is actually the most common source of production bugs in well-tested codebases. The units all pass, but the system fails.
 4. State-dependent bugs (works in test env with clean state, fails in prod with accumulated state)
 5. Missing boundary testing (off-by-one, empty inputs, null values)
-6. No concurrency testing (race conditions, deadlocks)
-7. Mock-heavy tests that do not reflect real behavior
+6. No concurrency testing (race conditions, deadlocks) -- coverage tools cannot even detect these gaps
+7. Mock-heavy tests that do not reflect real behavior -- this is subtle. If your mock returns "success" but the real API returns a different format, your test passes and production crashes.
+
+I considered recommending just "write better assertions" but actually the fundamental problem is that coverage is a quantity metric, not a quality metric. The real question is: would this test FAIL if I introduced a bug? That is exactly what mutation testing measures.
 
 I should show them:
 1. How to audit their existing tests for quality (not just quantity)
-2. Mutation testing (the real test of test quality)
+2. Mutation testing (the real test of test quality -- because it measures whether tests catch injected bugs)
 3. Property-based testing (finds edge cases humans miss)
 4. How to identify coverage gaps that metrics miss
 </think>
@@ -1075,20 +1086,23 @@ if __name__ == "__main__":
         "thinking/practical",
         r'''how do I test async code? my tests keep hanging or passing when they shouldn't''',
         r'''<think>
-Common async testing problems:
-1. Tests hang because they await something that never completes (missing mock, deadlock)
-2. Tests pass because the assertion runs before the async operation completes
-3. Tests pass because exceptions in async code are silently swallowed
+Async testing problems are notoriously frustrating because the failure modes are so confusing. Let me think through the common ones:
+
+1. Tests hang because they await something that never completes (missing mock, deadlock) -- this is the worst, because the test just sits there and you have no idea why
+2. Tests pass because the assertion runs before the async operation completes -- wait, this is particularly sneaky. The test looks correct, runs green, but the assertion never actually executed because it was racing with the coroutine
+3. Tests pass because exceptions in async code are silently swallowed -- hmm, this happens when you forget to await a coroutine that raises. The exception goes to the event loop's exception handler, not to the test
 4. Incorrect use of pytest-asyncio (missing marks, wrong event loop)
 
+My first thought was to show how to use unittest.mock with async code, but actually the bigger problem is the testing framework setup. If pytest-asyncio is not configured correctly, nothing else matters.
+
 The user is probably using pytest and needs to know:
-- How to properly set up pytest-asyncio
+- How to properly set up pytest-asyncio -- there are two modes (strict and auto) and picking the wrong one causes confusing failures
 - How to write async tests that actually wait for results
-- How to add timeouts so tests fail instead of hanging
+- How to add timeouts so tests fail instead of hanging (because a hanging test blocks your entire CI pipeline)
 - How to test that async exceptions are properly raised
 - How to test concurrent async code
 
-Let me give practical patterns for each common pitfall.
+I initially considered covering trio and anyio testing too, but that would dilute the focus. Let me stick with asyncio + pytest-asyncio since that is what 90% of Python async code uses.
 </think>
 
 Async tests fail in subtle ways because of timing, event loop issues, and silently swallowed exceptions. Here are the patterns that fix each problem.

@@ -230,18 +230,24 @@ useCartStore.subscribe(
 '''),
 
     ("react/state_react_query", r'''<think>
-React Query (TanStack Query) is the standard for server state management. I need to show practical patterns: queries with caching, mutations with optimistic updates, query invalidation, infinite queries for pagination, and prefetching.
+React Query (TanStack Query) is the standard for server state management. I could use plain useEffect + useState for data fetching, but wait - that approach has no caching, no deduplication, no background refetching, and requires manual loading/error state management. React Query handles all of that out of the box, which is why it has become the standard.
+
+I need to show practical patterns: queries with caching, mutations with optimistic updates, query invalidation, infinite queries for pagination, and prefetching. I initially thought about showing basic useQuery usage, but actually the advanced patterns are more valuable since basic usage is well-covered in the docs.
 
 Key patterns to demonstrate:
-1. Custom query hooks with proper typing
-2. Mutations with optimistic updates and rollback
-3. Query invalidation strategies
-4. Infinite scroll with useInfiniteQuery
-5. Prefetching for navigation
+1. Custom query hooks with proper typing - hmm, I considered returning the full query result, but wrapping it in a custom hook with a cleaner API is better because it encapsulates the query key and fetcher
+2. Mutations with optimistic updates and rollback - this is tricky because you need to snapshot the cache, update it optimistically, and restore on error
+3. Query invalidation strategies - granular invalidation vs broad invalidation, and when to use each
+4. Infinite scroll with useInfiniteQuery - the getNextPageParam callback is where most people get confused
+5. Prefetching for navigation - start loading data before the user clicks
 </think>
 
 Build production React Query patterns in TypeScript including typed custom hooks, optimistic mutations with rollback, query invalidation strategies, infinite scroll, and prefetching.''', r'''<think>
-I will create a complete set of React Query patterns centered around a todo/task management API. This shows real-world usage with proper TypeScript types, error handling, and optimistic updates with rollback on failure.
+I will create a complete set of React Query patterns centered around a todo/task management API. I considered using a generic CRUD example, but actually a task management API is better because it naturally requires optimistic updates (toggling task status should feel instant) and list invalidation (adding a task should update the list immediately).
+
+For the optimistic mutation pattern, I need to use onMutate to snapshot and update the cache, onError to rollback, and onSettled to refetch the authoritative data. I initially forgot about onSettled, but wait - without it, if the mutation succeeds but the server returns slightly different data (e.g., a server-generated timestamp), the cache would be stale. The refetch in onSettled ensures consistency.
+
+For query keys, I will use a factory pattern like `taskKeys.list(filters)` and `taskKeys.detail(id)`. This avoids key string duplication and makes invalidation precise - you can invalidate all task lists without touching individual task detail caches.
 </think>
 
 // lib/query-client.ts
