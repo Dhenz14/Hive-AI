@@ -40,7 +40,8 @@ It operates fully offline with Ollama — no API keys required — while seamles
 
 ### LoRA Training Pipeline
 - **Self-Distillation** — 16 prompt templates generate training pairs from the model's own knowledge (standard + O1-style reasoning)
-- **Claude Opus Distillation** — 1,739 expert-curated training pairs across 472 batch files covering 80+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML/AI, system design, compilers, distributed systems, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
+- **Claude Opus Distillation** — 4,500+ expert-curated training pairs across 560+ batch files covering 80+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML/AI, system design, compilers, distributed systems, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
+- **Thinking-Trace Curriculum** — 1,638 thinking-trace training pairs with `<think>` blocks across 4 cognitive phases: Foundation (434 pairs: debugging, security, performance, architecture, testing, concurrency, data modeling), Advanced (401 pairs: backtracking, adversarial self-testing, analogical reasoning, tradeoffs, uncertainty), Meta-Cognition (403 pairs: reasoning quality, confidence calibration, Socratic method, learning from mistakes, code quality judgment), and Autonomy (400 pairs: training data generation, self-evaluation, curriculum design, meta-learning, autonomous improvement, quality assurance). Target mix: 72% direct-answer + 28% thinking-trace
 - **Self-Improvement Pipeline** — Autonomous "get smarter" loop: self-eval → data generation → QLoRA training → GGUF export → validation. Includes LoRA bank, curriculum meta-learning, error-driven learning, and online distillation (p400-p407 batch series)
 - **Genetic Expansion** — Mutation operators (rephrase, constrain, generalize, error-inject, multi-step) expand top pairs for data diversity
 - **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
@@ -350,7 +351,17 @@ Results are saved as timestamped JSON in `bench/results/` for tracking improveme
 
 #### Claude Opus Distillation Corpus
 
-In addition to self-distilled pairs, the project includes 1,739 expert-curated training pairs distilled from Claude Opus 4.6, organized across 472 batch files in `scripts/distill_batches/`. These cover 80+ domains including Python stdlib, async patterns, TypeScript, React, CSS, DevOps, databases, authentication, AI/ML (GRPO, DPO, RAG, multi-agent systems, speculative decoding, federated learning), system design, compilers, distributed systems, security, and an autonomous self-improvement pipeline (p400-p407: self-training loops, QLoRA, self-eval/reward, GGUF optimization, meta-learning, error-driven learning, online distillation, and the "get smarter" orchestrator). Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence.
+The project includes 4,500+ expert-curated training pairs distilled from Claude Opus 4.6, organized across 560+ batch files in `scripts/distill_batches/`. These break into two categories:
+
+**Direct-Answer Pairs (~2,900 pairs):** Cover 80+ domains including Python stdlib, async patterns, TypeScript, React, CSS, DevOps, databases, authentication, AI/ML (GRPO, DPO, RAG, multi-agent systems, speculative decoding, federated learning), system design, compilers, distributed systems, security, and an autonomous self-improvement pipeline (p400-p407: self-training loops, QLoRA, self-eval/reward, GGUF optimization, meta-learning, error-driven learning, online distillation, and the "get smarter" orchestrator).
+
+**Thinking-Trace Pairs (1,638 pairs):** A 4-phase cognitive curriculum teaching step-by-step reasoning via `<think>` blocks:
+- **Phase 1 — Foundation (434 pairs):** Systematic debugging, security analysis, performance optimization, architecture design, code review, testing strategy, concurrency/distributed systems, data modeling/DevOps
+- **Phase 2 — Advanced (401 pairs):** Backtracking & dead-end recovery, adversarial self-testing, analogical reasoning, multi-perspective analysis, first-principles reasoning, tradeoff analysis, uncertainty reasoning
+- **Phase 3 — Meta-Cognition (403 pairs):** Reasoning quality evaluation, confidence calibration, Socratic method, context switching, learning from mistakes, code quality judgment
+- **Phase 4 — Autonomy (400 pairs):** Training data generation, self-evaluation, curriculum design, meta-learning, autonomous improvement, quality assurance, integration
+
+Target training mix: 72% direct-answer + 28% thinking-trace. Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence. See `scripts/distill_batches/THINKING_CURRICULUM.md` for the full curriculum plan.
 
 ---
 
@@ -692,8 +703,8 @@ hiveai-knowledge-refinery/
 │   ├── prepare_v5_data.py     # v5 data preparation
 │   ├── calibrate_eval.py      # Eval anchor calibration
 │   ├── claude_distill.py      # Claude distillation pipeline (v1)
-│   ├── claude_distill_v2.py   # Claude Opus distillation v2 (1,044 pairs, batch loader)
-│   ├── distill_batches/       # 472 batch files with expert-curated training pairs (1,739 pairs)
+│   ├── claude_distill_v2.py   # Claude Opus distillation v2 (batch loader for all pairs)
+│   ├── distill_batches/       # 560+ batch files: 2,900 direct-answer + 1,638 thinking-trace pairs
 │   ├── fix_broken_batches.py  # Batch file repair utility (triple-quote conflict resolution)
 │   ├── distill_multilang.py   # Multi-language distillation support
 │   ├── mine_hive_knowledge.py # Hive-specific pair mining
@@ -882,7 +893,8 @@ The trainer: accumulated knowledge → LoRA adapters that encode the *ability to
 - [x] Confidence routing via `smart_call()` (60-70% fast model usage)
 - [x] Merge cycling (train → merge → repeat)
 - [x] MoLoRA domain routing (Python, Hive, JS, Rust, C++, Go)
-- [x] Claude Opus distillation corpus (1,739 pairs across 472 batch files, 80+ domains)
+- [x] Claude Opus distillation corpus (4,500+ pairs across 560+ batch files, 80+ domains)
+- [x] Thinking-trace curriculum (1,638 pairs, 4-phase cognitive training: foundation → advanced → meta → autonomy)
 - [x] Self-improvement pipeline (p400-p407: autonomous "get smarter" training loop)
 - [x] Model benchmark harness (12 tasks, 4 categories, speculative decoding metrics)
 - [ ] LoRA v5 training (dense Qwen3.5-9B, r=64) — in progress
