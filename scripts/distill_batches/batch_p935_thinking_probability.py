@@ -1,36 +1,27 @@
 PAIRS = [
     ("thinking/algorithms", r'''Solve expected value problems algorithmically. Given a game where you roll a die and get the face value in dollars, but can choose to re-roll once (keeping the better result), what is the expected value? Generalize to n re-rolls.''', r'''<think>
-For a fair 6-sided die:
-- No re-rolls: E = (1+2+3+4+5+6)/6 = 3.5
-- One re-roll with strategy "re-roll if current value <= threshold t":
-  We keep if value > t, re-roll otherwise.
-  E(t) = P(keep) * E(value | value > t) + P(reroll) * E(die)
+Die re-roll problem. No re-rolls: E = (1+2+3+4+5+6)/6 = 3.5. With one re-roll, the question is: what threshold should I use for deciding whether to re-roll?
 
-  If t = 3 (re-roll if <= 3, keep if >= 4):
-  P(keep) = 3/6 = 1/2
-  E(value | value >= 4) = (4+5+6)/3 = 5
-  P(reroll) = 1/2
-  E(reroll) = 3.5
+Let me try different thresholds. If I re-roll when the value is <= t and keep when > t:
+
+t = 3 (re-roll 1,2,3; keep 4,5,6):
+  P(keep) = 3/6, E(keep) = (4+5+6)/3 = 5
+  P(reroll) = 3/6, E(reroll) = 3.5
   E = 0.5 * 5 + 0.5 * 3.5 = 4.25
 
-  If t = 4 (re-roll if <= 4):
-  P(keep) = 2/6 = 1/3
-  E(value | value >= 5) = 5.5
-  P(reroll) = 2/3
-  E = 1/3 * 5.5 + 2/3 * 3.5 = 5.5/3 + 7/3 = 12.5/3 = 4.167
+t = 4 (re-roll 1,2,3,4; keep 5,6):
+  P(keep) = 2/6, E(keep) = 5.5
+  E = 1/3 * 5.5 + 2/3 * 3.5 = 4.167
 
-  If t = 2:
-  P(keep) = 4/6
-  E(keep) = (3+4+5+6)/4 = 4.5
-  E = 4/6 * 4.5 + 2/6 * 3.5 = 3 + 7/6 = 4.167
+Hmm, t=3 gives 4.25 which is better than t=4's 4.167. What about t=2?
+  P(keep) = 4/6, E(keep) = 4.5
+  E = 4/6 * 4.5 + 2/6 * 3.5 = 3 + 1.167 = 4.167
 
-  So t=3 gives 4.25, which is optimal for one re-roll.
+Same as t=4. So t=3 is optimal for one re-roll. Interesting.
 
-For n re-rolls: this becomes a dynamic programming problem. Let V(k) = expected value with k re-rolls remaining. V(0) = 3.5. For V(k), we pick the optimal threshold: re-roll if current value < V(k-1) (since that is what we expect to get from re-rolling).
+Now for n re-rolls, I initially tried to generalize the threshold approach, but then realized there is a cleaner DP formulation. Let V(k) = expected value with k re-rolls remaining. V(0) = 3.5. The key insight: with k re-rolls, I should re-roll if and only if my current value is less than V(k-1), because V(k-1) is what I expect from using the remaining re-rolls.
 
-V(k) = sum over i=1..6: max(i, V(k-1)) / 6
-
-This is the key insight: with k re-rolls, if the current roll is worse than what we expect with k-1 re-rolls, re-roll.
+So V(k) = (1/6) * sum(max(i, V(k-1)) for i = 1..6). Each face value is either kept (if >= V(k-1)) or we take the expected value of re-rolling (V(k-1)). Wait, actually it is max(i, V(k-1)) because if i >= V(k-1) we keep i, otherwise we would re-roll and get V(k-1) in expectation. That gives a clean recursive formula.
 </think>
 
 ## Expected Value with Re-rolls
@@ -119,23 +110,22 @@ V(k) = (1/n) * sum_{i=1}^{n} max(i, V(k-1))
 - **Convergence**: V(k) approaches max(die) as k grows'''),
 
     ("thinking/algorithms", r'''Implement a Markov chain solver. Given transition probabilities, compute the stationary distribution, expected hitting times, and absorption probabilities. Demonstrate with the Gambler's Ruin problem.''', r'''<think>
-A Markov chain is defined by a transition matrix P where P[i][j] = probability of going from state i to state j.
+Markov chain solver. I need to handle stationary distributions, hitting times, and absorption probabilities. Let me think about the math.
 
-Key computations:
-1. Stationary distribution pi: pi * P = pi, sum(pi) = 1. Solve the eigenvector equation.
-2. Expected hitting times: E[T_j | start at i] = expected steps to reach j from i.
-3. Absorption probabilities: for absorbing chains, probability of being absorbed in each absorbing state.
+For the stationary distribution pi: we need pi * P = pi with sum(pi) = 1. This is an eigenvector equation -- pi is the left eigenvector of P with eigenvalue 1. I could use power iteration (repeatedly multiply P by itself until rows converge) or solve the linear system directly. The direct approach is: (P^T - I) * pi = 0 with the constraint sum(pi) = 1. Replace one equation with the sum constraint and solve. I will implement both.
 
-For Gambler's Ruin: states 0, 1, ..., N. At each step, go up with prob p, down with prob q=1-p. States 0 and N are absorbing. Questions: starting from k, what is P(reach N before 0)? What is the expected game length?
+For Gambler's Ruin specifically, this is an absorbing Markov chain: states 0 and N are absorbing, and 1..N-1 are transient. I need absorption probabilities and expected time to absorption.
 
-For absorption probabilities in absorbing Markov chains:
-- Rearrange states so absorbing states come last
-- P = [[Q, R], [0, I]] where Q is transient-to-transient, R is transient-to-absorbing
-- Fundamental matrix N = (I - Q)^(-1)
-- Absorption probabilities B = N * R
-- Expected steps to absorption t = N * 1 (column vector of ones)
+The standard framework for absorbing chains:
+- Rearrange the transition matrix so absorbing states come last: P = [[Q, R], [0, I]]
+- Q is transient-to-transient transitions, R is transient-to-absorbing
+- The fundamental matrix N = (I - Q)^(-1) gives expected visits to each transient state
+- B = N * R gives absorption probabilities
+- t = N * 1 (ones vector) gives expected steps to absorption
 
-I will implement this using numpy for matrix operations.
+Wait, I should verify: is (I - Q) always invertible? Since Q is substochastic (rows sum to less than 1 for transient states), the spectral radius of Q is less than 1, so yes, (I - Q) is invertible and the Neumann series converges. Good.
+
+I will use numpy for the matrix operations since the closed-form for Gambler's Ruin (P(win from k) = k/N for fair game) provides a nice verification check.
 </think>
 
 ## Markov Chain Solver
@@ -269,19 +259,17 @@ print(f"  Stationary: Sunny={pi[0]:.3f}, Cloudy={pi[1]:.3f}, Rainy={pi[2]:.3f}")
 - **Gambler's Ruin closed form**: P(win from k) = k/N (fair) or (1-(q/p)^k)/(1-(q/p)^N) (unfair)'''),
 
     ("thinking/algorithms", r'''Implement a random walk simulation on a 2D grid. Compute the expected return time to the origin, verify Polya's recurrence theorem, and show that 2D walks are recurrent but 3D walks are transient.''', r'''<think>
-Polya's recurrence theorem: a simple random walk on a d-dimensional integer lattice is recurrent (returns to origin with probability 1) if and only if d <= 2.
+Polya's recurrence theorem: random walks on integer lattices are recurrent iff dimension <= 2. I need to verify this by simulation.
 
-For d=1: the walk returns to origin with probability 1. Expected return time is infinite though!
-For d=2: also recurrent (returns w.p. 1), but expected return time is infinite.
-For d=3: transient -- probability of ever returning is approximately 0.3405.
+The theorem is counterintuitive at first. In 1D, a walk always returns to the origin -- that makes sense intuitively since it can only go left or right. But the expected return time is infinite, which is surprising. In 2D, the walk is still recurrent (returns with probability 1), again with infinite expected return time. But in 3D, suddenly the walk is transient -- only about 34% chance of ever returning.
 
-I will simulate random walks in 1D, 2D, and 3D, tracking the fraction that return to the origin within a given number of steps. As the number of steps increases, 1D and 2D should approach 100% return rate, while 3D should plateau around 34%.
+Why does dimension 3 break things? Intuitively, in higher dimensions there is just "more space" to wander into, so the walk diffuses away faster than it can find its way back. The probability of returning to the origin after 2n steps decays as ~1/n^(d/2), so the sum diverges for d <= 2 (recurrent) but converges for d >= 3 (transient).
 
-For the 2D case, at each step we move in one of 4 directions with equal probability. The probability of return after 2n steps is approximately 1/(pi*n) for large n (by the local CLT), but cumulative return probability approaches 1.
+For the simulation, I will run many random walks in each dimension and track what fraction return within a given number of steps. As the step limit increases, 1D and 2D should approach 100%, while 3D should plateau around 34%.
 
-I will also compute the theoretical return probability for 3D: p = 1 - 1/u(3) where u(3) = integral that evaluates to approximately 1.5163860..., giving return probability approximately 0.3405.
+Hmm, actually I need to be careful with the 3D simulation -- with only 10,000 steps, many 2D walks might not have returned yet either, since the expected time is infinite. I should use larger step counts for 2D to see the convergence.
 
-The simulation should be efficient enough to demonstrate the difference clearly.
+The theoretical 3D return probability comes from Watson's triple integral: P(return) = 1 - 1/u(3) where u(3) is approximately 1.5163860591, giving about 0.3405. I will compare against this.
 </think>
 
 ## Random Walk and Polya's Recurrence Theorem
@@ -389,31 +377,22 @@ for dim in [1, 2, 3]:
 - **The paradox**: despite certain return in 2D, the expected time is infinite -- walks take arbitrarily long detours before returning'''),
 
     ("thinking/algorithms", r'''Analyze birthday problem variants algorithmically. Compute exact and approximate collision probabilities for: (1) standard birthday problem, (2) birthday with 3-way collisions, (3) birthday in a non-uniform distribution. Implement efficient solutions.''', r'''<think>
-Birthday problem variants:
+Birthday problem variants. Let me work through each one.
 
-1. Standard: n people, 365 days. P(at least one shared birthday). The exact formula: P(collision) = 1 - 365!/((365-n)! * 365^n). The approximation: P ~ 1 - e^(-n(n-1)/(2*365)). With 23 people, P > 50%.
+1. Standard: n people, 365 days. P(at least one collision) = 1 - P(all different) = 1 - 365!/(365^n * (365-n)!). The approximation uses P(all different) ~ e^(-n(n-1)/(2*365)), giving 50% around n=23. Straightforward.
 
-2. Three-way collision: P(at least 3 people share a birthday). This is harder. We can compute P(no triple collision) using inclusion-exclusion or dynamic programming. For each day, at most 2 people can have that birthday. The number of ways to assign n people to 365 days with at most 2 per day, divided by 365^n.
+2. Three-way collision: P(at least 3 people share a birthday). This is significantly harder. I need P(no triple collision) = ways to assign n people to 365 days with at most 2 per day, divided by 365^n.
 
-Actually for exact computation: we can use DP where state is (days used, people assigned) tracking how many days have 1 or 2 people. Or we can use the multinomial approach.
+My first attempt at a DP: dp[k][j] = ways to assign j people to the first k days, max 2 per day. For each new day, we can place 0, 1, or 2 people on it. But this requires tracking "remaining people" which makes the state space large.
 
-For the DP: let dp[k][j] = number of ways to assign j people to k days with at most 2 per day. Transition: for day k+1, we can put 0, 1, or 2 people on it. If we put m people, we choose m from the remaining unassigned people.
+Wait, actually I can think combinatorially instead. Let a = number of days with exactly 1 person, b = number of days with exactly 2 people. Then a + 2b = n and a + b <= d. The count is:
+C(d, b) * C(d-b, a) * n! / 2^b
 
-dp[k][j] = sum over m in {0,1,2}: dp[k-1][j-m] * C(remaining, m)
+C(d,b) chooses which days get pairs, C(d-b,a) chooses which remaining days get singles, n! orders the people, and 2^b accounts for the pair ordering (within each pair the order does not matter). Then P(no triple) = sum of these over valid (a,b), divided by d^n.
 
-Wait, this gets complicated. Let me think differently.
+Hmm, I need to be careful with numerical stability since these numbers get huge. I should work in log-space and use log-sum-exp.
 
-The total number of ways to assign n people to d days with at most 2 per day:
-Sum over (a, b) where a + 2b = n and a + b <= d of:
-C(d, b) * C(d-b, a) * n! / (2^b)
-
-where a = number of days with exactly 1 person, b = number of days with exactly 2 people.
-
-Then P(no triple) = (this sum) / d^n.
-
-3. Non-uniform distribution: when birthdays are not uniformly distributed, collisions are MORE likely (by Schur convexity). I can compute the exact probability using DP or simulation.
-
-For practical computation, simulation works well for all variants.
+3. Non-uniform distribution: birthdays are not equally likely. Intuitively, concentrating probability makes collisions MORE likely (by Schur convexity / Jensen's inequality). I will verify this with simulation, using a distribution where summer months are twice as likely.
 </think>
 
 ## Birthday Problem Variants
@@ -579,22 +558,19 @@ print("  (Non-uniform always has HIGHER collision probability)")
 - Approximation: n ~= sqrt(2 * d * ln(2)) for 50% threshold'''),
 
     ("thinking/algorithms", r'''Implement Monte Carlo methods for estimating pi, computing integrals, and solving optimization problems. Show importance sampling and variance reduction techniques.''', r'''<think>
-Monte Carlo methods use random sampling to estimate quantities that are difficult to compute analytically.
+Monte Carlo methods. I need to cover pi estimation, integration, and optimization. Let me think about variance reduction too.
 
-1. Estimating pi: throw random points in [0,1]^2, check if inside quarter circle. Pi/4 = fraction inside circle. Simple but converges slowly (O(1/sqrt(n))).
+1. Estimating pi: throw random points in [0,1]^2, check if they fall inside the quarter circle. Fraction inside ~ pi/4. Simple but converges as O(1/sqrt(n)) -- I would need 10^6 points for about 3 decimal places. Not great, but good for demonstration.
 
-2. Computing integrals: estimate integral of f(x) over [a,b] by sampling. Basic: I = (b-a) * mean(f(x_i)). Importance sampling: instead of uniform sampling, sample from a distribution g(x) that is proportional to |f(x)|. This reduces variance.
+2. Integration: basic MC estimates integral of f(x) over [a,b] as (b-a) * mean(f(x_i)). But the variance can be high. How do we reduce it?
 
-3. Optimization: simulated annealing or random search. For function minimization, sample random perturbations and accept improvements (or sometimes worse solutions with decreasing probability).
+Antithetic variates: for each uniform sample u, also use 1-u. If f is monotonic, f(u) and f(1-u) are negatively correlated, so their average has lower variance than two independent samples. This should roughly halve the variance for functions like sin(x).
 
-For importance sampling: instead of I = integral f(x)dx with uniform sampling, we write I = integral (f(x)/g(x)) * g(x)dx and sample from g(x). The variance is minimized when g(x) is proportional to |f(x)|.
+Stratified sampling: divide [a,b] into strata and sample from each. This ensures uniform coverage and eliminates the variance from "clumping" of random samples. In the best case this improves convergence from O(1/sqrt(n)) to O(1/n).
 
-Variance reduction techniques:
-- Antithetic variates: pair each sample x with 1-x (for uniform). If f is monotonic, these are negatively correlated, reducing variance.
-- Control variates: use a known integral to adjust the estimate.
-- Stratified sampling: divide domain into strata, sample from each.
+Importance sampling: instead of sampling uniformly, sample from a distribution g(x) proportional to |f(x)|. We reweight: I = E[f(x)/g(x)] under g. The variance is minimized when g matches |f| perfectly, but even a rough approximation helps. I initially considered implementing a full importance sampling example, but the proposal distribution choice is problem-specific, so I will keep it general.
 
-I will implement all of these with clear demonstrations.
+3. Optimization via simulated annealing: accept random perturbations, sometimes accepting worse solutions with probability e^(-delta/T). As temperature T decreases, we become greedier. The Rastrigin function is a good test case -- many local minima but one global minimum at 0.
 </think>
 
 ## Monte Carlo Methods

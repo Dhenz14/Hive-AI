@@ -33,20 +33,19 @@ def generate_report(report_id):
 
 # All tasks go to "default" queue. What is wrong?''',
         r'''<think>
-Let me think about why task routing might not work in Celery.
+All tasks go to "default" despite having routing configured. Let me look at this more carefully.
 
-Common causes:
-1. The task names in task_routes don't match the actual auto-generated task names. Celery auto-generates task names based on the module path. If the tasks are in `tasks.py` but imported via `celery_config`, the name might be `tasks.send_email` or `celery_config.send_email` rather than `myapp.tasks.send_email`.
+The routes are defined as `"myapp.tasks.send_email": {"queue": "priority"}`. But the tasks are defined in `tasks.py` with `@app.task` -- no explicit `name=` parameter. So what is the actual auto-generated name?
 
-2. The task_routes config might not be applied because of import ordering.
+Celery generates task names as `module_name.function_name`. The tasks are in `tasks.py`, so the auto-generated name would be `tasks.send_email`, not `myapp.tasks.send_email`. The route key does not match the actual task name, so the route never applies and Celery falls back to the default queue.
 
-3. The worker might not be listening on the priority queue.
+Could it be something else? Maybe the worker is not actually listening on the priority queue? The command shows `-Q default,priority`, so that looks correct. Could it be an import ordering issue where `task_routes` is set after the tasks are registered? Actually no, routes are checked at send time, not at registration time.
 
-4. The task might be called with `.delay()` or `.apply_async()` with an explicit queue parameter that overrides the route.
+What about `.delay()` vs `.apply_async()`? Could the caller be explicitly specifying a queue that overrides the route? That is possible but the user did not mention it.
 
-The most likely issue is #1: the task name mismatch. In this setup, the tasks are defined in `tasks.py`, so their auto-generated names would be `tasks.send_email` and `tasks.generate_report`, NOT `myapp.tasks.send_email`.
+Let me go back to the name mismatch theory. I can verify: if you run `celery -A celery_config inspect registered`, it would show the actual names. The name `myapp` in `Celery("myapp", ...)` is the app name, but it does NOT prefix task names. Task names come from the module where they are defined. So `"myapp.tasks.send_email"` in the routes will never match `"tasks.send_email"` -- that is definitely the bug.
 
-Let me verify: when you define `@app.task` in `tasks.py`, the default name is `tasks.send_email` (module_name.function_name). The routes use `myapp.tasks.send_email` which doesn't match.
+The fix is either: (a) change the route keys to match the actual names (`tasks.send_email`), or (b) set explicit `name=` on each task decorator to force the expected name. Option (b) is more robust because it survives file reorganization.
 </think>
 
 The issue is a **task name mismatch** in your routing configuration. Celery auto-generates task names from the module path, and the names in `task_routes` do not match the actual names.
@@ -195,19 +194,17 @@ result = chord(
 
 print(result.get(timeout=60))  # TimeoutError after 60 seconds''',
         r'''<think>
-Celery chord hanging is a classic issue. The most common causes are:
+A chord that hangs -- the header tasks finish but the callback never fires. This is one of the trickiest Celery issues.
 
-1. **Result backend not configured** -- chords require a result backend to track when all header tasks are done. If no result backend is set, the chord callback never fires.
+First question: is there a result backend configured? I do not see one in the code. The Celery app is created with `Celery("myapp", broker="redis://...")` but no `backend=` parameter. Chords rely on the result backend to know when all header tasks are complete. Without a result backend, the chord has no way to detect that all 10 fetch_data tasks finished, so the callback never triggers. That could be the entire problem right there.
 
-2. **Using RPC result backend** -- the RPC backend does not support chords properly. You need Redis or a database backend.
+But let me consider other possibilities in case the user has a backend configured elsewhere. Could it be the RPC backend? If they have `result_backend = "rpc://"`, that would not work either -- RPC is a peer-to-peer backend that cannot aggregate results from multiple tasks.
 
-3. **Worker not consuming the chord callback queue** -- the callback might be routed to a different queue.
+What about task failures? If even one of the 10 `fetch_data` tasks throws an exception, the chord callback is never called by default. The chord just sits there forever. The user would not necessarily know because the failed task's exception is stored in the result backend (if it exists), not raised to the caller until they inspect it.
 
-4. **One of the header tasks failed** -- by default, a chord callback is not called if any header task fails. The chord just hangs.
+Actually, there is a more subtle issue: deadlock from prefetch. Say the worker has `concurrency=4`. It starts processing 4 header tasks. The remaining 6 header tasks are queued. But Celery might also prefetch the callback task. Now the callback is sitting in the worker's prefetch buffer, but it cannot execute until all header tasks finish, and header tasks cannot finish until worker slots open up. If the worker grabbed the callback before the remaining header tasks... wait, that should not deadlock because the callback is only triggered after all headers complete. Unless the worker's prefetch buffer is full and it is not pulling new header tasks.
 
-5. **Prefetch issues** -- if the worker prefetches the callback task but cannot process it because all worker slots are busy with header tasks, you get a deadlock.
-
-Let me address all of these.
+I think the most likely cause here is the missing result backend. Let me lead with that and also cover the failure-handling and prefetch scenarios.
 </think>
 
 Celery chords hanging is one of the most common Celery issues. Here are the causes and fixes:
@@ -341,14 +338,17 @@ async def aggregate_with_group(source_ids):
         "thinking/debugging",
         r'''My Celery worker is consuming messages too aggressively, grabbing all available tasks and leaving other workers idle. Memory usage spikes because tasks are loaded into memory before they can be processed. How do I control prefetching?''',
         r'''<think>
-This is about Celery's prefetch behavior. By default, Celery prefetches many tasks (worker_prefetch_multiplier=4) per worker process. Combined with multiple concurrent worker processes, a single worker can grab a lot of tasks from the queue, leaving other workers idle.
+The worker is grabbing all available tasks and other workers sit idle. This sounds like aggressive prefetching.
 
-Key settings:
-- worker_prefetch_multiplier: number of messages to prefetch per worker process
-- task_acks_late: when to acknowledge (before or after processing)
-- worker_concurrency: number of concurrent processes
+How does Celery prefetching work? By default, `worker_prefetch_multiplier=4`, which means each worker process prefetches 4 messages. With `concurrency=8` (the default on an 8-core machine), that is 4 * 8 = 32 messages grabbed at once. If you have 3 workers and 100 tasks, the first worker to connect might grab 32, leaving 68 for the other two. That is uneven but not terrible. But if tasks are slow and keep arriving, one worker can accumulate a huge backlog while others idle.
 
-For fair distribution, you want prefetch_multiplier=1 and acks_late=True.
+Could this be a `task_acks_late` issue? By default, Celery acknowledges tasks when they are received (prefetched), not when they are completed. So if a worker crashes, those prefetched tasks are lost. Setting `task_acks_late=True` means tasks are ack'd after completion, so if a worker dies, the tasks return to the queue. But does that help with distribution? Not directly -- you still need to reduce the prefetch multiplier.
+
+What about setting `worker_prefetch_multiplier=1`? That means each process only grabs 1 extra task. With concurrency=8, that is 8 prefetched messages total. That is much fairer. But there is a tradeoff: with prefetch=1, the worker might briefly idle between tasks while waiting for the next message from the broker, slightly reducing throughput. For CPU-bound or I/O-bound tasks that take seconds, this overhead is negligible. For very fast tasks (millisecond-level), the reduced prefetch could hurt throughput.
+
+Actually, the user also mentions memory spikes. That makes sense -- if 32 tasks are prefetched and each carries a large payload (like a dataset), they all sit in memory waiting to be processed. Reducing prefetch directly fixes the memory issue too.
+
+So the recommendation is: `worker_prefetch_multiplier=1` + `task_acks_late=True` for fair distribution and crash safety. For memory-heavy tasks, also set `worker_max_memory_per_child` to hard-cap memory usage per worker process.
 </think>
 
 Celery's default prefetching behavior can cause uneven work distribution and memory issues. Here is how to control it:
@@ -498,14 +498,17 @@ def background_task(data):
 # The urgent_task waits behind all 100 background_tasks
 # Priority is not working!''',
         r'''<think>
-Celery task priority with Redis broker is a common pain point. Redis does not natively support priority queues -- it uses LPUSH/BRPOP on a list, which is FIFO. The `priority` parameter on `@app.task` does not work with Redis by default.
+The user sets `priority=9` on one task and `priority=1` on another, but priority is ignored. Let me think about why.
 
-To get priority working:
-1. Use RabbitMQ broker (supports native priorities)
-2. Use separate queues for different priorities with Redis
-3. Configure Redis with priority steps
+The broker is Redis: `broker="redis://localhost:6379/0"`. That is the key detail. Redis queues are just lists -- LPUSH to add, BRPOP to remove. Lists are FIFO. There is no concept of priority in a Redis list. So the `priority` parameter on `@app.task` is effectively ignored when using Redis as the broker.
 
-Let me explain all approaches.
+Wait, does Celery's Redis transport support priorities at all? Actually yes, there is an opt-in mechanism: `broker_transport_options = {"priority_steps": list(range(10))}`. This creates separate Redis lists for each priority level (like `celery:0`, `celery:1`, etc.) and the worker polls them in order. But this is not enabled by default, so without that config, priorities are silently ignored.
+
+Could the user switch to RabbitMQ instead? RabbitMQ has native priority queue support -- you set `task_queue_max_priority=10` and the `priority` parameter just works. But switching brokers is a big infrastructure change.
+
+The more practical solution for Redis is to use separate queues: `urgent`, `normal`, `background`. Then you start workers with `-Q urgent,normal,background` and Celery consumes from queues left to right -- it drains `urgent` before checking `normal`. This gives effective priority ordering without any special transport options.
+
+The tradeoff between priority_steps and separate queues: priority_steps is simpler (one queue, just add priorities) but adds polling overhead since the worker checks 10 lists on each cycle. Separate queues let you allocate different numbers of workers per priority level, giving you finer control over capacity. For production, I would lean toward separate queues with dedicated workers.
 </think>
 
 Task priorities in Celery are **not supported by the Redis broker by default**. Redis uses FIFO lists, and the `priority` parameter is silently ignored. Here is how to actually implement task priorities:
@@ -640,13 +643,17 @@ def submit_with_priority(task, args, priority_level):
         "thinking/debugging",
         r'''My Celery result backend (Redis) keeps losing connection and tasks fail with "ConnectionError: Error while reading from socket". The tasks themselves succeed but I cannot retrieve results. How do I make the result backend connection resilient?''',
         r'''<think>
-This is a common issue with Redis result backend in Celery. The connection to the result backend can drop due to:
-1. Redis server restart or failover
-2. Network issues
-3. Redis connection timeout (idle connections)
-4. Connection pool exhaustion
+Tasks succeed but result retrieval fails with ConnectionError. So the task execution is fine (it uses the broker connection), but the result backend connection (separate Redis connection) is dying.
 
-The fix involves configuring retry settings, connection pool parameters, and handling connection errors gracefully.
+Why would the result backend connection drop? Let me think through possibilities. Could it be Redis restarting? That would affect the broker too, but the user says tasks succeed -- so the broker connection is stable. That is odd. Unless the broker and result backend are on different Redis instances or different servers.
+
+Actually, a more likely cause: idle connection timeout. The result backend connection might sit idle between result retrievals. If Redis has a `timeout` config (default 0 = no timeout) or there is a firewall/load balancer between the app and Redis with an idle timeout, the TCP connection gets silently dropped. The next time Celery tries to read a result, the socket is dead and it gets ConnectionError.
+
+Could it be connection pool exhaustion? If many tasks finish simultaneously and all try to store results at once, they might exceed the connection pool limit. But that would typically cause a different error, more like "too many connections" or a pool timeout.
+
+What about the `socket_keepalive` option? Without TCP keepalive, the OS does not detect a dead connection until someone tries to use it. Enabling keepalive would send periodic probes and detect dead connections early.
+
+The fix should be multi-layered: (1) enable `redis_retry_on_timeout=True` so Celery retries on timeout errors, (2) set `socket_keepalive=True` to detect dead connections, (3) set `result_backend_always_retry=True` so result operations are retried automatically, and (4) for tasks where you do not need the result, use `ignore_result=True` to bypass the result backend entirely. That last point is actually the biggest win -- if half your tasks are fire-and-forget, you eliminate half the result backend load.
 </think>
 
 Redis result backend connection issues in Celery can be fixed with proper retry configuration and connection pool management:

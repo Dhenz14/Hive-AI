@@ -67,23 +67,24 @@ Let me trace the import chain carefully:
 3. `services/auth.py` imports `User` from `models/user`
 4. `models/user.py` imports `check_permission` from `services/permissions`
 5. `services/permissions.py` imports `User` from `models/user`
-6. But `models/user` is still being initialized (step 4 hasn't finished), so Python tries to execute it again
-7. Which tries to import `services/permissions` again... and we loop
+6. But `models/user` is still being initialized (step 4 hasn't finished)...
+
+Wait, does Python actually re-execute the module? I need to think about this more carefully. Python's import system has a module cache (sys.modules). When `services/permissions.py` tries to import `models/user`, Python finds it in sys.modules BUT the module object is only partially initialized -- the `from services.permissions import check_permission` line in `models/user.py` hasn't completed yet. So Python returns the partially-initialized module, and the `from models.user import User` statement fails because `User` hasn't been defined yet in the partial module.
+
+Hmm, actually the traceback shows the recursion going hundreds of levels deep, not an ImportError on a partial module. That means Python IS re-executing the module file rather than returning the partial module. Let me reconsider... Actually in some cases, depending on whether the module was added to sys.modules before execution began, the behavior differs. The repeating traceback pattern confirms circular re-execution.
 
 This is a classic circular import. The cycle is:
   models/user -> services/permissions -> models/user
 
-The key question: does `services/permissions.py` actually NEED the `User` class at import time? Looking at the code, `User` is used only as a type hint in the function signature `def check_permission(user: User, ...)`. The function itself only accesses `user.role`, which is a plain attribute access -- it doesn't need the User class at runtime at all.
+The key question: does `services/permissions.py` actually NEED the `User` class at import time? Looking at the code, `User` is used only as a type hint in the function signature. The function body only accesses `user.role`, which is a plain attribute access -- it does not need the User class at runtime at all.
 
-Similarly, `models/user.py` imports `check_permission` because the `can()` method calls it. This IS needed at runtime, but only when `can()` is called, not at import time.
+I considered several fixes:
+1. Use `from __future__ import annotations` in permissions.py -- this defers annotation evaluation, so the import is never executed at runtime
+2. Move the import inside the function -- works but clutters every function
+3. Use TYPE_CHECKING guard -- cleanest for type-hint-only imports
+4. Restructure so permissions uses duck typing -- removes the dependency entirely
 
-So the fix is to break the cycle. Several approaches:
-1. Use `from __future__ import annotations` in permissions.py (defers annotation evaluation)
-2. Move the import inside the function
-3. Use TYPE_CHECKING guard
-4. Restructure so permissions doesn't reference User at all (just use duck typing)
-
-The cleanest fix is option 3 or 4. Since `check_permission` only accesses `user.role`, it doesn't need the User type at runtime.
+Option 3 is the cleanest. Option 4 is also good but loses the type checking benefit. Option 1 is the simplest one-line fix, but option 3 is more explicit about intent. I will recommend option 3 with a mention of the alternatives.
 </think>
 
 ## Root Cause: Circular Import

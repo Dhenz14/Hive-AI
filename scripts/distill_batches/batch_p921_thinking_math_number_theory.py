@@ -1,42 +1,27 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement modular exponentiation: compute (base^exp) mod m efficiently. Handle large exponents that would overflow with naive computation. Explain the binary exponentiation technique.''', r'''<think>
-Modular exponentiation computes (base^exp) % mod efficiently using binary exponentiation (also called exponentiation by squaring or fast power).
+I need to compute (base^exp) % mod. The naive approach would be to compute base^exp first and then take mod, but for exp = 10^18 that is completely infeasible -- the intermediate number would have billions of digits.
 
-The naive approach of computing base^exp then taking mod is infeasible for large exponents because the intermediate result would be astronomically large.
+The key insight that makes this tractable: we can take mod at every step because (a * b) mod m = ((a mod m) * (b mod m)) mod m. So we never need numbers larger than mod^2.
 
-Key insight: We can apply mod at each step because:
-(a * b) mod m = ((a mod m) * (b mod m)) mod m
+But even with modular reduction at each step, multiplying base * base * base ... exp times is O(exp) multiplications. For exp = 10^18, that is still way too slow.
 
-Binary exponentiation:
-1. Represent exp in binary
-2. For each bit from MSB to LSB (or LSB to MSB):
-   - Square the current result
-   - If the current bit is 1, multiply by base
-3. Take mod at each step
+This is where binary exponentiation comes in. Instead of computing base^exp linearly, we can use the fact that:
+- If exp is even: base^exp = (base^(exp/2))^2
+- If exp is odd: base^exp = base * base^(exp-1)
 
-Example: 3^13 mod 7
-- 13 in binary = 1101
-- Start with result = 1
-- Bit 1: result = 1^2 * 3 = 3
-- Bit 1: result = 3^2 * 3 = 27 -> 27 mod 7 = 6
-- Bit 0: result = 6^2 = 36 -> 36 mod 7 = 1
-- Bit 1: result = 1^2 * 3 = 3
+So we halve the exponent at each step, giving O(log exp) multiplications. For exp = 10^18, that is only about 60 steps.
 
-Alternative (iterative, right-to-left):
+I initially thought about implementing this recursively (top-down), but there is a cleaner iterative version that processes the exponent from the least significant bit:
 - result = 1
-- While exp > 0:
-  - If exp is odd: result = (result * base) % mod
-  - base = (base * base) % mod
-  - exp = exp >> 1
+- While exp > 0: if exp is odd, result *= base (mod m). Then base = base^2 (mod m), exp >>= 1.
 
-Edge cases:
-- exp = 0: result is 1 (0^0 convention)
-- base = 0: result is 0 (for exp > 0)
-- mod = 1: result is always 0
-- Very large numbers (Python handles big ints natively, but the algorithm is still important for efficiency)
+Wait, why does this work? At each step, base holds base^(2^k) for the current bit position k. When exp's bit k is set, we multiply result by base^(2^k). The product of all these contributions gives base^exp.
 
-Time: O(log exp) multiplications.
-Space: O(1) iterative, O(log exp) recursive.
+Edge cases: exp = 0 gives 1 (by convention, even 0^0 = 1 here). mod = 1 always gives 0 since everything mod 1 is 0.
+
+Time: O(log exp) multiplications, each O(1) for fixed-size integers.
+Space: O(1) iterative.
 </think>
 
 **Modular Exponentiation -- Binary Exponentiation**
@@ -135,34 +120,21 @@ exp=13 (1101b): base=3, result=1
 - Space: O(1) iterative'''),
 
     ("thinking/algorithms", r'''Implement the Chinese Remainder Theorem (CRT): given a system of simultaneous congruences x = a_i (mod m_i) where the moduli are pairwise coprime, find the unique solution x modulo M = product of all m_i.''', r'''<think>
-The Chinese Remainder Theorem states: if m_1, m_2, ..., m_k are pairwise coprime, then the system:
-  x = a_1 (mod m_1)
-  x = a_2 (mod m_2)
-  ...
-  x = a_k (mod m_k)
-has a unique solution modulo M = m_1 * m_2 * ... * m_k.
+I need to solve a system of simultaneous congruences: x = a_i (mod m_i) for pairwise coprime moduli. The CRT guarantees a unique solution modulo M = product of all m_i.
 
-Construction:
-1. Compute M = product of all m_i
-2. For each i, compute M_i = M / m_i
-3. Find y_i = M_i^(-1) mod m_i (modular inverse of M_i with respect to m_i)
-4. Solution: x = sum(a_i * M_i * y_i) mod M
+But how do we actually construct the solution? Let me think about this...
 
-Why this works:
-- M_i is divisible by all m_j except m_i
-- So a_i * M_i * y_i = 0 (mod m_j) for j != i
-- And a_i * M_i * y_i = a_i * 1 (mod m_i) since M_i * y_i = 1 (mod m_i)
-- Summing all terms: x = a_i (mod m_i) for each i
+The idea is to build x as a sum of terms, where each term "activates" for exactly one congruence and is zero for all the others. For congruence i, define M_i = M / m_i. Since the moduli are pairwise coprime, M_i is divisible by every m_j except m_i. So M_i = 0 (mod m_j) for j != i, but gcd(M_i, m_i) = 1.
 
-To find the modular inverse, we use the Extended Euclidean Algorithm: given gcd(a, b) = 1, find x such that a*x = 1 (mod b).
+Since gcd(M_i, m_i) = 1, we can find y_i = M_i^(-1) mod m_i using the extended Euclidean algorithm. Then the term a_i * M_i * y_i equals a_i (mod m_i) and 0 (mod m_j) for j != i. Summing all such terms and reducing mod M gives the solution.
 
-I should also implement a version for non-coprime moduli, which generalizes CRT. Two congruences x = a1 (mod m1) and x = a2 (mod m2) have a solution iff gcd(m1, m2) divides (a2 - a1). The combined modulus is lcm(m1, m2).
+Wait, I should also think about the case where the moduli are NOT pairwise coprime. The standard CRT does not apply directly. For two congruences x = a1 (mod m1) and x = a2 (mod m2), a solution exists if and only if gcd(m1, m2) divides (a2 - a1). The combined modulus becomes lcm(m1, m2) instead of m1 * m2.
 
-Edge cases:
-- Single congruence
-- Moduli not coprime (need generalized CRT)
-- a_i = 0 for some i
-- Very large moduli
+I initially planned to just implement the standard coprime CRT, but the generalized version is more useful in practice. I can implement it by solving pairs of congruences iteratively -- take two at a time, combine them into one, then combine with the next. This handles both coprime and non-coprime cases.
+
+For the pairwise combination: given x = a1 (mod m1) and x = a2 (mod m2), we need a1 + m1*k = a2 (mod m2), so m1*k = (a2 - a1) (mod m2). Using extended GCD to solve for k, then x = a1 + m1*k, with new modulus = lcm(m1, m2).
+
+I will implement both the standard CRT (for coprime moduli, clean formula) and the generalized version (pairwise combining, handles everything).
 </think>
 
 **Chinese Remainder Theorem -- Implementation**
@@ -262,37 +234,26 @@ print(f"\nApplication: x = {x3} (mod {M3})")
 - Space: O(k)'''),
 
     ("thinking/algorithms", r'''Implement Euler's Totient Function phi(n): the count of integers from 1 to n that are coprime with n. Include an efficient sieve-based approach for computing phi for all numbers up to n.''', r'''<think>
-Euler's totient function phi(n) counts integers in [1, n] that are coprime with n (gcd(k, n) = 1).
+I need to compute phi(n), the count of integers in [1, n] that are coprime with n. For example, phi(12) should count {1, 5, 7, 11} = 4.
 
-Formula using prime factorization:
-phi(n) = n * product((1 - 1/p) for each prime factor p of n)
-       = n * product((p - 1) / p for each prime factor p of n)
+I could brute-force it by checking gcd(k, n) for every k from 1 to n, but that is O(n * log n) per query. There must be a formula.
 
-For n = p1^a1 * p2^a2 * ... * pk^ak:
+The formula comes from inclusion-exclusion on the prime factors of n. If n = p1^a1 * p2^a2 * ... * pk^ak, then:
 phi(n) = n * (1 - 1/p1) * (1 - 1/p2) * ... * (1 - 1/pk)
 
-Algorithm for single n:
-1. Start with result = n
-2. For each prime factor p of n:
-   - result = result * (p - 1) / p
-   - Remove all factors of p from n
-3. If n > 1 after the loop, n itself is a prime factor: result = result * (n - 1) / n
+Why? Out of n numbers from 1 to n, we subtract those divisible by p1 (n/p1 of them), those by p2, etc., then add back those divisible by both p1 and p2, and so on. The inclusion-exclusion simplifies to the product formula.
 
-For computing phi(1) through phi(N) (sieve approach):
+For computing a single phi(n), I can factorize n by trial division up to sqrt(n). For each prime factor p found, I multiply result by (p-1)/p. To avoid floating point, I use integer arithmetic: result -= result // p. If after the loop n > 1, the remaining n is itself a prime factor.
+
+But what if I need phi(k) for ALL k from 1 to N? Computing each individually would be O(N * sqrt(N)). A sieve is much better.
+
+The sieve approach mirrors the Sieve of Eratosthenes:
 1. Initialize phi[i] = i for all i
-2. For each prime p (found by sieve):
-   - For all multiples of p: phi[j] = phi[j] * (p - 1) / p
+2. For each i from 2 to N: if phi[i] == i, then i is prime (not yet modified by any smaller prime). For all multiples j of i: phi[j] -= phi[j] // i.
 
-This is essentially the Euler totient sieve, analogous to the Sieve of Eratosthenes.
+Hmm, wait -- this works because each prime p is encountered exactly once, and the operation phi[j] -= phi[j] // i correctly multiplies by (1 - 1/p) in integer arithmetic. After processing all primes, phi[j] has been multiplied by (1 - 1/p) for each of its prime factors.
 
-Properties:
-- phi(1) = 1
-- phi(p) = p - 1 for prime p
-- phi(p^k) = p^(k-1) * (p - 1)
-- phi is multiplicative: if gcd(a, b) = 1, phi(a*b) = phi(a) * phi(b)
-- Sum of phi(d) for all divisors d of n equals n
-
-Time: O(sqrt(n)) for single computation, O(n log log n) for sieve.
+Time: O(sqrt(n)) for single computation, O(N log log N) for the sieve (same as Eratosthenes).
 </think>
 
 **Euler's Totient Function -- Single Value and Sieve**
@@ -393,30 +354,27 @@ print(f"\nEuler's theorem: {a}^phi({n}) = {a}^{phi_n} = {result} (mod {n})")
 - Space: O(N) for sieve'''),
 
     ("thinking/algorithms", r'''Implement the Miller-Rabin primality test: a probabilistic algorithm to determine if a number is prime. Include deterministic witnesses for numbers up to specific bounds.''', r'''<think>
-The Miller-Rabin test is a probabilistic primality test based on Fermat's little theorem and properties of square roots of 1 modulo primes.
+I need a fast primality test for large numbers. Trial division works up to about 10^12 but beyond that it is too slow. Fermat's test (check if a^(n-1) = 1 mod n) is fast but fails for Carmichael numbers like 561, which pass the test for ALL bases despite being composite.
 
-Background:
-- Fermat's little theorem: if p is prime, a^(p-1) = 1 (mod p)
-- For a prime p, the only square roots of 1 mod p are 1 and -1 (i.e., p-1)
+Miller-Rabin fixes this vulnerability. The key observation: for a prime p, the only square roots of 1 mod p are 1 and -1. But for composites, there can be non-trivial square roots of 1 (numbers that square to 1 but are not 1 or -1). Miller-Rabin detects these.
 
-Miller-Rabin test for odd n > 2:
-1. Write n - 1 = 2^s * d where d is odd
-2. For a chosen witness a:
-   a. Compute x = a^d mod n
-   b. If x == 1 or x == n-1, the test passes (probably prime)
-   c. Repeat s-1 times: x = x^2 mod n
-      - If x == n-1, pass
-      - If x == 1, n is definitely composite (non-trivial sqrt of 1)
-   d. If none of the above, n is definitely composite
+The algorithm: write n-1 = 2^s * d where d is odd. For witness a:
+1. Compute x = a^d mod n
+2. If x == 1 or x == n-1, it looks prime so far -- skip to next witness
+3. Otherwise, repeatedly square x up to s-1 times:
+   - If x becomes n-1, it looks prime (found -1, which is a valid sqrt of 1)
+   - If x becomes 1, then the previous x was a non-trivial sqrt of 1. Composite!
+4. If we never hit 1 or n-1, then a^(n-1) != 1 mod n, so n is composite by Fermat.
 
-If n is composite, at least 3/4 of witnesses a in [2, n-2] will detect it. So with k random witnesses, the error probability is at most (1/4)^k.
+I initially worried about false positives -- could a composite pass for some witness? Yes, but for any composite n, at most 1/4 of witnesses fail to detect it. So with k random witnesses, error probability < (1/4)^k.
 
-Deterministic variants:
+But actually, for competitive programming and practical use, we do not need randomness at all! Specific small sets of witnesses are proven to be deterministic up to certain bounds:
 - n < 2^31: witnesses {2, 7, 61} suffice
 - n < 2^64: witnesses {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37} suffice
-- These are proven by exhaustive verification or mathematical proofs
 
-Time: O(k * log^2(n)) for k witnesses (each modular exponentiation is O(log n) multiplications, each multiplication O(log n) for big integers).
+Wait, why does this work against Carmichael numbers? Because Carmichael numbers only fool the Fermat test (a^(n-1) = 1 mod n). But Miller-Rabin goes further by checking the intermediate squares on the way from a^d to a^(n-1). Carmichael numbers inevitably produce non-trivial square roots of 1 for most witnesses, which Miller-Rabin catches.
+
+Time: O(k * log^2 n) for k witnesses.
 </think>
 
 **Miller-Rabin Primality Test**

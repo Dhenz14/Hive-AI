@@ -70,30 +70,15 @@ def calculate_discount(customer, order):
 
     return discount
 ```''', r'''<think>
-This function has deeply nested conditional logic (up to 5 levels of indentation) that is difficult to read and maintain. Let me analyze the pattern.
+Let me look at this function... my first instinct is "just flatten the if/else chain with early returns." But wait, that would not actually help here -- the nesting is not from validation guards, it is from a combinatorial decision tree. Every branch leads to an assignment, not a return.
 
-The core logic is a lookup based on:
-1. Customer tier (gold, silver, bronze, or none)
-2. Order total thresholds (>200, >100, or default)
-3. Item count thresholds (>10, >5, or default)
+So what is the actual structure? Let me trace through it... Customer tier determines the outer branch, then order total, then item count. That is three dimensions. I almost missed that the item count threshold changes between the branches -- it is >5 for high-total orders but >10 for low-total orders. That is a sneaky business rule buried in the nesting.
 
-This is essentially a 3-dimensional lookup table. The nested if/else structure obscures this simple concept.
+My first thought was to flatten with early returns, but actually this is a lookup table problem, not a control flow problem. The nested ifs are encoding what should be data. If I pull out the discount values into a dictionary keyed by (tier, total_bucket, items_bucket), the whole structure becomes obvious and the hidden threshold difference becomes explicit.
 
-The pattern for each tier is:
-- tier + high_total + many_items = highest discount
-- tier + high_total + few_items = medium discount
-- tier + low_total + many_items = medium-low discount
-- tier + low_total + few_items = lowest discount
+But wait -- should I use a flat dictionary or a nested one? A flat dict with tuple keys like ("gold", "high", "many") is simpler to scan, but a nested dict preserves the tier grouping which might match how the business thinks about it. I will go with a structured approach since it makes it easier for a product manager to verify the values.
 
-After the base discount is determined, three modifiers are applied:
-1. New customer minimum (floor of 10%)
-2. Coupon override (take the higher of discount or coupon)
-3. Maximum cap (ceiling of 25%)
-
-This can be simplified using:
-1. A lookup table/dictionary approach
-2. Guard clauses instead of nested ifs
-3. Separating the base calculation from the modifiers
+One thing that almost tripped me up: the three modifiers at the end (new customer floor, coupon override, max cap) are independent of the tier logic. They should be a separate function. Mixing the base calculation with the modifiers in one function is why this code is so hard to reason about -- you cannot tell where "business rules" end and "adjustments" begin.
 </think>
 
 ## Code Review: Simplify Deeply Nested Conditionals
@@ -271,35 +256,15 @@ class UserAPI:
             })
         return orders
 ```''', r'''<think>
-All three methods follow the exact same pattern:
-1. Build a base SELECT query
-2. Append WHERE clauses based on filters
-3. Add ORDER BY, LIMIT, OFFSET
-4. Execute and convert rows to dicts
+Let me scan these three methods... get_users, get_products, get_orders. They look almost identical. My first instinct is "extract a base method" but let me check if the differences are actually uniform enough for that.
 
-The differences are:
-- Table name and columns
-- Filter field names and types
-- Row-to-dict mapping
+Looking closer... the query construction is identical: WHERE 1=1, append conditions, ORDER BY, LIMIT, OFFSET. The filter field names differ per entity but the pattern is the same. The row-to-dict mapping is different per method. So I could extract the query-building part and the execution part, but the filter definitions and mapping need to stay entity-specific.
 
-The duplicated code includes:
-- The "WHERE 1=1" pattern
-- LIMIT/OFFSET handling with defaults (and SQL injection vulnerability!)
-- The ORDER BY clause
-- The loop pattern converting rows to dicts
-- The ILIKE search pattern
+Wait, I almost missed something critical -- the LIMIT and OFFSET values are interpolated directly with f-strings! That is an SQL injection vulnerability. If someone passes filters={"limit": "1; DROP TABLE users; --"}, that SQL is executed directly. All the other filter values correctly use parameterized queries with %s, but limit and offset skip that protection. This is the most urgent fix.
 
-SQL injection:
-The LIMIT and OFFSET values are interpolated directly via f-string:
-query += f" LIMIT {filters.get('limit', 20)} OFFSET {filters.get('offset', 0)}"
-This is an SQL injection vulnerability! If limit or offset contains malicious SQL, it will be executed.
+Now for the duplication... I considered just extracting a helper method, but actually a QueryBuilder class is more appropriate because the pattern involves accumulating state (conditions, params) across multiple steps. A simple function would need to return multiple values or use mutable arguments, which gets messy.
 
-Simplification approach:
-1. Extract a QueryBuilder class that handles the common query construction pattern
-2. Use column definitions to automate row-to-dict conversion
-3. Parameterize the table-specific parts
-
-Or use a query builder / ORM that handles this automatically.
+The row-to-dict mapping is another source of fragility -- using tuple indices like row[0], row[1] means reordering columns in the SELECT breaks everything silently. Using cursor.description or a named mapping would eliminate that whole class of bugs. But I need to be careful not to over-engineer this. A simple _row_to_dict(row, columns) helper is probably the right level of abstraction. An ORM would be even better, but that is a bigger change than the question is asking for.
 </think>
 
 ## Code Review: Remove Duplication
@@ -462,25 +427,17 @@ def process_payment(self, payment_data):
     else:
         return {"status": "error", "error": "No payment data"}
 ```''', r'''<think>
-This function has 10+ levels of nesting, making it nearly impossible to read. The pattern is classic "arrow code" or "pyramid of doom" where each validation check nests deeper.
+Wow, 10+ levels of nesting. My eyes are literally zigzagging right trying to trace which else belongs to which if. This is the classic "pyramid of doom" pattern.
 
-The simplification approach is:
-1. Use guard clauses (early returns) to flatten the nesting
-2. Extract validation into a separate method
-3. Extract payment method handling into separate methods
+My first thought is to flatten with guard clauses -- invert each condition and return early. But actually, I need to think about this more carefully. There are two separate concerns tangled together: input validation (is the data present and well-formed?) and business logic (charge the card, save the transaction). Let me separate those first.
 
-The entire function can be restructured as:
-1. Validate input (guard clauses with early returns)
-2. Dispatch to payment method handler
-3. Process result
+For the validation part, guard clauses with early returns are perfect -- each check is independent. For the payment method dispatch, a method-per-type strategy works well. So the top-level function becomes: validate common fields -> dispatch to method handler -> handle result. That brings nesting from 10+ to about 2 levels.
 
-Let me also note issues:
-- Expiry validation is incorrect: checking year >= current year does not handle the case where the card expires this year but in a past month (e.g., card expires 01/25 and it is currently 03/25)
-- Card number is not Luhn-validated
-- No amount validation
-- The function returns a dict with inconsistent keys (sometimes "error", sometimes not)
-- CVV and card number logged/passed in plaintext
-- PayPal path does not send a receipt (inconsistent with card path)
+Wait, I just noticed a real bug in the expiry validation. The check `int(year) >= datetime.now().year % 100` only validates the year. If the card expires 01/25 and today is 03/25, the year check passes but the card is actually expired. The month check exists but it only validates the range 1-12, not whether the month has already passed in the current year. That is a real production bug.
+
+I also notice an inconsistency between the card and PayPal paths -- the card path calls self.send_receipt() but PayPal does not. That means PayPal customers silently never get receipts. This is the kind of bug that duplication creates: when you add a feature to one path but forget the other. If I extract a common _handle_success method, this becomes impossible to miss.
+
+One more thing -- should the validation return the first error or all errors? Returning just the first error is simpler but frustrating for users who have to fix one thing at a time. For a payment form, collecting all errors in one pass is probably better UX, though the original code returns on first failure. I will keep the fail-fast approach since it matches the existing behavior, but flag it as something to improve.
 </think>
 
 ## Code Review: Flatten Nested Logic
@@ -672,32 +629,19 @@ class OrderStatusManager:
         else:
             return False
 ```''', r'''<think>
-This code implements a state machine using nested conditionals. The logic is scattered across three methods that all encode the same state transition rules in different ways. Let me identify simplification opportunities.
+Three methods, all dealing with order status transitions... Let me see if they are actually consistent with each other.
 
-can_cancel:
-- Returns True/False for many status checks. Most statuses return False. Can be simplified by listing the cases that return True.
-- The nested confirmed -> payment_status -> time check can be flattened.
-- The explicit "return False" for each status is unnecessary - just return False as default.
+Looking at can_cancel first. It returns True for pending, True for confirmed+pending_payment, True for confirmed+completed_payment if within 1 hour, and False for everything else. But there are 5 explicit "return False" branches for processing, shipped, delivered, cancelled, and else. Those are all redundant -- a single "return False" at the end would do the same thing. The author is being defensive, but it makes the logic look more complex than it is.
 
-get_next_actions:
-- Duplicates the can_cancel logic (checks payment_status and time for cancel availability)
-- Could use a state->actions mapping
+Now get_next_actions... wait, it re-implements the can_cancel logic! It checks payment_status and the time window independently instead of calling can_cancel. So if the cancel window changes from 1 hour to 2 hours, you have to update it in TWO places. That is a bug waiting to happen.
 
-transition:
-- Each action check follows the pattern: if correct current state, change to new state, return True; else return False
-- This is a state machine that should be expressed as a transition table
+And transition... each branch follows the same pattern: check current state, update state, set timestamp, return True. This is clearly a state machine encoded as a chain of if/elif. The question is whether to use a data-driven approach (transition table) or keep the procedural approach.
 
-The entire class should be refactored to use a state machine pattern:
-1. Define valid transitions as data
-2. Define available actions per state as data
-3. Use a single method to validate and execute transitions
+I was initially going to suggest a simple transition table like {"pending": {"confirm": "confirmed"}, ...}. But then I realized some transitions have guards (process requires payment_status == "completed") and some have side effects (setting timestamps). A pure data table cannot express those.
 
-Simplifications:
-- can_cancel is just "can transition to cancelled" which is a special case of transition validation
-- get_next_actions is a lookup of valid transitions from the current state
-- transition is a state transition with validation
+Actually, I think a hybrid approach works best: define the basic transitions as data, but keep special conditions (like can_cancel's time check and process's payment check) as explicit guard functions. The transition table handles the common case, and named exceptions handle the edge cases. This gives you a single source of truth for "what transitions exist" while keeping the complex conditions readable.
 
-All three methods encode the same state machine in different ways, leading to inconsistency if one is updated but others are not.
+The most critical insight: can_cancel is really just "can I transition to cancelled from the current state?" -- it is a special case of transition validation. If the transition table is the single source of truth, can_cancel becomes a one-liner, and get_next_actions just reads the table.
 </think>
 
 ## Code Review: Simplify Conditionals with State Machine
@@ -883,23 +827,17 @@ def format_report_data(data, report_type, include_summary=True,
 
     return result
 ```''', r'''<think>
-This function has excessive complexity from multiple sources:
-1. Too many parameters (12!)
-2. Type-based branching (4 report types with similar formatting logic)
-3. Duplicated custom_fields handling (identical 4 times)
-4. Post-processing (filter, group, sort, limit) is generic but mixed with type-specific formatting
-5. The function is a "god function" doing formatting, filtering, grouping, sorting, limiting, summarizing, and chart preparation
+12 parameters. That is immediately a code smell, but let me figure out which ones actually belong together before suggesting a fix.
 
-Simplification strategies:
+Looking at the parameters... report_type, include_summary, include_charts, date_format, currency, timezone -- those are all "how to format" options. group_by, sort_by, sort_order, filters, limit -- those are "how to query/shape" options. custom_fields is a "what extra data to include" option. So there are really three groups: formatting config, query config, and field config. A single ReportOptions dataclass could hold all of these, but honestly two objects (format options + query options) might be cleaner.
 
-1. Parameter Object: Replace 12 parameters with a config/options dataclass
-2. Strategy Pattern: Each report type gets its own formatter class
-3. Extract pipeline: Separate format -> filter -> group/sort -> summarize -> charts into distinct phases
-4. Eliminate duplicate custom_fields: Move it outside the type-specific blocks
+Now the bigger problem: the elif chain for report types. Each branch does essentially the same thing -- map source field names to output field names with optional transformations (date formatting, currency formatting). That is data, not logic. If I express the field mappings as a dictionary, adding a fifth report type is just adding another entry instead of another 15-line elif branch.
 
-The custom_fields block is literally identical in all 4 branches and should be extracted after the type-specific formatting.
+Wait, I almost missed something -- the custom_fields block is copy-pasted identically four times! It is the exact same three lines in every branch. That should be pulled out after the type-specific formatting, not duplicated inside each branch. This is the lowest-hanging fruit here.
 
-The type-specific formatting is really just a field mapping - mapping source field names to output field names with optional transformations. This can be expressed as data.
+But there is a subtler issue: the filtering happens AFTER formatting. That means if 90% of items get filtered out, we wasted time formatting them. Should filtering happen on the raw data first? That depends on whether filters reference raw field names or formatted field names. Looking at the code... it filters on formatted keys (i.get(key)), so the filters use output field names. That means we cannot easily filter before formatting without knowing the mapping. Hmm, actually we could -- if the field mapping is data, we could reverse-map filter keys to source keys and filter the raw data. But that might be over-engineering for this review. I will flag it as wasteful but suggest the simple fix of just moving the filter before the format step if filters use source field names.
+
+The most critical issue is the god function problem: format, filter, group, sort, limit, summarize, and chart all in one function. Each of those is an independent step in a pipeline. Extracting them into separate functions makes each one testable and the pipeline composable.
 </think>
 
 ## Code Review: Reduce Complexity

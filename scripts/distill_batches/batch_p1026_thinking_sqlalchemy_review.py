@@ -98,42 +98,23 @@ def search_products(name=None, min_price=None, max_price=None):
         query = query.filter(Product.price <= max_price)
     return query.all()
 ```''', r'''<think>
-Let me review this SQLAlchemy code for session management, query optimization, relationship design, and correctness issues.
+OK, let me read through this SQLAlchemy code carefully. I see four models -- User, Product, Order, OrderItem -- and three functions. Let me trace through the logic starting with what jumps out first.
 
-1. Session management:
-- Every function creates a new Session() but never closes it. This leaks database connections.
-- create_order creates a session but if the ValueError is raised (not enough stock), the session is never rolled back or closed. The session is left in a dirty state.
-- No context manager pattern for sessions. Should use try/finally or a context manager.
-- Sessions are created in function scope, meaning detached objects are returned (order returned from create_order is detached after function returns if session is garbage collected).
+First thing I notice: every function calls `Session()` to get a session, but I don't see any `session.close()` anywhere. That's going to leak database connections. Under load, you'd exhaust the connection pool and the app would just hang. But let me check if maybe they're using a scoped session or something... no, it's just `sessionmaker(bind=engine)`. So yeah, connections leak on every function call.
 
-2. N+1 queries in get_user_orders:
-- user.orders triggers a lazy load (1 query)
-- For each order, order.items triggers another lazy load (N queries)
-- For each item, session.query(Product).get(item.product_id) is yet another query (M queries per order)
-- Total: 1 + N + sum(items per order) queries. Should use eager loading.
+Now let me look at create_order more carefully. It creates a session, adds an order, loops through items checking stock... and if stock is insufficient, it raises ValueError. But wait -- at that point, the session already has dirty state (the order was added, maybe some products were modified in earlier loop iterations). There's no rollback, no try/finally, nothing. The session just gets abandoned in a dirty state. That's really bad.
 
-3. Race conditions in create_order:
-- product.stock check and decrement is not atomic. Two concurrent orders can both check stock > quantity and both succeed, resulting in negative stock.
-- No SELECT FOR UPDATE or similar locking mechanism.
+Actually, there's an even subtler problem here. The stock check -- `if product.stock < quantity` -- and then the decrement `product.stock -= quantity` -- these are not atomic. Two concurrent requests could both read stock=5, both see 5 >= 3, both decrement to 2, and now we've sold 6 units from 5 stock. Classic TOCTOU race condition. You'd need SELECT FOR UPDATE or an atomic UPDATE with a WHERE clause checking the stock level.
 
-4. Model issues:
-- datetime.now is called once at class definition time, not per-row. The default value is a fixed timestamp. Should be datetime.now (without calling) or use server_default.
-  Wait, actually in SQLAlchemy, `default=datetime.now` (without parentheses) passes the function itself, which gets called each time. But the code has `default=datetime.now` -- actually looking again, it says `datetime.now` which IS the function reference. But wait -- it does NOT have parentheses, so this is correct. Let me re-read... `default=datetime.now` -- yes this is the function reference, so it's actually fine. No, wait -- I see `default=datetime.now` -- if there are no parentheses, it passes the function and SQLAlchemy calls it on each insert. That's correct. Let me look more carefully... The code says `default=datetime.now`. This is correct as a Python-side default.
-  Actually, on re-reading, it could be `datetime.now()` with parens. Let me check again: `default=datetime.now`. No parens. This is correct.
+Let me look at the models now. The Order has `default=datetime.now` -- hmm, does that have parentheses? Let me look again... `default=datetime.now`. No parens. So this passes the function reference, which SQLAlchemy calls on each insert. That's actually correct for a Python-side default. OK, not a bug there.
 
-5. Float for money:
-- Using Float for price and total is a classic mistake. Floating point cannot represent decimal values exactly. $19.99 might become $19.990000000000002. Use Numeric/Decimal.
+But wait -- I see Float being used for price and total. That's a classic money mistake. Floating point can't represent decimal values exactly. $19.99 might become $19.990000000000002. You'd want Numeric or Decimal here to avoid rounding errors accumulating in financial calculations.
 
-6. Missing constraints:
-- username and email have no unique constraints
-- No NOT NULL constraints on critical fields
-- No indexes on foreign keys or frequently queried columns
+Now get_user_orders... this is an N+1 nightmare. Let me trace the queries: first `session.query(User).get(user_id)` -- 1 query. Then `user.orders` triggers a lazy load -- that's query #2. Then for EACH order, `order.items` is another lazy load -- that's N more queries. And then for EACH item, there's `session.query(Product).get(item.product_id)` -- that's M more queries per order. So the total is something like 1 + 1 + N + sum(items per order). For a user with 20 orders averaging 5 items each, that's over 120 queries. Should use joinedload or subqueryload.
 
-7. search_products:
-- `if min_price:` evaluates to False when min_price is 0, skipping a valid filter. Should be `if min_price is not None:`.
-- Returns SQLAlchemy model instances that are bound to a session that might be garbage collected.
+Let me also check search_products. I see `if min_price:` and `if max_price:` -- hmm, what happens if min_price is 0? Zero is falsy in Python, so `if min_price:` evaluates to False, and a valid filter for "products costing $0 or more" gets silently skipped. Should be `if min_price is not None:`.
 
-Let me structure the review.
+One more thing about the models -- there are no unique constraints on username or email, no NOT NULL on critical fields, and no indexes on the foreign keys. Those foreign key columns will be used in JOIN queries constantly but without indexes, every join is a full table scan.
 </think>
 
 ## Code Review: SQLAlchemy Order Management
@@ -310,13 +291,11 @@ def update_product_prices(category, multiplier):
             {"mult": multiplier, "cat": category}
         )
 ```''', r'''<think>
-Let me review this SQLAlchemy session management and raw SQL code.
+Alright, let me work through this code. First thing I want to check is the get_session context manager since everything else depends on it.
 
-1. Context manager is broken for errors:
-- get_session yields, then commits, then closes. But if an exception occurs inside the `with` block, the code after `yield` in the generator is NOT executed (the exception propagates). This means:
-  - On success: commit + close (correct)
-  - On exception: no rollback, no close (WRONG). The session leaks and has dirty state.
-- This is the most critical issue. Need try/except/finally:
+So get_session creates a SessionLocal, yields it, then does commit and close. That looks fine on the happy path. But what happens when an exception occurs inside the `with` block? The exception propagates out of the yield, and... hmm, with @contextmanager, if the `with` block raises, the exception is thrown INTO the generator at the yield point. But this code doesn't have a try/except around the yield, so the exception just propagates up and out of the generator. That means commit() and close() never run.
+
+So on any error: no rollback, no close, session leaked with dirty state. That's the most critical bug here -- and since every function in the file uses `with get_session()`, this affects the entire codebase. The fix needs try/except/finally:
 
 ```python
 @contextmanager
@@ -332,12 +311,13 @@ def get_session():
         session.close()
 ```
 
-2. transfer_funds race condition:
-- Reads balance, checks in Python, then updates. Classic TOCTOU (time-of-check-time-of-use). Two concurrent transfers can both see sufficient balance and both succeed. Need SELECT FOR UPDATE or use a CHECK constraint.
-- Also, from_account could be None if from_id doesn't exist. `from_account[0]` would then be a TypeError.
+Now let me see how the broken session management cascades into the other functions...
 
-3. bulk_insert_users performance:
-- Inserts one row at a time in a loop. For large datasets, this is extremely slow. Use executemany or bulk insert:
+Looking at transfer_funds -- it reads balances with raw SQL, checks in Python, then updates. This is textbook TOCTOU (time-of-check-time-of-use). Two concurrent transfers from the same account could both read balance=1000, both pass the `if from_balance < amount` check, and both debit. The account ends up overdrawn. You'd need SELECT FOR UPDATE or a database CHECK constraint on balance >= 0.
+
+Wait, there's another thing I almost missed -- what if from_id doesn't match any account? The query returns None, and `from_account[0]` would raise TypeError. Not a helpful error message for the caller.
+
+Now bulk_insert_users... it's inserting one row at a time in a loop. For 10,000 users that's 10,000 round-trips to the database. This is painfully slow when you could just pass the entire list to session.execute() and let the DB driver batch them:
 ```python
 session.execute(
     text("INSERT INTO users (username, email) VALUES (:username, :email)"),
@@ -345,21 +325,14 @@ session.execute(
 )
 ```
 
-4. delete_old_orders:
-- Uses `INTERVAL :days DAY` which is MySQL-specific syntax. SQLite and PostgreSQL use different syntax. This query is not portable.
-- The two DELETE statements are not in a transaction... well, they ARE because get_session commits at the end. But if the first DELETE succeeds and the second fails, get_session does not rollback (as noted above), leaving orphaned order_items deleted but orders intact. Wait, it's the opposite -- it deletes order_items first, then orders. If the second fails, the items are deleted but orders remain, which is actually the correct order for foreign key constraints. But still, partial execution is bad.
+Let me check delete_old_orders. The SQL uses `INTERVAL :days DAY` -- hmm, that's MySQL-specific syntax. PostgreSQL would need different syntax, and SQLite doesn't support INTERVAL at all. This query is not portable across databases.
 
-5. Raw SQL everywhere:
-- The entire codebase uses raw SQL via text() instead of the ORM. This loses type safety, relationship management, and makes the code harder to maintain. While raw SQL is sometimes necessary for complex queries, simple CRUD should use the ORM.
+But the bigger issue is transaction safety. Both DELETEs run inside the same get_session context, so they share a transaction. But since get_session doesn't rollback on error (as I found above), if the first DELETE succeeds and the second fails, we get partial execution. Actually wait -- it deletes order_items first, then orders. So on failure of the second DELETE, we'd have orders with no items. That's data integrity loss.
 
-6. Connection pooling:
-- create_engine with default settings uses a pool of 5 connections. No configuration for pool_size, max_overflow, pool_timeout, or pool_recycle. For production, these need tuning.
-- No pool_pre_ping=True, so stale connections after database restart cause errors.
+One more thing -- the create_engine uses all defaults. No pool_size tuning, no max_overflow, no pool_pre_ping. After a database restart, stale connections in the pool cause errors until they time out. For production this needs explicit configuration.
 
-7. get_report:
-- Returns data after the session context exits. Since get_session commits and closes, the result objects might be unusable. Actually, raw SQL results are just tuples, so they should be fine. The dict comprehension materializes the data before session close... wait, `return` happens inside the with block, so the session is still open when the list comprehension runs. But then the context manager runs commit/close after the generator resumes from yield. This is actually fine for raw results.
+As for get_report -- I initially worried about it returning data after the session closes. But actually, the return happens inside the `with` block, so the session is still open. And since these are raw SQL results (plain tuples, not ORM objects), they don't need session binding. So get_report is actually fine on that front.
 
-Let me write the review.
 </think>
 
 ## Code Review: SQLAlchemy Session Management and Raw SQL
@@ -563,41 +536,24 @@ def get_author_stats(session):
         })
     return stats
 ```''', r'''<think>
-Let me review this SQLAlchemy relationship and event code.
+Let me go through this code piece by piece. There are models for Author, Post, Comment, and Tag with an association table... and then some functions and event handlers.
 
-1. Relationship design issues:
-- post_tags association table has no primary key constraint and no unique constraint on (post_id, tag_id). The same tag can be associated with the same post multiple times.
-- Comment.replies uses backref='parent' but parent_id is defined after the relationship. While SQLAlchemy can handle this, it is confusing. Also, the relationship uses `foreign_keys='Comment.parent_id'` as a string but the standard form is a list.
+Starting with the association table post_tags -- I notice it has no primary key constraint and no unique constraint on (post_id, tag_id). That means the same tag could be associated with a post multiple times, which would give incorrect results when querying tags for a post. Should have a UniqueConstraint or use a PrimaryKeyConstraint on both columns.
 
-2. Performance disasters in properties:
-- Author.post_count uses `len(self.posts)` which loads ALL posts into memory just to count them. Should use a database COUNT query.
-- Author.recent_posts loads ALL posts, sorts in Python, then takes 5. Should use a database query with ORDER BY and LIMIT.
-- get_author_stats calls both properties for every author, plus iterates all posts for comments. This is an N+1 catastrophe.
+Now the properties on Author... `post_count` returns `len(self.posts)`. Hmm, that loads ALL posts from the database into Python objects just to count them. For an author with 10,000 posts, that's fetching 10,000 rows to return a single number. Should use a database COUNT query instead. Similarly, `recent_posts` does `sorted(self.posts, ...)[:5]` -- it loads ALL posts, sorts them in Python, then takes 5. A database query with ORDER BY and LIMIT 5 would fetch only 5 rows.
 
-3. Event handler issues:
-- after_post_insert and after_comment_insert run queries inside SQLAlchemy events. The 'after_insert' event fires within the flush cycle. Running new queries during a flush can cause re-entrancy issues and unexpected behavior.
-- send_notification is presumably doing I/O (sending an email) inside an event handler, which blocks the database transaction. If the notification service is slow, the transaction stays open.
-- Session.object_session(target) may return None if the object is not associated with a session.
+But the real disaster is get_author_stats. Let me trace the queries... session.query(Author).all() loads all authors (1 query). Then for each author: author.post_count loads all posts (N queries), author.recent_posts loads all posts AGAIN (another N queries -- same data loaded twice!), and then `sum(len(p.comments) for p in author.posts)` iterates all posts and lazy-loads comments for each one (N*M queries). For 100 authors with 50 posts each, that's potentially 1 + 100 + 100 + 5000 = over 5,000 queries. Absolutely catastrophic.
 
-4. get_posts_with_tag:
-- Returns tag.posts which is a lazy-loaded collection. This triggers a query, but the returned posts have no eager-loaded relationships. Callers accessing post.author or post.comments trigger more lazy loads.
+Now let me look at the event handlers. after_post_insert runs during the 'after_insert' event, which fires within the flush cycle. It queries Author.post_count... wait, that triggers the len(self.posts) property, which does a lazy load DURING a flush. Running queries during a flush can cause re-entrancy issues. And send_notification is presumably doing I/O (HTTP call, email, etc.) inside the event handler, which blocks the database transaction. If the notification service takes 5 seconds, the transaction stays open for 5 seconds. That's really bad for concurrency.
 
-5. get_author_stats N+1:
-- session.query(Author).all() -- loads all authors (1 query)
-- For each author: author.post_count loads all posts (N queries)
-- For each author: author.recent_posts loads all posts again (N queries, same data)
-- For each author: sum(len(p.comments) for p in author.posts) loads all comments for all posts (N*M queries)
-- This is potentially thousands of queries.
+Actually, I should also check -- Session.object_session(target) could return None if the object somehow isn't associated with a session. The code doesn't guard against that.
 
-6. Cascade issue:
-- Post has cascade='all, delete' on comments. This means deleting a post deletes its comments, but 'all' includes 'save-update, merge, refresh-expire, expunge, delete'. The 'delete-orphan' is NOT included. If you remove a comment from post.comments, it becomes an orphan but is not deleted. Usually you want 'all, delete-orphan'.
+Let me look at the cascade on Post.comments: `cascade='all, delete'`. The 'all' expands to 'save-update, merge, refresh-expire, expunge, delete'. But 'delete-orphan' is NOT included. So if you remove a comment from post.comments (detach it), it becomes an orphan row in the database -- never deleted, just dangling. Usually you want 'all, delete-orphan' to clean those up.
 
-7. Missing constraints:
-- No unique constraint on Tag.name
-- No unique constraint on Author.email
-- No NOT NULL on required fields
+For get_posts_with_tag -- it returns tag.posts, which is a lazy-loaded collection. The returned posts won't have their relationships (author, comments) eagerly loaded, so callers accessing those will trigger even more lazy loads.
 
-Let me structure this.
+Missing constraints too: no unique on Tag.name (duplicate tags possible), no unique on Author.email, no NOT NULL on required fields. These are basic data integrity safeguards.
+
 </think>
 
 ## Code Review: SQLAlchemy Relationships and Events
@@ -752,39 +708,24 @@ def downgrade():
     op.drop_table('notifications')
     op.drop_column('users', 'preferences')
 ```''', r'''<think>
-Let me review this Alembic migration for safety, correctness, and best practices.
+OK, this is an Alembic migration file. Let me read through the upgrade and downgrade functions carefully before jumping to conclusions.
 
-1. Migration is too large / does too many things:
-- This single migration adds a column, creates a table, backfills data, creates an index, renames a column, changes a column type, drops a table, and adds a NOT NULL constraint. If any step fails partway through, the migration is partially applied and hard to recover from (especially on MySQL/MariaDB which don't support transactional DDL).
-- Should be split into multiple smaller migrations.
+First impression: this migration is doing a LOT of things. Adding a column, creating a table, backfilling data, creating an index, renaming a column, changing a type, dropping a table, adding a NOT NULL constraint... all in one migration. That immediately worries me because if any step fails partway through (especially on MySQL/MariaDB which don't support transactional DDL), the database ends up in a partially migrated state that's very hard to recover from. This should really be split into 5-6 separate migrations.
 
-2. Dangerous operations:
-- Dropping legacy_preferences table is irreversible in practice. The downgrade recreates the table structure but the DATA is lost forever. This should be a separate migration with a data backup step.
-- Changing `age` from Integer to String is a lossy type change. The downgrade from String back to Integer will fail if any non-numeric strings were inserted after the upgrade.
-- Adding NOT NULL to `email` will fail if any existing rows have NULL emails. Should backfill first.
+Let me look at the dangerous operations. Dropping legacy_preferences -- the downgrade recreates the table structure, but the DATA is lost forever. Once you run this migration, there's no going back without a database backup. This should absolutely be a separate migration with an explicit data backup step or at least a warning.
 
-3. Backfill issue:
-- `op.execute("UPDATE users SET preferences = '{}'")` -- the string '{}' may not be valid JSON for all databases. PostgreSQL JSON columns need proper JSON syntax. Also, this runs as a single UPDATE which locks the entire users table. For large tables, this causes downtime.
+Then there's `op.alter_column('users', 'age', type_=sa.String(10))` -- changing from Integer to String. That's a one-way door in practice. The downgrade tries to convert back from String to Integer, but what if someone inserted "unknown" or "N/A" while it was a String column? The type conversion blows up and the downgrade is broken.
 
-4. Missing constraints:
-- notifications.user_id has no NOT NULL constraint. Also, no ON DELETE behavior specified for the foreign key.
-- notifications.read uses `default=False` which is a Python default, not a server default. Use `server_default=sa.text('false')` for database-level defaults.
-- No index on notifications.created_at, which is commonly used for ordering.
+Wait, I should also check the NOT NULL addition. `op.alter_column('users', 'email', nullable=False)` -- this will fail immediately if ANY existing rows have NULL emails. The migration doesn't backfill email values before adding the constraint. You'd need to UPDATE first (set a default for NULLs) and THEN add NOT NULL.
 
-5. Downgrade issues:
-- The downgrade recreates legacy_preferences without its data. This means the downgrade is lossy -- you cannot roll back without data loss.
-- The downgrade converts age back from String to Integer. If any values like "unknown" were inserted while it was a String, the type conversion fails.
-- The JSON backfill in downgrade sets preferences to NULL then drops the column, which is redundant.
+The backfill for the preferences column is concerning too. `op.execute("UPDATE users SET preferences = '{}'")` runs as a single UPDATE on the entire users table. For a table with millions of rows, this acquires a row-level lock on every row and could take minutes, during which the table is effectively blocked for writes. Should be batched. Also, the string '{}' might not be valid for all JSON column implementations.
 
-6. Locking concerns:
-- On PostgreSQL, ALTER TABLE operations take an ACCESS EXCLUSIVE lock. Multiple ALTER operations on the users table (add_column, alter_column x3) each take a lock. This can cause extended downtime on large tables.
-- Column rename on large tables can be slow on some databases.
+Looking at the notifications table... user_id has no NOT NULL constraint -- so you could create a notification belonging to nobody. No ON DELETE behavior specified for the foreign key either -- if a user is deleted, their notifications become orphaned. And `default=False` on the `read` column is a Python-side default, not a database default. If anything inserts directly via SQL (migrations, data fixes), the default won't apply. Should use `server_default=sa.text('false')`.
 
-7. No concurrency safety:
-- The migration does not use `op.execute` with batched updates for the backfill.
-- No mention of running in a maintenance window.
+On PostgreSQL, each ALTER TABLE takes an ACCESS EXCLUSIVE lock. This migration does multiple ALTER operations on the users table (add_column, rename_column, alter_column type, alter_column nullable), and each one takes that lock. On a large table with active traffic, this means multiple periods of full table locking. Could cause significant downtime.
 
-Let me structure this.
+The downgrade function is particularly problematic. It recreates legacy_preferences without data (lossy rollback), converts age back from String to Integer (fragile if non-numeric values exist), and sets preferences to NULL before dropping it (redundant). The downgrade gives a false sense of reversibility when in reality you cannot roll back without data loss.
+
 </think>
 
 ## Code Review: Alembic Database Migration
@@ -970,49 +911,34 @@ def get_stats():
         ).count()
     return stats
 ```''', r'''<think>
-Let me review this SQLAlchemy task queue implementation.
+Let me trace through this task queue implementation. It uses SQLAlchemy with thread-local sessions and a TaskStatus enum. Let me focus on the concurrency aspects first since this is a task queue -- concurrency correctness is everything.
 
-1. Race condition in claim_task:
-- This is the most critical issue. Two workers can both call claim_task simultaneously, both execute the same query, both get the same PENDING task, and both set it to RUNNING. This is a classic race condition.
-- No SELECT FOR UPDATE, no optimistic locking, no atomic update.
-- Fix: Use SELECT FOR UPDATE SKIP LOCKED:
+Starting with claim_task... it queries for a PENDING task with `.first()`, then sets status to RUNNING and commits. But what if two workers call claim_task at the same time? Both execute the same query, both get the same row, both set it to RUNNING. The second commit "succeeds" because it's just updating the same row to the same value, but now two workers are running the same task. That's a classic race condition.
+
+There's no SELECT FOR UPDATE, no optimistic locking with version columns, nothing. The fix would be `with_for_update(skip_locked=True)` -- SKIP LOCKED is key because without it, the second worker would block waiting for the first worker's lock, which defeats the purpose of concurrent task processing:
 ```python
 task = session.query(Task).filter(
     Task.status == TaskStatus.PENDING
 ).with_for_update(skip_locked=True).first()
 ```
 
-2. Thread-local session management:
-- Using threading.local() to store sessions means sessions are never closed. They persist for the lifetime of the thread. In a thread pool (common in web servers), sessions accumulate stale state.
-- If a session encounters an error and is not properly rolled back, all subsequent operations on that thread use the broken session.
-- No error handling or rollback mechanism.
+Now let me look at the session management. It's using threading.local() to store one session per thread. But these sessions are never closed -- they persist for the lifetime of the thread. In a thread pool (like a web server uses), that means sessions accumulate stale state across requests. Worse, if a session hits an error and isn't rolled back, every subsequent operation on that thread uses the broken session. There's no recovery mechanism.
 
-3. Error handling:
-- complete_task and fail_task do not check if task is None (could be deleted by another process).
-- No try/except/rollback pattern. If session.commit() fails, the session is in a broken state and all subsequent operations on that thread fail.
-- No isolation between operations -- one failed commit poisons the thread-local session.
+Looking at complete_task and fail_task... neither checks if the task is None. If a task was deleted by another process between the query and the update, you'd get an AttributeError on None.status. And if session.commit() fails for any reason, there's no try/except/rollback -- the session enters an invalid state and all subsequent operations on that thread fail silently or raise confusing errors.
 
-4. get_stats performance:
-- Runs a separate COUNT query for each TaskStatus value (4 queries). Could be done in one query with GROUP BY:
+Hmm, get_stats is inefficient too. It runs a separate COUNT query for each TaskStatus value -- that's 4 separate queries. Could be a single query with GROUP BY:
 ```python
 session.query(Task.status, func.count(Task.id)).group_by(Task.status).all()
 ```
 
-5. datetime.utcnow in default:
-- `default=datetime.utcnow` (without parentheses) correctly passes the function. However, datetime.utcnow() is deprecated in Python 3.12+. Should use `datetime.now(timezone.utc)`.
+I notice `default=datetime.utcnow` on the model -- this correctly passes the function reference (no parens), so it works. But datetime.utcnow() is deprecated as of Python 3.12. Should use `datetime.now(timezone.utc)` instead.
 
-6. Missing indexes:
-- No index on Task.status. The claim_task query filters by status, and get_stale_tasks filters by status AND started_at. Without indexes, these are full table scans.
+No indexes on Task.status either. claim_task filters by status, get_stale_tasks filters by status AND started_at. Without indexes, these are full table scans on every call. For a queue with millions of historical tasks, that's going to get progressively slower.
 
-7. Connection pooling:
-- pool_size=5 with max_overflow=10 means up to 15 connections. But if there are more than 15 worker threads, they block for pool_timeout=30 seconds then get a timeout error.
-- No pool_pre_ping for detecting stale connections.
-- Hardcoded credentials in connection string.
+The connection pool is set to pool_size=5 with max_overflow=10, allowing up to 15 connections. But if there are more than 15 worker threads, they'll block waiting for a connection, timing out after 30 seconds. No pool_pre_ping either, so stale connections after a database restart cause errors. And the credentials are hardcoded in the connection string -- should be from environment variables.
 
-8. retry_stale_tasks:
-- Calls get_stale_tasks() which returns objects from get_session(). Since both functions use the same thread-local session, this works. But the stale tasks are fetched without FOR UPDATE, so another process could claim them between the SELECT and the UPDATE.
+One more thing about retry_stale_tasks -- it calls get_stale_tasks() which fetches tasks without FOR UPDATE. Between the SELECT and the subsequent status update, another process could claim those same tasks. So the retry mechanism itself has a race condition, potentially causing duplicate task execution.
 
-Let me structure this.
 </think>
 
 ## Code Review: SQLAlchemy Task Queue

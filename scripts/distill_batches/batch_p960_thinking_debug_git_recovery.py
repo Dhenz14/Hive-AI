@@ -18,13 +18,17 @@ HEAD is now at a1b2c3d Fix: some older commit
 ```
 
 These commits represent two weeks of work. Please tell me they're not gone forever.''', r'''<think>
-Git almost never truly deletes data immediately. When you do `git reset --hard`, the commits still exist in the object database -- they just become "unreachable" (no branch or tag points to them). Git's reflog records every change to HEAD, so the old HEAD positions are still tracked.
+Okay, the user ran `git reset --hard HEAD~5` on unpushed commits. This could be catastrophic... but wait, does git actually delete commit data immediately? I considered that maybe the objects are removed from the database right away, but that won't work because git uses a garbage collector that runs on a schedule, not inline with reset operations.
+
+Hmm, actually, git almost never truly deletes data immediately. When you do `git reset --hard`, the commits still exist in the object database -- they just become "unreachable" (no branch or tag points to them). The key mechanism here is the reflog. Because git's reflog records every change to HEAD, the old HEAD positions are still tracked.
 
 The recovery steps:
 1. Use `git reflog` to find the lost commit hashes
 2. Create a branch pointing to the most recent lost commit
 
-The commits will remain in the object database until `git gc` prunes unreachable objects, which by default happens after 90 days for reflog entries and 2 weeks for unreachable objects without reflog entries. Since the reflog entries exist, the user has about 90 days.
+I initially thought the user might need `git fsck --lost-found` to hunt for dangling objects, but that is the harder path. Because the reflog entries exist, `git reflog` is simpler and more reliable. The reflog approach is simpler but `git fsck` handles edge cases where the reflog itself is corrupted.
+
+The commits will remain in the object database until `git gc` prunes unreachable objects, which by default happens after 90 days for reflog entries and 2 weeks for unreachable objects without reflog entries. Since the reflog entries exist, the user has about 90 days. Wait, I need to reconsider -- if someone runs `git gc --prune=now` manually, the window shrinks to zero. But that is unlikely unless explicitly invoked.
 </think>
 
 Good news: your commits are almost certainly recoverable. Git rarely deletes data immediately. The commits still exist in Git's object database -- they are just "unreachable" because no branch points to them anymore. Git's reflog keeps a record of every position HEAD has been at.
@@ -119,15 +123,17 @@ $ git log --oneline -5
 ```
 
 I've made 3 commits (8a7b6c5, 7f6e5d4, 6c5b4a3) while in detached HEAD. If I checkout main, will I lose these commits?''', r'''<think>
-The user is in detached HEAD state with 3 commits that exist only on the detached HEAD. If they simply `git checkout main`, these commits become unreachable (no branch points to them). They would still exist in the reflog temporarily but could be lost after GC.
+The user is in detached HEAD state with 3 commits. My first instinct is that if they simply `git checkout main`, those commits are gone forever... but wait, that is not quite right. They become unreachable (no branch points to them) but they still exist in the reflog temporarily. However, relying on the reflog is risky because they could be lost after GC.
 
-The fix is to create a branch at the current HEAD before switching away, or merge/rebase these commits onto main.
+I considered suggesting they just do `git checkout main` and then recover via reflog, but that won't work reliably because it adds unnecessary risk. The safer fix is to create a branch at the current HEAD before switching away, or merge/rebase these commits onto main.
 
-Let me explain how they likely got into detached HEAD:
-- `git checkout <commit-hash>` or `git checkout <tag>`
+Hmm, actually, there are multiple ways they could have ended up here. Let me think through the common causes:
+- `git checkout <commit-hash>` or `git checkout <tag>` -- most likely
 - `git checkout origin/main` (checking out a remote tracking branch)
 - `git rebase` in progress
 - `git bisect` in progress
+
+Because the user has 3 commits on the detached HEAD that are ahead of main, the cleanest approach is option A (create a branch then merge) since it preserves the commit history. Option B (force-moving main) is simpler but only safe if nobody else has pushed to main, therefore it depends on team context.
 </think>
 
 If you `git checkout main` right now, the 3 commits (8a7b6c5, 7f6e5d4, 6c5b4a3) will become unreachable. They will still exist temporarily in the reflog but are at risk of being garbage collected. You need to save them first.
@@ -242,7 +248,7 @@ class Config:
 ```
 
 Both sides renamed the env var, changed values, and added different new settings. How do I resolve this properly?''', r'''<think>
-Let me analyze the conflict:
+Let me analyze the conflict carefully. This could be a simple "pick one side" situation... but wait, both sides changed multiple settings independently, so I need to look at each line.
 
 HEAD (current branch) has:
 - DATABASE_URL using 'DATABASE_URL' env var, default 'postgres://localhost/mydb'
@@ -257,15 +263,15 @@ feature-branch has:
 - DEBUG = True (new)
 - LOG_LEVEL = 'DEBUG'
 
-To resolve, the developer needs to decide:
-1. Which env var name to use (DATABASE_URL or DB_URL)
+I considered just telling them to accept one side entirely, but that won't work because both sides have valid changes that should be kept. The developer needs to decide per-line:
+1. Which env var name to use (DATABASE_URL or DB_URL) -- keeping DATABASE_URL is safer since existing deployments may depend on it
 2. Which default database URL
 3. Which CACHE_TTL value
 4. Which MAX_WORKERS value
-5. Whether to include DEBUG
-6. Which LOG_LEVEL
+5. Whether to include DEBUG -- the feature branch added it, probably needed
+6. Which LOG_LEVEL -- DEBUG in production is risky, so INFO is likely better as default
 
-This requires understanding the intent of both changes. I should explain the manual resolution process and also show tools that help.
+Hmm, actually, without seeing the original (common ancestor), I cannot tell what each side actually changed vs what was already there. The diff3 conflict style would show the common ancestor, making it much clearer. Because knowing the original state tells you the intent behind each change, therefore I should recommend enabling diff3 first.
 </think>
 
 Merge conflicts require understanding the intent of both changes and making a deliberate decision about each conflicting line. Here is the systematic approach:
@@ -376,14 +382,16 @@ b2a1f0e Base commit
 My 3 commits (d4c3b2a through f6e5d4c) are on my local main but not on origin/main anymore. The teammate's force-push replaced them with "Teammate's rewrite" (which coincidentally has the same hash prefix d4c3b2a as my commit 1, but it's a different commit).
 
 How do I recover and get my changes back?''', r'''<think>
-The user's 3 commits exist locally but were overwritten on the remote by a force push. The local branch has the commits, so they are not lost. The challenge is to get those commits onto the current remote main.
+The user's 3 commits exist locally but were overwritten on the remote by a force push. My first thought is that the commits might be lost... but wait, the local branch still has them. The local branch has the commits, so they are not lost -- yet. The critical danger is if the user runs `git pull` or `git reset --hard origin/main`, which would discard the local commits.
+
+I considered suggesting a simple `git push --force` to restore the remote, but that won't work because the teammate's rewrite commit also needs to be preserved. Because both sets of changes need to coexist, therefore the approach should be to rebase the local commits onto the new remote main.
 
 Steps:
-1. The local commits are safe as long as the user does not do `git pull --force` or `git reset --hard origin/main`
+1. First, create a backup branch immediately -- this is non-negotiable safety
 2. Need to rebase the local commits onto the new remote main, or cherry-pick them
 3. Then push (possibly force push if the teammate's rewrite conflicts)
 
-But first, need to understand the relationship between the branches.
+Option A (rebase --onto) is cleaner but harder to understand. Option B (cherry-pick) is more manual but handles edge cases better when there are complex conflicts. I will present both and let the user choose based on their comfort level.
 </think>
 
 Your commits are safe on your local `main` branch. Do NOT run `git pull`, `git reset --hard origin/main`, or `git checkout .` -- any of these could discard your local commits.
@@ -497,11 +505,15 @@ Bisecting: 100 revisions left to test after this (roughly 7 steps)
 ```
 
 But the test I need to run takes 5 minutes. Is there a way to automate this?''', r'''<think>
+The user needs to find a regression in 200 commits. Manual bisection would be 200 * 5 minutes = over 16 hours, which is clearly impractical. This could be solved with a linear search... but wait, binary search is far more efficient here.
+
 Git bisect can be automated with `git bisect run`. You provide a script that exits with 0 for "good" and non-zero for "bad", and git bisect will automatically binary search through the commits.
 
 With 200 commits, binary search needs about log2(200) = ~7.6, so roughly 8 steps. At 5 minutes per step, that is about 40 minutes -- much better than manual testing of 200 commits.
 
-The key is writing a good test script that exits with the right codes.
+I considered suggesting they just run `git bisect` manually (mark good/bad interactively), but that won't work well because the user said it takes 5 minutes per test -- they would need to sit and wait at each step. Because `git bisect run` automates the waiting, therefore it is strictly better here. The key is writing a good test script that exits with the right codes.
+
+Hmm, actually, I need to handle an edge case: what if some commits do not compile? Exit code 125 tells bisect to skip that commit rather than marking it as good or bad. The tradeoff is that skipping too many commits reduces the efficiency of binary search, but it is better than a false result.
 </think>
 
 `git bisect run` automates the entire process. With 200 commits, binary search needs only about 8 steps (log2(200) = 7.6). At 5 minutes per test, the total time is roughly 40 minutes of unattended execution.

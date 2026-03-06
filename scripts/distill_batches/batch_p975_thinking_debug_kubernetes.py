@@ -44,17 +44,15 @@ api-secrets   Opaque   3      5d
 But the pod still cannot find the env var.''', r'''<think>
 CrashLoopBackOff with KeyError for an environment variable that should come from a Secret. The secret exists, so why is the env var not injected?
 
-Let me think about common causes:
-1. Secret key name mismatch -- the secret has the key under a different name
-2. Secret is in a different namespace
-3. The pod spec references the wrong secret name
-4. The secret data has the key with different casing
+My first thought is that the secret might not exist in the right namespace... but wait, the user ran `kubectl get secret api-secrets` without specifying a namespace and it returned results, so it is likely in the same default namespace context. Let me think about other causes.
 
-The user shows `secretKeyRef.key: database-url` -- let me check if the actual secret has that exact key. The secret exists with 3 data entries, but we need to verify the key name.
+I considered whether the pod's service account might lack RBAC permissions to read the secret, but that won't work as an explanation because Kubernetes would show a different error -- it would fail at pod scheduling with a warning event, not silently skip the env var injection.
 
-Most likely: the secret key is named differently (e.g., `DATABASE_URL` instead of `database-url`, or `database_url` with underscores). Secret key names are case-sensitive and the key in the secretKeyRef must match exactly what is in the secret data.
+Hmm, actually the most likely culprit is a secret key name mismatch. The user shows `secretKeyRef.key: database-url` (lowercase with hyphens). Because Kubernetes secret key lookups are case-sensitive and exact-match, if the actual secret stores the key as `DATABASE_URL` (uppercase with underscores), the lookup silently fails and the env var is never set.
 
-Another possibility: namespace mismatch. If the deployment is in namespace "production" but the secret is in "default", the pod cannot access it.
+Wait, I need to reconsider -- would Kubernetes actually start the pod if the secretKeyRef cannot find the key? By default, `optional` is false, so the pod should fail to start with a clear event message. But the pod IS starting (it runs main.py), which means... the key exists but might contain an empty value? No, the Python code would get an empty string, not a KeyError.
+
+Actually, re-reading the error: Exit Code 1 and the Python traceback shows `KeyError: 'DATABASE_URL'`. This means the env var was genuinely not injected. Because the secret has 3 data entries and the secretKeyRef references `database-url`, we need to verify whether that exact key string exists in the secret data. The mismatch between naming conventions (database-url vs DATABASE_URL) is the classic trap here.
 </think>
 
 The pod crashes because the `DATABASE_URL` environment variable is not being injected, despite the secret existing. This is almost always a **secret key name mismatch**.
@@ -146,7 +144,9 @@ print(f"RSS: {process.memory_info().rss / 1024 / 1024:.0f} MB")
 ```
 
 How can the pod use 487Mi when the Python process only uses 195MB?''', r'''<think>
-The discrepancy between Python process memory (195MB RSS) and Kubernetes pod memory (487Mi) is a classic debugging puzzle. Let me think about what accounts for the difference.
+The discrepancy between Python process memory (195MB RSS) and Kubernetes pod memory (487Mi) is a classic debugging puzzle. The gap is 292MB -- that is huge. Let me think about what accounts for the difference.
+
+My first thought is memory leaks in the Python process... but wait, psutil reports 195MB RSS which is reasonable, and the container reports 487Mi. If there were Python leaks, psutil would show it too. So the extra memory is NOT from the Python process itself.
 
 Kubernetes measures container memory using cgroups, which includes:
 1. RSS (Resident Set Size) of all processes in the container
@@ -154,17 +154,13 @@ Kubernetes measures container memory using cgroups, which includes:
 3. tmpfs usage (if any tmpfs mounts like /dev/shm)
 4. Kernel memory (slab, etc.)
 
-The Python process reports only its own RSS. But the container might have:
-- Child processes (forked workers, subprocess calls)
-- Shared memory segments
-- Memory-mapped files
-- The page cache from file I/O
+I considered whether Python memory fragmentation could account for 292MB of difference, but that won't work because psutil's RSS already includes fragmented-but-held memory. The RSS IS the OS-level view.
 
-The most common cause: the application does heavy file I/O (reading data files, log files, temp files) and the kernel page cache counts toward the container memory limit. Or the application spawns child processes (e.g., Celery workers, multiprocessing).
+Hmm, actually the most likely explanation is one of two things. Because psutil.Process() only measures the MAIN process, if there are child processes (Celery workers, multiprocessing pool), their memory is invisible to the parent's psutil call but fully visible to cgroups. Alternatively, the page cache from heavy file I/O (reading CSVs, model files, data files) counts toward the cgroup limit even though no process "owns" that memory.
 
-Also, Python RSS from psutil measures only the main process. If there are worker threads with native allocations, or subprocess-spawned children, those are separate.
+Wait, I need to reconsider -- could tmpfs be a factor? If /tmp is mounted as tmpfs inside the container and the app writes large temp files, that would eat into the memory limit silently. This is often overlooked.
 
-Another common cause: Python memory fragmentation. The Python allocator requests memory from the OS but does not always return it. The OS sees higher RSS than what Python is actively using.
+The debugging approach should check cgroup memory.stat to see the exact breakdown between RSS, cache, and other components.
 </think>
 
 The 292MB gap between Python's self-reported memory (195MB) and Kubernetes' measurement (487Mi) is caused by Kubernetes counting ALL memory in the cgroup, not just your Python process RSS.
@@ -304,18 +300,22 @@ backend-service   10.244.1.15:8080   2d
 ```
 
 The service is correctly configured with endpoints, but DNS resolution from Pod A fails entirely.''', r'''<think>
-DNS resolution failing entirely from within a pod -- even nslookup times out. This means the pod cannot reach the cluster DNS service (typically CoreDNS).
+DNS resolution failing entirely from within a pod -- even nslookup times out. This is interesting because the error is a timeout, not NXDOMAIN. That distinction matters: NXDOMAIN would mean DNS is reachable but the name does not exist. A timeout means the DNS server itself is unreachable.
 
-Let me think about what could cause this:
-1. CoreDNS pods are down or not running
-2. The kube-dns service (which fronts CoreDNS) is misconfigured
-3. The pod's /etc/resolv.conf is wrong (pointing to wrong nameserver)
-4. Network policy blocking DNS traffic (UDP port 53)
-5. The pod's DNS policy is set to "Default" instead of "ClusterFirst"
+This could be CoreDNS pods being down... but wait, if CoreDNS were completely down, ALL pods would have DNS failures and that would likely be noticed cluster-wide, not just for this one pod.
 
-Since nslookup completely times out (not NXDOMAIN, but connection timeout), this means the DNS server is unreachable. That points to either CoreDNS being down, network policies blocking port 53, or the pod having wrong DNS configuration.
+Let me think about what could cause DNS to be unreachable for a specific pod:
+1. The pod's /etc/resolv.conf is wrong (pointing to wrong nameserver)
+2. Network policy blocking DNS traffic (UDP port 53)
+3. The pod's DNS policy is set to "Default" instead of "ClusterFirst"
+4. CoreDNS pods are down or not running
+5. The kube-dns service is misconfigured
 
-Let me check the most common one: pod dnsPolicy. If it is set to "Default", the pod uses the node's DNS, not cluster DNS, and cannot resolve service names.
+I considered whether the service name might simply be wrong or in a different namespace, but that won't work as an explanation because even nslookup to ANY name times out -- the pod cannot reach DNS at all.
+
+Hmm, actually the most common cause I have seen is dnsPolicy. Because `dnsPolicy: Default` makes the pod use the node's DNS resolver (which knows nothing about cluster services), while `ClusterFirst` routes to CoreDNS. If someone set `dnsPolicy: Default` (perhaps because the pod uses `hostNetwork: true` and copied that setting), service discovery breaks completely.
+
+Wait, I should also consider NetworkPolicies. If a restrictive NetworkPolicy was applied to the namespace that only allows specific egress, it might block UDP port 53 to the kube-system namespace. This is a subtle issue that is easy to miss because the policy might allow TCP traffic for the app but forget DNS uses UDP.
 </think>
 
 The fact that `nslookup` times out entirely (not NXDOMAIN) means the pod cannot reach the cluster DNS server at all. This is a DNS connectivity issue, not a service configuration issue.
@@ -461,20 +461,17 @@ The key error is: "0/3 nodes are available: 3 node(s) had volume node affinity c
 
 And the PVC shows: "waiting for first consumer to be created before binding"
 
-This is a classic EBS + availability zone issue. AWS EBS volumes are zone-specific -- a volume in us-east-1a can only be mounted by a node in us-east-1a.
+My first instinct is that the PVC is simply misconfigured... but wait, the error says "volume node affinity conflict," not "no provisioner found" or "storage class not found." So the StorageClass is fine; the issue is about WHERE the volume can be mounted.
+
+This is a classic EBS + availability zone issue. AWS EBS volumes are zone-specific -- a volume in us-east-1a can only be mounted by a node in us-east-1a. Because EBS is a block storage service tied to a single AZ, the volume physically cannot be attached to instances in other zones.
 
 The StorageClass has `volumeBindingMode: WaitForFirstConsumer`, which means the PV is not created until a pod is scheduled. But the scheduler cannot find a node because... there is a conflict between the pod's node affinity/topology and the available zones.
 
-Wait, but with WaitForFirstConsumer, the volume should be created in whatever zone the pod gets scheduled to. So why the conflict?
+Wait, but with WaitForFirstConsumer, the volume should be created in whatever zone the pod gets scheduled to. So why the conflict? Hmm, actually this points to a pre-existing PV. If this is a StatefulSet, the PVC persists across pod restarts, and the PV was ALREADY created in a specific zone during a previous scheduling.
 
-Possible causes:
-1. There is an existing PV (from a previous PVC) that is bound to a specific zone, and the pod has a nodeSelector or affinity that conflicts with that zone
-2. The pod is part of a StatefulSet and a previously created PV is in zone us-east-1a, but the node in that zone is full/cordoned
-3. The pod has a nodeSelector or nodeAffinity that restricts it to a specific zone, but the PV was provisioned in a different zone
+I considered whether the pod might have explicit nodeSelector or nodeAffinity constraints that conflict with the PV's zone, but the more common scenario for StatefulSets is simpler: the original PV was created in us-east-1a, that node was later replaced or cordoned, and now no node exists in us-east-1a to mount the volume.
 
-For StatefulSets, PVCs are retained across pod restarts. If the original PV was created in us-east-1a and the node in us-east-1a is unavailable (cordoned, out of capacity), the pod cannot be scheduled anywhere else because the EBS volume cannot move zones.
-
-This is the most common cause of "volume node affinity conflict."
+Option A is to bring up a node in the correct zone (simplest but may not always be possible). Option B is to migrate the data to a different zone via EBS snapshots (works but involves downtime). Option C is to switch to EFS which is not zone-bound (eliminates the problem entirely but changes the storage semantics).
 </think>
 
 The error "volume node affinity conflict" with AWS EBS means the PersistentVolume is locked to one availability zone, but no node in that zone can accept the pod. EBS volumes are physically tied to a single AZ and cannot be mounted across zones.
@@ -613,15 +610,18 @@ Events:
 The new pods are running but never become Ready because the readiness probe keeps failing with 503.''', r'''<think>
 The rolling update is stuck because new pods are never becoming Ready. The old pods will not be terminated until new pods pass their readiness probe, which is the correct behavior -- Kubernetes will not remove old pods until new pods can serve traffic.
 
-The new pods return 503 from the /ready endpoint. This could be because:
-1. The new version has a bug in the readiness endpoint
-2. The new version needs a dependency that is not available (database migration not run, config missing, etc.)
-3. The new version takes longer to start than the probe allows
-4. The readiness endpoint checks a dependency that is failing (e.g., cannot connect to a service, missing env var)
+My first thought is that this could be a bad container image or crash... but wait, the pod status is Running, not CrashLoopBackOff. So the container started successfully; the application just reports 503 on its readiness probe.
 
-Since the pods are in Running state but not Ready, the container started fine but the application reports it is not ready to serve traffic. This is not a crash -- it is the application itself saying "I am not ready."
+The new pods return 503 from the /ready endpoint. I considered whether the readiness probe configuration is wrong (wrong port, wrong path), but that won't work as an explanation because a wrong path would return 404, not 503. A 503 means the application IS responding but explicitly saying "I am not ready."
 
-The fix depends on why the application returns 503. We need to check the application logs.
+Hmm, actually the key question is: what changed between the old version and the new version? Because the old pods are Running and Ready while the new pods are Running but not Ready, the new deployment introduced something that makes the readiness check fail. This could be:
+1. A new dependency check added to the /ready endpoint that fails
+2. A missing config or secret that the new version expects
+3. A database migration that has not been applied yet
+
+Wait, I need to reconsider the timing -- the pods have been not-ready for 25 minutes with 150 failed probes. If it were just a slow startup, a startupProbe would handle that. Because the 503 persists indefinitely, this is not a startup issue but a permanent failure condition. We need to check the application logs to see what dependency the readiness endpoint is checking.
+
+The good news: Kubernetes is actually protecting us here. Without the readiness probe, the bad pods would have replaced the good ones and caused an outage.
 </think>
 
 The rolling update is stuck by design -- Kubernetes will not terminate old pods until new pods pass their readiness probe. The new pods are running but returning 503 on the readiness endpoint, so the rollout cannot progress. This is actually Kubernetes protecting you from a bad deployment.

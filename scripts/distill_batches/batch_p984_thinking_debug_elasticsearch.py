@@ -5,18 +5,17 @@ PAIRS = [
         "thinking/debugging",
         r'''My Elasticsearch index has thousands of dynamically created fields and performance is degrading. Queries are slow and I'm getting "Limit of total fields [1000] has been exceeded" errors. How do I fix the mapping explosion?''',
         r'''<think>
-Mapping explosion happens when Elasticsearch creates a new field mapping for every unique key it encounters in documents. This is common with:
-1. Log data with dynamic keys (e.g., HTTP headers as field names)
-2. User-defined metadata stored as flat fields
-3. Nested objects with unpredictable keys
+Thousands of dynamically created fields and hitting the 1000 field limit. This is a mapping explosion -- but why is it happening?
 
-Each field mapping consumes memory in the cluster state. Too many fields slow down queries, increase memory usage, and can hit the default limit of 1000 fields.
+The most likely cause: the user is indexing documents with dynamic keys. For example, storing HTTP headers as `header_x_forwarded_for`, `header_x_request_id`, etc. -- each unique header name becomes a new field in the mapping. Or maybe they are storing user-defined metadata as top-level fields. Elasticsearch's default `dynamic: true` setting creates a new mapping entry for every new field it sees.
 
-Solutions:
-1. Disable dynamic mapping
-2. Use the flattened field type
-3. Restructure data to use key-value pairs instead of dynamic keys
-4. Use strict mapping with explicit field definitions
+Could this be fixed by just raising the field limit? You could set `index.mapping.total_fields.limit` to 10000, but that is treating the symptom, not the cause. Each field mapping lives in the cluster state, which is replicated to every node. Thousands of fields bloat the cluster state, slow down mapping updates, and increase memory usage across the cluster. So raising the limit is a temporary bandage that makes things worse over time.
+
+What about `dynamic: false`? That would silently accept unknown fields without indexing them -- the data is stored in `_source` but not searchable. That might be fine if they only need to search on known fields. But if they need to search dynamic fields too, they would need the `flattened` type, which stores all nested keys as keywords in a single field.
+
+Actually, the best approach depends on the query patterns. If they need full-text search on dynamic fields, `flattened` is limiting because it only supports keyword-level queries (no full-text analysis). In that case, restructuring the data as key-value pairs with a nested type gives more flexibility, but nested queries are more complex and slower.
+
+The tradeoff: `flattened` is simple and efficient but limited to exact matches. Key-value nested arrays are flexible but slower for queries. `dynamic: strict` is the safest but requires knowing all fields upfront. I would recommend `flattened` for metadata and headers, `dynamic: strict` for the main document fields.
 </think>
 
 Mapping explosion occurs when dynamic mapping creates a new field for every unique key. Here is how to diagnose and fix it:
@@ -226,16 +225,15 @@ es.search(index="products", body={
 })
 # Returns "Red Shirt with Cotton blend" before "Blue Cotton Shirt"''',
         r'''<think>
-The issue is that the default BM25 scoring in Elasticsearch treats all terms equally and does not boost exact matches. "Red Shirt with Cotton blend" might score higher because:
-1. The document is shorter (BM25 has a field-length normalization)
-2. "shirt" and "cotton" appear as exact tokens
-3. There is no boost for matching all terms vs some terms
+The user searches "blue cotton shirt" but "Red Shirt with Cotton blend" ranks above "Blue Cotton Shirt". That is clearly wrong -- the exact match should be first. Let me think about why BM25 would score it this way.
 
-To fix relevance:
-1. Use multi_match with cross_fields or best_fields
-2. Add an exact match boost using a keyword sub-field
-3. Use function_score or bool query with should clauses at different match levels
-4. Configure custom analyzers
+BM25 scoring depends on term frequency, inverse document frequency, and field length normalization. "Red Shirt with Cotton blend" has 5 tokens; "Blue Cotton Shirt" has 3 tokens. BM25 normalizes by field length, so shorter documents get a slight boost per matching term. Both documents match "shirt" and "cotton" (2 out of 3 query terms). But the first document also contains more total tokens, so the term frequency of "shirt" and "cotton" relative to field length is actually higher in the second document. Hmm, that should favor "Blue Cotton Shirt" then.
+
+Wait, could it be IDF? "shirt" and "cotton" might appear in many documents (low IDF), while "blue" has higher IDF but only matches the second document. Actually, the default `match` query uses OR logic -- it returns documents matching ANY term. So "Red Shirt with Cotton blend" matches 2 of 3 terms, and "Blue Cotton Shirt" matches 3 of 3. With 3 matching terms, the second should score higher...
+
+Unless the index has a lot of documents with "blue" in them, making "blue" have low IDF. Or maybe the first document has other field matches (like a description field) contributing to the score via a multi_match or copy_to.
+
+Actually, the fundamental problem is simpler: the default `match` query does not differentiate between "all terms matched" and "some terms matched" beyond the additive BM25 scores. And there is no boost for an exact phrase match. The fix is a multi-tier bool query with should clauses: exact keyword match (highest boost), phrase match, all-terms-and match, any-terms-or match. That way "Blue Cotton Shirt" gets huge boosts from the exact and phrase tiers that "Red Shirt with Cotton blend" cannot match.
 </think>
 
 Poor search relevance in Elasticsearch usually requires a multi-layered scoring approach. Here is how to fix it:
@@ -452,13 +450,15 @@ def explain_score(index, doc_id, query_text):
         "thinking/debugging",
         r'''My Elasticsearch bulk indexing is failing with some documents rejected while others succeed. I'm getting errors like "mapper_parsing_exception" and "version_conflict_engine_exception" but the error handling is difficult because bulk returns partial success. How do I handle bulk indexing failures properly?''',
         r'''<think>
-Bulk API in Elasticsearch returns a response where each item can individually succeed or fail. The caller needs to parse the response to find which items failed and why. Common issues:
-1. Type mismatches (e.g., sending a string to an integer field)
-2. Version conflicts (using external versioning)
-3. Document too large
-4. Index does not exist (if auto-create is disabled)
+Bulk indexing with partial failures -- some documents succeed, some fail. The tricky part is that `helpers.bulk()` by default raises an exception on the first error, which means the caller does not know which documents succeeded and which failed.
 
-The solution is proper error handling with retry logic for transient errors and dead-letter handling for permanent errors.
+Let me think about the error types. A `mapper_parsing_exception` means a document has a field value that does not match the mapping -- like sending "not_a_number" to a float field. This is a permanent error; retrying would fail the same way. A `version_conflict_engine_exception` means another process updated the document between the read and write -- this might succeed on retry if using optimistic concurrency. An `es_rejected_execution_exception` means the thread pool is full -- that is definitely worth retrying after a backoff.
+
+Could you just use `raise_on_error=False` to get all errors? Yes, that returns a tuple of (success_count, error_list). But the error list items do not always contain the original document data, so you cannot easily reconstruct what to retry.
+
+Actually, I think the right approach is a wrapper that: (1) calls bulk with `raise_on_error=False`, (2) classifies each error as retryable or permanent, (3) retries the retryable ones with exponential backoff, and (4) collects the permanent failures into a dead letter queue for manual review. The tradeoff is complexity -- this is a lot more code than just calling `helpers.bulk()` -- but for production systems indexing millions of documents, silently losing data is not acceptable.
+
+One more thing: connection-level failures (Redis/ES node goes down mid-batch) need separate handling because the entire batch fails, not individual documents. Those should be retried as a whole batch.
 </think>
 
 Elasticsearch bulk operations return per-item success/failure status. Here is how to handle partial failures properly:
@@ -657,20 +657,19 @@ GET _cluster/health shows:
   "active_shards": 35
 }''',
         r'''<think>
-Yellow status means all primary shards are allocated but some replica shards are not. Red means some primary shards are unassigned (data loss risk).
+Yellow cluster health with 5 unassigned shards. Yellow means all primaries are assigned but some replicas are not. The cluster can serve reads and writes, but it is not fully redundant.
 
-Common causes:
-1. Not enough nodes for the number of replicas
-2. Disk space too low (watermark reached)
-3. Shard allocation filtering rules
-4. Node left the cluster and replicas have not been reassigned yet
-5. Awareness/zone settings preventing allocation
+First question: is this a 3-node cluster with replicas configured correctly? They have 3 nodes, 20 primary shards, and 35 active shards. If each index has 1 replica, there should be 40 shards total (20 primary + 20 replica). 35 active + 5 unassigned = 40 total. So there are 5 replica shards that cannot be allocated.
 
-Diagnosis steps:
-1. Check _cluster/allocation/explain
-2. Check _cat/shards to find unassigned shards
-3. Check disk usage
-4. Check allocation settings
+Why would replicas fail to allocate on a 3-node cluster? Elasticsearch will not place a primary and its replica on the same node. With 3 nodes and 20 primaries, the replicas should distribute fine -- unless some nodes are out of disk space.
+
+Could it be the disk watermark? Elasticsearch has three watermark levels: low (85%) stops allocating new shards to that node, high (90%) starts moving shards away, flood stage (95%) makes indices read-only. If one or two nodes are above the low watermark, replicas cannot be placed there, and if all valid target nodes are full, the replicas stay unassigned.
+
+Another possibility: someone disabled allocation during maintenance and forgot to re-enable it. `cluster.routing.allocation.enable` set to "none" or "primaries" would prevent replica allocation.
+
+Or it could be allocation awareness rules -- if the cluster has zone awareness configured and one zone lost a node, Elasticsearch would refuse to put both copies in the same zone.
+
+The diagnostic approach should be: (1) check `_cluster/allocation/explain` for the specific reason each shard is unassigned, (2) check disk usage per node, (3) check cluster settings for any allocation restrictions. The fix depends on the cause -- disk full requires cleanup, missing nodes require reducing replicas, disabled allocation just needs re-enabling.
 </think>
 
 Unassigned shards in Elasticsearch have specific causes that can be diagnosed systematically. Here is the process:
@@ -848,15 +847,19 @@ monitor_cluster()
         "thinking/debugging",
         r'''My Elasticsearch queries are timing out on large indices. I get "SearchPhaseExecutionException: all shards failed" with timeout errors. The index has 50 million documents. How do I optimize query performance?''',
         r'''<think>
-Query timeouts on large indices can be caused by:
-1. Inefficient queries (wildcards, regex, deeply nested)
-2. Too many shards or too-large shards
-3. Insufficient resources (memory, CPU)
-4. Missing or wrong field types (text vs keyword)
-5. Script queries or heavy aggregations
-6. No query timeout set (waits indefinitely)
+50 million documents and all shards failing with timeouts. That is a lot of docs but should not be unmanageable for Elasticsearch. Let me think about what could cause timeouts at this scale.
 
-Let me provide optimization strategies.
+First thought: what kind of query are they running? A simple term or match query on 50M docs should be fast (milliseconds). But a leading wildcard like `*shirt*` would scan every term in the inverted index -- that is brutal at scale. Or deep pagination with `from: 100000, size: 10` -- ES has to score and sort 100,010 documents across all shards, then discard 100,000 of them.
+
+Could it be a shard sizing issue? If the index has too many small shards, the overhead of querying each shard (thread scheduling, merging results) adds up. Conversely, if it has too few shards that are very large (100GB+), individual shard queries take too long. The sweet spot is 10-50 GB per shard.
+
+What about aggregations? A terms aggregation on a high-cardinality text field across 50M docs would be very expensive because it needs to build the full term list in memory. Using keyword fields with the `execution_hint: map` or reducing the aggregation scope with filters would help.
+
+Actually, I should also consider whether the query uses scoring where it does not need to. If they are filtering (e.g., "show me all products in category X with price > 50"), using a bool filter context instead of must context skips the scoring phase entirely and enables caching. Filters are dramatically faster than scoring queries for large result sets.
+
+The other big win: `_source` filtering. If the documents are large (many fields, nested objects), returning the full `_source` for thousands of results transfers a lot of data. Limiting `_source` to only the needed fields reduces both memory and network overhead.
+
+I would start by profiling the slow query with `"profile": true` to see which phase is taking the most time -- the query phase (scoring/matching) or the fetch phase (retrieving documents).
 </think>
 
 Query timeouts on 50M+ document indices require optimization at multiple levels. Here are the key fixes:

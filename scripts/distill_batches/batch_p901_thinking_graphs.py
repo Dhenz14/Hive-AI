@@ -5,36 +5,25 @@ Example:
 Graph: {0: [(1, 4), (2, 1)], 1: [(3, 1)], 2: [(1, 2), (3, 5)], 3: []}
 Source: 0
 Output: distances = {0: 0, 1: 3, 2: 1, 3: 4}, paths = {0: [0], 1: [0,2,1], 2: [0,2], 3: [0,2,1,3]}''', r'''<think>
-Dijkstra's algorithm finds shortest paths from a single source in a graph with non-negative edge weights. The critical thing here is that Dijkstra does NOT work correctly with negative edges — it can produce wrong results because once a node is "finalized" (popped from the priority queue), Dijkstra assumes no shorter path exists, which negative edges can violate.
+Dijkstra's with negative edge detection and path reconstruction. Let me think through this.
 
-So the approach should be:
-1. First scan all edges. If any edge has negative weight, raise an error / return a warning suggesting Bellman-Ford instead.
-2. If all edges are non-negative, proceed with Dijkstra.
+First thought: just run Dijkstra normally. But the problem specifically asks to detect negative edges. Why? Because Dijkstra assumes that once you pop a node from the priority queue, you've found its shortest distance. With negative edges, a later path through a negative edge could actually be shorter, but Dijkstra would have already "finalized" the node. So the results would be silently wrong -- which is worse than crashing.
 
-For the algorithm itself:
-- Use a min-heap (priority queue)
-- Track distances and predecessors for path reconstruction
-- Standard relaxation: if dist[u] + weight < dist[v], update
+So step 1: scan all edges, reject if any are negative. Then proceed with standard Dijkstra.
 
-Let me think about implementation details:
-- Graph represented as adjacency list: dict[int, list[tuple[int, int]]] mapping node -> [(neighbor, weight)]
-- Priority queue entries: (distance, node)
-- Need a visited/finalized set to avoid reprocessing
+For the algorithm itself, I need a min-heap. Each entry is (distance, node). I also need a "finalized" set -- once I pop a node, I don't process it again. For each neighbor of the popped node, if the new distance is better, update and push.
 
-For path reconstruction, I maintain `prev[v]` = predecessor of v on the shortest path. Then walk back from target to source.
+Hmm, one design question: should I use a decrease-key operation on the heap? Python's heapq doesn't support decrease-key. The standard workaround is lazy deletion -- just push a new entry and skip stale ones when popping. That's what the "finalized" set handles. A node might appear multiple times in the heap with different distances, but only the first pop (smallest distance) matters.
 
-Edge cases:
-- Source node not in graph
-- Disconnected nodes (distance = infinity, no path)
-- Self-loops with weight 0
-- Graph with single node
+For path reconstruction, I'll keep prev[v] = the node we came from when we last improved dist[v]. Then walk backwards from any target to source.
 
-Time: O((V + E) log V) with a binary heap
-Space: O(V + E)
+What about nodes that only appear as edge targets but not as keys in the adjacency list? I should collect all nodes from both keys and values. Otherwise I'd miss nodes that have no outgoing edges.
 
-Wait, I should also handle the case where the graph has nodes that appear only as targets (not as keys in the adjacency list). I'll collect all nodes first.
+Also, what if the source isn't in the graph at all? Should raise an error.
 
-Let me code this up carefully.
+For disconnected nodes, their distance stays at infinity and their path is empty. That's a natural fallout of the algorithm.
+
+Time: O((V + E) log V) with binary heap. Space: O(V + E).
 </think>
 
 ## Dijkstra's Shortest Path with Negative Edge Detection and Path Reconstruction
@@ -186,44 +175,25 @@ The negative-edge detection pass runs in O(V + E) and ensures correctness. Witho
     ("thinking/algorithms", r'''Implement topological sort for a directed graph with cycle detection. If the graph has a cycle, return the cycle. Otherwise, return a valid topological ordering.
 
 The solution should handle disconnected components.''', r'''<think>
-Topological sort: order vertices of a DAG so that for every directed edge (u, v), u comes before v. Only possible if the graph is a DAG (no cycles).
+Topological sort with cycle detection -- and if there IS a cycle, return it.
 
-Two main approaches:
-1. Kahn's algorithm (BFS with in-degree tracking)
-2. DFS-based with finishing times
+Two classic approaches: Kahn's algorithm (BFS, track in-degrees) or DFS-based. For finding the actual cycle, DFS is more natural because I can track the recursion path and extract the cycle when I find a back edge.
 
-For cycle detection with the actual cycle returned, the DFS approach is more natural. In DFS, a cycle exists if we find a back edge — an edge from the current node to a node still on the current DFS stack (colored GRAY).
+I'll use the three-color scheme: WHITE (unvisited), GRAY (in progress, on the current recursion stack), BLACK (done). A back edge to a GRAY node means a cycle.
 
-Let me use the three-color approach:
-- WHITE: not visited
-- GRAY: currently being processed (on the recursion stack)
-- BLACK: completely processed
+But here's the tricky part: when I detect the back edge (u -> v) where v is GRAY, how do I extract the actual cycle? I can't just look at the recursion call stack in Python easily. I think I need to maintain an explicit `path` list. Every time I enter a node, append it to path. When I finish a node (turn it BLACK), pop it. Then when I find a back edge to v, the cycle is path[path.index(v):] + [v].
 
-When I find a GRAY node while exploring, I've found a cycle. To extract the cycle, I need to trace back through the recursion stack from the current node to the gray node.
+Wait, is path.index(v) correct? The path list contains the current DFS path from the root to the current node. If v is GRAY, it must be somewhere on this path. So yes, slicing from v's position to the end gives the cycle, and appending v closes it.
 
-Wait, extracting the exact cycle from recursion is tricky. Let me think...
+For the topological ordering (when there's no cycle): I append nodes in post-order (when they turn BLACK), then reverse at the end. That gives a valid topological order because a node finishes only after all its descendants finish.
 
-Approach: maintain an explicit stack/path. When I find a back edge (u, v) where v is GRAY, the cycle is v -> ... -> u -> v. I can extract it from the current path.
+For disconnected components, I iterate over all nodes and start DFS from any WHITE one.
 
-For the topological sort itself: add nodes to the result in reverse post-order (add when a node turns BLACK). Then reverse at the end.
+Should I use iterative DFS to avoid Python's recursion limit? For correctness it doesn't matter, but for large graphs the recursive approach could hit the stack limit. I'll go with recursive for clarity since the problem doesn't mention size constraints. Could always convert later with an explicit stack if needed, though managing the three colors and path tracking iteratively is messier.
 
-For disconnected components: iterate over all nodes and start DFS from any WHITE node.
+Self-loops are a fun edge case -- a node with an edge to itself. When I process the edge, the node is GRAY, so it's immediately detected as a cycle: [v, v].
 
-Let me think about the data structure. I'll keep:
-- `color` dict for each node
-- `path` list as the current DFS path
-- `order` list for topological ordering
-
-Actually, let me use an iterative DFS approach to avoid recursion limits. Hmm, but iterative DFS with cycle detection and path tracking is more complex. Let me use recursive for clarity, with a note about stack limits.
-
-Edge cases:
-- Empty graph
-- Single node
-- Self-loop (cycle of length 1)
-- Multiple disconnected DAGs
-
-Time: O(V + E)
-Space: O(V + E)
+Time: O(V + E). Space: O(V + E).
 </think>
 
 ## Topological Sort with Cycle Detection and Reporting
@@ -374,58 +344,42 @@ Example:
 Edges: (0,1), (1,2), (2,0), (1,3), (3,4), (4,5), (5,3)
 Bridges: [(1,3)]
 Articulation points: [1, 3]''', r'''<think>
-Finding bridges and articulation points — this uses Tarjan's algorithm with DFS and the concept of "discovery time" and "low value."
+Bridges and articulation points -- Tarjan's algorithm with discovery times and low values.
 
-Key definitions:
-- disc[u] = discovery time when node u is first visited in DFS
-- low[u] = lowest discovery time reachable from the subtree rooted at u
+The idea: during DFS, track disc[u] (when u was first visited) and low[u] (the minimum discovery time reachable from u's subtree, including back edges). A back edge lets a subtree "reach" an ancestor, so if low[v] is high, it means v's subtree is isolated.
 
-For bridges:
-An edge (u, v) where v is a child of u in DFS tree is a bridge if low[v] > disc[u]. This means v's subtree cannot reach u or anything above u without using edge (u, v).
+For bridges: edge (u,v) is a bridge if low[v] > disc[u]. Meaning v's subtree has no back edge to u or above -- removing (u,v) disconnects it.
 
-For articulation points:
-- Root of DFS tree: articulation point if it has 2+ children in the DFS tree
-- Non-root u: articulation point if it has a child v where low[v] >= disc[u]. This means v's subtree cannot reach above u.
+For articulation points: non-root u is an articulation point if some child v has low[v] >= disc[u]. Root is an articulation point if it has 2+ DFS children.
 
-Wait, let me be careful about the difference: for bridges it's low[v] > disc[u] (strictly greater), for articulation points it's low[v] >= disc[u] (can equal, because even if v can reach u, removing u still disconnects v's subtree).
+Hmm, I keep getting confused about the > vs >= distinction. Let me think about why they differ. For bridges, if low[v] == disc[u], it means v's subtree can reach u (via some back edge), so removing edge (u,v) doesn't disconnect anything -- there's still a path through the back edge. So we need strict >. For articulation points, even if v's subtree can reach u (low[v] == disc[u]), removing u itself still disconnects v's subtree from everything above u. So >= suffices.
 
-Let me trace the example:
+Let me trace the example to make sure I have this right.
 Edges: (0,1), (1,2), (2,0), (1,3), (3,4), (4,5), (5,3)
 
 DFS from 0:
-- Visit 0: disc[0]=0, low[0]=0
-  - Visit 1 (child): disc[1]=1, low[1]=1
-    - Visit 2 (child): disc[2]=2, low[2]=2
-      - Back edge to 0: low[2] = min(low[2], disc[0]) = 0
-    - low[1] = min(low[1], low[2]) = 0
-    - Visit 3 (child): disc[3]=3, low[3]=3
-      - Visit 4 (child): disc[4]=4, low[4]=4
-        - Visit 5 (child): disc[5]=5, low[5]=5
-          - Back edge to 3: low[5] = min(low[5], disc[3]) = 3
-        - low[4] = min(low[4], low[5]) = 3
-      - low[3] = min(low[3], low[4]) = 3
-    - Check bridge: low[3]=3 > disc[1]=1 → edge (1,3) IS a bridge
-    - Check articulation: low[3]=3 >= disc[1]=1 → 1 is an articulation point (non-root, has child where low >= disc)
-  - low[0] = min(low[0], low[1]) = 0
-  - 0 is DFS root with only 1 child (1), so NOT an articulation point
+- 0: disc=0, low=0
+  - 1: disc=1, low=1
+    - 2: disc=2. Has edge to 0 (back edge since 0 is already visited and isn't parent). low[2] = min(2, disc[0]) = 0.
+    - Back at 1: low[1] = min(1, low[2]) = 0
+    - 3: disc=3, low=3
+      - 4: disc=4, low=4
+        - 5: disc=5. Has edge to 3 (back edge). low[5] = min(5, disc[3]) = 3
+        - Back at 4: low[4] = min(4, low[5]) = 3
+      - Back at 3: low[3] = min(3, low[4]) = 3
+    - Bridge check for edge (1,3): low[3]=3 > disc[1]=1? Yes -- bridge!
+    - Articulation check for 1: low[3]=3 >= disc[1]=1? Yes -- 1 is an articulation point.
+  - Back at 0: low[0] = min(0, low[1]) = 0. Root with 1 DFS child, so not an articulation point.
 
-For node 3: it has child 4, low[4]=3 >= disc[3]=3 → 3 IS an articulation point
+For node 3: child 4 has low[4]=3 >= disc[3]=3. So 3 is an articulation point. Let me verify intuitively: removing 3 leaves {0,1,2} and {4,5} disconnected. Yes, correct. And the cycle 3-4-5-3 means 4 and 5 can reach each other, but they can't reach {0,1,2} without going through 3.
 
-Wait, but 3 has a back edge from 5. Let me re-examine. Node 3 has children {4} in DFS tree (5 is child of 4, not 3). And there's back edge (5,3). The subtree of 4 has low=3 which equals disc[3]=3, so even though 5 can reach 3 via back edge, removing 3 would disconnect 4 (or... wait, 5 connects to 3, 4 connects to 5 and 3).
+What about node 4? Its child 5 has low[5]=3 < disc[4]=4, so low[5] < disc[4], which means 4 is NOT an articulation point. That's right -- removing 4 still leaves 5 connected to 3 via the back edge.
 
-Actually, let me reconsider. Edges from 3: to 1, to 4, to 5. In DFS from 3, we visit 4 first (since 1 is parent). From 4, visit 5. From 5, back edge to 3. So child of 3 in DFS tree is just 4.
+Need to handle disconnected graphs by running DFS from each unvisited node.
 
-low[4] = min(disc[4], low[5]) = min(4, 3) = 3. And low[3] = min(disc[3], low[4]) = min(3, 3) = 3. Since low[4] >= disc[3] (3 >= 3), node 3 is an articulation point.
+One implementation detail: when checking back edges, I need to avoid treating the parent edge as a back edge. For undirected graphs, the edge to parent is in the adjacency list, but it's a tree edge, not a back edge. I track parent[v] and skip it.
 
-But wait — if we remove node 3, the remaining graph has {0,1,2} connected and {4,5} connected (4-5 edge). So yes, 3 IS an articulation point because {4,5} gets disconnected from {0,1,2}.
-
-Bridges: (1,3) — removing it disconnects {0,1,2} from {3,4,5}. Correct.
-Articulation points: {1, 3}. Removing 1 disconnects {0,2} from {3,4,5}. Removing 3 disconnects {4,5} from {0,1,2}. Correct.
-
-Now let me also handle disconnected graphs — we run DFS from each unvisited node.
-
-Time: O(V + E) — single DFS pass
-Space: O(V) for the arrays
+Time: O(V + E). Space: O(V).
 </think>
 
 ## Bridges and Articulation Points via Tarjan's Algorithm
@@ -550,36 +504,34 @@ Example:
 Graph: 0->1, 1->2, 2->0, 1->3, 3->4, 4->5, 5->3
 SCCs: {0,1,2}, {3,4,5}
 Condensation: SCC0 -> SCC1''', r'''<think>
-Strongly Connected Components — vertices where every vertex is reachable from every other vertex in the same component.
+Strongly connected components. I know Tarjan's and Kosaraju's algorithms for this. The problem asks for Kosaraju's specifically, plus the condensation DAG.
 
-Kosaraju's algorithm:
-1. Do a DFS on the original graph, pushing vertices onto a stack in order of completion (post-order)
+Kosaraju's has three steps:
+1. DFS on original graph, record nodes in finishing order (push to stack when done)
 2. Transpose the graph (reverse all edges)
-3. Pop vertices from the stack and do DFS on the transposed graph — each DFS from an unvisited vertex gives one SCC
+3. Process nodes from the stack (most recently finished first), running DFS on the transposed graph -- each DFS gives one SCC
 
-Why does this work? The first DFS orders vertices so that if there's a path from SCC_A to SCC_B, vertices in SCC_A finish after SCC_B. In the transposed graph, the edge from A to B is reversed, so starting from A's vertices, we can't reach B, correctly separating them.
+Why does this work? I always have to re-derive this in my head. The key insight is about finishing times. If SCC A has an edge to SCC B in the condensation, then in the first DFS, some node in A finishes after all nodes in B. So when we process in reverse finish order, we start with A. In the transposed graph, the edge from A to B is reversed (B -> A), so starting from A we can't accidentally reach B. We only reach other nodes in A (because within an SCC, all edges are bidirectionally reachable, so transposing doesn't break intra-SCC connectivity).
 
-For the condensation DAG: after finding SCCs, I map each vertex to its SCC index. Then for each edge (u, v) in the original graph, if scc[u] != scc[v], add an edge from scc[u] to scc[v] in the condensation.
+Wait, actually, do I have that direction right? Let me think again with the example.
 
-Let me trace the example:
 Graph: 0->1, 1->2, 2->0, 1->3, 3->4, 4->5, 5->3
 
-DFS on original (say starting from 0):
-0 -> 1 -> 2 -> back to 0 (done). 2 finishes.
-1 -> 3 -> 4 -> 5 -> back to 3 (done). 5 finishes, 4 finishes, 3 finishes.
-1 finishes. 0 finishes.
-Stack: [2, 5, 4, 3, 1, 0] (order of finishing)
+First DFS from 0: 0->1->2->back to 0. Finish 2. Back to 1: 1->3->4->5->back to 3. Finish 5, finish 4, finish 3. Finish 1. Finish 0.
+Stack (bottom to top): [2, 5, 4, 3, 1, 0]
 
-Transpose graph: 1->0, 2->1, 0->2, 3->1, 4->3, 5->4, 3->5
+Transpose: 1->0, 2->1, 0->2, 3->1, 4->3, 5->4, 3->5
 
-Process stack (pop from top):
-Pop 0: DFS on transpose from 0 -> 2 -> 1. SCC = {0, 1, 2}. Mark visited.
-Pop 3: DFS from 3 -> 5 -> 4. SCC = {3, 4, 5}. Mark visited.
+Process from top of stack: pop 0. DFS on transpose from 0: 0->2 (because 0->2 in transpose), 2->1 (because 2->1 in transpose), 1 has edge to 0 (already visited). SCC = {0, 1, 2}.
+Next unvisited on stack: pop 3 (1 already visited). DFS from 3: 3->5->4->3 (already visited). SCC = {3, 4, 5}.
 
-Condensation: edge 1->3 in original, scc[1]=0, scc[3]=1. So SCC0 -> SCC1.
+That's correct. The condensation DAG: look at original edges crossing SCCs. Edge 1->3, where 1 is in SCC0 and 3 is in SCC1. So SCC0 -> SCC1.
 
-Time: O(V + E) — two DFS passes + transpose
-Space: O(V + E)
+For building the condensation, I map each node to its SCC index, then scan all original edges and add cross-SCC edges (deduplicating).
+
+One thing to be careful about: nodes that appear only as targets in the graph (no outgoing edges listed). I need to make sure they're included. I'll collect all nodes from both keys and values of the adjacency list.
+
+Time: O(V + E) for two DFS passes plus transpose. Space: O(V + E).
 </think>
 
 ## Kosaraju's Algorithm: SCCs and Condensation DAG
@@ -734,40 +686,28 @@ Kosaraju's algorithm leverages a beautiful insight: the first DFS ensures that s
 Example:
 Bipartite: edges (0,1), (1,2), (2,3), (3,0) -> Yes, partition: {0,2} and {1,3}
 Not bipartite: edges (0,1), (1,2), (2,0) -> No, odd cycle: [0,1,2,0]''', r'''<think>
-A graph is bipartite if and only if it contains no odd-length cycles. Equivalently, it's bipartite if and only if it's 2-colorable.
+Bipartite check -- 2-color the graph via BFS, and if that fails, return an odd cycle as proof.
 
-The standard approach is BFS (or DFS) coloring:
-1. Pick an unvisited vertex, color it 0
-2. For each neighbor, if uncolored, color it with the opposite color
-3. If a neighbor already has the same color, the graph is not bipartite
+The basic BFS coloring is straightforward: start at any unvisited node, color it 0, color all neighbors 1, their neighbors 0, etc. If I ever find an edge where both endpoints have the same color, the graph isn't bipartite.
 
-For finding the odd cycle when it's not bipartite: when we detect a conflict (two adjacent nodes with the same color), we need to find the odd cycle. Using BFS, both nodes u and v have the same color, meaning they're at the same distance parity from the root. The odd cycle is: path from LCA(u,v) to u + edge (u,v) + path from v to LCA(u,v).
+The harder part is extracting the actual odd cycle when it fails. When I find the conflict edge (u, v) where both have the same color, I know there's an odd cycle going through u and v. But what cycle exactly?
 
-Actually, a simpler approach with BFS: maintain parent pointers. When we find the conflict edge (u,v) with same colors, trace back from both u and v to their common ancestor to form the cycle.
+My first idea: since BFS assigns levels, u and v are at the same level (same color = same parity of distance from root). So the odd cycle is: path from their lowest common ancestor (LCA) down to u, then edge u-v, then path from v back to LCA. That's an odd number of edges because the two paths from LCA have equal length (same level) plus the one conflict edge.
 
-Let me think more carefully. With BFS from root:
-- parent[u] tracks the parent in BFS tree
-- When we find edge (u,v) where color[u] == color[v], we trace both paths back to their common ancestor
+But how do I find the LCA? I have parent pointers from BFS. I can trace path_u from u to root and path_v from v to root, then find the first node they share. That's O(V) worst case, which is fine.
 
-To find common ancestor: trace both paths simultaneously, or trace one path and check.
+Actually wait, I don't even need a proper LCA algorithm. I can just trace both paths to root, put path_u's nodes in a set, then walk path_v until I hit something in that set. That gives me the LCA. Then the cycle is: u -> ... -> LCA -> ... -> v -> u.
 
-Actually, a simpler method: trace path from u back to root and from v back to root. Find where they diverge. The cycle is the path from the LCA down to u, then edge u-v, then path from v back to LCA.
+Hmm, let me be more precise about constructing the cycle. path_u = [u, parent[u], parent[parent[u]], ..., LCA, ..., root]. I only want the portion from u to LCA. Similarly for v. So:
+- cycle = path_u[:path_u.index(LCA)+1] (u to LCA)
+- tail = path_v[:path_v.index(LCA)] reversed (LCA to v, but without LCA itself since it's already in cycle)
+- Then close with u
 
-Wait, let me think about this differently. Since BFS gives levels, and u and v are at the same level (same color means same parity of distance from root), I trace both back until they meet.
+Let me make sure this handles disconnected graphs. I just run BFS from each unvisited component. If any component isn't bipartite, I return the odd cycle. If all pass, it's bipartite.
 
-Let me implement this step by step:
-1. BFS with coloring
-2. On conflict edge (u, v): build path_u from u to root, build path_v from v to root
-3. Find LCA by popping common suffix
-4. Construct cycle: path from LCA to u + edge (u,v) + reverse path from LCA to v
+Self-loops: a node with edge to itself would show color[u] == color[u], which is always a conflict. The "cycle" would be [u, u], which is length 1. Technically odd. A bit degenerate but correct.
 
-Edge cases:
-- Disconnected graph: check each component
-- Single node: trivially bipartite
-- Self-loop: odd cycle of length 1? Actually a self-loop means node connects to itself, so color[u] == color[u], always a conflict. But a self-loop isn't really an "odd cycle" in the traditional sense. I'll treat it as a special case.
-
-Time: O(V + E) — single BFS
-Space: O(V)
+Time: O(V + E). Space: O(V).
 </think>
 
 ## Bipartite Check with Two-Coloring or Odd Cycle Extraction

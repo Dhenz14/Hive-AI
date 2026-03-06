@@ -1,33 +1,20 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement the Quickselect algorithm: find the kth smallest element in an unsorted array in expected O(n) time. Discuss the randomized pivot selection and worst-case analysis.''', r'''<think>
-Quickselect (also called Hoare's selection algorithm) is a randomized algorithm to find the kth smallest element. It is related to quicksort but only recurses into one partition, giving expected O(n) time instead of O(n log n).
+Finding the kth smallest element. The obvious approach: sort the array (O(n log n)) and index at k. But we can do better -- we do not need full sorted order, just the element at one position.
 
-Algorithm:
-1. Pick a random pivot
-2. Partition the array around the pivot
-3. If the pivot is at position k, return it
-4. If k < pivot position, recurse on the left partition
-5. If k > pivot position, recurse on the right partition
+Quickselect is based on quicksort's partition step. After partitioning around a pivot, the pivot is in its final sorted position. If that position is k, we are done. Otherwise, recurse into the side that contains k.
 
-Why expected O(n):
-- With a random pivot, the expected partition splits the array roughly in half
-- T(n) = T(n/2) + O(n) = O(n) on average
-- Each level of recursion does O(n) work but on a shrinking subproblem
+The key insight compared to quicksort: we only recurse into ONE side, not both. This changes the recurrence from T(n) = 2T(n/2) + O(n) = O(n log n) to T(n) = T(n/2) + O(n) = O(n). But wait, that assumes the pivot splits the array roughly in half.
 
-Worst case: O(n^2) if we always pick the worst pivot (like always picking min or max). This happens with probability that decreases exponentially, so it is extremely unlikely with random pivots.
+With a random pivot, the expected split is not exactly half, but it is good enough. A pivot in the "middle half" (rank between n/4 and 3n/4) occurs with probability 1/2. After such a pivot, the larger side has at most 3n/4 elements. So on average we get a good pivot every 2 tries, giving T(n) <= T(3n/4) + O(n) = O(n).
 
-Median-of-medians gives guaranteed O(n) worst case but has a large constant factor and is rarely used in practice.
+What about the worst case? If we always pick the min or max as pivot, we get T(n) = T(n-1) + O(n) = O(n^2). With random pivots this probability is exponentially small, but it is not zero.
 
-For the partition scheme, I will use Lomuto's partition (simpler) and also show the Hoare partition.
+I initially considered the median-of-medians algorithm (Blum et al. 1973) which guarantees O(n) worst case. But it has a constant factor around 5-10x larger, so in practice random quickselect is faster. The O(n^2) worst case is vanishingly unlikely.
 
-Edge cases:
-- k = 0 (minimum element)
-- k = n-1 (maximum element)
-- All elements equal
-- Array of size 1
-- Duplicates
+For handling duplicates, a three-way partition (Dutch National Flag) helps: elements equal to pivot form a middle block. If k falls in that block, we can return immediately without recursing. This handles the all-equal case in O(n) instead of degrading.
 
-I will implement both the randomized version and the iterative version.
+Let me implement both the standard Lomuto partition version and the three-way version.
 </think>
 
 **Quickselect -- Randomized Selection**
@@ -158,26 +145,23 @@ print(f"Large array median: {result == expected}")
 - Space: O(1) iterative, O(log n) expected recursive'''),
 
     ("thinking/algorithms", r'''Implement a Treap (tree + heap): a randomized binary search tree where each node has a key (BST property) and a random priority (heap property). Show that it maintains expected O(log n) height.''', r'''<think>
-A Treap is a randomized BST that combines:
-- BST property on keys: left < root < right
-- Max-heap property on priorities: parent priority >= child priority
+A Treap combines a BST and a heap in one structure. Keys follow BST order (left < root < right), and random priorities follow max-heap order (parent priority >= child priority).
 
-Each node is assigned a random priority on insertion. The heap property on random priorities ensures the tree is equivalent to a random BST, which has expected O(log n) height.
+But why does adding random priorities help? Hmm, think about it this way: a BST built by inserting elements in random order has expected O(log n) height. A treap with random priorities is actually equivalent to this -- the priority determines the "insertion order." The node with highest priority becomes the root (as if it were inserted first), the next highest becomes a child, and so on. Since priorities are random, this is a random insertion order.
 
-Why it works: A treap built by inserting keys with random priorities is distributionally equivalent to a BST built by inserting the same keys in a random order. Random BSTs have expected height O(log n).
+I initially considered implementing treaps with rotations (like AVL but triggered by priority violations). But the split/merge approach is much cleaner and more powerful.
 
-Operations:
-1. Split(T, key): Split tree T into two trees L and R where all keys in L <= key and all keys in R > key. O(log n) expected.
-2. Merge(L, R): Merge two trees where all keys in L < all keys in R. Compare priorities to decide which root to keep. O(log n) expected.
+Split(T, key): divide tree into L (keys <= key) and R (keys > key). At each node, if node.key <= key, then node and its left subtree go to L, and we recursively split the right subtree. Otherwise, node and right subtree go to R, and we split the left subtree. O(expected tree height) = O(log n).
 
-Using split and merge:
-- Insert(key): Split at key, create new node, merge(L, new_node, R)
-- Delete(key): Split at key-1 and key, discard the middle, merge(L, R)
-- Search: Standard BST search
+Merge(L, R): combine two treaps where all keys in L < all keys in R. Compare priorities to decide the root. If L.priority > R.priority, L's root stays, and we merge L's right subtree with R. Otherwise symmetric. Again O(log n).
 
-Alternatively, insert/delete can use rotations to maintain heap property, similar to AVL rotations but triggered by priority violations.
+Now insert and delete become trivial:
+- Insert(key): Split at key, create single node, merge three pieces
+- Delete(key): Split to isolate the key, discard it, merge the rest
 
-I will implement the split/merge approach as it is cleaner and more composable.
+Wait, there is a subtlety with the split point for insert. If I split at key-0.5 (conceptually), I ensure the new node goes between L and R. For integer keys, split at key-1 works. For the implementation, I will use key - 0.5 as the split threshold.
+
+This split/merge approach also naturally supports order statistics: maintain subtree sizes, and the kth smallest is found by walking the tree comparing k against left subtree size.
 </think>
 
 **Treap -- Randomized BST with Split/Merge**
@@ -351,33 +335,23 @@ print(f"  Average: {avg_h:.1f}, Expected O(log 1000) ~ {10:.1f}")
 - Space: O(n)'''),
 
     ("thinking/algorithms", r'''Implement a Skip List: a randomized data structure that provides expected O(log n) search, insertion, and deletion. Explain the probabilistic balancing mechanism.''', r'''<think>
-A skip list is a layered linked list where higher levels skip over elements, allowing binary-search-like behavior on a linked list.
+Skip lists -- a probabilistic alternative to balanced BSTs. The idea is surprisingly simple: build multiple layers of sorted linked lists, where each higher layer is a sparser "express lane."
 
-Structure:
-- Level 0: a sorted linked list of all elements
-- Level 1: a subset of level 0 elements (each element promoted with probability 1/2)
-- Level 2: a subset of level 1 elements
-- ...
-- Each node exists at consecutive levels from 0 up to its randomly determined height
+Level 0 contains all elements. Each element is promoted to level 1 with probability 1/2, to level 2 with probability 1/4, and so on. So a node's height follows a geometric distribution.
 
-Insertion:
-1. Find the position (using search from top level down)
-2. Determine the height of the new node (flip coins: keep going while heads)
-3. Insert at all levels up to its height, linking to neighbors
+For search: start at the highest level and move right until the next element exceeds our target, then drop down one level and continue. This is like binary search but on a linked list structure.
 
-Search:
-1. Start at the top-left (highest level, head sentinel)
-2. At each level, move right while the next key is less than target
-3. Drop down one level and repeat
-4. At level 0, we are either at the target or know it is not present
+Why is this O(log n)? Let me think backwards from the target element. At each level, the expected number of steps before going up is 1/p = 2 (for p=1/2). The expected number of levels is O(log n) since with n elements, the tallest node has expected height log_2(n). So total expected comparisons are about 2 * log(n) = O(log n).
 
-Expected search time: O(log n) -- we skip roughly half the remaining elements at each level.
+Hmm, I initially worried about worst cases -- what if all elements get promoted to high levels? With random promotions, the probability of pathological behavior decreases exponentially, similar to quicksort. The expected behavior is strongly concentrated around O(log n).
 
-Why O(log n): The expected number of levels is O(log n). At each level, we make O(1) expected comparisons before dropping down. Total: O(log n) expected comparisons.
+For insertion: first search to find where the element belongs (tracking the "update" array of predecessors at each level). Then flip coins to determine the new node's height. Link it into each level up to its height. If its height exceeds the current max level, extend the skip list's header.
 
-The skip list is an elegant alternative to balanced BSTs. It is easier to implement, especially for concurrent access (lock-free skip lists are simpler than lock-free trees).
+Deletion: search for the node, then unlink it from each level. If the max level becomes empty, decrease it.
 
-Memory: Each element has an expected 2 pointers (geometric sum: 1 + 1/2 + 1/4 + ... = 2).
+One nice thing compared to balanced BSTs: no rotations needed. The randomness handles the balancing implicitly. This makes skip lists easier to implement correctly, especially for concurrent data structures (lock-free skip lists are much simpler than lock-free red-black trees).
+
+Memory overhead: each node has an expected 1/(1-p) = 2 forward pointers (geometric series). So about 2n pointers total, comparable to a BST with 2 child pointers per node.
 </think>
 
 **Skip List Implementation**
@@ -535,30 +509,27 @@ print(f"Expected max level: ~{int(14)}")  # log2(10000) ~ 13.3
 - Space: O(n) expected (each node has ~2 pointers on average)'''),
 
     ("thinking/algorithms", r'''Implement Reservoir Sampling: given a stream of elements of unknown length, select k items uniformly at random from the stream using O(k) memory. Prove the correctness of the sampling probabilities.''', r'''<think>
-Reservoir Sampling (Algorithm R by Vitter, 1985) solves the problem of selecting k items uniformly at random from a stream of unknown length, using only O(k) space.
+Reservoir sampling: select k items uniformly at random from a stream of unknown length using O(k) memory. The challenge is that we do not know n in advance, so we cannot just pick k random indices upfront.
 
-Algorithm:
-1. Fill the reservoir with the first k items
-2. For each subsequent item i (index k, k+1, ...):
-   a. Generate random number j in [0, i]
-   b. If j < k, replace reservoir[j] with the new item
-3. When the stream ends, the reservoir contains k items sampled uniformly
+The algorithm: fill the reservoir with the first k items. Then for each subsequent item at position i (0-indexed), generate a random number j in [0, i]. If j < k, replace reservoir[j] with the new item. Otherwise discard it.
 
-Why this is correct (proof by induction):
-- After seeing n items, each item should be in the reservoir with probability k/n.
-- Base case: After k items, all are in the reservoir. P = k/k = 1. Correct.
-- Inductive step: Assume after n items, each is in reservoir with P = k/n.
-  - Item n+1: selected with probability k/(n+1). Correct.
-  - Previous item: Was in reservoir with P = k/n. Survives if item n+1 does NOT replace it.
-    - P(not replaced) = P(n+1 not selected) + P(n+1 selected but replaces a different slot)
-    - = (n+1-k)/(n+1) + (k/(n+1)) * ((k-1)/k)
-    - = (n+1-k)/(n+1) + (k-1)/(n+1)
-    - = (n+1-k+k-1)/(n+1) = n/(n+1)
-  - P(previous item in reservoir) = (k/n) * (n/(n+1)) = k/(n+1). Correct.
+This seems almost too simple. Does it actually give uniform sampling? Let me prove it by induction.
 
-By induction, all items have equal probability k/n of being in the reservoir.
+Base case: after k items, all k are in the reservoir with probability k/k = 1. Trivially correct.
 
-For k=1: simplifies to keeping the ith item with probability 1/i.
+Inductive step: assume after n items, each is in the reservoir with probability k/n. Now item n+1 arrives.
+
+For item n+1: it is selected with probability k/(n+1). That is correct -- we want k/(n+1).
+
+For a previous item that was in the reservoir: it survives if item n+1 does NOT replace its specific slot. The probability of being replaced is (k/(n+1)) * (1/k) = 1/(n+1). So the survival probability is 1 - 1/(n+1) = n/(n+1).
+
+Wait, let me double check. Item n+1 is selected with probability k/(n+1). Given that it is selected, it replaces a uniformly random slot, so each specific slot is hit with probability 1/k. So P(specific item replaced) = k/(n+1) * 1/k = 1/(n+1). That checks out.
+
+So P(previous item survives) = n/(n+1), and P(still in reservoir) = k/n * n/(n+1) = k/(n+1). The induction holds.
+
+For k=1, this simplifies to: keep the ith item with probability 1/i. The first item is kept with probability 1, the second replaces it with probability 1/2, the third with probability 1/3, etc. Elegant.
+
+I should also implement the weighted version (Efraimidis-Spirakis), which assigns key = random^(1/weight) and keeps the k largest keys. Items with higher weight get larger keys on average and are more likely to stay in the reservoir.
 </think>
 
 **Reservoir Sampling**
@@ -685,42 +656,23 @@ For previous item (already in reservoir):
 - No need to know stream length in advance'''),
 
     ("thinking/algorithms", r'''Implement a Bloom Filter: a space-efficient probabilistic data structure that supports membership testing with no false negatives and a controllable false positive rate. Show how to choose optimal parameters.''', r'''<think>
-A Bloom filter is a probabilistic set data structure that can tell you:
-- "Definitely not in the set" (no false negatives)
-- "Probably in the set" (possible false positives)
+Bloom filters -- the classic space-efficient probabilistic set. The trade-off is clear: use much less memory than a hash set, accept a small false positive rate, but guarantee zero false negatives.
 
-Structure:
-- Bit array of m bits, initialized to all 0
-- k independent hash functions, each mapping elements to positions [0, m-1]
+The structure is a bit array of m bits with k hash functions. Insert sets k bits; query checks if all k bits are set.
 
-Insert(x):
-- Compute k hash positions: h1(x), h2(x), ..., hk(x)
-- Set all these bits to 1
+The no-false-negatives guarantee is obvious: if we inserted x, all k bits for x were set to 1, and bits never get unset. So query(x) will always return True.
 
-Query(x):
-- Compute k hash positions
-- If ALL corresponding bits are 1, return "possibly in set"
-- If ANY bit is 0, return "definitely not in set"
+False positives happen when all k bit positions for a never-inserted element happen to be set by other insertions. What is the probability?
 
-False positive probability:
-- After inserting n elements with m bits and k hash functions:
-  p_fp = (1 - e^(-kn/m))^k
+After inserting n elements, each of the kn hash operations set a bit to 1. The probability a specific bit is still 0 is (1 - 1/m)^(kn) which is approximately e^(-kn/m). So the probability all k bits for a query element are 1 is (1 - e^(-kn/m))^k.
 
-Optimal k: k = (m/n) * ln(2) ~ 0.693 * (m/n)
+Now, what is the optimal k? I need to minimize (1 - e^(-kn/m))^k. Taking the derivative and setting to zero... actually the well-known result is k = (m/n) * ln(2). This makes each bit independently 1 with probability 1/2, which minimizes the false positive rate at (1/2)^k.
 
-For a desired false positive rate p:
-- m = -n * ln(p) / (ln(2))^2
-- k = -ln(p) / ln(2) = log2(1/p)
+Hmm, for a desired false positive rate p, working backwards: k = log2(1/p), and m = -n * ln(p) / (ln(2))^2. So for p = 0.01 (1% false positives), k = 7 hash functions and m = about 10 bits per element. That is remarkably space-efficient compared to a hash set using 50+ bytes per element.
 
-In practice, we use double hashing to simulate k hash functions:
-hi(x) = h1(x) + i * h2(x)
+One practical issue: we do not actually need k independent hash functions. Double hashing (h_i(x) = h1(x) + i * h2(x)) with two independent hash functions suffices. Kirsch and Mitzenmacher showed this preserves the theoretical guarantees.
 
-This avoids needing k independent hash functions while preserving theoretical guarantees.
-
-I should implement:
-1. The Bloom filter with configurable parameters
-2. Automatic parameter selection given n and desired false positive rate
-3. Demonstration with real data
+I will implement auto-sizing: given expected n and desired false positive rate, compute optimal m and k automatically.
 </think>
 
 **Bloom Filter Implementation**

@@ -8,39 +8,21 @@ Tree:     1
            / \
           4   5
 Serialized: "1,2,#,#,3,4,#,#,5,#,#"''', r'''<think>
-Serializing and deserializing a binary tree — I need a format that uniquely represents the tree structure, including null children.
+Binary tree serialization/deserialization. I need to encode the tree structure into a string and recover it perfectly.
 
-Approach options:
-1. Level-order (BFS) serialization — like LeetCode uses. Somewhat complex because trailing nulls can be omitted.
-2. Pre-order with null markers — cleaner and easier to deserialize. Each null child is explicitly marked, so the structure is unambiguous.
+There are a few approaches. Level-order (BFS) like LeetCode uses -- that's familiar but tricky to deserialize because you need a queue and careful handling of nulls at each level. Pre-order with null markers is simpler: just DFS, writing values and "#" for nulls.
 
-I'll go with pre-order traversal using "#" for null nodes. This is the simplest approach with a clean recursive deserialization.
+Actually, could I do in-order? No -- in-order alone doesn't uniquely determine tree structure even with null markers, because you can't tell where the root is. Pre-order works because the first token is always the root, then everything until the left subtree's nulls are exhausted is the left subtree, then the rest is right.
 
-Serialization (pre-order DFS):
-- Visit root, append value
-- Recurse left, recurse right
-- For null nodes, append "#"
+Let me think about deserialization more carefully. If I serialize as pre-order with null markers, I get a stream of tokens. To deserialize: consume the first token (root), then recursively build left subtree (consuming more tokens), then right subtree. The key is that each recursive call consumes exactly the right number of tokens because every node has exactly two children (either real or null). So an iterator works perfectly here -- each call to next() advances the shared iterator.
 
-Deserialization:
-- Split the string by commas
-- Use an iterator/index to consume tokens one by one
-- Read a token: if "#", return None; otherwise create a node, recurse for left child, then right child
+Wait, do I need an explicit index or will Python's iter() work? iter() creates a stateful iterator, and passing it to recursive calls shares the state. So next(tokens) in any recursive call advances the same iterator. That's clean.
 
-Why pre-order works uniquely: because we explicitly mark every null child, the pre-order sequence is unambiguous. The first token is always the root, the next tokens describe the left subtree completely (including all its nulls), then the right subtree.
+What about the empty tree case? Serialize None as just "#". Deserialize "#" -> None. Single node "1,#,#" -> TreeNode(1) with both children None.
 
-Wait, could I use level-order (BFS)? It works but deserialization is trickier — need a queue. Pre-order with recursion is cleaner.
+Negative values: just need to handle negative signs in int() conversion, which is automatic.
 
-Edge cases:
-- Empty tree (None root) → serialize to "#"
-- Single node → "1,#,#"
-- Skewed tree (all left or all right children)
-- Negative values
-- Large values
-
-Time: O(n) for both serialize and deserialize
-Space: O(n) for the serialized string, O(h) for recursion stack where h is tree height
-
-Let me implement this with a Python class.
+Time: O(n) for both directions. Space: O(n) for the string, O(h) for recursion.
 </think>
 
 ## Serialize and Deserialize Binary Tree
@@ -209,65 +191,37 @@ Tree (rooted at 0):
 LCA(3, 4) = 1
 LCA(3, 5) = 0
 LCA(5, 7) = 2''', r'''<think>
-LCA with Binary Lifting — this is the classic O(n log n) preprocessing, O(log n) per query approach.
+LCA with Binary Lifting. The idea is to precompute 2^k-th ancestors for each node, then answer queries by jumping up in powers of two.
 
-The idea:
-1. Root the tree at some node (say 0)
-2. Compute depth[v] for all vertices
-3. Build a sparse table: up[v][k] = the 2^k-th ancestor of v
-   - up[v][0] = parent[v]
-   - up[v][k] = up[up[v][k-1]][k-1] (the 2^(k-1)-th ancestor of the 2^(k-1)-th ancestor)
-4. For LCA(u, v):
-   a. Bring the deeper node up to the same depth as the shallower one
-   b. If they're the same node, that's the LCA
-   c. Otherwise, jump both up by decreasing powers of 2 as long as they don't meet
-   d. When they can't jump without meeting, the LCA is one step above: up[u][0]
+Preprocessing:
+- Root the tree, compute depths via BFS
+- up[v][0] = parent[v]
+- up[v][k] = up[up[v][k-1]][k-1] -- the 2^k-th ancestor is the 2^(k-1)-th ancestor of the 2^(k-1)-th ancestor
 
-Let me work through the preprocessing.
+Query for LCA(u, v):
+1. Equalize depths: bring the deeper node up
+2. If they meet, that's the LCA
+3. Otherwise, jump both up simultaneously from high powers to low -- but only jump when the ancestors are DIFFERENT. When ancestors are the same, we'd overshoot.
+4. After the loop, LCA = parent of either node
 
-Tree structure:
-0 -- 1 -- 3
-       \-- 4
-  \-- 2 -- 5
-       \-- 6 -- 7
+The step 3 logic always confuses me. Why jump only when ancestors differ? Because we want to find the highest point where u and v are still in different subtrees. If up[u][k] == up[v][k], then at level 2^k above, they've already merged -- we don't want to jump that far. If up[u][k] != up[v][k], they're still separate, so we can safely jump. After exhausting all powers, u and v are just below the LCA, so up[u][0] is the answer.
 
-Depths: 0:0, 1:1, 2:1, 3:2, 4:2, 5:2, 6:2, 7:3
-Parents: 0:-1, 1:0, 2:0, 3:1, 4:1, 5:2, 6:2, 7:6
+Let me verify with LCA(5, 7) on the example tree:
+Depths: 5 is at depth 2, 7 is at depth 3. Equalize: bring 7 up by 1. diff = 1 = 2^0, so up[7][0] = 6. Now u=6, v=5, both at depth 2.
 
-up table (LOG = 3 since n=8, log2(8)=3):
-up[v][0] = parent[v]
-up[v][1] = up[up[v][0]][0] = grandparent
-up[v][2] = up[up[v][1]][1] = 4th ancestor
+u != v, so proceed to binary lifting:
+k=1: up[6][1] = grandparent of 6 = parent of parent of 6 = parent of 2 = 0. up[5][1] = parent of parent of 5 = parent of 2 = 0. Same! Don't jump.
+k=0: up[6][0] = 2, up[5][0] = 2. Same! Don't jump.
 
-For LCA(3, 5):
-depth[3] = 2, depth[5] = 2 — same depth
-Jump k=2: up[3][2] and up[5][2] — both would go beyond root, so they're -1 (same). Skip.
-Jump k=1: up[3][1] = up[up[3][0]][0] = up[1][0] = 0. up[5][1] = up[up[5][0]][0] = up[2][0] = 0. Same! Skip.
-Jump k=0: up[3][0] = 1, up[5][0] = 2. Different! So jump: u=1, v=2.
-Now up[u][0] = up[1][0] = 0. LCA = 0. Correct!
+After loop, LCA = up[6][0] = 2. That's correct -- 2 is the parent of both 5 and 6.
 
-For LCA(5, 7):
-depth[5] = 2, depth[7] = 3. Bring 7 up by 1: 3-2=1 = 2^0. u=7, jump 2^0: up[7][0] = 6. Now depth = 2.
-Now u=6, v=5, same depth.
-Jump k=1: up[6][1] = up[up[6][0]][0] = up[2][0] = 0. up[5][1] = 0. Same! Skip.
-Jump k=0: up[6][0] = 2, up[5][0] = 2. Same! Skip.
-Both are same after no jumps... wait, they're not the same node. u=6, v=5. Let me re-check.
+But wait, what if u and v are already at the same node after equalizing? The algorithm checks u == v first and returns immediately. Good, otherwise we'd incorrectly return up[u][0] which would be the parent, one level too high.
 
-Actually after equalizing depths: u=6, v=5. They're different nodes at the same depth. Now:
-k=1: up[6][1] = 0, up[5][1] = 0. Same → skip.
-k=0: up[6][0] = 2, up[5][0] = 2. Same → skip.
-Since we skipped all, and u != v... hmm, that means LCA is up[u][0] = 2. But the loop condition should be: we do NOT jump when ancestors are the SAME, we only jump when they're DIFFERENT. After the loop, LCA = up[u][0].
+One implementation detail: for the root's parent, I should set up[root][0] = root (self-loop) rather than -1. That way, jumping above the root just stays at the root, avoiding index-out-of-bounds issues. Some implementations use -1 as sentinel but then need extra checks.
 
-Wait, I need to reconsider. The algorithm is:
-After equalizing depths, if u == v, return u.
-Otherwise, for k from LOG-1 down to 0:
-  if up[u][k] != up[v][k]: jump both
-After loop, LCA = up[u][0].
+Actually, I need to be careful during the equalization step too. I use bit decomposition of the depth difference: for each set bit in diff, jump by that power of 2.
 
-For u=6, v=5: up[6][0]=2, up[5][0]=2. They're equal, so we don't jump. After loop, LCA = up[u][0] = 2. Correct!
-
-Time: O(n log n) preprocessing, O(log n) per query
-Space: O(n log n) for the sparse table
+Time: O(n log n) preprocessing, O(log n) per query. Space: O(n log n).
 </think>
 
 ## LCA with Binary Lifting
@@ -424,46 +378,28 @@ trie.insert("app")
 trie.insert("ape")
 trie.search_with_wildcards("ap.") -> ["app", "ape"]
 trie.starts_with("app") -> ["app", "apple"]''', r'''<think>
-Implementing a full-featured Trie. Let me think through each operation.
+Full-featured Trie: insert, search, wildcard search, prefix listing, and delete. Let me think through the design.
 
-The Trie node structure: each node has a dictionary of children (char -> TrieNode) and a flag indicating if this node marks the end of a word. I might also store the count of words passing through each node (useful for delete).
+Each TrieNode has a dict of children (char -> TrieNode) and an is_end flag. Insert and search are straightforward -- just walk the trie.
 
-Operations:
+The wildcard search is more interesting. When I hit a '.', I need to branch into all children. That's basically DFS with backtracking. Worst case O(26^d * m) where d = number of dots, but in practice tries are sparse so it's much better.
 
-1. insert(word): Walk down the trie, creating nodes as needed. Mark the last node as end-of-word.
+For starts_with, I walk to the prefix node, then DFS to collect all words in its subtree. Straightforward.
 
-2. search(word): Walk down the trie following characters. Return True only if we reach the end and the node is marked as end-of-word.
+Delete is where it gets tricky. The naive approach: just unset is_end. But that leaves dead nodes in the trie, wasting memory. I want to clean up nodes that are no longer needed.
 
-3. search_with_wildcards(pattern): This is the tricky one. '.' can match any character, so at each '.' I need to try ALL children. This requires backtracking / DFS.
+My first thought was to use a word count per node -- increment on insert, decrement on delete, remove when count hits 0. But that doesn't quite work because the count would need to track how many words pass through this node, which means incrementing every node along the path. And when I delete, I decrement along the path and prune nodes with count 0. Actually that could work, but it adds complexity to every insert.
 
-   Time complexity for wildcard: O(26^d * m) in the worst case where d is the number of dots and m is pattern length. But in practice, with a sparse trie, it's much faster.
+Simpler approach: recursive delete. The recursive call returns "should this child be removed?" At the leaf (end of word), unmark is_end. If the node has no children, tell the parent to remove it. At internal nodes, after recursing into the appropriate child, check if that child should be removed (del from children dict), then check if the current node should be removed (no children and not is_end).
 
-4. starts_with(prefix): Walk down to the prefix node, then collect all words in the subtree (DFS).
+The tricky edge cases:
+- "app" is deleted but "apple" exists: only unmark "app"'s is_end, don't remove any nodes since they're shared
+- "apple" is deleted but "app" exists: remove the 'l' and 'e' nodes, but keep 'a'->'p'->'p' since "app" uses them
+- Word doesn't exist: the recursive function just returns False all the way up
 
-5. delete(word): This is the most complex. Options:
-   a. Simple: just unmark the end-of-word flag. Doesn't free memory but is safe.
-   b. Full cleanup: after unmarking, walk back up and delete nodes that are no longer needed (no other children, not end-of-word).
+Let me make sure the recursive logic handles the "word not found" case: if at some depth the character isn't in children, return False. If we reach the end and is_end is False, also return False.
 
-   I'll implement the full cleanup version. I'll use a counter for how many words pass through each node, which makes deletion cleaner.
-
-Actually, for deletion with cleanup, I can recursively delete: go to the end of the word, unmark it, and on the way back, remove children that have no remaining words and are not end-of-word.
-
-Let me think about the word count approach:
-- Each node has a `count` field: how many words pass through this node
-- On insert: increment count for each node along the path
-- On delete: decrement count; if count reaches 0, remove the child link
-
-Hmm, but that's a bit tricky. Let me just use the recursive approach:
-- delete(word): returns True if the child node should be removed
-- At leaf (end of word): unmark. If no children, return True (remove me)
-- At internal node: recurse into child. If child says remove, delete it. Then if current node has no children and is not end-of-word, return True.
-
-Edge cases for delete:
-- Word doesn't exist: do nothing
-- Word is prefix of another: only unmark, don't delete nodes
-- Another word is prefix of this one: delete only the tail nodes
-
-Let me code this carefully.
+Time: insert O(m), search O(m), wildcard O(26^d * m) worst case, starts_with O(p + total result chars), delete O(m). Space: O(total chars across all words).
 </think>
 
 ## Full-Featured Trie with Wildcards, Prefix Search, and Deletion
@@ -664,45 +600,34 @@ Output: A balanced BST with root 4:
        2   6
       / \ / \
      1  3 5  7''', r'''<think>
-This is a classic divide-and-conquer problem. Since the array is sorted, the middle element should be the root to ensure balance.
+Sorted array to balanced BST. Since the array is already sorted, I have the BST property for free -- I just need to pick the right structure.
 
-Algorithm:
-1. Pick the middle element as root
-2. Recursively build the left subtree from the left half
-3. Recursively build the right subtree from the right half
+My first thought: just insert elements one by one into a BST. But if I insert them in sorted order, I'd get a completely skewed tree. I could shuffle first, but that doesn't guarantee balance.
 
-For even-length arrays, I can pick either the left-middle or right-middle. I'll pick the left-middle (using (low + high) // 2) for consistency.
+Better approach: divide and conquer. Pick the middle element as root -- that naturally splits the array into equal halves for left and right subtrees. Recurse on each half.
 
-This is straightforward, but I should also implement verification:
-1. BST property: left subtree values < root < right subtree values
-2. Balance property: for every node, |height(left) - height(right)| <= 1
+For even-length arrays, should I pick left-middle or right-middle? Either works for BST correctness, but the resulting trees look slightly different. I'll use floor division: mid = (low + high) // 2, which picks the left-middle. Both give balanced trees (height differs by at most 1).
 
 Let me trace [1, 2, 3, 4, 5, 6, 7]:
-- mid = 3, root = arr[3] = 4
-- Left: [1, 2, 3], mid = 1, root = 2
-  - Left: [1], root = 1
-  - Right: [3], root = 3
-- Right: [5, 6, 7], mid = 1 (relative), root = 6
-  - Left: [5], root = 5
-  - Right: [7], root = 7
+mid of [0,6] = 3, root = 4
+Left half [0,2]: mid = 1, root = 2. Left [0,0] = 1, Right [2,2] = 3.
+Right half [4,6]: mid = 5, root = 6. Left [4,4] = 5, Right [6,6] = 7.
 
-Result:
-    4
-   / \
-  2   6
- / \ / \
-1  3 5  7
+Result:     4
+           / \
+          2   6
+         / \ / \
+        1  3 5  7
 
-Height = 3, which is minimal for 7 nodes (ceil(log2(8)) = 3).
+Height = 3. For 7 nodes, the minimum possible height is ceil(log2(8)) = 3. So this is optimal.
 
-Edge cases:
-- Empty array: return None
-- Single element: return single node
-- Two elements: one root, one child
-- Already a valid BST ordering (which it is, since array is sorted)
+I also need to verify the result is correct. Two properties to check:
+1. BST property: for each node, all left descendants < node < all right descendants. I can verify with the min/max range approach.
+2. Balance property: |height(left) - height(right)| <= 1 for every node.
 
-Time: O(n) — visit each element once
-Space: O(n) for the tree + O(log n) recursion stack
+For [1, 2, 3, 4, 5, 6] (even length): mid = (0+5)//2 = 2, root = 3. Left subtree has [1,2], right has [4,5,6]. The right subtree is one node taller. That's still balanced (height diff = 1).
+
+Time: O(n) construction. Space: O(n) for nodes + O(log n) stack.
 </think>
 
 ## Balanced BST from Sorted Array with Verification

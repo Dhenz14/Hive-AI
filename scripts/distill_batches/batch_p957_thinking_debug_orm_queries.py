@@ -42,19 +42,21 @@ class Order(db.Model):
 ```
 
 How do I fix this N+1 query problem?''', r'''<think>
-This is a classic N+1 query problem. The code:
+This is a classic N+1 query problem. Let me trace the query pattern:
 
 1. Executes 1 query to fetch all active orders (the "1")
 2. For each order, accessing `order.customer.name` triggers a lazy load query to fetch that customer (the "N")
 
-With 522 active orders, that is 1 + 522 = 523 queries.
+With 522 active orders, that is 1 + 522 = 523 queries. That matches the log showing 523 queries.
 
-The fix is to use eager loading: load the customer data along with the orders in a single query (or at most 2 queries).
+My first thought was "just add a JOIN" -- but wait, SQLAlchemy has multiple eager loading strategies and the right choice depends on the data shape:
+- `joinedload()` uses a SQL JOIN. This is simple but duplicates order data when loading collections (one-to-many), inflating the result set. For many-to-one (like order->customer), it is efficient.
+- `subqueryload()` uses a separate subquery. Good for collections but adds a correlated subquery.
+- `selectinload()` uses SELECT ... WHERE id IN (...). Often the best option because it avoids both data duplication and correlated subqueries.
 
-SQLAlchemy provides several eager loading strategies:
-- `joinedload()` - uses a JOIN to fetch related objects in one query
-- `subqueryload()` - uses a subquery to fetch all related objects
-- `selectinload()` - uses a SELECT IN query (often the best option)
+Hmm, for this specific case (many orders, each with ONE customer), joinedload is probably ideal because there is no duplication risk -- each order row just gets customer columns appended. But if the relationship were reversed (loading a customer with all their orders), selectinload would be better to avoid duplicating the customer row for each order.
+
+I also considered whether setting `lazy='joined'` as the default on the relationship would be better than using .options() per query. The tradeoff: default eager loading ensures you never accidentally trigger N+1, but it loads the relationship even when you do not need it, wasting bandwidth on queries that only need order data.
 </think>
 
 This is the classic N+1 query problem. For each of the 522 active orders, accessing `order.customer` triggers a separate SQL query because SQLAlchemy's default relationship loading is "lazy" -- it only fetches related objects when they are accessed.
@@ -184,13 +186,13 @@ for item in order.items:  # CRASH! Session is closed
 ```
 
 The order object exists but its items relationship cannot be loaded because the session is gone.''', r'''<think>
-This is a common SQLAlchemy issue. When a session is closed, all objects loaded through it become "detached." Detached objects retain their eagerly loaded data but cannot perform lazy loads because there is no active session to execute queries.
+This is a common SQLAlchemy issue. When a session is closed, all objects loaded through it become "detached." Detached objects retain their eagerly loaded scalar data (like order.id, order.total) but cannot perform lazy loads because there is no active session to execute queries.
 
-The solutions are:
-1. Eager load the relationships before closing the session
-2. Keep the session open longer (scoped to the request in web apps)
-3. Use `expunge` to detach cleanly with all needed data
-4. Convert to a dict/dataclass before leaving the session scope
+My first instinct was "just keep the session open longer." But wait, that can lead to holding database connections for the entire request lifecycle, which exhausts the connection pool under load (exactly the problem from the pool timeout question). There is a tradeoff between session lifetime and connection usage.
+
+I then considered eager loading -- loading the relationships before closing the session. This works well but requires knowing in advance which relationships will be accessed. If the caller needs different relationships in different contexts, the get_order function would need to accept loading options, which couples the data access layer to the presentation layer.
+
+Actually, the cleanest approach is to convert ORM objects to DTOs (Data Transfer Objects) or plain dicts inside the session scope. This way, no SQLAlchemy object ever leaves the session boundary. The tradeoff is more boilerplate code for the conversion, but it eliminates an entire class of detached-instance bugs. For web apps, a request-scoped session is also viable -- it keeps the session open for the entire request but closes it automatically when the response is sent.
 </think>
 
 When the `Session()` context manager exits, the session is closed and all objects loaded through it become "detached." Detached objects retain their scalar column data (id, name, etc.) but cannot perform lazy loading because there is no active database connection to execute the query.

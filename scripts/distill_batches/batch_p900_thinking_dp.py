@@ -4,44 +4,44 @@ PAIRS = [
 Example:
 Input: [10, 9, 2, 5, 3, 7, 101, 18]
 Output: length = 4, one possible LIS = [2, 3, 7, 18]''', r'''<think>
-Let me think through the Longest Increasing Subsequence problem carefully.
+Longest Increasing Subsequence. Need both the length and the actual subsequence, in O(n log n).
 
-First, the brute force approach: I could generate all 2^n subsequences and check which ones are strictly increasing, keeping the longest. That's O(2^n) — completely impractical for large inputs.
+My first instinct is the O(n^2) DP: dp[i] = longest increasing subsequence ending at index i, where dp[i] = max(dp[j] + 1) for all j < i with nums[j] < nums[i]. That would work, but the problem asks for O(n log n). Can I do better?
 
-A better approach: classic DP. Let dp[i] = length of the longest increasing subsequence ending at index i. For each i, I look at all j < i where nums[j] < nums[i], and set dp[i] = max(dp[j] + 1). This is O(n^2) time, O(n) space. That's reasonable but we can do better.
-
-The O(n log n) approach uses a "tails" array. The key insight: maintain an array `tails` where tails[k] is the smallest tail element of all increasing subsequences of length k+1 found so far. This array is always sorted, so we can binary search.
+Right, the patience sorting idea. I maintain an array of "tails" -- tails[k] holds the smallest ending element among all increasing subsequences of length k+1 found so far. Because if two subsequences have the same length, the one with the smaller tail is more useful (more room to extend). This tails array stays sorted, so I can binary search to find where each new element goes.
 
 For each element:
-- If it's larger than all tails, append it (extends longest subsequence)
-- Otherwise, find the leftmost tail that is >= current element and replace it
+- If it's bigger than everything in tails, append (we found a longer subsequence)
+- Otherwise, find the first tail >= element and replace it (we found a subsequence of that length with a smaller ending)
 
-Wait — this gives us the LENGTH, but how do we reconstruct the actual subsequence? The tails array doesn't preserve the original subsequence. I need to also track which elements were placed where.
+Hmm, but wait. This only gives me the length. The tails array at the end isn't the actual subsequence -- it's a mix of elements from different subsequences. For example, if I process [3, 1, 4], tails would be [1, 4], but the actual LIS is [3, 4] or [1, 4], not necessarily the tails array itself. Well, in this case tails happens to be valid, but that's coincidence.
 
-I'll maintain a `parent` array and a `positions` array. For each element, I record which position in tails it was placed at, and what element came before it (the element at position-1 in the most recent state). Actually, let me think again...
+So how do I reconstruct? I was thinking I could keep a separate "pile" for each position and pick from each pile... but that sounds complicated. Let me think differently.
 
-A cleaner reconstruction: alongside `tails`, keep `tails_indices` (indices into the original array) and `parent[i]` = index of the previous element in the LIS ending at i. When I place nums[i] at position `pos` in tails, the parent of i is tails_indices[pos - 1] (if pos > 0). Then I update tails_indices[pos] = i.
+What if I track parent pointers? When I place nums[i] at position pos in the tails array, the element before it in the subsequence is whatever was at position pos-1 in tails at that moment. So I store parent[i] = tails_indices[pos - 1]. And I keep tails_indices[pos] = i to track which original index is currently the tail at each position.
 
-Let me trace through [10, 9, 2, 5, 3, 7, 101, 18]:
-- 10: tails = [10], tails_idx = [0]
-- 9: 9 < 10, replace. tails = [9], tails_idx = [1], parent[1] = -1
-- 2: 2 < 9, replace. tails = [2], tails_idx = [2], parent[2] = -1
-- 5: 5 > 2, append. tails = [2, 5], tails_idx = [2, 3], parent[3] = 2
-- 3: 3 > 2 but < 5, replace at pos 1. tails = [2, 3], tails_idx = [2, 4], parent[4] = 2
-- 7: 7 > 3, append. tails = [2, 3, 7], tails_idx = [2, 4, 5], parent[5] = 4
-- 101: append. tails = [2, 3, 7, 101], tails_idx = [2, 4, 5, 6], parent[6] = 5
-- 18: 18 > 7 but < 101, replace at pos 3. tails = [2, 3, 7, 18], tails_idx = [2, 4, 5, 7], parent[7] = 5
+Actually, does this work correctly? If I later replace an element at some position, the parent of the replacement points to whatever was at pos-1 at that time, which could be different from the original. Let me trace through the example to make sure.
 
-Length = 4. Reconstruct from tails_idx[-1] = 7 (value 18), parent = 5 (value 7), parent = 4 (value 3), parent = 2 (value 2). So [2, 3, 7, 18]. Correct!
+[10, 9, 2, 5, 3, 7, 101, 18]:
+- 10: tails = [10], tails_idx = [0], parent[0] = -1
+- 9: 9 < 10, replace pos 0. tails = [9], tails_idx = [1], parent[1] = -1
+- 2: 2 < 9, replace pos 0. tails = [2], tails_idx = [2], parent[2] = -1
+- 5: 5 > 2, append at pos 1. tails = [2, 5], tails_idx = [2, 3], parent[3] = tails_idx[0] = 2
+- 3: bisect_left finds pos 1 (3 > 2 but < 5), replace. tails = [2, 3], tails_idx = [2, 4], parent[4] = tails_idx[0] = 2
+- 7: 7 > 3, append at pos 2. tails = [2, 3, 7], tails_idx = [2, 4, 5], parent[5] = tails_idx[1] = 4
+- 101: append at pos 3. tails = [2, 3, 7, 101], tails_idx = [2, 4, 5, 6], parent[6] = tails_idx[2] = 5
+- 18: bisect_left finds pos 3 (18 < 101), replace. tails = [2, 3, 7, 18], tails_idx = [2, 4, 5, 7], parent[7] = tails_idx[2] = 5
 
-Edge cases:
-- Empty array: return 0, []
-- All equal elements: LIS length 1
-- Already sorted: LIS is the whole array
-- Reverse sorted: LIS length 1
+Length = 4. Reconstruct from tails_idx[-1] = 7 (value 18), parent 5 (value 7), parent 4 (value 3), parent 2 (value 2). That gives [2, 3, 7, 18]. Correct!
 
-Time: O(n log n) due to binary search at each step
-Space: O(n) for the auxiliary arrays
+But wait, I was worried: when I replaced 5 with 3 at position 1, did that mess up anything? No -- the parent of index 4 (value 3) correctly points to index 2 (value 2), and later when 7 goes to position 2, its parent points to index 4 (value 3, the current occupant of position 1). The key insight is that even though we're overwriting tails_idx entries, the parent pointers were already set when the element was placed. Old parent pointers remain valid because they reference original array indices, not tails positions.
+
+Edge cases: empty array (return 0), all equal (LIS = 1 since strictly increasing), already sorted (LIS = whole array).
+
+One thing I need to be careful about: bisect_left vs bisect_right. Since we want strictly increasing, we need bisect_left -- if the element equals a tail, we replace it rather than appending after it.
+
+Time: O(n log n) -- binary search per element.
+Space: O(n) for the auxiliary arrays.
 </think>
 
 ## Longest Increasing Subsequence — O(n log n) with Path Reconstruction
@@ -143,40 +143,32 @@ The key insight is that the `tails` array is always sorted, which enables binary
 Example:
 coins = [1, 5, 10, 25], amount = 36
 Output: 3 coins → [25, 10, 1]''', r'''<think>
-The Coin Change problem — a classic DP problem. Let me think through it.
+Coin change with path reconstruction. My first thought: just be greedy. Pick the largest coin that fits, repeat. For [1, 5, 10, 25] with amount 36: take 25, then 10, then 1 = 3 coins. That works here.
 
-Greedy approach first: always pick the largest coin that fits. For [1, 5, 10, 25] and 36: pick 25, then 10, then 1. That gives 3 coins, which is optimal here. But greedy doesn't always work! Consider coins = [1, 3, 4] and amount = 6. Greedy gives 4 + 1 + 1 = 3 coins, but optimal is 3 + 3 = 2 coins. So DP is necessary.
+But hold on -- greedy fails for some coin sets. Take coins = [1, 3, 4], amount = 6. Greedy picks 4, then 1, then 1 = 3 coins. But 3 + 3 = 2 coins is better. So I can't use greedy in general. I need DP.
 
-DP formulation:
-- dp[i] = minimum number of coins to make amount i
-- dp[0] = 0 (base case)
-- dp[i] = min(dp[i - coin] + 1) for all coins where coin <= i
-- If dp[i] remains infinity, amount i is unreachable
+OK so the DP is straightforward: dp[i] = min coins to make amount i. For each amount i, try subtracting each coin denomination and take the minimum. dp[0] = 0, and if dp[i] stays at infinity, that amount is impossible.
 
-For reconstruction, I need to track which coin was used at each step. I'll maintain a `used_coin[i]` array where used_coin[i] = the coin denomination chosen when computing dp[i]. Then I trace back: from amount, subtract used_coin[amount], go to the remainder, repeat.
+For reconstruction, I need to remember which coin I actually picked at each amount. I'll keep a used_coin[i] array. Then to recover the path, start at `amount`, look up used_coin[amount], subtract it, repeat until I hit 0.
 
-Time: O(amount * len(coins))
-Space: O(amount) for dp and used_coin arrays
+Wait, should I iterate coins in the outer loop or amounts? If I do amounts in the outer loop and coins in the inner loop, each dp[i] sees the best from all coins. That's correct for unbounded supply. If I did coins outer and amounts inner, that would also work but is more like the unbounded knapsack framing. Either way same result for this problem. I'll go with amounts outer since the reconstruction logic is cleaner -- at each amount I just pick the best coin.
 
-Edge cases:
-- amount = 0: return 0 coins, empty list
-- No valid combination: return -1
-- Single coin denomination: amount must be divisible by it
-- Very large amounts: still O(amount * coins) which could be large but is polynomial
-
-Let me trace through coins = [1, 5, 10, 25], amount = 36:
+Let me sanity-check with coins = [1, 3, 4], amount = 6:
 dp[0] = 0
-dp[1] = dp[0] + 1 = 1 (used coin 1)
-...
-dp[5] = min(dp[4]+1, dp[0]+1) = 1 (used coin 5)
-dp[10] = min(dp[9]+1, dp[5]+1, dp[0]+1) = 1 (used coin 10)
-dp[25] = 1 (used coin 25)
-dp[26] = dp[25] + 1 = 2 (used coin 1)
-...
-dp[35] = dp[25] + 1 = 2? No, dp[35] = min(dp[34]+1, dp[30]+1, dp[25]+1, dp[10]+1). dp[25]+1 = 2 using coin 10. dp[10]+1 = 2 using coin 25. Either way, 2.
-dp[36] = min(dp[35]+1, dp[31]+1, dp[26]+1, dp[11]+1). dp[35]+1 = 3. Let me check dp[26] = dp[25]+1 = 2 using coin 1, so dp[26]+1 = 3 using coin 10. dp[11] = 2 (10+1), so dp[11]+1 = 3 using coin 25. All give 3. With used_coin tracking, the specific path depends on which coin we check first that achieves the minimum.
+dp[1] = dp[0]+1 = 1 (coin 1)
+dp[2] = dp[1]+1 = 2 (coin 1)
+dp[3] = min(dp[2]+1, dp[0]+1) = 1 (coin 3)
+dp[4] = min(dp[3]+1, dp[1]+1, dp[0]+1) = 1 (coin 4)
+dp[5] = min(dp[4]+1, dp[2]+1) = 2 (coin 1 off dp[4], or coin 3 off dp[2] -- both give 2)
+dp[6] = min(dp[5]+1, dp[3]+1, dp[2]+1) = min(3, 2, 3) = 2 (coin 3, from dp[3]=1)
 
-This should work correctly.
+So dp[6] = 2, used_coin[6] = 3. Trace back: 6 - 3 = 3, used_coin[3] = 3. 3 - 3 = 0. Path: [3, 3]. That's the optimal answer.
+
+Now the original example: coins = [1, 5, 10, 25], amount = 36. dp[25] = 1, dp[35] = min over (dp[34]+1, dp[30]+1, dp[25]+1, dp[10]+1). dp[25]+1 = 2 and dp[10]+1 = 2, so dp[35] = 2. dp[36] = min(dp[35]+1, dp[31]+1, dp[26]+1, dp[11]+1) = 3. The exact coin chosen depends on iteration order, but 25+10+1 is one valid path.
+
+Edge cases: amount = 0 returns immediately. If no coins can make the amount (like coins=[2], amount=3), dp stays at infinity and we return -1.
+
+Time: O(amount * len(coins)), Space: O(amount).
 </think>
 
 ## Coin Change with Path Reconstruction
@@ -279,24 +271,15 @@ The critical insight is that greedy coin selection can fail (e.g., coins [1, 3, 
 Example:
 s1 = "kitten", s2 = "sitting"
 Output: distance = 3, operations: replace k->s, replace e->i, insert g''', r'''<think>
-Edit distance is a classic DP problem. Let me think through the approach.
+Edit distance between two strings, with full backtracking to show operations. Classic DP.
 
-We have two strings s1 and s2. We want the minimum number of operations (insert, delete, replace) to transform s1 into s2.
+Let me set up the recurrence. dp[i][j] = min operations to transform s1[0..i-1] into s2[0..j-1]. Base cases: dp[0][j] = j (all inserts), dp[i][0] = i (all deletes). Transition: if characters match, dp[i][j] = dp[i-1][j-1], otherwise take min of replace (dp[i-1][j-1]+1), delete (dp[i-1][j]+1), insert (dp[i][j-1]+1).
 
-DP formulation:
-- dp[i][j] = edit distance between s1[0..i-1] and s2[0..j-1]
-- Base cases: dp[0][j] = j (insert j characters), dp[i][0] = i (delete i characters)
-- Transition: if s1[i-1] == s2[j-1], dp[i][j] = dp[i-1][j-1] (no operation needed)
-- Otherwise: dp[i][j] = 1 + min(dp[i-1][j-1] (replace), dp[i][j-1] (insert), dp[i-1][j] (delete))
+The tricky part is backtracking. I need to walk from dp[m][n] back to dp[0][0] and figure out which operation was chosen at each cell. My first thought was to store the operation in a separate table, but actually I can just re-derive it during backtracking by checking which predecessor gives the right value. That saves memory on the extra table, though I still need the full dp table.
 
-For backtracking, I trace from dp[m][n] back to dp[0][0], at each step determining which operation was used.
+Hmm, actually can I use a rolling array and reconstruct? No -- with only two rows, I lose the information needed to backtrack through the whole table. I need the complete m x n grid. That's fine, space is O(mn) either way for the backtracking case.
 
-Wait, I should be careful about the backtracking logic. At dp[i][j]:
-- If s1[i-1] == s2[j-1]: came from dp[i-1][j-1], no op
-- Else, look at which of the three predecessors gave the min:
-  - dp[i-1][j-1] + 1: replace s1[i-1] with s2[j-1]
-  - dp[i-1][j] + 1: delete s1[i-1]
-  - dp[i][j-1] + 1: insert s2[j-1]
+One thing I need to be careful about: the order of checking during backtracking matters for which operations get priority. If multiple predecessors tie, I should pick consistently. I'll check match first (if chars equal), then replace, then delete, then insert. That tends to produce more intuitive operation sequences.
 
 Let me trace "kitten" -> "sitting":
     ""  s  i  t  t  i  n  g
@@ -309,18 +292,20 @@ e    5  5  4  3  2  2  3  4
 n    6  6  5  4  3  3  2  3
 
 Distance = 3. Now backtrack from (6,7):
-- dp[6][7]=3, s1[5]='n', s2[6]='g'. Not equal. Min predecessor: dp[5][6]=3 (replace), dp[5][7]=4 (delete), dp[6][6]=2 (insert). Insert 'g'. Go to (6,6).
-- dp[6][6]=2, s1[5]='n', s2[5]='n'. Equal. Go to (5,5).
-- dp[5][5]=2, s1[4]='e', s2[4]='i'. Not equal. dp[4][4]=1 (replace), dp[4][5]=2 (delete), dp[5][4]=2 (insert). Replace 'e'->'i'. Go to (4,4).
-- dp[4][4]=1, s1[3]='t', s2[3]='t'. Equal. Go to (3,3).
-- dp[3][3]=1, s1[2]='t', s2[2]='t'. Equal. Go to (2,2).
-- dp[2][2]=1, s1[1]='i', s2[1]='i'. Equal. Go to (1,1).
-- dp[1][1]=1, s1[0]='k', s2[0]='s'. Not equal. dp[0][0]=0 (replace), dp[0][1]=1 (delete), dp[1][0]=1 (insert). Replace 'k'->'s'. Go to (0,0).
+- dp[6][7]=3, 'n' vs 'g', not equal. Check: dp[5][6]+1=3 (replace), dp[5][7]+1=5 (delete -- wait, what's dp[5][7]? Row for 'e' col for 'g'... that's 4, so +1=5). dp[6][6]+1=3 (insert). Both replace and insert give 3. I'll prefer... hmm, replace comes from diagonal, insert from left. With my priority (replace before insert), I'd pick replace. But actually, looking at the expected output, the answer uses insert 'g'. Let me re-examine.
 
-Operations: replace k->s, replace e->i, insert g. That matches the expected output!
+Oh wait, I mixed up. dp[5][6] is row 'e', column 'n', which is 3. So replace would be dp[5][6]+1 = 4, not 3. Let me recount. dp[i-1][j-1] for (6,7) is dp[5][6] = 3, so replace cost = 3+1 = 4. dp[i-1][j] = dp[5][7] = 4, delete cost = 5. dp[i][j-1] = dp[6][6] = 2, insert cost = 3. So insert wins at cost 3. Insert 'g', go to (6,6).
 
-Time: O(m*n) for both building dp and backtracking
-Space: O(m*n) for the full dp table (needed for backtracking — can't use rolling array)
+- dp[6][6]=2, 'n'=='n', match. Go to (5,5).
+- dp[5][5]=2, 'e' vs 'i', not equal. dp[4][4]+1=2 (replace), dp[4][5]+1=3, dp[5][4]+1=3. Replace 'e'->'i'. Go to (4,4).
+- dp[4][4]=1, 't'=='t'. Go to (3,3).
+- dp[3][3]=1, 't'=='t'. Go to (2,2).
+- dp[2][2]=1, 'i'=='i'. Go to (1,1).
+- dp[1][1]=1, 'k' vs 's'. dp[0][0]+1=1 (replace), dp[0][1]+1=2, dp[1][0]+1=2. Replace 'k'->'s'. Go to (0,0).
+
+Operations: replace k->s, replace e->i, insert g. Matches expected output. Good -- I almost got the backtracking wrong by miscounting the dp indices. The lesson is that dp[i-1][j-1] means "row i-1, column j-1", not "one step back in both strings from the current characters."
+
+Time: O(m*n). Space: O(m*n) since we need the full table for backtracking.
 </think>
 
 ## Edit Distance with Operation Backtracking
@@ -440,56 +425,39 @@ The backtracking phase walks from dp[m][n] to dp[0][0], choosing at each cell wh
 Example:
 dimensions = [40, 20, 30, 10, 30] (representing 4 matrices: 40x20, 20x30, 30x10, 10x30)
 Output: minimum cost and the optimal grouping like ((A1(A2 A3))A4)''', r'''<think>
-Matrix Chain Multiplication — one of the classic interval DP problems.
+Matrix chain multiplication -- I need to find the optimal way to parenthesize a chain of matrix multiplications to minimize scalar operations.
 
-Given matrices A1 (p0 x p1), A2 (p1 x p2), ..., An (p_{n-1} x p_n), find the order of multiplication that minimizes the total number of scalar multiplications.
+My initial thought is: does the order even matter? Yes, definitely. Multiplying a 40x20 by a 20x30 matrix costs 40*20*30 = 24000 operations, and the result is 40x30. If I then multiply by a 30x10, that's 40*30*10 = 12000. Total = 36000. But if I multiply the 20x30 by 30x10 first (cost 6000, result 20x10), then 40x20 by 20x10 (cost 8000), total = 14000. Huge difference!
 
-The key insight: the cost of multiplying a (a x b) matrix by a (b x c) matrix is a * b * c scalar multiplications. The total cost depends on parenthesization.
+Could I just try all orderings? The number of parenthesizations is the Catalan number, which is exponential. So brute force is out for large n.
 
-Brute force: try all possible parenthesizations. The number of ways is the Catalan number C(n-1), which grows exponentially. Not feasible for large n.
+This has optimal substructure though. Any optimal parenthesization must split the chain somewhere: (A1..Ak)(Ak+1..An). Once I choose k, both subproblems are independent. That screams interval DP.
 
-DP approach:
-- Let dp[i][j] = minimum cost to multiply matrices Ai through Aj (1-indexed)
-- Base case: dp[i][i] = 0 (single matrix, no multiplication needed)
-- Transition: dp[i][j] = min over all k in [i, j-1] of (dp[i][k] + dp[k+1][j] + p[i-1]*p[k]*p[j])
-- We split the chain at position k: multiply Ai..Ak, then Ak+1..Aj, then combine
+Let dp[i][j] = min cost to multiply Ai through Aj. Base case: dp[i][i] = 0. Transition: dp[i][j] = min over k in [i, j-1] of dp[i][k] + dp[k+1][j] + dims[i-1]*dims[k]*dims[j]. The last term is the cost of multiplying the two resulting matrices together.
 
-For reconstruction, I'll keep a split[i][j] array recording the optimal k.
+I need to fill this bottom-up by increasing chain length. And for reconstruction, I store split[i][j] = the k that achieved the minimum.
 
-Let me trace dimensions = [40, 20, 30, 10, 30], so 4 matrices:
-- A1: 40x20, A2: 20x30, A3: 30x10, A4: 10x30
+Let me trace dims = [40, 20, 30, 10, 30] (4 matrices):
 
 Chain length 2:
-dp[1][2] = 40*20*30 = 24000, split[1][2] = 1
-dp[2][3] = 20*30*10 = 6000, split[2][3] = 2
-dp[3][4] = 30*10*30 = 9000, split[3][4] = 3
+dp[1][2] = 40*20*30 = 24000
+dp[2][3] = 20*30*10 = 6000
+dp[3][4] = 30*10*30 = 9000
 
 Chain length 3:
-dp[1][3] = min(
-  dp[1][1] + dp[2][3] + 40*20*10 = 0 + 6000 + 8000 = 14000 (k=1),
-  dp[1][2] + dp[3][3] + 40*30*10 = 24000 + 0 + 12000 = 36000 (k=2)
-) = 14000, split[1][3] = 1
-
-dp[2][4] = min(
-  dp[2][2] + dp[3][4] + 20*30*30 = 0 + 9000 + 18000 = 27000 (k=2),
-  dp[2][3] + dp[4][4] + 20*10*30 = 6000 + 0 + 6000 = 12000 (k=3)
-) = 12000, split[2][4] = 3
+dp[1][3]: k=1 gives 0 + 6000 + 40*20*10 = 14000. k=2 gives 24000 + 0 + 40*30*10 = 36000. So 14000, split at k=1.
+dp[2][4]: k=2 gives 0 + 9000 + 20*30*30 = 27000. k=3 gives 6000 + 0 + 20*10*30 = 12000. So 12000, split at k=3.
 
 Chain length 4:
-dp[1][4] = min(
-  dp[1][1] + dp[2][4] + 40*20*30 = 0 + 12000 + 24000 = 36000 (k=1),
-  dp[1][2] + dp[3][4] + 40*30*30 = 24000 + 9000 + 36000 = 69000 (k=2),
-  dp[1][3] + dp[4][4] + 40*10*30 = 14000 + 0 + 12000 = 26000 (k=3)
-) = 26000, split[1][4] = 3
+dp[1][4]: k=1 gives 0 + 12000 + 40*20*30 = 36000. k=2 gives 24000 + 9000 + 40*30*30 = 69000. Ouch, that's terrible. k=3 gives 14000 + 0 + 40*10*30 = 26000. Best is k=3 at 26000.
 
-Minimum cost = 26000. Now reconstruct:
-split[1][4] = 3: (A1..A3)(A4)
-split[1][3] = 1: (A1)(A2..A3)
-split[2][3] = 2: (A2)(A3)
-Result: ((A1(A2 A3))A4)
+Hmm, interesting that k=3 wins. That means the optimal is (A1..A3)(A4), and within A1..A3 we split at k=1: (A1)(A2 A3). So the full grouping is ((A1(A2 A3))A4).
 
-Time: O(n^3) — three nested loops (i, j, k)
-Space: O(n^2) for dp and split tables
+For reconstruction, I just need a recursive function that reads split[i][j] and builds a parenthesized string. If i==j, return "Ai".
+
+One thing I briefly wondered: is there a faster algorithm than O(n^3)? There's the Hu-Shing algorithm that does O(n log n) for the special case, but the general MCM is O(n^3) with this DP approach, and that's standard.
+
+Time: O(n^3). Space: O(n^2).
 </think>
 
 ## Matrix Chain Multiplication with Optimal Parenthesization
@@ -597,47 +565,41 @@ Output: 1 cut -> ["aa", "b"]
 
 Input: "abcbdd"
 Output: 2 cuts -> ["a", "bcb", "dd"]''', r'''<think>
-Palindrome Partitioning with minimum cuts. Let me think about approaches.
+Minimum cuts to partition a string into palindromes, plus return the actual partition.
 
-Brute force: try all possible partitions (2^(n-1) possible cut positions), check if all parts are palindromes, find the one with minimum cuts. Exponential time — too slow.
+Brute force: try every possible set of cut positions (2^(n-1) subsets). Way too slow.
 
-DP approach. There are actually two parts:
-1. Precompute which substrings are palindromes
-2. Find the minimum cuts
+I could try a recursive approach with memoization -- for each prefix, try all possible first palindromes and recurse on the rest. That might work but the key optimization is precomputing which substrings are palindromes so I don't keep re-checking.
 
-For part 1, I'll build a table `is_pal[i][j]` = True if s[i..j] is a palindrome.
-- is_pal[i][i] = True (single char)
-- is_pal[i][i+1] = (s[i] == s[i+1])
-- is_pal[i][j] = (s[i] == s[j]) and is_pal[i+1][j-1]
+Actually, this is naturally two separate problems:
+1. Which substrings s[i..j] are palindromes?
+2. Given that info, what's the minimum cuts?
 
-For part 2:
-- dp[i] = minimum cuts for s[0..i]
-- If s[0..i] is itself a palindrome, dp[i] = 0
-- Otherwise, dp[i] = min(dp[j-1] + 1) for all j in [1, i] where s[j..i] is a palindrome
-- Base: dp[0] = 0 (single character is always a palindrome)
+For (1), I can use the expand-from-center approach... no wait, the DP table approach is easier since I need O(1) lookup for any (i,j) pair later. is_pal[i][j] = True if s[i]==s[j] and is_pal[i+1][j-1]. Fill by increasing length.
 
-Wait, I need to be careful with indexing. Let me use dp[i] = minimum cuts for s[0..i-1] (the first i characters). Actually, let me just use dp[i] = min cuts for s[0..i].
+For (2), dp[i] = min cuts for s[0..i]. If s[0..i] is already a palindrome, dp[i] = 0 (no cuts needed). Otherwise, try every split point j: if s[j..i] is a palindrome, then dp[i] = min(dp[j-1] + 1).
 
-For reconstruction, I track cut_pos[i] = the index j where the last cut was made for dp[i].
+Hmm, I initially thought about using dp[i] = min cuts for s[0..i-1], which would shift all indices by one. That's confusing. Let me stick with dp[i] = min cuts for s[0..i], 0-indexed. Initialize dp[i] = i (worst case: every character is its own palindrome, needs i cuts).
+
+For reconstruction I need to remember where the last palindrome starts. Store cut_at[i] = j meaning the last palindrome in the optimal partition of s[0..i] is s[j..i].
 
 Let me trace "abcbdd":
-First, build is_pal:
-- Single chars: all True
-- Length 2: is_pal[4][5] for "dd" = True, others False
-- Length 3: is_pal[1][3] for "bcb" = True
-- Length 4+: check... is_pal[0][3] "abcb" = (a==b)? No. is_pal[1][4] "bcbd" = (b==d)? No. is_pal[2][5] "cbdd" = (c==d)? No.
+is_pal table -- the interesting entries: is_pal[1][3] = True ("bcb"), is_pal[4][5] = True ("dd"). Everything length 4+ is False.
 
-dp[0] = 0 ("a" is palindrome)
-dp[1] = dp[0] + 1 = 1 ("b" is palindrome, cut after "a")
-dp[2] = dp[1] + 1 = 2 ("c" is palindrome, cut after "ab")
-dp[3]: s[0..3]="abcb" not palindrome. Check j=1: s[1..3]="bcb" IS palindrome, so dp[0]+1 = 1. j=2: s[2..3]="cb" not palindrome. j=3: s[3..3]="b" palindrome, dp[2]+1=3. Min = 1. dp[3] = 1.
-dp[4]: s[0..4]="abcbd" not palindrome. j=4: s[4..4]="d" palindrome, dp[3]+1=2. j=3: s[3..4]="bd" not. j=2: s[2..4]="cbd" not. j=1: s[1..4]="bcbd" not. So dp[4] = 2.
-dp[5]: s[0..5]="abcbdd" not palindrome. j=5: s[5..5]="d", dp[4]+1=3. j=4: s[4..5]="dd" palindrome, dp[3]+1=2. j=3: s[3..5]="bdd" not. j=1: s[1..5]="bcbdd" not. Min = 2. dp[5] = 2.
+dp[0] = 0 (single char "a")
+dp[1]: is "ab" a palindrome? No. j=1: s[1..1]="b" palindrome, dp[0]+1=1. dp[1] = 1, cut_at[1] = 1.
+dp[2]: "abc" not palindrome. j=2: dp[1]+1=2. j=1: "bc" not palindrome. dp[2] = 2, cut_at[2] = 2.
+dp[3]: "abcb" not palindrome. Try j=3: dp[2]+1=3. j=2: "cb" not palindrome. j=1: "bcb" IS palindrome! dp[0]+1=1. j=0: "abcb" not palindrome. Best = 1, cut_at[3] = 1.
+dp[4]: "abcbd" not palindrome. j=4: dp[3]+1=2. j=3: "bd" no. j=2: "cbd" no. j=1: "bcbd" no. j=0: "abcbd" no. dp[4] = 2.
+dp[5]: j=5: dp[4]+1=3. j=4: "dd" palindrome! dp[3]+1=2. j=3: "bdd" no. j=2: "cbdd" no. j=1: "bcbdd" no. dp[5] = 2, cut_at[5] = 4.
 
-Minimum cuts = 2. Reconstruction from dp[5]: last palindrome starts at j=4 ("dd"), dp[3]: last palindrome starts at j=1 ("bcb"), dp[0]: "a" is palindrome. So partition = ["a", "bcb", "dd"]. Correct!
+Reconstruction: end=5, cut_at[5]=4 -> "dd", end=3, cut_at[3]=1 -> "bcb", end=0, cut_at[0]=0 -> "a". Reverse: ["a", "bcb", "dd"]. 2 cuts.
 
-Time: O(n^2) for both palindrome precomputation and cut DP
-Space: O(n^2) for is_pal table
+Wait, I need to double-check the reconstruction logic. When end=0, cut_at[0] should be 0 (the palindrome "a" starts at index 0), then end = 0-1 = -1, loop ends. That works.
+
+One subtle issue: I initialize dp[i] = i, but what if I forget to check the "whole prefix is a palindrome" case and just rely on the inner loop? If s[0..i] is a palindrome, then j=0 gives dp[-1]+1... which doesn't exist. So I need to handle that separately: check if is_pal[0][i], and if so set dp[i]=0 and skip the inner loop. That's cleaner.
+
+Time: O(n^2) for both phases. Space: O(n^2) for the palindrome table.
 </think>
 
 ## Palindrome Partitioning — Minimum Cuts with Reconstruction

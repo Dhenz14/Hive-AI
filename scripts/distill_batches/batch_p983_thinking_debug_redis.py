@@ -25,9 +25,17 @@ def set_data(key, value):
 # After a few hundred requests, connections are exhausted.
 # redis-cli INFO clients shows connected_clients keeps climbing.''',
         r'''<think>
-The problem is clear: each request creates a new `redis.Redis()` instance. While `redis.Redis()` does use a default connection pool internally, creating a new instance per request creates a new pool per request. Each pool creates new connections, and since the old pools and connections are not explicitly closed, they pile up until Redis hits the maxclients limit.
+The connected_clients count keeps climbing with every request. Let me look at the code to see where connections are created.
 
-The fix is to create a single Redis connection pool and share it across all requests.
+Each route handler calls `r = redis.Redis(host="localhost", port=6379, db=0)`. My first thought: does not `redis.Redis()` use a connection pool internally? Yes it does -- by default it creates a ConnectionPool. But here is the key question: is it sharing the pool across requests, or creating a new pool each time?
+
+Actually, each call to `redis.Redis()` creates a new client instance with its own pool. So every request creates a new pool, which opens new connections. The old client objects eventually get garbage collected, but Python's GC is not immediate, and the connections might linger in TIME_WAIT or not be closed properly.
+
+Wait, could there be another issue? What if the connections are being closed by GC but Redis still shows them? No -- `redis-cli INFO clients` shows `connected_clients` climbing, meaning the connections are genuinely accumulating, not just ghosts.
+
+Could you just increase `maxclients` in Redis? That would delay the problem but not fix it. With thousands of requests per minute, you would eventually exhaust file descriptors or memory on the Redis server regardless of the maxclients setting.
+
+The real fix is straightforward: create one ConnectionPool at module level and pass it to every `redis.Redis()` call via `connection_pool=pool`. This way all requests share the same pool, which reuses connections. The pool's `max_connections` parameter caps the total number of open connections. For a Flask app, storing the client on `flask.g` with a teardown handler is the cleanest pattern.
 </think>
 
 The problem is that you create a **new `redis.Redis()` instance per request**, and each instance creates its own connection pool. These pools are never explicitly closed, so connections accumulate until Redis hits `maxclients`.
@@ -165,17 +173,19 @@ def subscriber():
 # If Redis restarts, this function hangs or crashes
 # Messages published while subscriber was down are lost''',
         r'''<think>
-Redis pub/sub has fundamental limitations:
-1. Messages are fire-and-forget -- if no subscriber is listening, the message is lost
-2. No message persistence or replay
-3. If the connection drops, the subscriber misses all messages during the disconnect
+Two separate issues here: messages lost on reconnect, and hanging when Redis restarts. Let me think through each.
 
-The fixes involve:
-1. Reconnection logic for the subscriber
-2. Using Redis Streams instead of pub/sub for reliable messaging
-3. Using pub/sub with a fallback mechanism
+For the hanging issue -- `pubsub.listen()` is a blocking iterator. If the Redis connection drops, what happens? The underlying socket read would either raise a ConnectionError or block forever depending on whether socket_timeout is set. Since the user did not set a timeout, the socket could block indefinitely on a dead connection. That explains the hang.
 
-Let me address all of these.
+For the lost messages -- this is fundamental to Redis pub/sub. When a subscriber disconnects, messages published during that gap are gone. There is no replay mechanism. Could you buffer messages on the publisher side? You could, but then you are building your own message queue.
+
+Wait, could Redis Streams solve both problems? Streams persist messages, support consumer groups, and have acknowledgment. If the subscriber crashes, the messages stay in the stream and can be re-read on reconnect. Pending messages are tracked per consumer, so you get at-least-once delivery.
+
+But there is a tradeoff: Streams use more memory than pub/sub because messages are stored. For high-throughput ephemeral events where losing a few is acceptable, pub/sub with reconnection logic might be enough. For anything transactional or important, Streams are the right choice.
+
+Actually, I should also mention: the `pubsub.listen()` approach has another problem -- it blocks the main thread with no way to cleanly shut down. Using `pubsub.get_message(timeout=1.0)` in a loop is better because you can check a shutdown flag between iterations.
+
+So the recommendation depends on the use case. For the hanging problem: add socket_timeout and reconnection logic with exponential backoff. For the lost messages problem: switch to Redis Streams with consumer groups. If they absolutely must use pub/sub, they should accept that message loss during disconnects is a design limitation, not a bug.
 </think>
 
 Redis pub/sub is inherently **unreliable** -- messages are fire-and-forget with no persistence. Here is how to handle reconnection and how to use Redis Streams for reliable messaging:
@@ -627,9 +637,17 @@ r = redis.Redis(host="redis-node-1", port=6379)
 # redis.exceptions.ResponseError: MOVED 12539 192.168.1.3:6379
 # redis.exceptions.ResponseError: ASK 12539 192.168.1.3:6379''',
         r'''<think>
-The user is connecting to a Redis Cluster using `redis.Redis()` which is the single-node client. This client does not understand MOVED/ASK redirections. They need to use `redis.cluster.RedisCluster` which handles these automatically.
+MOVED and ASK errors during slot migration. Let me think about what is happening.
 
-MOVED errors mean the slot has permanently moved to another node. ASK errors mean the slot is being migrated and the request should be retried on the target node for just this one query.
+The user is using `redis.Redis(host="redis-node-1", port=6379)` -- that is the standard single-node client. In a Redis Cluster, each node owns a subset of the 16384 hash slots. When you send a command to the wrong node, it responds with MOVED or ASK.
+
+MOVED means "this slot permanently lives on a different node." The client should update its slot map and redirect. ASK means "this slot is currently being migrated; send this one request to the other node, but keep your slot map as-is." The standard `redis.Redis` client has no concept of slot maps or redirections, so it just raises these as exceptions.
+
+Could the user just catch these errors and manually redirect? They could parse the MOVED response to get the target host:port, create a new connection, and retry. But that is fragile and would need to handle ASK differently (requires sending ASKING command first). And they would need to maintain their own slot map.
+
+Actually, the straightforward fix is to use `redis.cluster.RedisCluster` instead of `redis.Redis`. RedisCluster handles MOVED redirections by updating its internal slot map and retrying. It handles ASK by sending ASKING + the command to the migration target. All of this is transparent to the application code.
+
+One thing to watch out for: multi-key operations (MGET, MSET, pipelines) require all keys to be in the same hash slot. During migration, even keys that were in the same slot might temporarily be split across nodes. The application should use hash tags like `{user:123}.name` to guarantee co-location, and fall back to individual GETs if a cross-slot error occurs.
 </think>
 
 You are using the **single-node Redis client** (`redis.Redis`) to connect to a Redis Cluster. This client does not handle MOVED/ASK redirections. Use `RedisCluster` instead:
@@ -802,12 +820,19 @@ maxmemory_human: 2.00G
 maxmemory_policy: allkeys-lru
 evicted_keys: 15234''',
         r'''<think>
-The issue is that `allkeys-lru` evicts ANY key when memory is full, including important ones. The user needs to either:
-1. Separate important data from cache data using different databases or instances
-2. Use `volatile-lru` policy which only evicts keys with TTL set
-3. Use Redis key namespacing and separate instances
+15,234 keys evicted and the user is losing important data alongside cache data. The policy is `allkeys-lru` which means Redis will evict ANY key when nearing maxmemory, picking the least recently used ones. It does not distinguish between a user session and a throwaway cache entry.
 
-Let me provide a comprehensive solution.
+Could the user just switch to `noeviction`? That would protect all keys, but then Redis returns errors when memory is full and writes would fail. That is worse for a production app.
+
+What about `volatile-lru`? This only evicts keys that have a TTL set. So if the user sets TTL on cache keys but NOT on important data keys, the important keys become immune to eviction. That sounds like the right approach. But wait -- what happens if all TTL keys are evicted and memory is still full? Then Redis starts returning errors on writes, just like noeviction. So the user needs to make sure there are enough TTL keys to absorb the memory pressure.
+
+Could they use separate Redis databases (db=0 for persistent, db=1 for cache)? Actually no -- maxmemory and eviction policy apply to the entire Redis instance across all databases. Separate databases would not help.
+
+The more robust solution is separate Redis instances entirely: one for persistent data with no memory limit (or very high), and one for cache with allkeys-lru. The tradeoff is operational complexity -- two instances to monitor, backup, and maintain. But it gives clean separation.
+
+There is also `volatile-lfu` (Redis 4.0+) which is smarter than LRU -- it evicts keys that are both rarely accessed AND have a TTL. LFU is better because LRU can mistakenly evict a heavily-used key that just happened to not be accessed in the last few seconds.
+
+I think the recommended path is: switch to `volatile-lru` or `volatile-lfu`, set TTL on all cache keys, and leave important keys without TTL. For larger systems, move to separate instances.
 </think>
 
 The `allkeys-lru` policy evicts **any key** regardless of importance when memory is full. Here is how to protect important data:

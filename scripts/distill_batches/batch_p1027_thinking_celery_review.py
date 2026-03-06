@@ -103,37 +103,26 @@ def sync_inventory():
     db.session.commit()
     return {'synced': len(products)}
 ```''', r'''<think>
-Let me review this Celery task code for task design, retry logic, serialization, error handling, and configuration.
+Let me look through this Celery setup carefully. The first thing that jumps out is the configuration at the top...
 
-1. Serialization security:
-- task_serializer = 'pickle' and accept_content includes 'pickle'. Pickle deserialization is a well-known remote code execution vector. If an attacker can inject messages into the broker (Redis), they can execute arbitrary code on workers. NEVER use pickle serializer in production.
+`task_serializer = 'pickle'` and `accept_content = ['pickle', 'json']`. That's a serious security issue. Pickle deserialization is a well-known remote code execution vector -- if an attacker can inject a message into the Redis broker (and Redis has no authentication configured here), they can execute arbitrary Python code on every worker. This needs to be JSON-only immediately.
 
-2. No retry logic:
-- send_email has no retry mechanism. If the mail service is temporarily down, the email is lost. Should use autoretry_for with exponential backoff.
-- sync_inventory makes HTTP requests in a loop with no retry per-product. If one request fails, the entire task could fail (unhandled exception).
+Now let me look at the task design. send_email has no retry logic at all. If the mail service returns a 500 or the network times out, the email is just lost. Should use `autoretry_for` with exponential backoff. Same issue with sync_inventory -- it makes HTTP requests in a loop with no per-request retry.
 
-3. Task design issues:
-- process_order does too much: updates stock, changes status, sends email, sends notification, updates analytics. If the email send fails to queue, the order is still committed as processed. These should be separate tasks or use a chain/chord.
-- process_order passes the entire order as a dict, then re-queries it from the database. This is fine for the initial load, but the object is stale -- another process could have modified it.
-- process_order has no idempotency. If the task is retried (duplicate delivery), it decrements stock again.
+process_order is doing way too much in a single task. Let me count: it updates stock, changes order status, commits to the database, queues an email, queues a notification, and queues an analytics update. If the email queue fails after the database commit, the order is "processed" but the customer never gets notified. These should be composed with a Celery chain or chord so each step is independently retriable.
 
-4. Database issues:
-- No error handling or rollback. If db.session.commit() fails, the session is in a dirty state.
-- cleanup_old_sessions loads all old sessions into memory then deletes one by one. Should use a bulk DELETE query.
-- sync_inventory loads all products and makes an HTTP request per product. For thousands of products, this task runs for hours.
+Wait, there's a bigger problem with process_order -- it has no idempotency protection. If the task is retried (which Celery can do automatically on worker crashes), it decrements stock AGAIN. Two deliveries of the same task = double stock reduction. You'd need either an idempotency key or a check that the order isn't already processed.
 
-5. File path issues:
-- generate_report writes to /tmp with a date-based filename. If run multiple times on the same day with the same report_type, it overwrites the previous report. Also, /tmp files can be read by other users on the system.
-- The report filename is constructed with datetime.now() which uses local time, not UTC.
+The database operations have no error handling either. No try/except, no rollback. If db.session.commit() fails, the session is left in a dirty state and subsequent tasks on the same worker could see stale data or fail unexpectedly.
 
-6. No task timeouts:
-- None of the tasks have time_limit or soft_time_limit set. A hung HTTP request or infinite loop will block the worker forever.
+cleanup_old_sessions loads ALL old sessions into memory and deletes them one by one. For a table with millions of expired sessions, this is going to consume a huge amount of memory and take forever. Should be a single bulk DELETE query: `Session.query.filter(Session.last_active < cutoff).delete()`.
 
-7. sync_inventory:
-- Makes one HTTP request per product sequentially. For 1000 products with 10s timeout each, worst case is 10,000 seconds (2.7 hours). Should batch requests or use concurrent I/O.
-- No rate limiting on the warehouse API calls.
+sync_inventory makes one HTTP request per product sequentially. For 1000 products with a 10-second timeout each, worst case is nearly 3 hours for a single task run. No task has time_limit or soft_time_limit set, so a hung HTTP request blocks the worker indefinitely.
 
-Let me structure this.
+generate_report writes to /tmp with a date-based filename. Running twice on the same day with the same report_type overwrites the previous file. Also, /tmp is world-readable on most Linux systems, so the report data could be accessed by other users on the machine.
+
+One more thing -- none of these tasks set `acks_late=True`. With the default `acks_early`, if a worker crashes mid-task, the message is already acknowledged and the task is lost. For important operations like order processing, you'd want late acknowledgment so the task is redelivered on crash.
+
 </think>
 
 ## Code Review: Celery Task Suite
@@ -324,34 +313,24 @@ app.conf.beat_schedule = {
     },
 }
 ```''', r'''<think>
-Let me review this Celery ETL pipeline code.
+OK, this is a Celery ETL pipeline. Let me trace through the data flow from etl_pipeline down to the individual tasks.
 
-1. Critical anti-pattern -- .get() inside tasks:
-- etl_pipeline calls `data.get(timeout=300)` which is a synchronous blocking call INSIDE a Celery task. This blocks the worker thread for up to 5 minutes while waiting for another task to complete. This is Celery's most well-known anti-pattern -- it can cause deadlocks if the worker pool is exhausted.
-- parallel_etl also calls `result.get(timeout=3600)` -- blocking a worker for up to 1 hour.
-- The proper pattern is to use chains and chords to compose tasks without blocking.
+etl_pipeline calls fetch_data.delay(), gets back an AsyncResult, then... oh no. It calls `data.get(timeout=300)`. That's a synchronous blocking call INSIDE a Celery task. This is Celery's most infamous anti-pattern. The worker thread just sits there for up to 5 minutes waiting for another task to complete. If the worker pool has 4 slots and 4 etl_pipeline tasks run concurrently, all 4 are blocked waiting for fetch_data tasks -- but those fetch_data tasks are stuck in the queue because all worker slots are occupied. Classic deadlock.
 
-2. Infinite retries:
-- fetch_data has max_retries=None with a fixed countdown of 5 seconds. If the source URL is permanently down, this task retries infinitely every 5 seconds forever. This floods the broker with retries and consumes worker resources permanently.
-- No exponential backoff on retry countdown.
+The correct approach is to use Celery chains: `chain(fetch_data.s(source_url), transform_data.s(), load_data.s())`. No blocking, no deadlock risk.
 
-3. Data flow issues:
-- transform_data stores results in Redis AND returns them. The Redis storage is redundant if the result is passed to the next task in a chain. If it's meant for monitoring, there is no TTL, so these keys persist forever.
-- load_data does mass assignment with `DataRecord(**item)` -- same mass assignment risk discussed in other reviews.
-- load_data has no error handling. If commit fails, no rollback.
+parallel_etl has the same problem but worse -- it calls `result.get(timeout=3600)`, blocking a worker for up to an hour. And it does this for multiple sources in sequence. For 5 sources, that's potentially 5 hours of a worker doing nothing but waiting.
 
-4. Memory issues:
-- load_data creates all DataRecord objects in memory before adding them. For large datasets, this consumes excessive memory. Should use bulk_save_objects or batch processing.
-- The entire dataset flows through the result backend (Redis). Large datasets stored as task results can exhaust Redis memory.
+Let me look at the individual tasks now. fetch_data has `max_retries=None` with `countdown=5`. So if the source URL is permanently down, this task retries every 5 seconds. Forever. That's an infinite retry loop that floods the broker and consumes worker resources until someone manually intervenes. Should have a reasonable max_retries (maybe 10) with exponential backoff.
 
-5. Beat schedule:
-- The daily-etl schedule uses parallel_etl which blocks a worker for up to 1 hour. If the worker pool is small, this can monopolize it.
-- hourly-check fetches health data but does nothing with the result. The infinite retries on fetch_data mean a health check failure retries forever.
+transform_data stores results in both Redis AND the task result backend. Why both? If it's in a chain, the next task gets the return value automatically. The Redis storage is redundant... unless it's meant for monitoring, but there's no TTL set on the Redis key, so these data blobs persist forever and slowly eat Redis memory.
 
-6. Redis client at module level:
-- redis_client is created at import time. If Redis is unavailable when the module is imported, the worker fails to start.
+load_data does `DataRecord(**item)` for each item -- mass assignment from untrusted data. Also, it creates all objects in memory before committing. For a million-record dataset, that's a million Python objects in RAM. Should use batch processing (commit every N records) or SQLAlchemy's bulk_save_objects. And there's no error handling -- if the commit fails, no rollback, no cleanup.
 
-Let me write the structured review.
+The beat schedule runs daily-etl which calls parallel_etl, which blocks workers for potentially hours. And hourly-check uses fetch_data with its infinite retry behavior, so a single health check failure spawns an eternal retry chain. That seems unintentional.
+
+The redis_client is created at module import time. If Redis is down when the worker starts, the import fails and the worker crashes immediately. Should use lazy initialization.
+
 </think>
 
 ## Code Review: Celery ETL Pipeline
@@ -552,40 +531,24 @@ def process_notification_batch(batch_id):
     batch.status = 'dispatched'
     db.session.commit()
 ```''', r'''<think>
-Let me review this Celery notification system.
+Let me trace through this notification system. There are signal handlers, a bulk notification sender, and scheduled notifications.
 
-1. Signal handler issues:
-- on_task_failure sends an email via SMTP synchronously in a signal handler. This blocks the worker for every failed task. If the SMTP server is slow or down, it delays all failure processing.
-- If the SMTP send itself fails, it raises an exception in the signal handler, which can cause unpredictable behavior.
-- Sending an email per failed task can flood the inbox. If 1000 tasks fail in a minute, that is 1000 emails.
-- on_task_success logs the full result, which may contain sensitive data or large payloads.
+Starting with on_task_failure -- it sends an email via SMTP synchronously inside a Celery signal handler. Every time ANY task fails, this handler fires and blocks while connecting to SMTP and sending. If the SMTP server is slow or unreachable, it delays the worker's failure processing. And if the SMTP call itself raises an exception inside the signal handler... that could cause unpredictable behavior in the worker internals.
 
-2. Worker ready signal:
-- on_worker_ready connects to the database but does not close the connection. Also, db.engine.connect() returns a connection object that is never used or closed. The intention was probably to "warm up" the pool, but this leaks a connection.
+Actually, there's a scaling problem here too. If 1000 tasks fail in a burst (say, a database goes down), that's 1000 synchronous SMTP connections in rapid succession. The inbox gets flooded, and the workers spend more time emailing than processing tasks. Should aggregate failures and send digests, or at minimum queue the alert email as a separate Celery task.
 
-3. send_bulk_notifications:
-- Calls send_push_notification DIRECTLY (not .delay()). This means notifications are sent synchronously inside the bulk task, losing all the benefits of task distribution, retries, and rate limiting on the individual task.
-- The rate_limit='10/s' applies to the bulk task itself, not the individual notifications inside it.
-- For a large user_ids list, this task runs for a very long time with no checkpointing. If the worker crashes, all progress is lost.
+on_worker_ready calls `db.engine.connect()` -- presumably to warm the connection pool. But the returned connection object is never closed. That's a leaked connection right at startup. And the intent is questionable -- SQLAlchemy's pool handles connections lazily, so this "warmup" just leaks one connection without benefit.
 
-4. send_scheduled_notification:
-- Marks notification.sent = True AFTER calling send_push_notification.delay(). But .delay() only enqueues the task -- it does not mean the notification was actually sent. If the push notification task fails later, sent=True is wrong.
-- Race condition: two workers could both check notification.sent == False and both dispatch.
+Now send_bulk_notifications -- this is interesting. It loops through user_ids and calls `send_push_notification(...)` directly, not `.delay()`. So notifications are sent synchronously inside the bulk task, one at a time, in a single worker process. The `rate_limit='10/s'` on the bulk task limits how often the BULK task runs, but doesn't rate-limit the individual push notifications at all. For 10,000 users, this single task runs for a very long time with no checkpointing. If the worker crashes halfway through, all progress is lost and 5,000 users get duplicate notifications on retry.
 
-5. process_notification_batch:
-- Dispatches all notifications in a loop, then marks batch as 'dispatched'. If the worker crashes mid-loop, some are dispatched but the batch is not marked, causing re-dispatch on retry (duplicate notifications).
-- No limit on batch size. A batch with 1 million notifications queues 1 million tasks in a tight loop, potentially overwhelming the broker.
+send_scheduled_notification has a subtle correctness issue. It marks `notification.sent = True` AFTER calling `.delay()`. But `.delay()` only enqueues the task -- it doesn't mean the notification was actually delivered. If the push notification task fails later, the notification is permanently marked as sent even though the user never received it. And there's a race condition: two workers could both check `notification.sent == False` simultaneously and both dispatch.
 
-6. Configuration:
-- broker_url uses guest:guest default credentials. These should be changed for production.
-- result_backend = 'rpc://' uses an RPC-style result backend which creates a unique queue per result. This creates many short-lived queues in RabbitMQ, which can cause performance issues at scale.
-- worker_concurrency=16 may be too high for I/O-bound tasks that make external API calls, or too low for CPU-bound tasks. Should be tuned based on workload.
+process_notification_batch dispatches all notifications in a loop, then marks the batch as 'dispatched'. But if the worker crashes mid-loop, some tasks are queued but the batch isn't marked, so a retry re-dispatches everything. Duplicate notifications for every user processed before the crash.
 
-7. Error handling:
-- send_push_notification raises ValueError for unknown platform but has no retry for transient errors (network timeouts, service unavailability).
-- No dead letter queue or failure tracking beyond email alerts.
+The configuration uses guest:guest credentials for RabbitMQ -- default credentials in production. And `result_backend = 'rpc://'` creates a unique reply queue per result, which generates many short-lived queues in RabbitMQ. At scale, this causes significant broker overhead.
 
-Let me structure the review.
+send_push_notification raises ValueError for unknown platforms but has no retry for transient errors like network timeouts or service unavailability. A momentary AWS outage would permanently fail every iOS push notification instead of retrying.
+
 </think>
 
 ## Code Review: Celery Notification System
@@ -759,41 +722,22 @@ app.conf.beat_schedule = {
     },
 }
 ```''', r'''<think>
-Let me review this Celery configuration and worker management code.
+Let me examine this Celery configuration and management code. There's a health_check task, purge_results, restart_workers, and queue/routing configuration.
 
-1. Health check issues:
-- health_check runs every 30 seconds via beat. The task calls `app.control.inspect().active()` which broadcasts a message to ALL workers and waits for responses. This is an expensive operation that creates network traffic proportional to the number of workers, every 30 seconds.
-- The health check is a Celery task itself, so if workers are overloaded (which is what you want to detect), the health check task waits in the queue and gives stale results.
-- psutil import inside the task is fine but adds a dependency.
+The health_check runs every 30 seconds via beat. It calls `app.control.inspect().active()` which broadcasts a message to ALL workers and waits for responses. That's an expensive operation -- network traffic proportional to the number of workers, every 30 seconds. But here's the deeper problem: the health check is itself a Celery task. If workers are overloaded (which is exactly what you'd want the health check to detect), the health check task sits in the queue behind all the backed-up work. By the time it runs, the situation may have resolved or gotten worse. You can't reliably monitor a system using the system itself.
 
-2. purge_results is dangerous:
-- Uses `backend.client.keys('celery-task-meta-*')` which is the Redis KEYS command. KEYS blocks the Redis server and scans the entire keyspace. On a Redis instance with millions of keys, this can block for seconds, causing cascading failures.
-- There is already `result_expires=86400` configured, which handles cleanup automatically via TTL. This manual purge is redundant AND dangerous.
-- Running every hour means it calls KEYS every hour.
+purge_results is alarming. It uses `backend.client.keys('celery-task-meta-*')` -- that's the Redis KEYS command. KEYS blocks the Redis server while scanning the ENTIRE keyspace. On a production Redis with millions of keys, this blocks ALL Redis operations for seconds, potentially causing cascading timeouts across the entire application. And the irony is, `result_expires=86400` is already configured, which automatically sets TTL on result keys. This manual purge is redundant AND destructive. Should be removed entirely, or at minimum use SCAN instead of KEYS.
 
-3. restart_workers is extremely dangerous:
-- `app.control.broadcast('shutdown')` shuts down ALL workers. This is exposed as a Celery task, which means it can be triggered by anything that can submit tasks. If there is no access control on the broker, anyone can shut down the entire cluster.
-- The task itself runs on a worker that is about to be shut down. The result may never be stored.
-- This does not actually restart workers -- it only shuts them down. Restart depends on a process supervisor (systemd, supervisord) being configured correctly.
+Now restart_workers... `app.control.broadcast('shutdown')` shuts down ALL workers. This is exposed as a regular Celery task, meaning anything that can submit tasks can trigger a full cluster shutdown. If there's no access control on the broker, that's a denial-of-service vector. Also, the task runs on a worker that's about to be shut down -- the result may never be stored.
 
-4. Queue configuration:
-- The 'bulk' queue uses `default_exchange`. This means 'default' and 'bulk' share the same exchange but different routing keys. This works but is confusing -- they could use the same queue config.
-- No dead letter queue configured. Failed tasks that exceed max_retries are silently discarded.
+Wait, it doesn't even restart anything. It just shuts down. The "restart" depends on an external process supervisor (systemd, supervisord) being configured to auto-restart workers. If that's not set up, calling this task just kills your entire task processing infrastructure.
 
-5. Time limits:
-- task_time_limit=3600 (1 hour) and task_soft_time_limit=3000 (50 min) are global defaults. The generate_report task in the 'bulk' queue with rate_limit='5/h' might need different time limits than send_email.
-- 1 hour is a very long time limit for most tasks. If a task hangs, it blocks a worker slot for an hour.
+The queue configuration looks mostly reasonable, but I notice no dead letter queue is configured. Tasks that exceed max_retries are silently discarded. For critical tasks like order processing, you'd want failed tasks routed to a dead letter queue for manual inspection.
 
-6. Worker settings:
-- worker_max_memory_per_child=200000 (200MB in KB). This kills workers that exceed 200MB, which might be too low for report generation tasks that handle large datasets.
-- worker_max_tasks_per_child=1000 causes worker recycling every 1000 tasks, which helps with memory leaks but adds overhead.
+The time limits are concerning: `task_time_limit=3600` means a hung task can block a worker slot for a full hour before being killed. That's extremely generous. And `worker_max_memory_per_child=200000` (200MB) might be too low for report generation tasks that handle large datasets -- they'd get killed mid-generation.
 
-7. Missing configuration:
-- No broker_transport_options for visibility_timeout
-- No task_default_queue set explicitly
-- No task_create_missing_queues = False (default creates queues dynamically, which can mask routing errors)
+Missing from the config: no `broker_transport_options` for visibility_timeout (controls how long an unacked message stays invisible), no `task_create_missing_queues = False` (the default auto-creates queues, which can mask routing errors -- a typo in a queue name silently creates a new queue that nothing consumes from).
 
-Let me write the review.
 </think>
 
 ## Code Review: Celery Configuration and Worker Management
@@ -984,37 +928,26 @@ app.conf.update(
     task_ignore_result=True,
 )
 ```''', r'''<think>
-Let me review this Celery task code for design patterns, error handling, and anti-patterns.
+Let me work through this code focusing on the task patterns and how they interact with the global configuration.
 
-1. process_large_dataset:
-- Loads all records into memory with dataset.records.all(), then len(records) evaluates the entire queryset. For a large dataset with millions of records, this consumes excessive memory.
-- All results are accumulated in a list, then bulk inserted one at a time (db.session.add in a loop, not bulk insert). This is slow and memory-intensive.
-- No error handling. If transform_record fails on record 500 of 1000, all progress is lost.
-- No checkpointing. If the worker crashes at 90% completion, everything starts over.
+Starting with process_large_dataset. It loads `dataset.records.all()` -- that materializes the entire queryset into memory. For a dataset with a million records, that's a million ORM objects in RAM. Then it does `len(records)` on that list, transforms each one, and appends results to another list. So now there are TWO large lists in memory -- the source records and the transformed results.
 
-2. TaskProgressMixin:
-- This mixin pattern works but has a subtle issue: update_state requires the task to have a result backend. But the global config sets task_ignore_result=True. When results are ignored, update_state/update_progress silently does nothing, and get_task_progress will always return PENDING state.
+Then it inserts results using `db.session.add(result)` in a loop -- that's individual INSERTs, not a bulk operation. For a million records, that's incredibly slow. Should use `db.session.bulk_save_objects()` or at least commit in batches. And there's no error handling -- if transform_record fails on record 500, all 499 successfully transformed results are lost because the session is never committed and there's no try/except.
 
-3. chained_processor:
-- Implements a state machine by recursively calling itself with a step number. This is an anti-pattern because:
-  - Task IDs change at each step, making it impossible to track the overall chain
-  - If step 2 fails and retries, the original caller has no visibility
-  - The chain is not composable or reusable
-- Should use Celery's built-in chain primitive instead.
+No checkpointing either. If the worker crashes at 90% completion after running for 2 hours, everything starts from zero.
 
-4. resilient_api_call:
-- Good pattern for retry on different HTTP errors. But max_retries=3 and the retry does not pass the exception. Should pass exc=exc for proper traceback.
-- After max_retries, Timeout and ConnectionError retries will raise MaxRetriesExceededError instead of the original exception. Should re-raise explicitly.
+Now the TaskProgressMixin is interesting... it provides update_progress which calls self.update_state. But wait -- I see `task_ignore_result=True` in the global config. When results are ignored, update_state silently does nothing because there's no backend to store the state in. So the progress tracking in process_large_dataset is completely broken. get_task_progress will always return PENDING state because no state was ever recorded.
 
-5. fire_and_forget with task_ignore_result=True:
-- The global task_ignore_result=True means ALL tasks ignore results, including process_large_dataset which uses update_state for progress tracking. This breaks the progress feature completely.
-- If only fire_and_forget should ignore results, set it per-task: @app.task(ignore_result=True).
+Hmm, that's a sneaky interaction between the global config and the task design. The fix would be to either remove `task_ignore_result=True` globally, or set `ignore_result=False` specifically on tasks that need progress tracking.
 
-6. get_task_progress:
-- str(result.result) on failure exposes the exception object. If the exception contains sensitive data (database errors, API keys in URLs), this leaks information.
-- Does not handle REVOKED state.
+chained_processor implements a manual state machine by calling itself recursively with step numbers. I initially thought this might be acceptable, but actually it's an anti-pattern for several reasons. Each recursive call creates a new task with a new task ID, so the caller has no way to track the overall chain. If step 2 fails and retries, the original caller is tracking step 1's task ID and has no visibility into what happened. And the chain isn't composable -- you can't insert or remove steps without modifying the function. Celery has built-in chain() for exactly this pattern.
 
-Let me structure this.
+resilient_api_call has good retry logic for different HTTP error types, but I notice it doesn't pass `exc=exc` to self.retry(). Without the original exception, the traceback is lost in Celery's retry mechanism. Also, after max_retries is exceeded for Timeout or ConnectionError, Celery raises MaxRetriesExceededError instead of the original exception, which makes debugging harder.
+
+The fire_and_forget function sets `task_ignore_result=True` globally, but only the fire_and_forget task actually needs to ignore results. This global setting breaks progress tracking for ALL tasks. Should be `@app.task(ignore_result=True)` on just that one task.
+
+get_task_progress doesn't handle the REVOKED state, and `str(result.result)` on FAILURE exposes the exception object -- if the exception contains database credentials or API keys in error messages, that's an information leak.
+
 </think>
 
 ## Code Review: Celery Task Patterns

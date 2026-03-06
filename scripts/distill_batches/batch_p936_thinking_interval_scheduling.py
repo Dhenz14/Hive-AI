@@ -1,18 +1,18 @@
 PAIRS = [
     ("thinking/algorithms", r'''Solve the weighted job scheduling problem: given n jobs with start time, end time, and profit, find the maximum profit subset of non-overlapping jobs. Implement the O(n log n) DP solution.''', r'''<think>
-Weighted job scheduling is a classic DP problem. Sort jobs by end time. For each job i, find the latest job j that does not overlap with i (using binary search). Then dp[i] = max(dp[i-1], profit[i] + dp[j]).
+Weighted job scheduling. I need to find maximum profit from non-overlapping jobs.
 
-Steps:
-1. Sort jobs by end time
-2. For each job i, binary search for the latest job ending before start[i]
-3. dp[i] = max(not take job i = dp[i-1], take job i = profit[i] + dp[latest_compatible])
-4. Answer is dp[n]
+My first thought: greedy by earliest end time? That works for unweighted interval scheduling, but with weights a short low-profit job might block a long high-profit one. So greedy won't work here -- I need DP.
 
-The binary search is on the end times array, finding the rightmost end time <= start[i]. This gives O(n log n) total.
+OK, let me think about the DP. Sort jobs by end time. For each job i, I either take it or skip it:
+- Skip: dp[i] = dp[i-1]
+- Take: dp[i] = profit[i] + dp[latest compatible job]
 
-For reconstructing the actual set of jobs, we trace back through the DP decisions.
+The "latest compatible job" is the last job ending before start[i]. I could scan linearly (O(n) per job = O(n^2) total), but binary search on the sorted end times gives O(log n) per job. Since we already sorted by end time, the ends array is sorted, and I can use bisect_right(ends, start[i]) to find the count of jobs ending at or before start[i].
 
-Edge cases: all jobs overlap (take the most profitable single job), no jobs overlap (take all), jobs with zero duration, negative profits.
+Wait, I need to be precise about the overlap condition. Do intervals [1,3] and [3,5] overlap? The problem says "non-overlapping," and typically these are considered compatible since one ends exactly when the other starts. So I search for end_time <= start_time (not strictly less). bisect_right(ends, start[i]) gives exactly the number of jobs ending at or before start[i], which is the dp index I need.
+
+For reconstruction: store a choice array tracking whether we took each job, then trace backward. The total complexity is O(n log n) for sorting + O(n log n) for all binary searches.
 </think>
 
 ## Weighted Job Scheduling

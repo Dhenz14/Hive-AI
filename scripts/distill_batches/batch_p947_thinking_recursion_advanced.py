@@ -1,14 +1,16 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement Tower of Hanoi variants: (1) standard 3-peg, (2) Frame-Stewart algorithm for 4 pegs, (3) constrained version where moves can only go to adjacent pegs. Show move counts and optimality proofs.''', r'''<think>
-Three Tower of Hanoi variants:
+Three Tower of Hanoi variants. Let me think through the recursion for each one.
 
-1. Standard 3-peg: T(n) = 2^n - 1 moves. Recursive: move n-1 disks to auxiliary, move largest to target, move n-1 from auxiliary to target.
+1. Standard 3-peg: T(n) = 2^n - 1 moves. The recursive structure is clear -- move n-1 disks to auxiliary, move largest to target, move n-1 from auxiliary to target. This is provably optimal because you must move the bottom disk at least once, and before that you must clear all n-1 disks off it.
 
-2. Frame-Stewart for 4 pegs: partition n disks into groups. Move top k disks to a spare peg using 4 pegs, move remaining n-k disks to target using 3 pegs (2^(n-k)-1 moves), move k disks from spare to target using 4 pegs. Minimize over k: T4(n) = min over k of (2*T4(k) + 2^(n-k) - 1). This is conjectured optimal (proven only in 2014 by Bousch).
+2. Frame-Stewart for 4 pegs: this is trickier. My first instinct was to just move disks one-by-one to the extra peg, but that does not exploit the 4th peg recursively. The right approach: partition n disks into groups. Move top k disks to a spare peg using all 4 pegs, move remaining n-k disks to target using only 3 pegs (2^(n-k)-1 moves), then move k disks from spare to target using 4 pegs. We minimize over k: T4(n) = min over k of (2*T4(k) + 2^(n-k) - 1).
 
-3. Adjacent-only moves: disks can only move to adjacent pegs (peg 0 <-> peg 1 <-> peg 2). This requires more moves: T_adj(n) = 3^n - 1 for moving from peg 0 to peg 2.
+I considered whether this is provably optimal -- it was a conjecture for decades (the "Frame-Stewart conjecture"), and Bousch proved it in 2014. The growth rate is roughly 2^(2*sqrt(n)), which is sub-exponential. That is a huge improvement over 2^n.
 
-For the 4-peg variant, I need to compute the optimal k for each n. The Frame-Stewart numbers grow much slower than 2^n.
+3. Adjacent-only moves: disks can only move to neighboring pegs (peg 0 <-> peg 1 <-> peg 2). Hmm, this changes the recursion significantly. Moving from peg 0 to peg 2 requires going through peg 1. For adjacent pegs (say 0 to 1), T(n) = 2*T(n-1) + 1. But for non-adjacent pegs (0 to 2), we need to move n-1 disks out of the way to peg 2, move disk n to peg 1, move n-1 disks back to peg 0, move disk n from 1 to 2, then move n-1 disks from 0 to 2 again. That gives T_nonadj(n) = 3*T_nonadj(n-1) + 2. Wait, let me verify: T_nonadj(1) = 2 (move to middle, then to target). T_nonadj(n) = 3^n - 1 for moving from peg 0 to peg 2. That grows much faster than the standard version.
+
+For the 4-peg variant, I need to compute the optimal k for each n using dynamic programming. The Frame-Stewart numbers grow much slower than 2^n.
 
 Let me implement all three with move generation and counting.
 </think>
@@ -163,21 +165,26 @@ print(f"  Adjacent: 3^n - 1 (exponential, faster than 3-peg)")
 | Adjacent-only | 3^n - 1 | Exponential |'''),
 
     ("thinking/algorithms", r'''Implement a recursive descent parser for arithmetic expressions. Support +, -, *, /, parentheses, and operator precedence. Show the grammar and parse tree construction.''', r'''<think>
-Recursive descent parsing for arithmetic expressions. The grammar (in order of increasing precedence):
+Recursive descent parsing for arithmetic expressions. I need to define a grammar that encodes operator precedence.
+
+My first thought was a flat grammar: expr -> expr op expr, but that is ambiguous -- it does not encode whether 2 + 3 * 4 means (2+3)*4 or 2+(3*4). I need to use the grammar structure itself to enforce precedence.
+
+The standard approach uses nesting (lower precedence = higher in the grammar):
 
 expr     -> term (('+' | '-') term)*
 term     -> factor (('*' | '/') factor)*
 factor   -> NUMBER | '(' expr ')' | '-' factor (unary minus)
 
-Each non-terminal becomes a function. The parser consumes tokens left-to-right, building an AST or directly evaluating.
+Each non-terminal becomes a function. The parser consumes tokens left-to-right. Because term is called inside expr, multiplication binds tighter than addition -- by the time we return to the expr level, the entire product has already been parsed as a single term.
+
+I considered doing direct evaluation instead of building an AST, but an AST is more flexible -- it allows inspection, optimization, and pretty-printing. The tradeoff is more memory, but for arithmetic expressions it is negligible.
+
+Should I handle unary minus? Yes, "-5 + 3" is a common case. I will put it in the factor rule so it binds tightest. But wait, what about "--5"? That should also work because the rule is factor -> '-' factor (recursive), so --5 parses as -(-(5)) = 5. Good.
 
 I will implement:
 1. A tokenizer (lexer) that produces tokens: NUMBER, PLUS, MINUS, STAR, SLASH, LPAREN, RPAREN
-2. A parser that follows the grammar
-3. AST construction
-4. Evaluation
-
-This handles operator precedence naturally: multiplication/division bind tighter because they are parsed at a deeper level of the grammar.
+2. A parser that follows the grammar and builds an AST
+3. Evaluation by walking the AST
 </think>
 
 ## Recursive Descent Parser for Arithmetic Expressions
@@ -383,26 +390,29 @@ factor -> NUMBER | '(' expr ')' | '-' factor  # highest
 - **Evaluation**: O(nodes in AST) = O(n)'''),
 
     ("thinking/algorithms", r'''Implement a complete expression evaluator that handles variables, function calls (sin, cos, sqrt), and operator precedence. Support assignment and multi-line evaluation.''', r'''<think>
-Extending the recursive descent parser to support:
+Extending the recursive descent parser to support variables, functions, and assignment. Let me think through the design decisions.
+
+The grammar needs to extend for:
 1. Variables (x = 5, then use x in expressions)
 2. Built-in functions (sin, cos, sqrt, abs, pow)
 3. Assignment operator (=)
-4. Multi-line evaluation
 
-The grammar extends:
+A tricky part: how do I distinguish between assignment and expression at parse time? When I see an IDENTIFIER at the start, it could be a variable reference (part of an expression) or the left side of an assignment. I need lookahead -- if the next token is '=', it is an assignment; otherwise treat it as an expression. This requires 1-token lookahead which is fine for recursive descent.
+
+Hmm, should exponentiation be left-associative or right-associative? In math, 2^3^2 = 2^(3^2) = 2^9 = 512, so right-associative. I initially wrote factor -> power ('^' power)* which would give left-associativity. Wait, no -- to get right-associativity I need right-recursion: power -> unary ('^' power)? That way 2^3^2 parses as 2^(3^2). Let me restructure:
+
 statement -> assignment | expr
 assignment -> IDENTIFIER '=' expr
 expr -> term (('+' | '-') term)*
-term -> factor (('*' | '/') factor)*
-factor -> power ('^' power)*  (right-associative exponentiation)
-power -> unary
+term -> power (('*' | '/') power)*
+power -> unary ('^' power)?  -- right-recursive for right-associativity
 unary -> '-' unary | atom
 atom -> NUMBER | IDENTIFIER | IDENTIFIER '(' args ')' | '(' expr ')'
 args -> expr (',' expr)*
 
-I need to extend the tokenizer to handle identifiers (variable names and function names).
+I considered making function calls a separate grammar rule, but they fit naturally in atom -- when I see IDENTIFIER followed by '(', it is a function call; otherwise a variable reference.
 
-For the environment, I will use a dict mapping variable names to values.
+For the environment, I will use a dict mapping variable names to values. Built-in functions go in a separate dict so users cannot accidentally overwrite sin or cos.
 </think>
 
 ## Expression Evaluator with Variables and Functions
@@ -616,22 +626,24 @@ print(f"\nVariables: { {k: round(v, 4) for k, v in ev.env.items() if k not in ('
 - **Unary minus**: -x, --x, etc.'''),
 
     ("thinking/algorithms", r'''Implement power set generation with pruning for constraint satisfaction. Given a set of items with weights and values, generate all subsets satisfying a weight constraint while maximizing value. Use branch-and-bound pruning.''', r'''<think>
-Power set generation with branch and bound for the 0/1 knapsack problem. Instead of generating all 2^n subsets, prune branches that cannot improve on the current best solution.
+Power set generation with branch and bound for the 0/1 knapsack problem. The naive approach generates all 2^n subsets, but most of them are either infeasible (over capacity) or suboptimal. Can we prune early?
 
-Branch and bound approach:
-1. Sort items by value/weight ratio (descending) for better pruning
-2. At each step, decide to include or exclude the current item
-3. Compute an upper bound for the remaining items (fractional knapsack relaxation)
-4. If the upper bound + current value <= best known value, prune this branch
+Branch and bound approach: at each step, decide to include or exclude the current item. Before recursing, compute an upper bound on the best value achievable from this point. If even the optimistic bound cannot beat our current best, prune the entire subtree.
 
-The upper bound: solve the fractional knapsack with remaining items and remaining capacity. This gives an optimistic estimate that can never be exceeded.
+But what upper bound should I use? I considered several options:
+- Sum of all remaining values: too loose, ignores the capacity constraint entirely
+- Greedy by value: better but still loose
+- Fractional knapsack relaxation: this is the tightest bound we can compute efficiently
 
-This turns exponential search into something much faster in practice, though worst case is still O(2^n).
+Hmm, actually the fractional knapsack bound is ideal because it is always >= the integer optimum (it allows taking fractions of items), and it can be computed in O(remaining items) time. To make it as tight as possible, I should sort items by value/weight ratio (descending) first, so the greedy fractional solution packs the most valuable-per-weight items first.
 
-I will implement:
-1. The recursive branch-and-bound solver
-2. Upper bound computation
-3. Statistics on pruning effectiveness
+Wait, does the sorting order affect correctness or just efficiency? It affects efficiency -- with ratio-descending order, the "include" branch explores high-value items first, finding a good solution early. This makes the upper bound pruning more effective because we have a strong lower bound to compare against.
+
+One thing I need to be careful about: the upper bound must be computed BEFORE branching, and it should account for the current accumulated value plus the fractional relaxation of the remaining items.
+
+This turns exponential search into something much faster in practice. For n=20, brute force checks 2^20 = ~1M subsets, but branch and bound often needs only a few thousand nodes. The worst case is still O(2^n) though -- imagine items all with the same ratio, where no pruning helps.
+
+I will implement the recursive solver with pruning statistics to show the effectiveness.
 </think>
 
 ## Power Set with Branch-and-Bound Pruning
@@ -788,34 +800,32 @@ print(f"  Max value: {bb_val2}")
 - **Upper bound computation**: O(n) per node (fractional knapsack)'''),
 
     ("thinking/algorithms", r'''Implement the N-Queens problem with bitwise optimization. Place n queens on an n x n board so no two attack each other. Use bit manipulation for O(1) conflict checking per position.''', r'''<think>
-N-Queens with bitwise optimization: instead of using arrays to track which columns and diagonals are attacked, use bitmasks. This gives O(1) conflict checking per position.
+N-Queens with bitwise optimization. The standard approach uses arrays to track attacked columns and diagonals, but that requires O(n) per conflict check. With bitmasks, we can check all conflicts in O(1).
 
-Three bitmasks:
+Three bitmasks needed:
 1. cols: bits set for occupied columns
-2. diag1: bits set for occupied "\" diagonals (row + col)
-3. diag2: bits set for occupied "/" diagonals (row - col + n - 1)
+2. diag1: bits for "\" diagonals
+3. diag2: bits for "/" diagonals
 
-For each row, the available positions are: ~(cols | diag1 | diag2) & ((1 << n) - 1).
+For each row, the available positions are: ~(cols | diag1 | diag2) & ((1 << n) - 1). This single bitwise operation replaces the inner loop of the array-based approach.
 
 To iterate over available positions efficiently:
 - available = ~(cols | diag1 | diag2) & mask
 - While available != 0: pick lowest set bit with (available & -available), then clear it
 
-When moving to the next row:
-- cols |= bit (column is now occupied)
-- diag1 shifts: (diag1 | bit) << 1 (diagonal shifts right for next row)
-  Wait, for "\" diagonals: row + col is constant. When we go to row+1, the diagonal from (row, col) affects column col-1 in the next row. So diag1 should shift left.
-  Actually: for the "\" diagonal, a queen at column c in the current row attacks column c-1 in the next row. So (diag1 | bit) >> 1.
-  For the "/" diagonal: attacks column c+1 in the next row. So (diag2 | bit) << 1.
+Now the tricky part: how do diagonals shift between rows? I need to think carefully about this.
 
-Let me verify: queen at (row, col). It attacks:
-- Same column: col (all rows)
-- "\" diagonal: (row+1, col-1), (row+2, col-2), ... so shift right
-- "/" diagonal: (row+1, col+1), (row+2, col+2), ... so shift left
+A queen at (row, col) attacks along the "\" diagonal where row-col is constant. In the NEXT row, this means it attacks column col-1. So the diagonal mask should shift right by 1.
+
+Wait, let me double-check. If a queen is at column 3 (bit position 3), on the "\" diagonal it attacks column 2 in the next row, column 1 two rows down, etc. So (diag1 | bit) >> 1.
+
+For the "/" diagonal where row+col is constant: a queen at column 3 attacks column 4 in the next row. So (diag2 | bit) << 1.
+
+Hmm, I initially had these backwards -- I was thinking about which direction the diagonal "goes" visually, but what matters is which column is attacked in the next row. Let me verify with a concrete example: queen at (0, 2) on a 4x4 board. The "\" diagonal goes (0,2), (1,1), (2,0). Row 1 attack is column 1 = 2-1. Shift right. The "/" diagonal goes (0,2), (1,3). Row 1 attack is column 3 = 2+1. Shift left. Good, my analysis is correct.
 
 So for next row: diag1 = (diag1 | bit) >> 1, diag2 = (diag2 | bit) << 1.
 
-This is the standard N-Queens with bitmask optimization.
+One more detail: extracting the column number from the bit. I could use bit_length()-1, but a simple while loop shifting right also works and is clearer.
 </think>
 
 ## N-Queens with Bitwise Optimization

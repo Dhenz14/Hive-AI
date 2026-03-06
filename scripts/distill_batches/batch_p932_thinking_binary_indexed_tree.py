@@ -1,20 +1,19 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement a 2D Binary Indexed Tree (Fenwick Tree) that supports point updates and rectangle sum queries. Explain the extension from 1D to 2D.''', r'''<think>
-A 2D BIT extends the 1D concept by nesting one BIT inside another. In 1D, BIT supports point update and prefix sum query in O(log n). In 2D, we have a grid where each cell of the outer BIT contains an inner BIT over the other dimension.
+So the task is a 2D BIT. Let me think about how to extend from 1D. In 1D, BIT gives us point update and prefix sum in O(log n). The question is how to go to 2D.
 
-Point update at (r, c) with value delta: traverse the outer BIT dimension (row indices using r += r & (-r)) and for each, traverse the inner BIT dimension (column indices using c += c & (-c)), adding delta.
+I initially considered maintaining a separate 1D BIT for each row and querying across rows, but that won't work because a row-by-row approach would give O(n log m) per query -- no better than brute force in one dimension.
 
-Prefix sum query for rectangle (1,1) to (r,c): traverse outer dimension downward (r -= r & (-r)) and for each, traverse inner dimension downward (c -= c & (-c)), accumulating the sum.
+Hmm, actually... what if we nest BITs? For each index in the outer BIT (rows), we maintain an inner BIT (columns). That way, a point update at (r, c) traverses the outer BIT dimension using r += r & (-r), and for each stop, traverses the inner BIT with c += c & (-c). That should give O(log n * log m) per update.
 
-For rectangle sum (r1,c1) to (r2,c2), use inclusion-exclusion:
+For prefix sum queries over rectangle (1,1) to (r,c), we do the reverse: traverse downward in both dimensions. But wait, we need arbitrary rectangle sums (r1,c1) to (r2,c2), not just from the origin. Since we only have prefix sums, we need inclusion-exclusion:
 sum(r2,c2) - sum(r1-1,c2) - sum(r2,c1-1) + sum(r1-1,c1-1)
 
-Time complexity: O(log(n) * log(m)) per operation.
-Space: O(n * m).
+That works because each cell is counted exactly once in the final result. Good.
 
-Important: BIT is 1-indexed. I need to handle the indexing carefully. The key operation is isolating the lowest set bit: i & (-i).
+One thing I need to be careful about: BIT is 1-indexed. If I accidentally pass 0 to the update loop, the i += i & (-i) operation on 0 gives 0, causing an infinite loop. So I must validate inputs or at least document the 1-indexed requirement clearly.
 
-Let me implement this with clear separation of the update and query logic.
+Time complexity: O(log(n) * log(m)) per operation. Space: O(n * m). Let me implement this with clear separation of update and query logic.
 </think>
 
 ## 2D Binary Indexed Tree (Fenwick Tree)
@@ -109,21 +108,19 @@ print(f"Brute force: {brute}")  # 73
 - **Build from matrix**: O(n * m * log(n) * log(m)), or O(n*m) with careful initialization'''),
 
     ("thinking/algorithms", r'''Implement a BIT that supports range updates and point queries. Show the difference trick and explain how it relates to the standard point-update/prefix-sum BIT.''', r'''<think>
-The standard BIT supports point updates and prefix sum queries. To support range updates and point queries, we use a difference array approach combined with BIT.
+OK so the standard BIT supports point updates and prefix sum queries. Now I need range updates and point queries -- that is the opposite pattern. How do I flip things around?
 
-The key insight: if we maintain a BIT over a difference array D where D[i] = A[i] - A[i-1], then:
-- A[i] = prefix_sum(D, i) = D[1] + D[2] + ... + D[i]
-- Range update A[l..r] += val becomes: D[l] += val, D[r+1] -= val
+I initially considered building a segment tree with lazy propagation, but that feels like overkill for this specific operation pair. There should be a way to reuse the BIT machinery.
 
-So "point query of A[i]" becomes "prefix sum query on D" (which BIT handles), and "range update on A" becomes "two point updates on D" (which BIT handles).
+Wait -- what about a difference array? If I maintain D[i] = A[i] - A[i-1], then A[i] = D[1] + D[2] + ... + D[i] = prefix_sum(D, i). And a range update A[l..r] += val only changes two elements of D: D[l] += val, D[r+1] -= val. That is exactly two point updates!
 
-This is a beautiful duality:
-- Standard BIT: point update + prefix sum query
-- Difference BIT: range update + point query
+So the operations swap roles:
+- "Point query of A[i]" becomes "prefix sum query on D" (which BIT handles natively)
+- "Range update on A" becomes "two point updates on D" (which BIT also handles natively)
 
-The implementation is essentially the same BIT, just with the operations reinterpreted. The update function adds to the difference array (two BIT point updates for a range), and the query function computes the prefix sum (which gives the actual value at a point).
+Hmm, actually this is a nice duality. The underlying BIT is identical -- we just reinterpret what the stored values mean. The implementation is the same BIT class, with a wrapper that translates range_update into two point updates and point_query into a prefix_sum call.
 
-Let me implement this cleanly and show both interpretations side by side.
+One thing to watch: when updating D[r+1], if r+1 > n we just skip it because D values beyond the array do not affect any prefix sum within bounds. Let me implement this and show both interpretations side by side.
 </think>
 
 ## BIT for Range Updates and Point Queries
@@ -230,35 +227,32 @@ Range add val to A[l..r]:
 - **Space**: O(n)'''),
 
     ("thinking/algorithms", r'''Implement a BIT that supports both range updates AND range sum queries. Show the mathematical derivation using two BITs.''', r'''<think>
-This is the most general BIT variant. We want:
-1. Range update: add val to A[l..r]
-2. Range sum query: sum of A[l..r]
+This is the hardest BIT variant -- both range updates AND range sum queries. With a single BIT on a difference array, I can do range update + point query (as shown before). But now I need range sums too.
 
-We need two BITs. The derivation:
+My first thought: could I just maintain a running total alongside the difference BIT? But that does not work because a range update affects a contiguous block, so the prefix sum changes non-uniformly.
 
-Let D[i] = A[i] - A[i-1] (difference array, D[1] = A[1]).
-Then A[i] = sum(D[j] for j=1..i).
+Let me derive this from scratch. Let D[i] = A[i] - A[i-1], so A[i] = sum(D[j] for j=1..i).
 
-Prefix sum: sum(A[j] for j=1..k) = sum(sum(D[j] for j=1..i) for i=1..k)
+prefix_sum(k) = sum(A[j] for j=1..k) = sum(sum(D[j] for j=1..i) for i=1..k)
 
-Expanding: each D[j] appears in (k - j + 1) sums for j <= k.
-So prefix_sum(k) = sum(D[j] * (k - j + 1) for j=1..k)
-                  = (k+1) * sum(D[j] for j=1..k) - sum(j * D[j] for j=1..k)
+Hmm, expanding the double sum: each D[j] appears in sums for i = j, j+1, ..., k. So D[j] appears (k - j + 1) times.
 
-So we maintain two BITs:
-- B1[i] tracks D[i] (for computing sum(D[j]))
-- B2[i] tracks i * D[i] (for computing sum(j * D[j]))
+prefix_sum(k) = sum(D[j] * (k - j + 1) for j=1..k)
+              = (k+1) * sum(D[j]) - sum(j * D[j])
 
-prefix_sum(k) = (k+1) * B1.prefix(k) - B2.prefix(k)
+Wait, that is actually clean! I can split this into two independent prefix sums:
+- B1 tracks D[i] --> gives sum(D[j] for j=1..k)
+- B2 tracks i * D[i] --> gives sum(j * D[j] for j=1..k)
 
-For range update A[l..r] += val:
-- B1.update(l, val), B1.update(r+1, -val)
-- B2.update(l, l*val), B2.update(r+1, -(r+1)*val)
+Then prefix_sum(k) = (k+1) * B1.prefix(k) - B2.prefix(k). Nice.
 
-For range query A[l..r]:
-- prefix_sum(r) - prefix_sum(l-1)
+For range update A[l..r] += val, I update the difference array at two points:
+- B1: update(l, val), update(r+1, -val)
+- B2: update(l, l*val), update(r+1, -(r+1)*val)
 
-This gives O(log n) for both operations using only two BITs.
+Because D[l] changes by val and D[r+1] changes by -val, the corresponding j*D[j] terms change by l*val and -(r+1)*val.
+
+For range query, just use prefix_sum(r) - prefix_sum(l-1). This gives O(log n) for both operations using only two BITs. The math works out cleanly once you see the double-sum expansion trick.
 </think>
 
 ## BIT with Range Update + Range Query
@@ -369,19 +363,15 @@ print("Brute sum [1..10]:", sum(arr))
 - **Advantage over segment tree**: ~3-5x less memory, simpler code, same asymptotics'''),
 
     ("thinking/algorithms", r'''Implement order statistics using a BIT. Support: insert a number, delete a number, find k-th smallest element, and count elements less than a given value. All in O(log n) time.''', r'''<think>
-Order statistics with BIT: we use the BIT as a frequency array over the value domain. BIT[v] stores the count of value v. Then:
-- Insert: BIT.update(v, +1)
-- Delete: BIT.update(v, -1)
-- Count less than x: BIT.prefix_sum(x-1)
-- K-th smallest: binary search on the BIT prefix sums
+Order statistics with a BIT. The idea is to use the BIT as a frequency array over the value domain -- BIT[v] stores the count of value v. Insert is update(v, +1), delete is update(v, -1), and count-less-than is prefix_sum(x-1). So far so good.
 
-The k-th smallest can be found in O(log^2 n) with regular binary search, or O(log n) using the BIT structure directly (walking down the BIT).
+But the k-th smallest is trickier. My first thought is binary search: find the smallest x where prefix_sum(x) >= k. That works but takes O(log^2 n) -- a binary search with O(log n) per prefix_sum call.
 
-The O(log n) method for k-th smallest: we walk through the BIT bits from most significant to least significant. At each step, we check if the left subtree has enough elements. If yes, go left (do not add this bit to the answer). If no, subtract the left subtree count and go right (add this bit to the answer).
+Wait, I recall there is a way to walk the BIT structure directly in O(log n). The idea is to go from the most significant bit to the least significant. At each step, we check if the left subtree (the BIT node at pos + bit) has enough elements. If tree[pos + bit] < remaining, the k-th element is to the right, so we subtract that count and advance pos. Otherwise we stay left.
 
-This is essentially a binary search that exploits the BIT structure, avoiding redundant prefix sum computations.
+Hmm, actually I need to be careful here. The tree[pos + bit] value in a BIT stores exactly the sum of a specific range of elements -- the "left subtree" at that level. So checking tree[next_pos] < remaining tells us whether the answer is in the right half. This is essentially a binary search baked into the BIT structure, avoiding redundant prefix sum recomputation. Each level processes one bit, so it is O(log n) total.
 
-The value domain needs to be bounded. If values can be up to 10^9, we need coordinate compression first.
+One constraint: the value domain needs to be bounded. If values can be up to 10^9, we would need coordinate compression first to map values to [1, n]. For this implementation I will assume a known max_val.
 </think>
 
 ## Order Statistics with Binary Indexed Tree
@@ -506,23 +496,21 @@ This works because `tree[pos + bit]` stores exactly the sum of the left subtree 
 - **Space**: O(max_val) -- requires coordinate compression for large ranges'''),
 
     ("thinking/algorithms", r'''Use a BIT to count inversions in an array efficiently. An inversion is a pair (i, j) where i < j but a[i] > a[j]. Show the O(n log n) approach and prove correctness.''', r'''<think>
-Counting inversions with BIT: process elements from left to right. For each element a[i], the number of inversions involving a[i] as the smaller element (at position j > i with a[j] < a[i]) is... wait, let me think again.
+Counting inversions with BIT. An inversion is (i, j) where i < j but a[i] > a[j]. I need to count all such pairs efficiently.
 
-Actually, for each position i from left to right, we want to count how many previously seen elements are greater than a[i]. That count equals the number of inversions where a[i] is the right element.
+My first idea: for each element a[i], count how many inversions it participates in as the smaller element (the right side of the inversion). Wait, let me think about this more carefully. If I process left to right, for position i I want to know how many elements before i are greater than a[i]. That would be the inversions where i is the right index.
 
-Using BIT: maintain a frequency BIT. For each a[i]:
-1. Count elements already inserted that are > a[i]: this is (number of elements inserted so far) - prefix_sum(a[i])
-2. Insert a[i] into BIT: update(a[i], +1)
+OK so using a frequency BIT: for each a[i] processed left to right:
+1. Query: how many already-inserted elements are > a[i]? That is (elements so far) - prefix_sum(a[i])
+2. Update: insert a[i] by doing update(a[i], +1)
 
-The total of all such counts gives the inversion count.
+The total over all positions gives the inversion count.
 
-If values can be large, we coordinate compress first: replace each value with its rank in the sorted order. This maps values to [1, n] without changing the relative order, so inversions are preserved.
+But wait -- what if values are large (up to 10^9)? The BIT size would be huge. I need coordinate compression: replace each value with its rank in sorted order. This maps to [1, n] without changing relative order, so inversions are preserved. I could also use value-1 but ranks are cleaner.
 
-Correctness proof: when processing position i, the BIT contains elements at positions 0, 1, ..., i-1. The prefix_sum(a[i]) counts how many of those are <= a[i]. So (i - prefix_sum(a[i])) counts those > a[i], which are exactly the inversions where i is the right index.
+For correctness: when processing position i, the BIT contains all elements from positions 0..i-1. prefix_sum(a[i]) counts elements <= a[i], so i - prefix_sum(a[i]) counts elements > a[i]. Each such element forms an inversion pair with position i. Summing over all i counts every inversion exactly once because each pair (i,j) with i<j is counted when processing j.
 
-Alternative: process from right to left and for each a[i], count prefix_sum(a[i] - 1) which gives elements to the right that are smaller.
-
-Time: O(n log n) for n elements, each requiring one update and one query on BIT.
+I initially considered the alternative of processing right-to-left and counting prefix_sum(a[i]-1) for each element (elements to the right that are smaller), but the left-to-right approach feels more natural. Both are O(n log n).
 </think>
 
 ## Inversion Count Using Binary Indexed Tree

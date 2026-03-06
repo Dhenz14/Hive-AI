@@ -34,11 +34,13 @@ def test_delete_user():
 ```
 
 Tests share mutable module-level state. How do I fix this?''', r'''<think>
-The issue is clear: `users_db` is a module-level mutable list shared between all tests. `test_list_users` adds 2 items, and when `test_create_user` runs next, the list still has those 2 items. `test_create_user` expects an empty list.
+The test passes individually but fails when run with other tests. This could be a timing issue, a resource conflict, or shared state. Let me look at the code more carefully.
 
-When run individually, `test_create_user` starts with an empty list because the module is freshly loaded.
+I see `users_db = []` at module level -- that is a mutable list shared between all tests. `test_list_users` adds 2 items, and when `test_create_user` runs next, the list still has those 2 items. `test_create_user` expects an empty list but gets one with 2 entries.
 
-The fix: use pytest fixtures to provide fresh state for each test.
+I initially considered whether pytest might reimport the module between tests, but that won't happen -- Python caches imported modules in sys.modules, so the module-level state persists across all tests in the same run. When run individually, `test_create_user` starts with an empty list because the module is freshly loaded with no prior test mutations.
+
+I also considered adding `users_db.clear()` at the start of each test, but that is fragile -- if someone adds a new test and forgets the clear, the same bug returns. Because the root cause is shared mutable state, the proper fix is pytest fixtures that provide fresh isolated state for each test function.
 </think>
 
 The root cause is mutable module-level state (`users_db = []`) shared between tests. Each test modifies the list, and the mutations persist into subsequent tests. Test execution order determines which tests see what state, making results dependent on ordering.
@@ -195,13 +197,17 @@ def test_process_order(mock_api_class):
 ```
 
 The test makes a real API call instead of using the mock. The mock is applied to the wrong module path.''', r'''<think>
-The classic mock patching error. You must patch the name WHERE IT IS USED, not where it is defined.
+The mock is not working -- the real API is being called. Let me trace through the import chain.
 
-`myapp/services.py` imports ExternalAPI with `from myapp.clients import ExternalAPI`. This creates a reference to ExternalAPI in the `myapp.services` namespace.
+`myapp/services.py` does `from myapp.clients import ExternalAPI`. This creates a NEW reference to ExternalAPI in the `myapp.services` namespace. The test uses `@patch('myapp.clients.ExternalAPI')` which patches the name in `myapp.clients`.
 
-`@patch('myapp.clients.ExternalAPI')` patches ExternalAPI in `myapp.clients`, but `myapp.services` already has its own reference to the class. Patching the original does not affect the imported reference.
+Wait, I need to think about this carefully. After the patch, `myapp.clients.ExternalAPI` points to the Mock. But `myapp.services.ExternalAPI` still points to the original class object -- it was bound at import time and patching the source module does not update existing references.
 
-The fix: patch `myapp.services.ExternalAPI` instead.
+I initially thought patching at the definition site would propagate to all importers, but that is not how Python namespaces work. `from X import Y` copies the reference, it does not create a live link. Because `myapp.services` already has its own binding, we must patch THERE.
+
+I considered whether using `import myapp.clients` (instead of `from myapp.clients import ExternalAPI`) in services.py would avoid this problem. Hmm, actually yes -- if services.py used `myapp.clients.ExternalAPI()`, then patching `myapp.clients.ExternalAPI` WOULD work because the lookup happens at call time through the module object. That is a useful pattern to keep in mind.
+
+The fix: patch `myapp.services.ExternalAPI` instead -- patch where the name is looked up, not where it is defined.
 </think>
 
 The mock is patching the wrong location. You are patching `myapp.clients.ExternalAPI` (where it is defined), but you need to patch `myapp.services.ExternalAPI` (where it is used).
@@ -304,9 +310,13 @@ Locally (US/Eastern, UTC-4): test runs at 11:30 PM on March 15. `date.today()` r
 In CI (UTC): test runs at 3:30 AM on March 16. `date.today()` returns March 16. FAIL.
 
 How do I make the test timezone-independent?''', r'''<think>
-The test depends on the system timezone via `date.today()`. In UTC, "11:30 PM Eastern" is "3:30 AM UTC the next day." The test compares dates in the local timezone, which differs between local development (Eastern) and CI (UTC).
+The test depends on the system timezone via `date.today()`. In UTC, "11:30 PM Eastern" is "3:30 AM UTC the next day." So the test compares March 15 (the event) with March 16 (today in UTC), and fails.
 
-The fix: either freeze time in tests, or make the code timezone-aware and test with explicit timezones.
+I initially thought the fix might be to set TZ=America/New_York in CI, but that is just a band-aid -- it hides the real problem and would break again if CI moves to a different timezone. The underlying issue is that `date.today()` is implicitly timezone-dependent.
+
+I considered making all datetimes timezone-aware, but that requires changing the production code which may not be feasible. Hmm, actually there are two good approaches: Option A is freezegun (freeze time in tests so date.today() returns a fixed value -- quick fix, no production code changes). Option B is making the code explicitly timezone-aware and injecting the clock (more robust but requires refactoring). Because freezegun requires no production code changes, it is the fastest fix, but the code should eventually be made timezone-explicit.
+
+Wait, there is also a subtle edge case: DST transitions. Even with timezone-aware code, a test near midnight during a DST change could behave differently depending on whether the timezone offset is -4 or -5 hours. Tests should explicitly cover these edge cases.
 </think>
 
 The test relies on `date.today()` which uses the system's local timezone. Your CI server runs in UTC, where 11:30 PM Eastern is already the next day. This is a common source of CI-only test failures.
@@ -442,17 +452,17 @@ Pytest fixtures are torn down in the REVERSE order of their creation (LIFO). Sin
 Setup order: db_connection (first) -> db_session (second)
 Teardown order: db_session (first) -> db_connection (second)
 
-Wait, that is the correct order. db_session should tear down first, then db_connection. The session rollback should happen before the connection closes.
+Wait, that IS the correct order. db_session should tear down first, then db_connection. The session rollback should happen before the connection closes. So why is the connection closed when session.rollback() runs?
 
-Unless... there is something else going on. Let me reconsider.
+Hmm, actually I need to reconsider. The LIFO order means this should work. But the error says the connection is already closed. There must be something else going on.
 
-Actually, pytest DOES tear down in reverse order of setup. So db_session teardown runs before db_connection teardown. This should work correctly.
+Could the fixtures have different scopes? If db_connection is function-scoped and db_session is somehow session-scoped (or vice versa), the teardown timing would be different. But wait, mismatched scopes in the other direction would actually cause a pytest error about using a narrower-scoped fixture in a broader one.
 
-But the error says the connection is already closed when session.rollback() runs. That means something else is closing the connection, or the fixture dependencies are not set up the way the user thinks.
+I considered whether an autouse fixture in conftest.py might be closing all connections during its own teardown -- that would run independently of the fixture dependency chain. This is a common hidden cause: an autouse cleanup fixture that aggressively closes resources before dependent fixtures have finished their teardown.
 
-Maybe the user has another fixture or conftest that is interfering, or maybe the fixtures have different scopes (e.g., db_connection is function-scoped but db_session is module-scoped or vice versa).
+Another possibility: if session.rollback() itself triggers an implicit connection close (e.g., the connection was in an error state from a failed test), then the rollback fails because the connection is already broken, not because of teardown ordering.
 
-Let me present the general case of fixture teardown order and the common pitfalls.
+Because the root cause is ambiguous from the error alone, the safest fix is to combine both resources into a single fixture where you explicitly control the teardown order, or use savepoints (begin_nested) so the connection survives across test boundaries.
 </think>
 
 Pytest fixtures tear down in reverse order of their setup (LIFO -- Last In, First Out). Since `db_session` depends on `db_connection`, the expected order is:
@@ -608,9 +618,13 @@ FAILED tests/test_api.py::test_user_response - AssertionError: snapshot changed
 ```
 
 The snapshot was recorded on March 15 but the test runs on March 16 with different dynamic values. How do I handle dynamic data in snapshots?''', r'''<think>
-Snapshot tests compare the current output to a saved "golden" output. Dynamic values like timestamps, UUIDs, and session IDs change every run, causing false failures.
+Snapshot tests compare the current output to a saved "golden" output. The diff shows created_at and session_id changing -- these are dynamic values that differ every run.
 
-The fix: either mask dynamic values before comparison, or use a snapshot library that supports matchers for dynamic fields.
+My first thought was to just update the snapshot every time, but that defeats the purpose of snapshot testing -- you would never catch real regressions because every change gets auto-approved. The snapshot should be stable across runs.
+
+I considered freezing time with freezegun to make timestamps deterministic, but that only solves one field. Session IDs, UUIDs, and other random values still change. Hmm, actually I could also seed the random generator, but that is fragile and breaks if the code changes the order of random calls.
+
+The better approach is either normalizing dynamic values before comparison (replace timestamps with placeholders) or using a snapshot library that supports matchers for specific fields. Option A (normalization) is simpler and works with any test framework. Option B (matchers like syrupy's path_type) is more elegant but adds a dependency. Because most projects already use pytest, syrupy integrates well, but the normalization approach works everywhere.
 </think>
 
 Snapshot tests fail when output contains dynamic values that change between runs (timestamps, IDs, session tokens). You need to either normalize these values before comparison or use matchers that allow certain fields to vary.

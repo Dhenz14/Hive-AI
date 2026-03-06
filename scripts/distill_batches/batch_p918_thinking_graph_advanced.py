@@ -1,23 +1,26 @@
 PAIRS = [
     ("thinking/algorithms", r'''Implement Tarjan's algorithm for finding Strongly Connected Components (SCCs) in a directed graph. Explain how it works and demonstrate on an example graph.''', r'''<think>
-Tarjan's algorithm finds all strongly connected components in a directed graph in a single DFS pass. An SCC is a maximal set of vertices where every vertex is reachable from every other vertex.
+I need to find all strongly connected components in a directed graph. An SCC is a maximal set of vertices where every vertex is reachable from every other.
 
-The algorithm uses three key concepts:
-1. Discovery time (disc): when each node is first visited during DFS
-2. Low-link value (low): the smallest discovery time reachable from the subtree rooted at this node
-3. A stack to track the current path/component
+My first thought is to do something like BFS/DFS from each node and check reachability in both directions... but wait, that would be O(V * (V + E)) which is way too slow for large graphs.
 
-How it works:
-- DFS from each unvisited node
-- On visiting node u, set disc[u] = low[u] = timer++, push u onto stack
-- For each neighbor v of u:
+I initially considered Kosaraju's algorithm (two DFS passes -- one on original graph, one on transposed), but Tarjan's does it in a single DFS pass, which is cleaner. Let me think through how Tarjan's works.
+
+The algorithm tracks three things per node:
+1. Discovery time (disc): when the node is first visited
+2. Low-link value (low): the smallest discovery time reachable from this node's subtree
+3. A stack of nodes in the current exploration path
+
+On visiting node u: set disc[u] = low[u] = timer++, push u onto stack.
+For each neighbor v of u:
   - If v not visited: recurse, then low[u] = min(low[u], low[v])
   - If v is on the stack: low[u] = min(low[u], disc[v])
-- After processing all neighbors, if low[u] == disc[u], then u is the root of an SCC. Pop everything from the stack down to and including u -- that is one SCC.
 
-The key insight: low[u] == disc[u] means no node in u's subtree can reach a node discovered before u. So u and all nodes above it on the stack form a complete SCC.
+Hmm, but why do we only update low from nodes on the stack? I need to think about this carefully. If v was already visited and already popped from the stack, that means v belongs to an already-completed SCC. Since SCCs are maximal, there is no path from v back to u, so v should NOT influence u's low-link. If we mistakenly used disc[v] from a popped node, we could incorrectly merge separate SCCs.
 
-Why we only consider nodes on the stack for the low-link update: nodes already popped belong to a different (already identified) SCC. They should not affect the current component.
+After processing all neighbors, if low[u] == disc[u], u is the "root" of its SCC. This could mean u is alone, or it could mean u is the earliest-discovered node in a cycle. We pop everything from the stack down to and including u -- that forms one complete SCC.
+
+Wait, why does low[u] == disc[u] guarantee this? Because it means no node in u's subtree can reach anything discovered before u. So u and everything above it on the stack are trapped in a cycle with each other, with no escape to earlier nodes. That is exactly the definition of a maximal SCC.
 
 Time: O(V + E) -- single DFS traversal.
 Space: O(V) for the stack, disc, low arrays.
@@ -124,30 +127,25 @@ for src, dsts in condensation.items():
 - Space: O(V) for auxiliary arrays and stack'''),
 
     ("thinking/algorithms", r'''Implement an algorithm to find all articulation points (cut vertices) in an undirected graph. An articulation point is a vertex whose removal disconnects the graph.''', r'''<think>
-Finding articulation points uses a modified DFS similar to Tarjan's SCC algorithm, but for undirected graphs.
+I need to find articulation points -- vertices whose removal disconnects the graph. The brute force approach would be to remove each vertex one at a time and check connectivity, but that is O(V * (V + E)). There should be a DFS-based approach similar to Tarjan's SCC...
 
-A vertex u is an articulation point if:
-1. u is the root of DFS tree AND has two or more children in the DFS tree, OR
-2. u is not root AND has a child v such that no vertex in the subtree rooted at v has a back edge to an ancestor of u (i.e., low[v] >= disc[u])
+Actually, yes -- this uses a modified DFS with discovery times and low-link values, but adapted for undirected graphs instead of directed ones.
 
-The algorithm:
-1. Run DFS, tracking discovery time disc[u] and low-link value low[u]
-2. low[u] = min of:
-   - disc[u] itself
-   - disc[w] for any back edge (u, w)
-   - low[v] for any DFS tree child v
-3. For non-root u: if any child v has low[v] >= disc[u], then u is an articulation point (removing u disconnects v's subtree)
-4. For root: if it has >= 2 DFS tree children, it is an articulation point
+So when is vertex u an articulation point? Let me think through the cases:
 
-Why low[v] >= disc[u] matters: It means the subtree rooted at v cannot reach any ancestor of u through back edges. So removing u disconnects v's subtree from the rest of the graph.
+Case 1: u is the root of the DFS tree. If u has only one DFS child, removing u just detaches that single subtree which is still connected internally. But wait, if u has 2+ DFS tree children, those children only connect to each other through u (since there are no cross edges in undirected DFS). So u is an articulation point.
 
-We must be careful with the parent tracking in undirected graphs to avoid treating the tree edge back to the parent as a back edge. We track the parent of each node in the DFS tree.
+Case 2: u is not root. I initially thought any node with multiple children would be an AP, but that is wrong -- if a child's subtree has a back edge to an ancestor of u, removing u does not disconnect it. The real condition is: u is an AP if some child v has low[v] >= disc[u]. Because low[v] >= disc[u] means v's entire subtree cannot "escape" above u through back edges. Removing u would strand that subtree.
 
-Edge cases:
-- Graph is already disconnected
-- Single node
-- Tree (every internal node is an articulation point)
-- Complete graph (no articulation points)
+Hmm, I need to be careful about one thing: in an undirected graph, every tree edge (u, v) also appears as (v, u) in the adjacency list. I must not treat the edge back to the parent as a back edge. So I need to track parent[u] and skip it when computing low values.
+
+We could also find bridges (cut edges) with an almost identical algorithm. The difference: for bridges, the condition is low[v] > disc[u] (strict inequality), because if low[v] == disc[u], the subtree can still reach u itself through a back edge, so u-v is not a bridge even though u might be an AP.
+
+Edge cases to consider:
+- Already disconnected graph (run DFS from each component)
+- Single node (not an AP -- nothing to disconnect)
+- Tree (every internal node is an AP)
+- Complete graph (no APs -- too many redundant paths)
 
 Time: O(V + E), Space: O(V).
 </think>
@@ -288,37 +286,35 @@ for v in range(n):
 - Space: O(V) for arrays'''),
 
     ("thinking/algorithms", r'''Determine if an Euler path or Euler circuit exists in a graph, and if so, find one. An Euler path visits every edge exactly once. An Euler circuit is an Euler path that starts and ends at the same vertex.''', r'''<think>
-Euler path/circuit problems have elegant necessary and sufficient conditions:
+I need to determine if an Euler path or circuit exists, and find one if it does. Let me start with the existence conditions.
 
-For undirected graphs:
-- Euler circuit exists iff every vertex has even degree and the graph is connected (considering only vertices with degree > 0)
-- Euler path exists iff exactly 0 or 2 vertices have odd degree and the graph is connected
+For undirected graphs, I recall the degree conditions:
+- Euler circuit: every vertex has even degree (and graph is connected among edges)
+- Euler path: exactly 0 or 2 vertices have odd degree
 
-For directed graphs:
-- Euler circuit: every vertex has in_degree == out_degree, and the graph is strongly connected
-- Euler path: at most one vertex has out_degree - in_degree = 1 (start), at most one has in_degree - out_degree = 1 (end), all others balanced, and underlying graph is connected
+Why does this work? Each time the path enters a vertex, it must also leave. So for internal vertices we need even degree. For the endpoints of a non-circuit path, they have one extra enter or exit, giving odd degree.
 
-Algorithm to find the path: Hierholzer's algorithm
-1. Start from a valid starting vertex
-2. Follow edges, removing them as you go, until you get stuck
-3. When stuck, backtrack along the path to find a vertex with remaining edges
-4. Continue from there, inserting the new sub-circuit into the main path
-5. Repeat until all edges are used
+For directed graphs, similar logic applies but with in-degree and out-degree:
+- Euler circuit: in_degree == out_degree for every vertex, and strongly connected
+- Euler path: at most one vertex with out - in = 1 (start), one with in - out = 1 (end), rest balanced
 
-The elegant recursive version:
-- DFS from start, removing edges as you traverse them
-- After all neighbors are exhausted, push the current vertex to the front of the result
-- This naturally handles the backtracking
+Now, how to actually find the path? I initially considered just doing a DFS and hoping for the best, but that fails -- you can get stuck at a dead end with unused edges still remaining. For example, if you greedily follow edges and enter a small cycle early, you might exhaust it and get stuck at a vertex that still has other edges.
 
-For directed graphs, we remove edges from the adjacency list as we use them. For undirected, we need to remove the edge from both directions.
+Hierholzer's algorithm solves this elegantly. The key idea: when you get stuck, you are guaranteed to be back at a vertex that has remaining edges (since degree conditions ensure you can only get stuck at the start). So you backtrack and splice in sub-circuits.
 
-Edge cases:
-- Graph with no edges (trivial Euler circuit at any vertex)
-- Multigraph (multiple edges between same vertices)
-- Self-loops
-- Disconnected graph with isolated vertices
+The clean implementation uses a stack:
+1. Push the start vertex
+2. At each vertex, if it has unused edges, follow one and push the next vertex
+3. If no unused edges remain, pop the vertex into the result
+4. The result (reversed) is the Euler path
 
-Time: O(E) for Hierholzer's algorithm.
+Wait, for undirected graphs there is a subtlety -- when we "use" edge (u, v), we need to mark it used from both directions. I will track edge indices so that both directions of the same edge share an index.
+
+For directed graphs it is simpler: just pop from the adjacency deque.
+
+Edge cases: graph with no edges (trivial circuit), isolated vertices (ignore them), multigraph with parallel edges.
+
+Time: O(E) -- each edge visited once.
 Space: O(E) for the path + O(V) for the stack.
 </think>
 
@@ -483,25 +479,21 @@ print(f"Euler path: {dpath}")
 - Space: O(V + E) for graph and path storage'''),
 
     ("thinking/algorithms", r'''Implement the Hopcroft-Karp algorithm for maximum bipartite matching. Given a bipartite graph, find the largest set of edges such that no two edges share an endpoint.''', r'''<think>
-Maximum bipartite matching finds the largest set of edges where no two share a vertex. Hopcroft-Karp achieves O(E * sqrt(V)) time, better than the naive augmenting path approach of O(V * E).
+I need maximum bipartite matching -- the largest set of edges with no shared endpoints. The naive approach is to repeatedly find augmenting paths one at a time using DFS, which gives O(V * E). Can we do better?
 
-Key idea of Hopcroft-Karp:
-1. Find a maximal set of shortest augmenting paths simultaneously (using BFS)
-2. Augment along all of them at once (using DFS)
-3. Repeat until no augmenting path exists
+Hopcroft-Karp improves this to O(E * sqrt(V)) by finding multiple shortest augmenting paths simultaneously in each phase. Let me think about why that helps.
 
-An augmenting path starts from an unmatched left vertex, alternates between unmatched and matched edges, and ends at an unmatched right vertex. Flipping all edges along this path increases the matching by 1.
+An augmenting path starts at a free left vertex, alternates between unmatched and matched edges, and ends at a free right vertex. Flipping the edges along this path grows the matching by 1.
 
-Algorithm:
-1. BFS phase: Starting from all free (unmatched) left vertices simultaneously, find the shortest augmenting path length. Build layers of the BFS.
-2. DFS phase: For each free left vertex, try to find an augmenting path of the shortest length found in BFS. Use the layers from BFS to guide the DFS.
-3. Repeat phases 1 and 2 until BFS finds no augmenting path.
+The algorithm has two phases per round:
+1. BFS phase: start from ALL free left vertices at once, building layers of an alternating BFS. This finds the shortest augmenting path length.
+2. DFS phase: for each free left vertex, try to find an augmenting path using only edges that follow the BFS layers. Augment along each one found.
 
-The BFS uses a level/distance array. It explores alternating paths: from unmatched left nodes, through unmatched edges to right nodes, then through matched edges back to left nodes, and so on. When we reach a free right node, we know the shortest augmenting path length.
+Hmm, but what if two augmenting paths share a vertex? We need them to be vertex-disjoint. The DFS handles this naturally -- once a vertex is used in one augmenting path, it gets assigned to a new layer distance (set to INF), so subsequent DFS calls will not try to go through it.
 
-The DFS then augments along vertex-disjoint augmenting paths of this minimum length.
+I initially wondered why we cannot just find ALL augmenting paths (not just shortest). The answer is that restricting to shortest paths in each phase is what gives the sqrt(V) bound on the number of phases. After k phases, the shortest remaining augmenting path has length >= 2k+1. Since augmenting paths have length at most V, after sqrt(V) phases the remaining unmatched vertices number at most sqrt(V), giving at most sqrt(V) more augmentations.
 
-The algorithm terminates in at most O(sqrt(V)) phases because after sqrt(V) phases, the shortest augmenting path has length > sqrt(V), and there can be at most sqrt(V) such paths remaining.
+Wait, let me recheck that reasoning... After sqrt(V) phases, shortest path length > 2*sqrt(V). The remaining augmenting paths are long, and since they are vertex-disjoint from each other (by maximality of each phase), there can be at most V / (2*sqrt(V)) = sqrt(V)/2 of them. So total phases is O(sqrt(V)), each doing O(E) work. Total: O(E * sqrt(V)).
 
 Time: O(E * sqrt(V)). Space: O(V + E).
 </think>
@@ -623,32 +615,28 @@ for u in left2:
 - Space: O(V + E)'''),
 
     ("thinking/algorithms", r'''Implement the Ford-Fulkerson method for computing maximum network flow using BFS (Edmonds-Karp variant). Given a flow network with source and sink, find the maximum flow from source to sink.''', r'''<think>
-The Ford-Fulkerson method repeatedly finds augmenting paths from source to sink in the residual graph and pushes flow along them. The Edmonds-Karp variant uses BFS to find shortest augmenting paths, guaranteeing O(V * E^2) time.
+I need to compute maximum flow in a network. The basic Ford-Fulkerson idea is simple: keep finding paths from source to sink with available capacity, push flow along them, repeat. But the original method with arbitrary path selection can be very slow (or even non-terminating with irrational capacities).
 
-Key concepts:
-1. Residual graph: For each edge (u,v) with capacity c and flow f:
-   - Forward edge: residual capacity = c - f
-   - Backward edge: residual capacity = f (allows "undoing" flow)
-2. Augmenting path: a path from source to sink in the residual graph with positive capacity on every edge
-3. Bottleneck: minimum residual capacity along the augmenting path
+The Edmonds-Karp variant fixes this by always choosing the shortest augmenting path via BFS. This guarantees termination and gives O(V * E^2) time.
 
-Algorithm:
-1. Initialize flow to 0 on all edges
-2. While there exists an augmenting path (found via BFS):
-   a. Find bottleneck capacity along the path
-   b. Update flow: add bottleneck to forward edges, subtract from backward edges
-   c. Add bottleneck to total flow
-3. When no augmenting path exists, current flow is maximum
+Let me think through the key data structure -- the residual graph. For each original edge (u, v) with capacity c:
+- Forward edge: residual capacity = c - f (room for more flow)
+- Backward edge (v to u): residual capacity = f (allows "undoing" flow)
 
-Max-Flow Min-Cut Theorem: The maximum flow equals the minimum cut capacity. When the algorithm terminates, the BFS-reachable vertices from source form one side of the min cut.
+I initially thought we could just track flow on forward edges and compute residuals on the fly, but we actually need explicit backward edges in the adjacency list so BFS can find them. The trick is to pair each forward edge with its backward edge so we can update both in O(1).
 
-The Edmonds-Karp BFS guarantees:
-- Each augmenting path has minimum number of edges
-- Total number of augmentations is O(V * E)
-- Each BFS is O(E)
-- Total: O(V * E^2)
+The algorithm:
+1. BFS from source to sink in residual graph
+2. If no path exists, we are done -- current flow is maximum
+3. Otherwise, find the bottleneck (minimum residual capacity on path)
+4. Push flow: increase flow on forward edges, decrease on backward edges
+5. Repeat
 
-I will implement using an adjacency list with forward/backward edge pairing for efficient residual updates.
+Wait, why does this always find the true maximum? Because of the Max-Flow Min-Cut theorem. When no augmenting path exists, the BFS-reachable vertices from source form one side of a cut, and that cut's capacity equals the total flow. Since flow <= any cut capacity, and we found a cut matching our flow, both must be optimal.
+
+Why O(V * E^2)? Each BFS is O(E). The key insight is that the shortest path distance from source to sink never decreases between iterations. And after at most O(V * E) augmentations total (since each augmentation saturates at least one edge, and edge distances only increase), we terminate. Actually, more precisely: O(V*E) augmentations, each taking O(E) for BFS, giving O(V * E^2).
+
+For the implementation, I will store edges as [to, capacity, flow, reverse_edge_index] so forward and backward edges can find each other efficiently.
 </think>
 
 **Ford-Fulkerson (Edmonds-Karp) Maximum Flow**

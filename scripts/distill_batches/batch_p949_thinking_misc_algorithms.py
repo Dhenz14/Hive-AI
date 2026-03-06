@@ -1,26 +1,36 @@
 PAIRS = [
     ("thinking/algorithms", r'''Prove that reservoir sampling produces a uniform random sample and implement it. Given a stream of unknown length, maintain a sample of exactly k elements where each element has equal probability of being selected.''', r'''<think>
-Reservoir sampling: maintain a sample of size k from a stream of unknown length n. Each of the n elements should have probability k/n of being in the final sample.
+Reservoir sampling: maintain a sample of size k from a stream of unknown length n. The challenge is that we do not know n in advance, yet each element must have equal probability k/n of being in the final sample.
 
 Algorithm (Vitter's Algorithm R):
 1. Fill the reservoir with the first k elements
-2. For the i-th element (i > k, 1-indexed):
-   - Generate random j in [1, i]
-   - If j <= k, replace reservoir[j-1] with the i-th element
+2. For the i-th element (i > k, 0-indexed as i >= k):
+   - Generate random j in [0, i]
+   - If j < k, replace reservoir[j] with the i-th element
 
-Proof of uniformity by induction:
-- After seeing k elements: each is in reservoir with probability 1 = k/k. Correct.
-- Inductive step: assume after i-1 elements, each has probability k/(i-1) of being in the reservoir.
-- For the i-th element: P(i-th is selected) = k/i. Correct.
-- For any previous element j: P(j survives step i) = P(j in reservoir after i-1) * P(j not replaced)
-  = k/(i-1) * (1 - 1/i * 1) ... wait, let me be more careful.
+Proof of uniformity by induction. I need to show each element has probability k/i after seeing i elements.
 
-P(j not replaced at step i) = P(i-th not selected OR i-th replaces a different slot)
-= (1 - k/i) + (k/i) * (k-1)/k = (i-k)/i + (k-1)/i = (i-1)/i
+Base case: after seeing k elements, each is in reservoir with probability 1 = k/k. Correct.
+
+Inductive step: assume after i-1 elements, each has probability k/(i-1) of being in the reservoir.
+
+For the i-th element: P(selected) = k/i. That is direct from the algorithm. Correct.
+
+For any previous element j that was in the reservoir: P(j survives step i) = P(j in reservoir after i-1) * P(j not replaced at step i).
+
+Hmm, what is P(j not replaced at step i)? The i-th element gets selected with probability k/i. If selected, it replaces a uniformly random slot, so P(j's slot is chosen) = 1/k. Let me compute P(j not replaced):
+
+P(j not replaced) = P(i-th not selected) + P(i-th selected but replaces a different slot)
+= (1 - k/i) + (k/i) * (k-1)/k
+= (i-k)/i + (k-1)/i = (i-1)/i
+
+Wait, let me double-check that algebra. (i-k)/i + (k-1)/i = (i-k+k-1)/i = (i-1)/i. Yes.
 
 So P(j in reservoir after i) = k/(i-1) * (i-1)/i = k/i. QED.
 
-Each element has probability k/i after seeing i elements, which is k/n after all n elements.
+Each element has probability k/i after seeing i elements, which is k/n after all n elements. The beauty is that this works without knowing n in advance -- the probabilities automatically adjust as more elements arrive.
+
+I should also implement weighted reservoir sampling as an extension. The Efraimidis-Spirakis algorithm assigns each element a key = random()^(1/weight), and the reservoir keeps the k elements with the highest keys. This is elegant but I initially thought it was random()/weight -- that would be wrong because it does not give the right distribution.
 </think>
 
 ## Reservoir Sampling
@@ -164,26 +174,20 @@ Fisher-Yates shuffle (modern version, Knuth):
 
 Proof of uniformity: Each of the n! permutations is equally likely.
 
-By induction: after processing index i, elements at positions i through n-1 are a uniformly random permutation of the elements that ended up there.
+My first attempt at a proof: count the number of possible outcomes. At step i, we choose from i+1 positions. Total outcomes = n * (n-1) * ... * 1 = n!. Since there are exactly n! permutations, each one must correspond to exactly one sequence of choices. Therefore each permutation has probability 1/n!.
 
-More precisely: for each position i (from last to first), the element at position i is chosen uniformly from the remaining elements (those at positions 0..i). So:
-- Position n-1: chosen from all n elements (prob 1/n each)
-- Position n-2: chosen from remaining n-1 elements (prob 1/(n-1) each)
-- ...
-- Position 0: only one element remains
+But wait, I should verify that different sequences of choices actually produce different permutations. Could two different choice sequences give the same result? Let me think... At step n-1, we choose which element goes to position n-1. Given that, at step n-2, we choose from the remaining. Each choice sequence uniquely determines which element ends up at each position, working from the end. So yes, the mapping from choice sequences to permutations is a bijection.
 
-Total number of choices: n * (n-1) * ... * 1 = n!
-Each specific sequence of choices gives a unique permutation.
-Therefore each permutation has probability 1/n!.
+A common mistake is to swap with a random position from [0, n-1] at EVERY step (instead of [0, i]). This seems equivalent but it is not -- it produces n^n possible outcomes, and n^n is not divisible by n! for n > 2. So some permutations must be more likely than others. For n=3: 3^3 = 27 outcomes, 3! = 6 permutations, 27/6 = 4.5 -- not an integer. This proves the naive approach is biased.
 
-The inside-out version (for streaming):
+The inside-out version (for streaming) is clever:
 1. Start with empty array
 2. For each new element x (index i):
    - Pick random j in [0, i]
    - If j != i, set result[i] = result[j]
    - Set result[j] = x
 
-This builds the shuffled array as elements arrive, without needing to know n in advance.
+I initially worried this might introduce bias because we are building the array incrementally, but the proof is analogous to the standard version. After inserting element i, we have (i+1)! equally likely configurations. Each new element is placed at a uniformly random position, displacing the current occupant. This works without knowing n in advance, making it suitable for streaming.
 </think>
 
 ## Fisher-Yates Shuffle
@@ -313,7 +317,7 @@ The naive approach (swap with random `[0, n-1]` at each step) produces n^n outco
 - **Correctness**: each of n! permutations has probability exactly 1/n!'''),
 
     ("thinking/algorithms", r'''Implement and prove Boyer-Moore majority voting algorithm. Given an array, find the element that appears more than n/2 times (if it exists) using O(1) space and O(n) time.''', r'''<think>
-Boyer-Moore majority vote algorithm finds a candidate for the majority element (appearing > n/2 times) in O(n) time and O(1) space.
+Boyer-Moore majority vote algorithm. The goal: find the element appearing > n/2 times, using O(1) space and O(n) time. The naive approach (hash map counting) uses O(n) space, so we need something cleverer.
 
 Algorithm:
 1. Initialize candidate = None, count = 0
@@ -323,14 +327,15 @@ Algorithm:
    - Else count--
 3. Verify that candidate actually appears > n/2 times (second pass)
 
-Proof of correctness (when a majority element exists):
-- Think of it as "pairing off" different elements. Each time count goes to 0, we've paired off equal numbers of the majority and non-majority elements.
-- Since the majority element appears > n/2 times, there are more majority elements than all others combined. So after all pairing, some majority elements remain unpaired.
-- The candidate at the end must be the majority element.
+But why does this work? My first intuition was wrong -- I thought the count tracks how many times we have seen the majority element. It does not. The count tracks the "net advantage" of the current candidate over all other elements combined.
 
-More formally: let m be the majority element. Consider the total "votes" for m. Each time we decrement count because of a non-m element, we "use up" one m vote. Since m has > n/2 votes and non-m has < n/2, m will always have leftover votes, making it the final candidate.
+Let me think about it differently: imagine "pairing off" different elements. Each decrement pairs one instance of the candidate with one non-candidate element, eliminating both from consideration. Since the majority element m appears > n/2 times and all other elements combined appear < n/2 times, m cannot be fully paired off. Some copies of m must remain unpaired, and those will be the final candidate.
 
-The verification step is necessary because if no majority element exists, the algorithm outputs a candidate that might not be a majority.
+But wait -- could a non-majority element survive as the candidate? Consider [1, 2, 3, 4, 5]. After processing: 1(count=1), 2(count=0), 3(count=1), 4(count=0), 5(count=1). The candidate is 5, but 5 is not a majority. This is why the verification step is necessary -- without it, the algorithm can return a false positive when no majority exists.
+
+Hmm, can I extend this to find elements appearing > n/3 times? Yes -- maintain up to k-1 = 2 candidates with counts. When a new element matches neither candidate and both have positive counts, decrement both. This generalizes naturally: for > n/k, maintain k-1 candidates.
+
+The verification step is essential. Phase 1 only identifies candidates; Phase 2 confirms. For the extended version, each candidate needs separate verification.
 </think>
 
 ## Boyer-Moore Majority Vote Algorithm
@@ -482,6 +487,8 @@ count(m) > count(non-m), some m's remain unpaired.
     ("thinking/algorithms", r'''Implement the Dutch National Flag algorithm (3-way partition). Given an array with three types of elements, sort it in O(n) time with O(1) extra space. Show applications to quicksort and color sorting.''', r'''<think>
 The Dutch National Flag problem (Dijkstra): given an array containing three types of elements (e.g., 0, 1, 2), sort it in-place in a single pass.
 
+My first thought was to count occurrences of each value and then overwrite the array, but that requires two passes and does not generalize to complex objects. The single-pass approach with three pointers is more elegant.
+
 Algorithm: maintain three pointers:
 - lo: boundary between 0s and 1s (everything < lo is 0)
 - mid: current element being examined
@@ -490,7 +497,9 @@ Algorithm: maintain three pointers:
 Process:
 - If arr[mid] == 0: swap arr[lo] and arr[mid], advance both lo and mid
 - If arr[mid] == 1: just advance mid
-- If arr[mid] == 2: swap arr[mid] and arr[hi], decrement hi (don't advance mid because the swapped element needs inspection)
+- If arr[mid] == 2: swap arr[mid] and arr[hi], decrement hi
+
+Wait, why don't we advance mid in the third case? Because we swapped an unknown element from position hi into position mid. We need to examine it before moving on. In the first case (swap with lo), we CAN advance mid because everything below lo is already a 0 or 1 (specifically, it is a 1 that was in the [lo..mid-1] region). Hmm, actually is it always a 1? Yes -- because the invariant says arr[lo..mid-1] contains 1s, and lo < mid when we do the swap, so arr[lo] was a 1. After swapping, arr[lo] = 0 and arr[mid] = 1, both correct positions.
 
 Invariant:
 - arr[0..lo-1] contains 0s
@@ -498,10 +507,9 @@ Invariant:
 - arr[mid..hi] is unprocessed
 - arr[hi+1..n-1] contains 2s
 
-Applications:
-1. 3-way quicksort partition (elements equal to pivot go to the middle)
-2. Color sorting (red/white/blue flags)
-3. General 3-way classification problems
+This is powerful for quicksort with many duplicates. Standard quicksort degrades to O(n^2) when all elements are equal because every partition is maximally unbalanced. The 3-way partition puts all elements equal to the pivot in the middle, eliminating them from further recursion. This makes quicksort O(n) for arrays with O(1) distinct values.
+
+Applications beyond sorting: any time you need to classify elements into exactly 3 categories in a single pass with O(1) extra space.
 </think>
 
 ## Dutch National Flag Algorithm
@@ -653,9 +661,11 @@ print(f"Sorted: {sorted_colors}")
 - **Key property**: handles elements equal to pivot in O(1) for quicksort'''),
 
     ("thinking/algorithms", r'''Implement Morris traversal for binary trees. Perform inorder traversal using O(1) extra space (no stack, no recursion). Explain the threading technique and prove it does not damage the tree.''', r'''<think>
-Morris traversal performs inorder traversal of a binary tree using O(1) extra space by temporarily modifying the tree structure (threading).
+Morris traversal: inorder traversal of a binary tree using O(1) extra space. Standard approaches use either recursion (O(h) stack space) or an explicit stack (O(h) space). Can we do better?
 
-The key idea: for each node, find its inorder predecessor (rightmost node in left subtree) and create a temporary link from the predecessor's right pointer back to the current node. This lets us return to the current node after processing its left subtree without using a stack.
+The key idea: temporarily modify the tree itself to remember where to return after processing a left subtree. Specifically, for each node, find its inorder predecessor (rightmost node in left subtree) and create a temporary link from the predecessor's right pointer back to the current node.
+
+But wait, does this not damage the tree? My initial concern was that modifying pointers could break the tree structure permanently. The trick is that threads are removed when we revisit a node. Each node is encountered twice: once when we create the thread (going left), and once when we follow the thread back (visiting the node and going right). On the second encounter, we remove the thread, restoring the original structure.
 
 Algorithm:
 1. current = root
@@ -664,17 +674,18 @@ Algorithm:
    b. If current has left child:
       - Find inorder predecessor (rightmost in left subtree)
       - If predecessor's right is None: set predecessor.right = current (create thread), move left
-      - If predecessor's right == current: remove thread, visit current, move right
+      - If predecessor's right == current: we came back via the thread. Remove it, visit current, move right
 
-The tree is restored because threads are removed when we revisit a node (the second time we encounter a node with a threaded predecessor, we know we've already processed the left subtree).
+How do we distinguish case b.1 from b.2? By checking whether the predecessor's right pointer is None or points to current. If it is None, we have not visited yet. If it points to current, we are returning via the thread. This is elegant -- the thread itself is the "visited" flag.
 
-Proof of correctness and that tree is not damaged:
+Hmm, what about the time complexity? Finding the inorder predecessor requires traversing down the left subtree's right spine, which could be O(n) in the worst case for a single node. But across all nodes, each edge is traversed at most 3 times: once going left, once finding the predecessor, and once following the thread back. So the amortized total is O(n).
+
+I considered whether this could be adapted for preorder traversal. Yes -- just move the "visit" step. For inorder, we visit when removing the thread (on the way back). For preorder, we visit when creating the thread (on the way down). The tree modification logic stays the same.
+
+Proof that the tree is not damaged:
 - Each thread is created exactly once and removed exactly once
-- After traversal completes, all temporary threads are removed
-- Each node is visited at most twice (once when creating thread, once when removing)
-- Therefore O(n) time, O(1) space
-
-Each edge is traversed at most 3 times: once going left, once finding predecessor, once going right. So the total time is O(n).
+- After traversal completes, all temporary threads are gone
+- The tree is identical to its original structure
 </think>
 
 ## Morris Traversal (O(1) Space Tree Traversal)
