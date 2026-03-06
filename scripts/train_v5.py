@@ -1,5 +1,5 @@
 """
-Train HiveAI LoRA v5 on Qwen3.5-9B Dense.
+Train HiveAI LoRA v5 on Qwen 2.5 Coder.
 
 One-command training:
     python scripts/train_v5.py
@@ -7,13 +7,12 @@ One-command training:
     python scripts/train_v5.py --no-kl     # disable KL anchoring
 
 What's new in v5:
-    - Dense Qwen3.5-9B base (no MoE, no expert patching, no pruning)
-    - 9B active params per token (3x more than pruned 35B-A3B's 3B active)
-    - Aggressive LoRA: r=32, 7 target modules (attn + MLP), DoRA
+    - Qwen 2.5 Coder base (code-specialized, strong reasoning)
+    - Aggressive LoRA: r=16 DoRA, 7 target modules (attn + MLP)
     - KL-Anchored SFT (from v4) — prevents catastrophic forgetting
-    - Combined dataset: ~3500+ pairs from v1-v4 + specialty (prepare_v5_data.py)
-    - 3 epochs (dense benefits from repetition)
-    - Effective batch size 16 (Unsloth: batch=2×grad_accum=8; fallback: batch=1×16)
+    - Combined dataset: ~5500+ pairs from v1-v4 + 560 batch files + thinking curriculum
+    - Thinking-trace curriculum: Foundation -> Advanced -> Meta -> Autonomy
+    - 3 epochs, effective batch size 16
     - NEFTune + curriculum ordering + Hive oversampling
     - All v3 infrastructure: system optimizer, heartbeat, checkpoints, CUDA tuning
 """
@@ -48,8 +47,8 @@ sys.path.insert(0, PROJECT_ROOT)
 TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v5.jsonl")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v5")
 
-# Dense base model — no pruning, no expert patching
-BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen3.5-9b")
+# Qwen 2.5 Coder — code-specialized base model
+BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen2.5-coder-7b")
 
 # ---------------------------------------------------------------------------
 # v5 Training Configuration — Aggressive Dense LoRA
@@ -72,7 +71,7 @@ LORA_CONFIG = {
 }
 
 TRAINING_CONFIG = {
-    "per_device_train_batch_size": 1,      # 248K vocab + seq=2048 — batch=1 mandatory
+    "per_device_train_batch_size": 1,      # batch=1 for VRAM safety on 16GB
     "gradient_accumulation_steps": 16,     # Effective batch = 16; FA2 keeps VRAM under 90%
     "num_train_epochs": 3,                 # UP from 1 (dense benefits from repetition)
     "learning_rate": 1.5e-4,               # Slightly lower than 2e-4 for more modules
@@ -174,7 +173,7 @@ def optimize_system_pre_load():
         os.environ["CUT_CROSS_ENTROPY"] = "1"
         optimizations.append(f"cut_cross_entropy v{cut_cross_entropy.__version__} (logits tensor eliminated)")
     except ImportError:
-        logger.warning("  cut_cross_entropy NOT installed — 248K vocab will materialize ~1GB logits")
+        logger.warning("  cut_cross_entropy NOT installed — large vocab will materialize big logits")
 
     import gc
     gc.set_threshold(700, 10, 5)
@@ -216,7 +215,7 @@ def optimize_system_post_load():
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
              seq_length_override: int = 0):
-    """Train LoRA v5 on Qwen3.5-9B dense model."""
+    """Train LoRA v5 on Qwen 2.5 Coder model."""
     import torch
     import torch.nn.functional as F
 
@@ -241,8 +240,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.warning("Unsloth not installed — using standard transformers path")
 
     # --- Sequence length selection ---
-    # 248K vocab makes logits massive, but cut_cross_entropy + tiled MLP eliminate
-    # the bottleneck. seq=2048 now fits on 16GB with these optimizations.
+    # cut_cross_entropy + tiled MLP reduce VRAM significantly.
+    # seq=2048 fits on 16GB with these optimizations.
     if seq_length_override > 0:
         seq_length = seq_length_override
         logger.info(f"Sequence length: {seq_length} (--seq-length override)")
@@ -270,7 +269,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     from hiveai.llm.prompts import CODING_SYSTEM_PROMPT
 
     logger.info("=" * 60)
-    logger.info("  HiveAI LoRA v5 Training — Qwen3.5-9B Dense")
+    logger.info("  HiveAI LoRA v5 Training — Qwen 2.5 Coder")
     logger.info("=" * 60)
     logger.info(f"  Base model:  {model_path}")
     logger.info(f"  Data:        {TRAINING_JSONL}")
@@ -289,7 +288,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
                 f"(lambda={KL_CONFIG['lambda']}, seq_limit={KL_CONFIG['seq_limit']})")
-    logger.info(f"  Architecture: DENSE (no expert patching needed)")
+    logger.info(f"  Architecture: Qwen 2.5 Coder (code-specialized)")
     if max_steps:
         logger.info(f"  TEST MODE:   stopping after {max_steps} steps")
     logger.info("=" * 60)
@@ -311,12 +310,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info("Using Unsloth FastLanguageModel for 2x speed + 70% less VRAM")
 
         unsloth_model_name = model_path
-        if os.path.basename(model_path) == "qwen3.5-9b":
+        if "qwen2.5" in os.path.basename(model_path).lower():
             if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
                 unsloth_model_name = model_path
                 logger.info(f"  Using local weights: {unsloth_model_name}")
             else:
-                unsloth_model_name = "unsloth/Qwen3.5-9B"
+                unsloth_model_name = "unsloth/Qwen2.5-Coder-7B"
                 logger.info(f"  Using Unsloth HF model: {unsloth_model_name}")
 
         _model, _tokenizer = FastLanguageModel.from_pretrained(
@@ -330,7 +329,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         use_unsloth = True
         logger.info(f"Model loaded via Unsloth in {time.time() - load_start:.0f}s")
 
-        # Qwen3.5 is multimodal — Unsloth may return Processor instead of Tokenizer
+        # Some models return Processor instead of Tokenizer
         if not hasattr(_tokenizer, "encode") and hasattr(_tokenizer, "tokenizer"):
             logger.info(f"Extracting tokenizer from processor ({type(_tokenizer).__name__})")
             _tokenizer = _tokenizer.tokenizer
@@ -339,7 +338,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            load_path = "Qwen/Qwen3.5-9B"
+            load_path = "Qwen/Qwen2.5-Coder-7B"
             logger.info(f"  Local path not found, using HF model: {load_path}")
 
         bnb_config = BitsAndBytesConfig(
@@ -350,7 +349,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info(f"Loading tokenizer from {load_path}...")
         _tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
-        logger.info(f"Loading Qwen3.5-9B with BnB 4-bit (dense, ~6.5GB VRAM)...")
+        logger.info(f"Loading Qwen 2.5 Coder with BnB 4-bit...")
         # Use flash_attention_2 if available (O(seq) memory vs O(seq²))
         attn_impl = "eager"
         try:
@@ -568,10 +567,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"First 400 chars:\n{sample[:400]}")
 
     # ── KL-Anchored Loss Setup ──
-    # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
-    # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
+    # Chunked approach: backbone(full seq) -> lm_head(kl_slice positions only)
+    # Peak logit VRAM = kl_slice x vocab x 2 bytes (much less than full seq).
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
-    # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
+    # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq x vocab).
     kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
@@ -580,19 +579,18 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         Get per-token log-probs for last kl_slice positions WITHOUT materializing
         the full seq×vocab logit tensor.
 
-        Strategy: run backbone (Qwen3_5Model) over full seq for correct attention
-        context, then apply lm_head only to the last kl_slice hidden states.
-        Peak logit tensor: kl_slice × vocab × 2 bytes ≈ 240MB (vs 970MB for full seq).
+        Strategy: run backbone over full seq for correct attention context,
+        then apply lm_head only to the last kl_slice hidden states.
 
         Works with CCE (we never touch outputs.logits from the SFT pass).
         Works with PEFT/LoRA/Unsloth: disable_adapter_layers() gates all adapters.
         """
-        # Navigate to backbone (Qwen3_5Model) and lm_head under PEFT wrapper.
-        # PEFT layout: PeftModel → .base_model (LoraModel) → .model (Qwen3_5ForCausalLM)
-        #              Qwen3_5ForCausalLM → .model (Qwen3_5Model backbone) + .lm_head
+        # Navigate to backbone and lm_head under PEFT wrapper.
+        # PEFT layout: PeftModel → .base_model (LoraModel) → .model (Qwen2ForCausalLM)
+        #              Qwen2ForCausalLM → .model (Qwen2Model backbone) + .lm_head
         try:
-            causal_lm = model_arg.base_model.model   # Qwen3_5ForCausalLM
-            backbone = causal_lm.model               # Qwen3_5Model
+            causal_lm = model_arg.base_model.model   # Qwen2ForCausalLM
+            backbone = causal_lm.model               # Qwen2Model
             lm_head = causal_lm.lm_head
         except AttributeError:
             backbone = model_arg.model               # Non-PEFT fallback
@@ -605,7 +603,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 attention_mask=inputs.get("attention_mask"),
                 use_cache=False,
             )
-            # Slice BEFORE lm_head: kl_slice × 4096 → kl_slice × 248K
+            # Slice BEFORE lm_head to reduce logit tensor size
             hidden_slice = hidden_out.last_hidden_state[:, -kl_slice:, :].contiguous()
             del hidden_out
 
@@ -806,7 +804,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     batch_size = TRAINING_CONFIG["per_device_train_batch_size"]
     grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
     if use_unsloth:
-        batch_size = 1    # Qwen3.5 248K vocab → logits are 1GB/sample, batch=2 OOMs even w/ Unsloth
+        batch_size = 1    # Large vocab logits — keep batch=1 for VRAM safety
         grad_accum = 16   # Keep effective batch = 16
         logger.info(f"Unsloth VRAM savings: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
@@ -925,8 +923,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     meta = {
         "version": "v5.0",
         "base_model": model_path,
-        "base_model_name": "Qwen3.5-9B",
-        "architecture": "dense (no MoE)",
+        "base_model_name": "Qwen2.5-Coder-7B",
+        "architecture": "dense",
         "unsloth": use_unsloth,
         "pair_count": pair_count,
         "loss": loss if isinstance(loss, (int, float)) else None,
@@ -958,7 +956,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
   2. ollama create hiveai-v5 -f Modelfile
   3. python scripts/run_eval.py --model hiveai-v5
 
-  Baselines: qwen3:14b=0.741, hiveai-v1=0.853 (+15%)
+  Compare: python scripts/run_eval.py --model hiveai-v5
 """)
     print("=" * 60)
 
@@ -970,7 +968,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Train HiveAI v5 on Qwen3.5-9B Dense")
+    parser = argparse.ArgumentParser(description="Train HiveAI v5 on Qwen 2.5 Coder")
     parser.add_argument("--test", type=int, default=0,
                         help="Smoke test: stop after N steps")
     parser.add_argument("--no-kl", action="store_true",
@@ -1006,8 +1004,8 @@ if __name__ == "__main__":
 
     if not os.path.exists(model_path):
         logger.error(f"Base model not found: {model_path}")
-        logger.error("Download: huggingface-cli download Qwen/Qwen3.5-9B "
-                      "--local-dir models/qwen3.5-9b")
+        logger.error("Download: huggingface-cli download Qwen/Qwen2.5-Coder-7B "
+                      "--local-dir models/qwen2.5-coder-7b")
         sys.exit(1)
 
     optimize_system_pre_load()

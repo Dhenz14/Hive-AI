@@ -257,7 +257,10 @@ wsl -d Ubuntu-24.04
 source /opt/hiveai-env/bin/activate
 cd /opt/hiveai/project
 
-# Train (example: v5 dense Qwen3.5-9B)
+# Prepare training data (the bridge)
+python scripts/prepare_v5_data.py --export --stats
+
+# Train (Qwen 2.5 Coder LoRA)
 python scripts/train_v5.py 2>&1 | tee logs/train_v5.log
 ```
 
@@ -266,7 +269,7 @@ python scripts/train_v5.py 2>&1 | tee logs/train_v5.log
 After training, merge the LoRA into the base model to create an improved foundation for the next training cycle:
 
 ```bash
-# Merge v5 adapter into base (creates models/qwen3.5-9b-cycle1)
+# Merge v5 adapter into base (creates models/qwen2.5-coder-7b-cycle1)
 python scripts/auto_cycle.py --adapter loras/v5 --deploy --eval
 
 # View merge history
@@ -347,7 +350,7 @@ Results are saved as timestamped JSON in `bench/results/` for tracking improveme
 | v2 | Qwen3.5-35B-A3B | Killed | — | — | Superseded by v3 |
 | v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
 | v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
-| v5 | Qwen3.5-9B (dense) | In Progress | 2,529 | — | Dense model, maxed-out r=64 LoRA |
+| v5 | Qwen2.5-Coder-7B | Ready to Train | 6,176 | — | 5,596 unique pairs + Hive 2x oversample, thinking curriculum, DoRA r=16, KL-anchored SFT |
 
 #### Claude Opus Distillation Corpus
 
@@ -361,7 +364,7 @@ The project includes 4,500+ expert-curated training pairs distilled from Claude 
 - **Phase 3 — Meta-Cognition (403 pairs):** Reasoning quality evaluation, confidence calibration, Socratic method, context switching, learning from mistakes, code quality judgment
 - **Phase 4 — Autonomy (400 pairs):** Training data generation, self-evaluation, curriculum design, meta-learning, autonomous improvement, quality assurance, integration
 
-Target training mix: 72% direct-answer + 28% thinking-trace. Pairs are loaded dynamically via `scripts/claude_distill_v2.py` and scored/deduped before persistence. See `scripts/distill_batches/THINKING_CURRICULUM.md` for the full curriculum plan.
+Target training mix: 72% direct-answer + 28% thinking-trace. The data bridge (`scripts/prepare_v5_data.py`) loads all sources, deduplicates, quality-filters, enforces the mix ratio, orders thinking pairs by curriculum phase (Foundation first, Autonomy last), interleaves them throughout direct-answer pairs, and exports as `v5.jsonl` ready for `train_v5.py`. See `scripts/distill_batches/THINKING_CURRICULUM.md` for the full curriculum plan.
 
 ---
 
@@ -897,7 +900,8 @@ The trainer: accumulated knowledge → LoRA adapters that encode the *ability to
 - [x] Thinking-trace curriculum (1,638 pairs, 4-phase cognitive training: foundation → advanced → meta → autonomy)
 - [x] Self-improvement pipeline (p400-p407: autonomous "get smarter" training loop)
 - [x] Model benchmark harness (12 tasks, 4 categories, speculative decoding metrics)
-- [ ] LoRA v5 training (dense Qwen3.5-9B, r=64) — in progress
+- [x] Training data bridge (prepare_v5_data.py: 6,176 curriculum-ordered pairs for Qwen 2.5 Coder)
+- [ ] LoRA v5 training (Qwen 2.5 Coder, DoRA r=16, KL-anchored SFT)
 - [ ] Domain specialist training (per-domain LoRAs)
 - [ ] GRPO+ reinforcement learning via rLLM
 
