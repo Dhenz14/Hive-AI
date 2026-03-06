@@ -40,14 +40,16 @@ It operates fully offline with Ollama — no API keys required — while seamles
 
 ### LoRA Training Pipeline
 - **Self-Distillation** — 16 prompt templates generate training pairs from the model's own knowledge (standard + O1-style reasoning)
-- **Claude Opus Distillation** — 4,500+ expert-curated training pairs across 560+ batch files covering 80+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML/AI, system design, compilers, distributed systems, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
+- **Claude Opus Distillation** — 5,500+ expert-curated training pairs across 996+ batch files covering 80+ technical domains (Python, TypeScript, React, CSS, DevOps, databases, security, ML/AI, system design, compilers, distributed systems, Hive blockchain, and more). Loaded dynamically via `scripts/claude_distill_v2.py`
 - **Thinking-Trace Curriculum** — 1,638 thinking-trace training pairs with `<think>` blocks across 4 cognitive phases: Foundation (434 pairs: debugging, security, performance, architecture, testing, concurrency, data modeling), Advanced (401 pairs: backtracking, adversarial self-testing, analogical reasoning, tradeoffs, uncertainty), Meta-Cognition (403 pairs: reasoning quality, confidence calibration, Socratic method, learning from mistakes, code quality judgment), and Autonomy (400 pairs: training data generation, self-evaluation, curriculum design, meta-learning, autonomous improvement, quality assurance). Target mix: 72% direct-answer + 28% thinking-trace
 - **Self-Improvement Pipeline** — Autonomous "get smarter" loop: self-eval → data generation → QLoRA training → GGUF export → validation. Includes LoRA bank, curriculum meta-learning, error-driven learning, and online distillation (p400-p407 batch series)
 - **Genetic Expansion** — Mutation operators (rephrase, constrain, generalize, error-inject, multi-step) expand top pairs for data diversity
 - **Quality Scoring v5** — Multi-dimensional scoring with code quality cap (0.35), no-code gate, MIN_CODE_BLOCKS requirement, and tiered dedup (exact/paraphrase/near)
 - **Merge Cycling** — Train LoRA → merge into base → train new LoRA on improved base → repeat. Each cycle bakes specialization deeper into core weights
 - **MoLoRA (Mixture of LoRA Experts)** — Domain-specialized LoRAs with intelligent keyword-based query routing. Each domain gets its own merged Ollama model with graceful fallback to the generalist
-- **Eval System** — 115 coding challenges (100 general + 15 Hive-specific) across 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%)
+- **Continuous Improvement Loop** — One-command orchestrator (`scripts/improve.py`): train → deploy → eval → hunt weaknesses → generate targeted pairs → prep next cycle. Each cycle compounds on the last with no ceiling
+- **Weakness Hunter** — Analyzes eval results by category, identifies gaps, auto-generates targeted training pairs using the miner/distiller to close specific weaknesses
+- **Eval System** — 150 coding challenges across 18 categories and 4 dimensions: code correctness (30%), test quality (30%), conceptual depth (20%), explanation (20%)
 - **Model Benchmark Harness** — 12-task harness across 4 categories (single-shot generation, refactoring, debugging, context retention) measuring tokens/sec, TTFT, VRAM, speculative decoding acceptance rate, and task success. Built-in model comparison mode
 - **Multi-Backend Serving** — Ollama for standard models, llama-server for LoRA adapters, OpenRouter for cloud models. Automatic routing via `smart_call()`
 
@@ -257,20 +259,60 @@ wsl -d Ubuntu-24.04
 source /opt/hiveai-env/bin/activate
 cd /opt/hiveai/project
 
-# Prepare training data (the bridge)
+# Prepare training data (loads all batch files + JSONL sources, deduplicates, curriculum-orders)
 python scripts/prepare_v5_data.py --export --stats
 
-# Train (Qwen 2.5 Coder LoRA)
-python scripts/train_v5.py 2>&1 | tee logs/train_v5.log
+# Train (Qwen2.5-Coder-14B QLoRA via Unsloth)
+python scripts/train_v5.py --no-kl --force-unsloth 2>&1 | tee logs/train_v6.log
 ```
+
+### Post-Training Deployment
+
+After training completes, merge the LoRA adapter and export GGUF for llama-server:
+
+```bash
+# Deploy: merge LoRA + export GGUF (run in WSL)
+python scripts/deploy_v6.py --quant q5_k_m
+
+# Serve with llama-server (run on Windows)
+llama-server --model models/hiveai-v6/*.gguf \
+  --port 11435 --n-gpu-layers 999 --ctx-size 8192 \
+  --flash-attn on --cache-type-k q8_0 --cache-type-v q4_0
+
+# Eval
+python scripts/run_eval.py --model hiveai-v6 --base-url http://localhost:11435
+```
+
+### Continuous Improvement Loop
+
+The one-command improvement cycle — train, deploy, eval, hunt weaknesses, prep next round:
+
+```bash
+# Full cycle (train → deploy → eval → hunt → prep)
+python scripts/improve.py
+
+# Check current loop status
+python scripts/improve.py --status
+
+# Skip training (adapter already exists), just deploy + eval + hunt
+python scripts/improve.py --skip-train
+
+# Analyze weaknesses from latest eval
+python scripts/weakness_hunter.py
+
+# Generate targeted pairs for weak categories
+python scripts/weakness_hunter.py --generate --pairs 20
+```
+
+Each cycle identifies where the model is weakest and generates targeted training data to close those gaps. The model's weaknesses drive the next round of training, creating a self-improving feedback loop with no ceiling.
 
 ### Merge Cycling
 
-After training, merge the LoRA into the base model to create an improved foundation for the next training cycle:
+Merge LoRA adapters into base weights to compound improvements across cycles:
 
 ```bash
-# Merge v5 adapter into base (creates models/qwen2.5-coder-7b-cycle1)
-python scripts/auto_cycle.py --adapter loras/v5 --deploy --eval
+# Merge adapter into base (Unsloth path for QLoRA)
+python scripts/auto_cycle.py --adapter loras/v6 --deploy --eval
 
 # View merge history
 python scripts/auto_cycle.py --history
@@ -305,17 +347,17 @@ When enabled, `smart_call()` classifies each query's domain (Python, Hive, JavaS
 
 ### Eval System
 
-Evaluate model quality with 115 coding challenges:
+Evaluate model quality with 150 coding challenges across 18 categories:
 
 ```bash
 # Eval against Ollama model
 python scripts/run_eval.py --model qwen3:14b
 
 # Eval against llama-server (LoRA adapter)
-python scripts/run_eval.py --base-url http://localhost:11435
+python scripts/run_eval.py --model hiveai-v6 --base-url http://localhost:11435
 
 # Compare with baseline
-python scripts/run_eval.py --model hiveai-v5 --compare qwen3:14b
+python scripts/run_eval.py --model hiveai-v6 --compare qwen3:14b
 ```
 
 ### Model Benchmark Harness
@@ -350,13 +392,15 @@ Results are saved as timestamped JSON in `bench/results/` for tracking improveme
 | v2 | Qwen3.5-35B-A3B | Killed | — | — | Superseded by v3 |
 | v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
 | v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
-| v5 | Qwen2.5-Coder-14B | Ready to Train | 6,176 | — | 5,596 unique pairs + Hive 2x oversample, thinking curriculum, DoRA r=16, KL-anchored SFT |
+| v5 | Qwen3.5-9B / Qwen3.5-4B | Failed | — | — | VLM architecture incompatible with QLoRA (loss diverged) |
+| v6 | Qwen2.5-Coder-14B | Training | 5,585 | — | QLoRA r=32, seq=4096, loss 0.31 at step 508/621 |
+| v7 | Qwen2.5-Coder-14B | Prep | 6,698 | — | v6 data + 995 new pairs, ready for next cycle |
 
 #### Claude Opus Distillation Corpus
 
-The project includes 4,500+ expert-curated training pairs distilled from Claude Opus 4.6, organized across 560+ batch files in `scripts/distill_batches/`. These break into two categories:
+The project includes 5,500+ expert-curated training pairs distilled from Claude Opus 4.6, organized across 996+ batch files in `scripts/distill_batches/`. These break into two categories:
 
-**Direct-Answer Pairs (~2,900 pairs):** Cover 80+ domains including Python stdlib, async patterns, TypeScript, React, CSS, DevOps, databases, authentication, AI/ML (GRPO, DPO, RAG, multi-agent systems, speculative decoding, federated learning), system design, compilers, distributed systems, security, and an autonomous self-improvement pipeline (p400-p407: self-training loops, QLoRA, self-eval/reward, GGUF optimization, meta-learning, error-driven learning, online distillation, and the "get smarter" orchestrator).
+**Direct-Answer Pairs (~3,900+ pairs):** Cover 80+ domains including Python stdlib, async patterns, TypeScript, React, CSS, DevOps, databases, authentication, AI/ML (GRPO, DPO, RAG, multi-agent systems, speculative decoding, federated learning), system design, compilers, distributed systems, security, Hive blockchain (dhive, beem, custom_json, DeFi, NFTs, governance, node setup, indexing), algorithmic thinking (DP, graphs, trees, greedy, geometry), real-world debugging, code review/refactoring, and an autonomous self-improvement pipeline (p400-p407).
 
 **Thinking-Trace Pairs (1,638 pairs):** A 4-phase cognitive curriculum teaching step-by-step reasoning via `<think>` blocks:
 - **Phase 1 — Foundation (434 pairs):** Systematic debugging, security analysis, performance optimization, architecture design, code review, testing strategy, concurrency/distributed systems, data modeling/DevOps
@@ -392,8 +436,8 @@ Target training mix: 72% direct-answer + 28% thinking-trace. The data bridge (`s
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `LLAMA_SERVER_BASE_URL` | llama-server endpoint | `http://localhost:11435` |
-| `LLAMA_SERVER_MODELS` | Comma-separated model names routed to llama-server | `hiveai-v1,hiveai-v1.5,hiveai-v2` |
-| `LLAMA_SERVER_MODEL` | Currently active llama-server model | `hiveai-v1` |
+| `LLAMA_SERVER_MODELS` | Comma-separated model names routed to llama-server | `hiveai-v1,hiveai-v1.5,hiveai-v2,hiveai-v6` |
+| `LLAMA_SERVER_MODEL` | Currently active llama-server model | `hiveai-v6` |
 
 ### MoLoRA (Domain Routing)
 
@@ -608,7 +652,7 @@ Immutable Record
 | **Web Scraping** | crawl4ai (Playwright) | JavaScript-aware page extraction |
 | **Graph Analysis** | NetworkX, Louvain | Community detection and summaries |
 | **Job Queue** | SQLAlchemy + threading | Async pipeline orchestration |
-| **LoRA Training** | PEFT, transformers, trl | Fine-tuning with merge cycling |
+| **LoRA Training** | Unsloth, PEFT, transformers, trl | QLoRA fine-tuning with merge cycling |
 | **Code Sandbox** | subprocess (isolated) | Safe Python/JS execution |
 | **Blockchain** | Hive RPC (beem) | Immutable publishing + DBC |
 | **Domain Router** | MoLoRA | Keyword-based query→model routing |
@@ -696,18 +740,19 @@ hiveai-knowledge-refinery/
 │       ├── job_detail.html
 │       └── book_review.html
 ├── scripts/
-│   ├── run_eval.py            # 115-challenge eval harness
-│   ├── train_v5.py            # LoRA v5 training (dense Qwen3.5-9B)
-│   ├── deploy_v5.py           # Post-training deployment (merge → GGUF → Ollama)
-│   ├── auto_cycle.py          # Merge cycling CLI
-│   ├── train_domain.py        # Domain-filtered training wrapper
-│   ├── deploy_domain.py       # Domain adapter deployment
-│   ├── download_model.sh      # Reliable model download (XET-safe)
-│   ├── prepare_v5_data.py     # v5 data preparation
+│   ├── improve.py             # One-command improvement loop (train→deploy→eval→hunt→prep)
+│   ├── weakness_hunter.py     # Eval-driven weakness analysis + targeted pair generation
+│   ├── run_eval.py            # 150-challenge eval harness (18 categories, 4 dimensions)
+│   ├── train_v5.py            # QLoRA training (Qwen2.5-Coder-14B via Unsloth)
+│   ├── deploy_v6.py           # Post-training deployment (Unsloth merge → GGUF → llama-server)
+│   ├── deploy_v5.py           # Legacy deployment (PEFT merge → GGUF → Ollama)
+│   ├── auto_cycle.py          # Merge cycling CLI (supports both Unsloth and PEFT backends)
+│   ├── validate_training.py   # Training monitor (log parsing + checkpoint generation test)
+│   ├── prepare_v5_data.py     # Training data bridge (batch files + JSONL → curriculum-ordered JSONL)
 │   ├── calibrate_eval.py      # Eval anchor calibration
 │   ├── claude_distill.py      # Claude distillation pipeline (v1)
 │   ├── claude_distill_v2.py   # Claude Opus distillation v2 (batch loader for all pairs)
-│   ├── distill_batches/       # 560+ batch files: 2,900 direct-answer + 1,638 thinking-trace pairs
+│   ├── distill_batches/       # 996+ batch files: 3,900+ direct-answer + 1,638 thinking-trace pairs
 │   ├── fix_broken_batches.py  # Batch file repair utility (triple-quote conflict resolution)
 │   ├── distill_multilang.py   # Multi-language distillation support
 │   ├── mine_hive_knowledge.py # Hive-specific pair mining
@@ -721,9 +766,10 @@ hiveai-knowledge-refinery/
 ├── evals/
 │   └── anchors/               # 18 domain-specific eval anchor sets
 ├── loras/
-│   ├── training_data/         # JSONL training datasets (v1-v5, DBC, MoE)
-│   ├── v1/                    # LoRA v1 adapter (Qwen3-14B) — proven
-│   ├── v2/                    # LoRA v2 adapter (Qwen3.5-35B-A3B) — killed
+│   ├── training_data/         # JSONL training datasets (v6: 5,585 pairs, v7: 6,698 pairs)
+│   │   └── weakness_patches/  # Auto-generated targeted pairs from weakness_hunter.py
+│   ├── v1/                    # LoRA v1 adapter (Qwen3-14B) — proven, eval 0.853
+│   ├── v6/                    # LoRA v6 adapter (Qwen2.5-Coder-14B) — training
 │   └── domains/               # Domain-specialized adapters (MoLoRA)
 ├── models/                    # Local model weights
 ├── Dockerfile                 # Multi-stage container build
@@ -900,8 +946,12 @@ The trainer: accumulated knowledge → LoRA adapters that encode the *ability to
 - [x] Thinking-trace curriculum (1,638 pairs, 4-phase cognitive training: foundation → advanced → meta → autonomy)
 - [x] Self-improvement pipeline (p400-p407: autonomous "get smarter" training loop)
 - [x] Model benchmark harness (12 tasks, 4 categories, speculative decoding metrics)
-- [x] Training data bridge (prepare_v5_data.py: 6,176 curriculum-ordered pairs for Qwen 2.5 Coder)
-- [ ] LoRA v5 training (Qwen 2.5 Coder, DoRA r=16, KL-anchored SFT)
+- [x] Training data bridge (prepare_v5_data.py: 6,698 curriculum-ordered pairs for Qwen 2.5 Coder)
+- [x] LoRA v6 training (Qwen2.5-Coder-14B, QLoRA r=32, seq=4096, loss 0.31 — in progress)
+- [x] Continuous improvement loop (improve.py: train → deploy → eval → hunt → prep → repeat)
+- [x] Weakness hunter (weakness_hunter.py: eval-driven targeted pair generation)
+- [x] Unsloth/llama-server merge cycling backend (merge_cycle.py updated)
+- [ ] LoRA v6 eval + v7 training cycle
 - [ ] Domain specialist training (per-domain LoRAs)
 - [ ] GRPO+ reinforcement learning via rLLM
 

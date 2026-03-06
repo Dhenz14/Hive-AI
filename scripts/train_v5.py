@@ -1,20 +1,18 @@
 """
-Train HiveAI LoRA v5 on Qwen 2.5 Coder.
+Train HiveAI LoRA v6 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth).
 
 One-command training:
     python scripts/train_v5.py
     python scripts/train_v5.py --test 5    # smoke test (5 steps)
     python scripts/train_v5.py --no-kl     # disable KL anchoring
 
-What's new in v5:
-    - Qwen 2.5 Coder base (code-specialized, strong reasoning)
-    - Aggressive LoRA: r=16 DoRA, 7 target modules (attn + MLP)
-    - KL-Anchored SFT (from v4) — prevents catastrophic forgetting
-    - Combined dataset: ~5500+ pairs from v1-v4 + 560 batch files + thinking curriculum
-    - Thinking-trace curriculum: Foundation -> Advanced -> Meta -> Autonomy
-    - 3 epochs, effective batch size 16
-    - NEFTune + curriculum ordering + Hive oversampling
-    - All v3 infrastructure: system optimizer, heartbeat, checkpoints, CUDA tuning
+What's new in v6:
+    - Qwen2.5-Coder-14B-Instruct base (code-specialized, text-only, ~152K vocab)
+    - QLoRA via Unsloth: 4-bit base + bf16 LoRA adapters = ~10-12GB VRAM on 16GB card
+    - 5,585 training pairs (2x previous) including 1,623 thinking-trace pairs
+    - Standard LoRA r=32 (DoRA disabled — incompatible with Flash Attention)
+    - Previous attempts on Qwen3.5 (VLM) failed: broken loss, VLM wrapper issues
+    - 3 epochs, effective batch size 16, NEFTune + curriculum ordering
 """
 import faulthandler
 import json
@@ -44,53 +42,52 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v5.jsonl")
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v5")
+TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v6.jsonl")
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v6")
 
-# Qwen 2.5 Coder — code-specialized base model
+# Qwen2.5-Coder-14B-Instruct — code-specialized, text-only, standard architecture.
+# QLoRA via Unsloth: 4-bit base (~8-9GB) + bf16 LoRA adapters (~0.5GB) = fits 16GB.
 BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen2.5-coder-14b")
 
 # ---------------------------------------------------------------------------
-# v5 Training Configuration — Aggressive Dense LoRA
+# v6 Training Configuration — Qwen2.5-Coder-14B QLoRA
 # ---------------------------------------------------------------------------
-MAX_SEQ_LENGTH = 2048     # 2048 with FA2 + CCE + tiled MLP: ~85% VRAM on 16GB.
-                          # Without FA2: 2048/1536 hit 97% (attention is O(seq²) without FA2).
-                          # Requires: flash-attn, cut-cross-entropy, unsloth_tiled_mlp=True
+MAX_SEQ_LENGTH = 4096     # Qwen2.5-Coder supports 128K; 4096 fits on 16GB with proper VRAM mgmt
 SMOKE_SEQ_LENGTH = 512    # Shorter for smoke tests — catches same shape/VRAM errors 4x faster
 
 LORA_CONFIG = {
-    "r": 16,                          # 16 — DoRA at r=16 matches LoRA at r=32 quality; saves ~330MB VRAM
-    "lora_alpha": 32,                 # 2x rank for stable scaling
+    "r": 32,                          # r=32 for good quality (DoRA disabled for Flash Attention compat)
+    "lora_alpha": 64,                 # 2x rank for stable scaling
     "target_modules": [
-        "q_proj", "k_proj", "v_proj", "o_proj",   # attention (proven in v3)
-        "gate_proj", "up_proj", "down_proj",        # MLP layers (dense model)
+        "q_proj", "k_proj", "v_proj", "o_proj",   # attention
+        "gate_proj", "up_proj", "down_proj",        # MLP layers
     ],
     "lora_dropout": 0.0,
     "bias": "none",
-    "use_dora": True,                 # Weight-Decomposed LoRA: +1-4.4pts quality
+    "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
 }
 
 TRAINING_CONFIG = {
-    "per_device_train_batch_size": 1,      # batch=1 for VRAM safety on 16GB
-    "gradient_accumulation_steps": 16,     # Effective batch = 16; FA2 keeps VRAM under 90%
-    "num_train_epochs": 3,                 # UP from 1 (dense benefits from repetition)
-    "learning_rate": 1.5e-4,               # Slightly lower than 2e-4 for more modules
+    "per_device_train_batch_size": 1,      # batch=1 for 14B on 16GB (fused CE needs VRAM headroom)
+    "gradient_accumulation_steps": 16,     # Effective batch = 16
+    "num_train_epochs": 3,
+    "learning_rate": 2e-4,                 # Standard for QLoRA fine-tuning
     "warmup_ratio": 0.03,                  # 3% warmup
     "lr_scheduler_type": "cosine",
     "bf16": True,
     "logging_steps": 5,
-    "save_steps": 200,
+    "save_steps": 100,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
     "seed": 42,
     "neftune_noise_alpha": 5.0,            # NEFTune: +0.5-1% quality, zero cost
 }
 
-# KL-Anchored SFT (from v4 — prevents catastrophic forgetting)
+# KL-Anchored SFT — prevents catastrophic forgetting
 KL_CONFIG = {
     "lambda": 0.1,        # KL weight in loss
     "temperature": 1.0,   # Softmax temperature
-    "seq_limit": 512,     # Max tokens for KL (VRAM safety)
+    "seq_limit": 256,     # Max tokens for KL (VRAM safety, 14B needs less)
 }
 
 
@@ -158,7 +155,9 @@ def optimize_system_pre_load():
     # Env vars only — no CUDA context init
     os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
-    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
+                          "expandable_segments:False,"
+                          "garbage_collection_threshold:0.6")
     optimizations.append("CUDA env vars set")
 
     # Check for available VRAM optimizations (import only, no CUDA init)
@@ -173,7 +172,7 @@ def optimize_system_pre_load():
         os.environ["CUT_CROSS_ENTROPY"] = "1"
         optimizations.append(f"cut_cross_entropy v{cut_cross_entropy.__version__} (logits tensor eliminated)")
     except ImportError:
-        logger.warning("  cut_cross_entropy NOT installed — large vocab will materialize big logits")
+        logger.warning("  cut_cross_entropy NOT installed — 248K vocab will materialize ~1GB logits")
 
     import gc
     gc.set_threshold(700, 10, 5)
@@ -215,7 +214,7 @@ def optimize_system_post_load():
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
              seq_length_override: int = 0):
-    """Train LoRA v5 on Qwen 2.5 Coder model."""
+    """Train LoRA v6 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
     import torch
     import torch.nn.functional as F
 
@@ -240,8 +239,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.warning("Unsloth not installed — using standard transformers path")
 
     # --- Sequence length selection ---
-    # cut_cross_entropy + tiled MLP reduce VRAM significantly.
-    # seq=2048 fits on 16GB with these optimizations.
+    # 248K vocab makes logits massive, but cut_cross_entropy + tiled MLP eliminate
+    # the bottleneck. seq=2048 now fits on 16GB with these optimizations.
     if seq_length_override > 0:
         seq_length = seq_length_override
         logger.info(f"Sequence length: {seq_length} (--seq-length override)")
@@ -252,9 +251,11 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         seq_length = MAX_SEQ_LENGTH  # 2048: FA2 + CCE + tiled MLP fit on 16GB
         logger.info(f"Sequence length: {seq_length}")
 
-    if max_steps > 0:
-        if step_timeout <= 0:
+    if step_timeout <= 0:
+        if max_steps > 0:
             step_timeout = 300  # 5 min per step default in test mode
+        else:
+            step_timeout = 200  # Full run: catch VRAM spillover early (normal ~70s/step)
 
     # Now safe to import transformers/peft (Unsloth patches already applied)
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -269,7 +270,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     from hiveai.llm.prompts import CODING_SYSTEM_PROMPT
 
     logger.info("=" * 60)
-    logger.info("  HiveAI LoRA v5 Training — Qwen 2.5 Coder")
+    logger.info("  HiveAI LoRA v6 Training — Qwen2.5-Coder-14B QLoRA")
     logger.info("=" * 60)
     logger.info(f"  Base model:  {model_path}")
     logger.info(f"  Data:        {TRAINING_JSONL}")
@@ -288,7 +289,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
                 f"(lambda={KL_CONFIG['lambda']}, seq_limit={KL_CONFIG['seq_limit']})")
-    logger.info(f"  Architecture: Qwen 2.5 Coder (code-specialized)")
+    logger.info(f"  Architecture: DENSE 14B, QLoRA 4-bit base + bf16 adapters")
     if max_steps:
         logger.info(f"  TEST MODE:   stopping after {max_steps} steps")
     logger.info("=" * 60)
@@ -310,35 +311,27 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info("Using Unsloth FastLanguageModel for 2x speed + 70% less VRAM")
 
         unsloth_model_name = model_path
-        if "qwen2.5" in os.path.basename(model_path).lower():
-            if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
-                unsloth_model_name = model_path
-                logger.info(f"  Using local weights: {unsloth_model_name}")
-            else:
-                unsloth_model_name = "unsloth/Qwen2.5-Coder-14B"
-                logger.info(f"  Using Unsloth HF model: {unsloth_model_name}")
+        if os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
+            logger.info(f"  Using local weights: {unsloth_model_name}")
+        else:
+            # Use Unsloth's pre-quantized 4-bit model — much smaller download (~8GB vs 28GB)
+            unsloth_model_name = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
+            logger.info(f"  Using Unsloth pre-quantized 4-bit model: {unsloth_model_name}")
 
         _model, _tokenizer = FastLanguageModel.from_pretrained(
             model_name=unsloth_model_name,
             max_seq_length=seq_length,
-            dtype=torch.bfloat16,
-            load_in_4bit=True,
-            trust_remote_code=True,
-            unsloth_tiled_mlp=True,  # Tile MLP activations: ~0.5-1GB VRAM savings
+            dtype=None,          # Let Unsloth auto-detect optimal dtype
+            load_in_4bit=True,   # QLoRA: 4-bit base + bf16 LoRA = ~10GB on 16GB card
         )
         use_unsloth = True
         logger.info(f"Model loaded via Unsloth in {time.time() - load_start:.0f}s")
-
-        # Some models return Processor instead of Tokenizer
-        if not hasattr(_tokenizer, "encode") and hasattr(_tokenizer, "tokenizer"):
-            logger.info(f"Extracting tokenizer from processor ({type(_tokenizer).__name__})")
-            _tokenizer = _tokenizer.tokenizer
         return _model, _tokenizer
 
     def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            load_path = "Qwen/Qwen2.5-Coder-14B"
+            load_path = "Qwen/Qwen2.5-Coder-14B-Instruct"
             logger.info(f"  Local path not found, using HF model: {load_path}")
 
         bnb_config = BitsAndBytesConfig(
@@ -349,8 +342,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info(f"Loading tokenizer from {load_path}...")
         _tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
-        logger.info(f"Loading Qwen 2.5 Coder with BnB 4-bit...")
-        # Use flash_attention_2 if available (O(seq) memory vs O(seq²))
+        logger.info(f"Loading Qwen2.5-Coder-14B in 4-bit QLoRA (~8-9GB VRAM)...")
+        # Use flash_attention_2 if available (standard attention, no hybrid issues)
         attn_impl = "eager"
         try:
             import flash_attn  # noqa: F401
@@ -474,6 +467,16 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     else:
         logger.info("torch.compile: skipped (BnB 4-bit incompatible with torch.compile in transformers 5.2.0)")
 
+    # ── Defragment VRAM before training ──
+    # Model loading + LoRA setup creates fragmentation; clean up before training starts
+    import gc
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    vram_alloc = torch.cuda.memory_allocated() / 1e9
+    vram_reserved = torch.cuda.memory_reserved() / 1e9
+    logger.info(f"VRAM after cleanup: {vram_alloc:.1f}GB allocated, {vram_reserved:.1f}GB reserved")
+
     # ── Load and format dataset ──
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
     logger.info(f"EOS token: '{tokenizer.eos_token}' (id={tokenizer.eos_token_id})")
@@ -567,10 +570,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"First 400 chars:\n{sample[:400]}")
 
     # ── KL-Anchored Loss Setup ──
-    # Chunked approach: backbone(full seq) -> lm_head(kl_slice positions only)
-    # Peak logit VRAM = kl_slice x vocab x 2 bytes (much less than full seq).
+    # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
+    # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
-    # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq x vocab).
+    # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
     kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
@@ -579,8 +582,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         Get per-token log-probs for last kl_slice positions WITHOUT materializing
         the full seq×vocab logit tensor.
 
-        Strategy: run backbone over full seq for correct attention context,
-        then apply lm_head only to the last kl_slice hidden states.
+        Strategy: run backbone (Qwen2ForModel) over full seq for correct attention
+        context, then apply lm_head only to the last kl_slice hidden states.
+        Peak logit tensor: kl_slice × vocab × 2 bytes ≈ 240MB (vs 970MB for full seq).
 
         Works with CCE (we never touch outputs.logits from the SFT pass).
         Works with PEFT/LoRA/Unsloth: disable_adapter_layers() gates all adapters.
@@ -603,7 +607,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 attention_mask=inputs.get("attention_mask"),
                 use_cache=False,
             )
-            # Slice BEFORE lm_head to reduce logit tensor size
+            # Slice BEFORE lm_head: kl_slice × 4096 → kl_slice × 248K
             hidden_slice = hidden_out.last_hidden_state[:, -kl_slice:, :].contiguous()
             del hidden_out
 
@@ -744,17 +748,37 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.info(f"  Step {state.global_step} completed in {step_elapsed:.1f}s")
 
             # Step timeout — kill training if a step takes way too long
+            # (catches VRAM spilling to system RAM before it wastes hours)
             if self._step_timeout > 0 and step_elapsed > self._step_timeout:
                 logger.error(f"STEP TIMEOUT: step {state.global_step} took "
                              f"{step_elapsed:.0f}s > {self._step_timeout}s limit. "
                              f"Stopping training.")
                 control.should_training_stop = True
 
-            # NOTE: Do NOT call torch.cuda.empty_cache() during training!
-            # It returns blocks to the driver, causing fragmentation on re-allocation.
-            # With expandable_segments:True, the caching allocator handles this better.
-            if state.global_step % 50 == 0 and state.global_step > 0:
+            # Log VRAM every step for first 20 steps (catch gradual growth),
+            # then every 50 steps for the rest of training.
+            if state.global_step <= 20 or state.global_step % 50 == 0:
                 self._log_memory(state.global_step)
+
+            # Proactive VRAM pressure relief: always release reserved-but-unused
+            # blocks after each step. PyTorch's caching allocator over-reserves
+            # (17GB reserved on a 16GB card) causing spill to system RAM.
+            try:
+                reserved = torch.cuda.memory_reserved()
+                total = torch.cuda.get_device_properties(0).total_memory
+                reserved_pct = reserved / total
+                torch.cuda.empty_cache()
+                new_reserved = torch.cuda.memory_reserved()
+                freed = (reserved - new_reserved) / (1024**2)
+                if freed > 100:  # Log if we freed >100MB
+                    logger.info(
+                        f"[VRAM cleanup] step={state.global_step} "
+                        f"reserved {reserved/(1024**2):.0f}MB -> "
+                        f"{new_reserved/(1024**2):.0f}MB "
+                        f"(freed {freed:.0f}MB)"
+                    )
+            except Exception:
+                pass
 
         def on_train_begin(self, args, state, control, **kwargs):
             self._start_time = time.time()
@@ -769,15 +793,28 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 ram_gb = proc.memory_info().rss / (1024**3)
                 gpu_line = ""
                 try:
-                    out = subprocess.check_output(
-                        ["nvidia-smi", "--query-gpu=memory.used,memory.free",
-                         "--format=csv,noheader,nounits"],
-                        text=True, timeout=5,
-                    ).strip()
-                    gpu_used, gpu_free = out.split(", ")
-                    gpu_line = f" | GPU={gpu_used}MB used, {gpu_free}MB free"
-                except Exception:
-                    pass
+                    alloc_mb = torch.cuda.memory_allocated() / (1024**2)
+                    reserved_mb = torch.cuda.memory_reserved() / (1024**2)
+                    peak_mb = torch.cuda.max_memory_allocated() / (1024**2)
+                    total_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+                    free_mb = total_mb - reserved_mb
+                    gpu_line = (f" | GPU alloc={alloc_mb:.0f}MB "
+                                f"reserved={reserved_mb:.0f}MB "
+                                f"peak={peak_mb:.0f}MB "
+                                f"free={free_mb:.0f}MB "
+                                f"({alloc_mb/total_mb:.0%})")
+                except Exception as e:
+                    logger.warning(f"torch.cuda metrics failed: {type(e).__name__}: {e}")
+                    try:
+                        out = subprocess.check_output(
+                            ["nvidia-smi", "--query-gpu=memory.used,memory.free",
+                             "--format=csv,noheader,nounits"],
+                            text=True, timeout=5,
+                        ).strip()
+                        gpu_used, gpu_free = out.split(", ")
+                        gpu_line = f" | GPU={gpu_used}MB used, {gpu_free}MB free (nvidia-smi)"
+                    except Exception:
+                        pass
                 logger.info(f"[MEM step={step}] RAM={ram_gb:.1f}GB{gpu_line}")
             except Exception:
                 pass
@@ -804,9 +841,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     batch_size = TRAINING_CONFIG["per_device_train_batch_size"]
     grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
     if use_unsloth:
-        batch_size = 1    # Large vocab logits — keep batch=1 for VRAM safety
+        batch_size = 1    # batch=1 for 14B on 16GB (fused CE loss needs VRAM headroom)
         grad_accum = 16   # Keep effective batch = 16
-        logger.info(f"Unsloth VRAM savings: batch_size={batch_size}, grad_accum={grad_accum} "
+        logger.info(f"Unsloth QLoRA mode: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
 
     # Packing: concatenate short sequences to fill context window (30-50% speedup)
@@ -848,10 +885,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         disable_tqdm=True,
         gradient_checkpointing=True,
         optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
-        dataloader_num_workers=0 if max_steps > 0 else 2,
-        dataloader_pin_memory=True,
-        dataloader_persistent_workers=False if max_steps > 0 else True,
-        dataloader_prefetch_factor=None if max_steps > 0 else 2,
+        dataloader_num_workers=0,
+        dataloader_pin_memory=False,
+        dataloader_persistent_workers=False,
+        dataloader_prefetch_factor=None,
         dataloader_drop_last=True,
         logging_first_step=True,
         save_total_limit=3,
@@ -882,6 +919,17 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     from torch.utils.data import SequentialSampler
     trainer._get_train_sampler = lambda ds: SequentialSampler(ds)
 
+    # Monkey-patch training_step to call empty_cache() after every micro-batch.
+    # Without this, PyTorch's caching allocator reserves 16-17GB on our 16GB card
+    # during the 16 gradient accumulation sub-steps, spilling to system RAM (300s+ steps).
+    # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
+    _orig_training_step = trainer.training_step
+    def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
+        result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
+        torch.cuda.empty_cache()
+        return result
+    trainer.training_step = _training_step_with_vram_cleanup
+
     # Check for existing checkpoints
     resume_checkpoint = None
     if os.path.exists(OUTPUT_DIR):
@@ -894,6 +942,16 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Final VRAM cleanup before training — free all cached allocations
+    gc.collect()
+    torch.cuda.empty_cache()
+    pre_train_alloc = torch.cuda.memory_allocated() / 1e9
+    pre_train_reserved = torch.cuda.memory_reserved() / 1e9
+    pre_train_total = torch.cuda.get_device_properties(0).total_memory / 1e9
+    logger.info(f"Pre-train VRAM: {pre_train_alloc:.2f}GB alloc, "
+                f"{pre_train_reserved:.2f}GB reserved, "
+                f"{pre_train_total - pre_train_reserved:.2f}GB truly free")
 
     logger.info("Starting training...")
     sys.stderr.flush()
@@ -921,10 +979,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # Save training metadata
     meta = {
-        "version": "v5.0",
+        "version": "v6.0",
         "base_model": model_path,
-        "base_model_name": "Qwen2.5-Coder-14B",
-        "architecture": "dense",
+        "base_model_name": "Qwen2.5-Coder-14B-Instruct",
+        "architecture": "dense 14B, QLoRA 4-bit",
         "unsloth": use_unsloth,
         "pair_count": pair_count,
         "loss": loss if isinstance(loss, (int, float)) else None,
@@ -945,7 +1003,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Print next steps ──
     print("\n" + "=" * 60)
-    print("  v5 Training Complete — Next Steps")
+    print("  v6 Training Complete — Next Steps")
     print("=" * 60)
     print(f"""
   Deploy to Ollama:
@@ -956,7 +1014,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
   2. ollama create hiveai-v5 -f Modelfile
   3. python scripts/run_eval.py --model hiveai-v5
 
-  Compare: python scripts/run_eval.py --model hiveai-v5
+  Baselines: qwen3:14b=0.741, hiveai-v1=0.853 (+15%)
 """)
     print("=" * 60)
 
@@ -968,7 +1026,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Train HiveAI v5 on Qwen 2.5 Coder")
+    parser = argparse.ArgumentParser(description="Train HiveAI v6 on Qwen2.5-Coder-14B QLoRA")
     parser.add_argument("--test", type=int, default=0,
                         help="Smoke test: stop after N steps")
     parser.add_argument("--no-kl", action="store_true",
@@ -1003,10 +1061,13 @@ if __name__ == "__main__":
         sys.exit(1)
 
     if not os.path.exists(model_path):
-        logger.error(f"Base model not found: {model_path}")
-        logger.error("Download: huggingface-cli download Qwen/Qwen2.5-Coder-14B "
-                      "--local-dir models/qwen2.5-coder-14b")
-        sys.exit(1)
+        if args.no_unsloth:
+            logger.error(f"Base model not found: {model_path}")
+            logger.error("Download: huggingface-cli download Qwen/Qwen2.5-Coder-14B-Instruct "
+                          "--local-dir models/qwen2.5-coder-14b")
+            sys.exit(1)
+        else:
+            logger.info(f"Local model not found at {model_path} — Unsloth will download from HuggingFace")
 
     optimize_system_pre_load()
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,

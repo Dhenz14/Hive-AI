@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MERGE_HISTORY_FILE = os.path.join(PROJECT_ROOT, "loras", "merge_history.json")
 OLLAMA_URL = "http://localhost:11434"
+LLAMA_SERVER_URL = "http://localhost:11435"
+
+# WSL distro for Unsloth operations
+WSL_DISTRO = "Ubuntu-24.04"
+WSL_VENV = "/opt/hiveai-env"
+WSL_PROJECT = "/opt/hiveai/project"
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +221,226 @@ def verify_merged_model(merged_dir: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# GGUF export
+# Unsloth merge + GGUF export (for QLoRA models via WSL)
+# ---------------------------------------------------------------------------
+def merge_and_export_gguf_unsloth(
+    adapter_dir: str,
+    gguf_output_dir: str,
+    quant: str = "q5_k_m",
+    unsloth_model: str = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit",
+    timeout: int = 3600,
+) -> Optional[str]:
+    """Merge LoRA adapter + export GGUF in one shot via Unsloth in WSL.
+
+    This is the preferred path for QLoRA-trained models (4-bit base).
+    Unsloth handles merge + quantize together, which is more memory-efficient.
+
+    Returns the GGUF file path on success, None on failure.
+    """
+    # Convert Windows paths to WSL paths
+    def to_wsl_path(win_path: str) -> str:
+        p = win_path.replace("\\", "/")
+        if len(p) > 1 and p[1] == ":":
+            drive = p[0].lower()
+            return f"/mnt/{drive}{p[2:]}"
+        return p
+
+    wsl_adapter = to_wsl_path(os.path.abspath(adapter_dir))
+    wsl_output = to_wsl_path(os.path.abspath(gguf_output_dir))
+
+    script = f"""
+import os, sys, time
+sys.path.insert(0, "{WSL_PROJECT}")
+from unsloth import FastLanguageModel
+
+print("Loading base model + LoRA adapter...")
+t0 = time.time()
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name="{wsl_adapter}",
+    max_seq_length=4096,
+    dtype=None,
+    load_in_4bit=True,
+)
+FastLanguageModel.for_inference(model)
+print(f"Model loaded in {{time.time() - t0:.1f}}s")
+
+os.makedirs("{wsl_output}", exist_ok=True)
+print(f"Exporting GGUF ({quant}) to {wsl_output}...")
+t1 = time.time()
+model.save_pretrained_gguf(
+    "{wsl_output}",
+    tokenizer,
+    quantization_method="{quant}",
+)
+print(f"GGUF export complete in {{time.time() - t1:.1f}}s")
+
+# Find and report the GGUF file
+for f in os.listdir("{wsl_output}"):
+    if f.endswith(".gguf"):
+        path = os.path.join("{wsl_output}", f)
+        size_gb = os.path.getsize(path) / 1e9
+        print(f"GGUF_PATH={{path}}")
+        print(f"GGUF_SIZE={{size_gb:.2f}}")
+        break
+else:
+    print("ERROR: No GGUF file found after export")
+    sys.exit(1)
+
+print("MERGE_EXPORT_COMPLETE")
+"""
+
+    logger.info(f"Running Unsloth merge+GGUF via WSL ({WSL_DISTRO})...")
+    logger.info(f"  Adapter: {adapter_dir}")
+    logger.info(f"  Output:  {gguf_output_dir}")
+    logger.info(f"  Quant:   {quant}")
+    logger.info(f"  Base:    {unsloth_model}")
+
+    cmd = [
+        "wsl", "-d", WSL_DISTRO, "--",
+        "bash", "-c",
+        f"source {WSL_VENV}/bin/activate && python3 -c {repr(script)}"
+    ]
+
+    t0 = time.time()
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    elapsed = time.time() - t0
+
+    if result.returncode != 0:
+        logger.error(f"Unsloth merge+GGUF failed (exit {result.returncode}, {elapsed:.0f}s)")
+        if result.stderr:
+            logger.error(result.stderr[-2000:])
+        if result.stdout:
+            logger.info(result.stdout[-1000:])
+        return None
+
+    if "MERGE_EXPORT_COMPLETE" not in result.stdout:
+        logger.error("Merge subprocess finished but no completion marker")
+        logger.info(result.stdout[-500:])
+        return None
+
+    # Extract GGUF path from output
+    import re as _re
+    path_match = _re.search(r"GGUF_PATH=(.+)", result.stdout)
+    size_match = _re.search(r"GGUF_SIZE=(.+)", result.stdout)
+
+    if path_match:
+        gguf_wsl_path = path_match.group(1).strip()
+        size_str = size_match.group(1).strip() if size_match else "?"
+        logger.info(f"Unsloth merge+GGUF complete in {elapsed:.0f}s")
+        logger.info(f"  GGUF: {gguf_wsl_path} ({size_str} GB)")
+
+        # Convert WSL path back to Windows for llama-server
+        # /mnt/c/path -> C:/path
+        win_path = gguf_wsl_path
+        if gguf_wsl_path.startswith("/mnt/"):
+            drive = gguf_wsl_path[5].upper()
+            win_path = f"{drive}:{gguf_wsl_path[6:]}"
+
+        return win_path
+
+    logger.error("Could not find GGUF path in output")
+    return None
+
+
+def save_merged_hf_unsloth(
+    adapter_dir: str,
+    output_dir: str,
+    save_16bit: bool = False,
+    timeout: int = 3600,
+) -> bool:
+    """Save merged model in HF format via Unsloth (for future re-quantization)."""
+
+    def to_wsl_path(win_path: str) -> str:
+        p = win_path.replace("\\", "/")
+        if len(p) > 1 and p[1] == ":":
+            drive = p[0].lower()
+            return f"/mnt/{drive}{p[2:]}"
+        return p
+
+    wsl_adapter = to_wsl_path(os.path.abspath(adapter_dir))
+    wsl_output = to_wsl_path(os.path.abspath(output_dir))
+    method = "merged_16bit" if save_16bit else "merged_4bit"
+
+    script = f"""
+import os, sys, time
+from unsloth import FastLanguageModel
+
+model, tokenizer = FastLanguageModel.from_pretrained(
+    model_name="{wsl_adapter}",
+    max_seq_length=4096,
+    dtype=None,
+    load_in_4bit=True,
+)
+os.makedirs("{wsl_output}", exist_ok=True)
+model.save_pretrained_merged("{wsl_output}", tokenizer, save_method="{method}")
+print("SAVE_COMPLETE")
+"""
+
+    cmd = [
+        "wsl", "-d", WSL_DISTRO, "--",
+        "bash", "-c",
+        f"source {WSL_VENV}/bin/activate && python3 -c {repr(script)}"
+    ]
+
+    logger.info(f"Saving merged HF model ({method}) via Unsloth...")
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+    if result.returncode == 0 and "SAVE_COMPLETE" in result.stdout:
+        logger.info(f"Merged HF model saved to {output_dir}")
+        return True
+
+    logger.error(f"HF save failed (exit {result.returncode})")
+    if result.stderr:
+        logger.error(result.stderr[-1000:])
+    return False
+
+
+# ---------------------------------------------------------------------------
+# llama-server deployment
+# ---------------------------------------------------------------------------
+def deploy_to_llama_server(
+    gguf_path: str,
+    port: int = 11435,
+    ctx_size: int = 8192,
+    gpu_layers: int = 999,
+) -> dict:
+    """Return the llama-server launch command and config (does not start it).
+
+    Starting llama-server is left to the user or the improve.py orchestrator,
+    since it's a long-running process.
+    """
+    llama_server = r"C:\Users\theyc\llama.cpp\bin\llama-server.exe"
+    if not os.path.exists(llama_server):
+        # Try common alternative
+        llama_server = "llama-server"
+
+    cmd = [
+        llama_server,
+        "--model", gguf_path,
+        "--port", str(port),
+        "--n-gpu-layers", str(gpu_layers),
+        "--ctx-size", str(ctx_size),
+        "--threads", "2",
+        "-b", "2048",
+        "--flash-attn", "on",
+        "--cache-type-k", "q8_0",
+        "--cache-type-v", "q4_0",
+        "--no-mmap", "--mlock",
+    ]
+
+    logger.info(f"llama-server command prepared:")
+    logger.info(f"  {' '.join(cmd)}")
+
+    return {
+        "cmd": cmd,
+        "gguf_path": gguf_path,
+        "port": port,
+        "url": f"http://localhost:{port}",
+    }
+
+
+# ---------------------------------------------------------------------------
+# GGUF export (llama.cpp convert_hf_to_gguf.py — for non-QLoRA models)
 # ---------------------------------------------------------------------------
 def export_gguf(
     merged_dir: str,
@@ -343,8 +568,15 @@ PARAMETER num_ctx 16384
 # ---------------------------------------------------------------------------
 # Eval runner
 # ---------------------------------------------------------------------------
-def run_eval(model_name: str, timeout: int = 7200) -> Optional[float]:
-    """Run eval harness and return the overall score, or None on failure."""
+def run_eval(model_name: str, base_url: Optional[str] = None,
+             timeout: int = 7200) -> Optional[float]:
+    """Run eval harness and return the overall score, or None on failure.
+
+    Args:
+        model_name: Model name for the eval
+        base_url: If set, use llama-server at this URL instead of Ollama
+        timeout: Max seconds for eval run
+    """
     eval_script = os.path.join(PROJECT_ROOT, "scripts", "run_eval.py")
     if not os.path.exists(eval_script):
         logger.warning("run_eval.py not found — skipping eval")
@@ -356,6 +588,8 @@ def run_eval(model_name: str, timeout: int = 7200) -> Optional[float]:
 
     logger.info(f"Running eval for {model_name}...")
     cmd = [sys.executable, eval_script, "--model", model_name]
+    if base_url:
+        cmd.extend(["--base-url", base_url])
     with open(log_path, "w") as log_f:
         result = subprocess.run(cmd, stdout=log_f, stderr=log_f, timeout=timeout)
 
@@ -388,26 +622,31 @@ def run_merge_cycle(
     ollama_model_name: Optional[str] = None,
     gguf_quant: str = "Q8_0",
     dry_run: bool = False,
+    backend: str = "ollama",
+    unsloth_model: str = "",
 ) -> MergeCycleResult:
     """
-    Execute one merge cycle: verify → eval gate → merge → verify → record.
+    Execute one merge cycle: verify -> eval gate -> merge -> verify -> record.
 
     Args:
-        adapter_dir: Path to LoRA adapter directory (e.g., "loras/v5")
+        adapter_dir: Path to LoRA adapter directory (e.g., "loras/v6")
         base_model_dir: Path to current base model weights
-        output_base_dir: Where to save the merged model
+        output_base_dir: Where to save the merged model / GGUF
         min_eval_score: Minimum eval score to proceed with merge (0 = skip gate)
-        eval_model_name: Ollama model name for pre-merge eval
-        deploy_to_ollama: Also export GGUF and register in Ollama
-        ollama_model_name: Name for the Ollama model
+        eval_model_name: Model name for eval
+        deploy_to_ollama: Also export GGUF and register in Ollama (ollama backend)
+        ollama_model_name: Name for the deployed model
         gguf_quant: GGUF quantization type
         dry_run: Show what would happen without doing it
+        backend: "ollama" for PEFT+Ollama, "unsloth" for Unsloth+llama-server
+        unsloth_model: Unsloth base model ID (required for backend="unsloth")
 
     Returns:
         MergeCycleResult with success status and metadata
     """
     cycle_num = get_next_cycle_number()
     logger.info(f"{'[DRY RUN] ' if dry_run else ''}Starting merge cycle {cycle_num}")
+    logger.info(f"  Backend: {backend}")
     logger.info(f"  Base:    {base_model_dir}")
     logger.info(f"  Adapter: {adapter_dir}")
     logger.info(f"  Output:  {output_base_dir}")
@@ -426,19 +665,20 @@ def run_merge_cycle(
         return result
 
     # 2. Eval gate (optional)
+    eval_base_url = LLAMA_SERVER_URL if backend == "unsloth" else None
     if min_eval_score > 0 and eval_model_name:
         logger.info(f"Running eval gate (min score: {min_eval_score})...")
         if dry_run:
             logger.info(f"  [DRY RUN] Would eval {eval_model_name}")
         else:
-            score = run_eval(eval_model_name)
+            score = run_eval(eval_model_name, base_url=eval_base_url)
             result.eval_score_before = score
             if score is not None and score < min_eval_score:
                 result.error = f"Eval score {score:.3f} below minimum {min_eval_score}"
                 logger.warning(result.error)
                 return result
 
-    # 3. Merge
+    # 3. Merge + Export
     if dry_run:
         logger.info(f"  [DRY RUN] Would merge {adapter_dir} into {base_model_dir}")
         logger.info(f"  [DRY RUN] Output: {output_base_dir}")
@@ -446,35 +686,59 @@ def run_merge_cycle(
         return result
 
     t0 = time.time()
-    merge_ok = merge_model(base_model_dir, adapter_dir, output_base_dir)
-    result.merge_time_s = time.time() - t0
 
-    if not merge_ok:
-        result.error = "Merge failed"
-        return result
+    if backend == "unsloth":
+        # Unsloth path: merge + GGUF in one shot via WSL
+        gguf_path = merge_and_export_gguf_unsloth(
+            adapter_dir=adapter_dir,
+            gguf_output_dir=output_base_dir,
+            quant=gguf_quant.lower(),
+            unsloth_model=unsloth_model,
+        )
+        result.merge_time_s = time.time() - t0
 
-    # 4. Verify merged model
-    if not verify_merged_model(output_base_dir):
-        result.error = "Merged model verification failed"
-        return result
+        if not gguf_path:
+            result.error = "Unsloth merge+GGUF failed"
+            return result
 
-    # 5. Optional: deploy to Ollama
-    if deploy_to_ollama and ollama_model_name:
-        gguf_path = os.path.join(output_base_dir, f"{ollama_model_name}.gguf")
-        if export_gguf(output_base_dir, gguf_path, quant=gguf_quant):
-            create_ollama_model(gguf_path, ollama_model_name)
+        # Prepare llama-server deployment info
+        model_name = ollama_model_name or f"hiveai-cycle{cycle_num}"
+        server_info = deploy_to_llama_server(gguf_path)
+        logger.info(f"GGUF ready for llama-server: {gguf_path}")
 
-            # Post-deploy eval
-            post_score = run_eval(ollama_model_name)
+        # Post-deploy eval (if llama-server is running)
+        if eval_model_name:
+            post_score = run_eval(eval_model_name, base_url=LLAMA_SERVER_URL)
             result.eval_score_after = post_score
 
-    # 6. Record cycle
+    else:
+        # PEFT/Ollama path (original)
+        merge_ok = merge_model(base_model_dir, adapter_dir, output_base_dir)
+        result.merge_time_s = time.time() - t0
+
+        if not merge_ok:
+            result.error = "Merge failed"
+            return result
+
+        if not verify_merged_model(output_base_dir):
+            result.error = "Merged model verification failed"
+            return result
+
+        if deploy_to_ollama and ollama_model_name:
+            gguf_path = os.path.join(output_base_dir, f"{ollama_model_name}.gguf")
+            if export_gguf(output_base_dir, gguf_path, quant=gguf_quant):
+                create_ollama_model(gguf_path, ollama_model_name)
+                post_score = run_eval(ollama_model_name)
+                result.eval_score_after = post_score
+
+    # Record cycle
     history = load_merge_history()
     history.append({
         "cycle": cycle_num,
         "base_in": base_model_dir,
         "base_out": output_base_dir,
         "adapter": adapter_dir,
+        "backend": backend,
         "eval_before": result.eval_score_before,
         "eval_after": result.eval_score_after,
         "merge_time_s": result.merge_time_s,
