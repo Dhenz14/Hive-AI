@@ -51,6 +51,7 @@ logger = logging.getLogger("prepare_v5_data")
 # ---------------------------------------------------------------------------
 TARGET_THINKING_RATIO = 0.28   # 28% thinking-trace pairs
 MIN_RESPONSE_LEN = 100         # Minimum response length (chars)
+MAX_RESPONSE_LEN = 15000       # Maximum response length (chars) — caps verbose v4 pairs
 MIN_INSTRUCTION_LEN = 10       # Minimum instruction length (chars)
 SEED = 42                      # Reproducible shuffling
 
@@ -180,14 +181,23 @@ def deduplicate(pairs: list[dict]) -> list[dict]:
 
 
 def quality_filter(pairs: list[dict], min_response_len: int) -> list[dict]:
-    """Basic quality filters."""
+    """Quality filters: min/max response length, min instruction length."""
     filtered = []
+    too_short = 0
+    too_long = 0
     for pair in pairs:
         if len(pair["output"]) < min_response_len:
+            too_short += 1
+            continue
+        if len(pair["output"]) > MAX_RESPONSE_LEN:
+            too_long += 1
             continue
         if len(pair["instruction"]) < MIN_INSTRUCTION_LEN:
+            too_short += 1
             continue
         filtered.append(pair)
+    if too_long > 0:
+        logger.info(f"  Quality filter: removed {too_short} too short, {too_long} too long (>{MAX_RESPONSE_LEN} chars)")
     return filtered
 
 
