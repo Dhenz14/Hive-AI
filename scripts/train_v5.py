@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v6.jsonl")
-OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v6")
+TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v5.jsonl")
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v7")
 
 # Qwen2.5-Coder-14B-Instruct — code-specialized, text-only, standard architecture.
 # QLoRA via Unsloth: 4-bit base (~8-9GB) + bf16 LoRA adapters (~0.5GB) = fits 16GB.
@@ -70,9 +70,9 @@ LORA_CONFIG = {
 TRAINING_CONFIG = {
     "per_device_train_batch_size": 1,      # batch=1 for 14B on 16GB (fused CE needs VRAM headroom)
     "gradient_accumulation_steps": 16,     # Effective batch = 16
-    "num_train_epochs": 3,
+    "num_train_epochs": 2,                  # 2 epochs to reduce overfitting risk on 7k pairs
     "learning_rate": 2e-4,                 # Standard for QLoRA fine-tuning
-    "warmup_ratio": 0.03,                  # 3% warmup
+    "warmup_ratio": 0.05,                  # 5% warmup — ensures model sees multiple curriculum phases before full LR
     "lr_scheduler_type": "cosine",
     "bf16": True,
     "logging_steps": 5,
@@ -85,9 +85,9 @@ TRAINING_CONFIG = {
 
 # KL-Anchored SFT — prevents catastrophic forgetting
 KL_CONFIG = {
-    "lambda": 0.1,        # KL weight in loss
+    "lambda": 0.3,        # KL weight in loss (30% regularization to prevent catastrophic forgetting)
     "temperature": 1.0,   # Softmax temperature
-    "seq_limit": 256,     # Max tokens for KL (VRAM safety, 14B needs less)
+    "seq_limit": 512,     # Max tokens for KL (safe with cut_cross_entropy on 14B)
 }
 
 
@@ -561,9 +561,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.info(f"Smoke test: trimmed dataset to {len(dataset)} samples "
                         f"(from {pair_count})")
 
-    # Split 5% for validation (early stopping) — only for full runs
+    # Split 5% for validation (early stopping)
     eval_dataset = None
-    if max_steps == 0 and len(dataset) > 200:
+    if len(dataset) > 200:
         split = dataset.train_test_split(test_size=0.05, seed=42)
         dataset = split["train"]
         eval_dataset = split["test"]

@@ -241,15 +241,11 @@ def build_curriculum_order(pairs: list[dict], seed: int) -> list[dict]:
         else:
             thinking_by_phase[phase].append(pair)
 
-    # Hive oversampling: duplicate Hive-domain direct pairs
+    # Hive oversampling: duplicate Hive-domain direct pairs only (2x total, not per-pool)
+    # Thinking pairs are NOT oversampled to avoid excessive domain bias
     hive_direct = [p for p in direct_pairs if is_hive_domain(p)]
-    direct_pairs.extend(hive_direct)  # 2x Hive
+    direct_pairs.extend(hive_direct)  # 2x Hive direct only
     logger.info(f"  Hive oversampling: +{len(hive_direct)} direct pairs")
-
-    # Also oversample Hive thinking pairs
-    for phase in PHASE_ORDER:
-        hive_thinking = [p for p in thinking_by_phase[phase] if is_hive_domain(p)]
-        thinking_by_phase[phase].extend(hive_thinking)
 
     # Shuffle within each pool for variety
     rng.shuffle(direct_pairs)
