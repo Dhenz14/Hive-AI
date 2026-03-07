@@ -827,6 +827,49 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             except Exception:
                 pass
 
+    # ── Quick Eval Callback ──
+    # Runs quick_eval.py at each checkpoint save if llama-server is available
+    class QuickEvalCallback(TrainerCallback):
+        def __init__(self):
+            self.results = []
+
+        def on_save(self, args, state, control, **kwargs):
+            # Check if llama-server is running at localhost:11435
+            import urllib.request
+            try:
+                req = urllib.request.Request("http://localhost:11435/health", method="GET")
+                urllib.request.urlopen(req, timeout=3)
+            except Exception:
+                logger.info("Quick eval skipped: llama-server not available")
+                return
+
+            # Run quick_eval.py --lora-only --json
+            eval_script = os.path.join(PROJECT_ROOT, "scripts", "quick_eval.py")
+            try:
+                result = subprocess.run(
+                    [sys.executable, eval_script, "--lora-only", "--json"],
+                    capture_output=True, text=True, timeout=300,
+                    cwd=PROJECT_ROOT,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    eval_data = json.loads(result.stdout.strip())
+                    avg_score = eval_data.get("lora_avg", eval_data.get("base_avg"))
+                    entry = {
+                        "step": state.global_step,
+                        "average_score": avg_score,
+                        "raw": eval_data,
+                    }
+                    self.results.append(entry)
+                    logger.info(f"Quick eval @ step {state.global_step}: "
+                                f"avg_score={avg_score}")
+                else:
+                    logger.warning(f"Quick eval returned non-zero or empty output "
+                                   f"(rc={result.returncode}): {result.stderr[:200]}")
+            except subprocess.TimeoutExpired:
+                logger.warning("Quick eval timed out (300s limit)")
+            except Exception as e:
+                logger.warning(f"Quick eval failed: {type(e).__name__}: {e}")
+
     # Heartbeat thread
     _heartbeat_stop = threading.Event()
     _hb_interval = 30 if max_steps > 0 else 300  # 30s for smoke tests, 5min for full
@@ -925,7 +968,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     sft_config = SFTConfig(**sft_kwargs)
 
     # Early stopping callback
-    callbacks = [V5LoggingCallback()]
+    quick_eval_cb = QuickEvalCallback()
+    callbacks = [V5LoggingCallback(), quick_eval_cb]
     if eval_dataset is not None:
         from transformers import EarlyStoppingCallback
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
@@ -1025,6 +1069,15 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     }
     with open(os.path.join(OUTPUT_DIR, "training_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
+
+    # ── Print quick eval summary ──
+    if quick_eval_cb.results:
+        logger.info("=" * 40)
+        logger.info("  Quick Eval Results Summary")
+        logger.info("=" * 40)
+        for entry in quick_eval_cb.results:
+            logger.info(f"  Step {entry['step']}: avg_score={entry['average_score']}")
+        logger.info("=" * 40)
 
     # ── Print next steps ──
     print("\n" + "=" * 60)
