@@ -76,6 +76,32 @@ SKILL_ROUTES = [
         r"hive\s*blockchain", r"hive.*develop",
         r"hive.*python", r"hive.*javascript",
     ], 5),
+
+    # Rust Async
+    ("rust_async", [
+        r"\brust\b.*async", r"\btokio\b", r"\basync\s*fn\b",
+        r"rust.*concurren", r"rust.*spawn", r"rust.*future",
+        r"rust.*channel", r"rust.*semaphore", r"rust.*select!",
+        r"\brust\b", r"\.rs\b", r"cargo\b",
+    ], 4),
+
+    # Go Concurrency
+    ("go_concurrency", [
+        r"\bgoroutine\b", r"\bgo\s+func\b", r"go.*channel",
+        r"go.*concurren", r"go.*waitgroup", r"go.*mutex",
+        r"go.*context", r"go.*errgroup", r"go.*worker\s*pool",
+        r"\bgolang\b", r"\bgo\b.*\b(pattern|async|parallel)\b",
+        r"\.go\b",
+    ], 4),
+
+    # Debugging Patterns
+    ("debugging_patterns", [
+        r"\bdebug\b", r"\bbug\b", r"troubleshoot",
+        r"race\s*condition", r"deadlock", r"segfault",
+        r"memory\s*leak", r"off.by.one", r"not\s*working",
+        r"wrong\s*(output|result)", r"fails?\s*(on|when|intermittent)",
+        r"bisect", r"diagnos",
+    ], 3),
 ]
 
 # Maximum number of skills to inject per query (prevent context bloat)
