@@ -383,6 +383,60 @@ def get_compressed_knowledge(book_ids, db):
     return "\n\n".join(compressed_parts)
 
 
+def budget_context(sections, query, max_tokens=4000):
+    """RLM-inspired context budgeting: prioritize relevant content, drop low-value sections.
+
+    Instead of dumping all sections at 3000 chars each (potentially 36K chars),
+    this budgets total context and uses query-focused filtering to maximize
+    signal-to-noise ratio in the prompt.
+    """
+    log = logging.getLogger(__name__)
+    query_words = [w.lower() for w in query.split() if len(w) > 3 and w.lower() not in STOP_WORDS]
+
+    budgeted = []
+    total_tokens = 0
+
+    for section in sections:
+        content = section.get("content", "")
+        header = section.get("header", "")
+        book = section.get("book_title", "")
+
+        # Query-focused filtering: if section is large, grep for relevant paragraphs
+        if len(content) > 2000 and query_words:
+            paragraphs = re.split(r'\n\s*\n', content)
+            relevant = []
+            for para in paragraphs:
+                para_lower = para.lower()
+                if any(w in para_lower for w in query_words):
+                    relevant.append(para)
+            # Keep at least the first paragraph for context + all relevant ones
+            if relevant:
+                filtered = paragraphs[:1] + [p for p in relevant if p != paragraphs[0]]
+                content = "\n\n".join(filtered)
+            # If no paragraphs matched query words, keep first 1500 chars as fallback
+            if not relevant:
+                content = content[:1500]
+
+        # Estimate tokens (rough: words * 4/3)
+        section_tokens = len(content.split()) * 4 // 3
+
+        if total_tokens + section_tokens > max_tokens:
+            # Truncate this section to fit remaining budget
+            remaining = max_tokens - total_tokens
+            if remaining < 100:
+                break
+            words_to_keep = remaining * 3 // 4
+            content = " ".join(content.split()[:words_to_keep])
+            section_tokens = remaining
+
+        block = f"\n\n--- From '{book}' > {header} ---\n{content}\n"
+        budgeted.append(block)
+        total_tokens += section_tokens
+
+    log.info(f"Context budget: {len(budgeted)}/{len(sections)} sections, ~{total_tokens} tokens (max {max_tokens})")
+    return "".join(budgeted)
+
+
 def clean_topic(raw_topic):
     topic = raw_topic.strip().strip('"').strip("'").strip()
     topic = topic.split("\n")[0].strip()

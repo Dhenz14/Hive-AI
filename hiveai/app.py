@@ -9,7 +9,7 @@ from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, C
 from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
-from hiveai.chat import search_knowledge_sections, build_conversation_context, clean_topic, trigger_auto_learn, get_compressed_knowledge
+from hiveai.chat import search_knowledge_sections, build_conversation_context, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
 from skills.skill_loader import load_skills_for_query
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
@@ -856,9 +856,8 @@ def chat_api():
 
         top_sections, source_books, all_books = search_knowledge_sections(message, db, history=history)
 
-        knowledge_context = ""
-        for section in top_sections:
-            knowledge_context += f"\n\n--- From '{section['book_title']}' > {section['header']} ---\n{section['content'][:3000]}\n"
+        # RLM-inspired context budgeting: prioritize relevant content, drop noise
+        knowledge_context = budget_context(top_sections, message, max_tokens=4000)
 
         book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
         compressed = get_compressed_knowledge(book_ids, db)
@@ -1024,9 +1023,8 @@ Answer the question directly and helpfully. Note: The knowledge library is still
                 # Send sources first
                 yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
-                knowledge_context = ""
-                for section in top_sections:
-                    knowledge_context += f"\n\n--- From '{section['book_title']}' > {section['header']} ---\n{section['content'][:3000]}\n"
+                # RLM-inspired context budgeting: prioritize relevant content, drop noise
+                knowledge_context = budget_context(top_sections, message, max_tokens=4000)
 
                 book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
                 compressed = get_compressed_knowledge(book_ids, db)

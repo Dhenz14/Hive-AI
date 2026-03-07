@@ -102,6 +102,14 @@ SKILL_ROUTES = [
         r"wrong\s*(output|result)", r"fails?\s*(on|when|intermittent)",
         r"bisect", r"diagnos",
     ], 3),
+
+    # Long Context / RLM
+    ("long_context", [
+        r"context\s*rot", r"context\s*window", r"long\s*(context|document)",
+        r"\bRLM\b", r"recursive\s*language", r"recursive\s*decomposi",
+        r"attention\s*dilut", r"large\s*document", r"too\s*much\s*context",
+        r"token\s*limit", r"context\s*budget",
+    ], 3),
 ]
 
 # Maximum number of skills to inject per query (prevent context bloat)

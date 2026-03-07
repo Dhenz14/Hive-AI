@@ -146,7 +146,46 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 
 ---
 
-## 7. Meta-Lessons Across All Research
+## 8. Recursive Language Models (RLMs) — Solving Context Rot
+
+**Source**: MIT research by Alex L. Zhang, Tim Kraska, Omar Khattab (March 2026)
+**Paper**: https://arxiv.org/abs/2512.24601v1
+**Library**: https://github.com/alexzhang13/rlm (`pip install rlms`)
+
+**The Problem (Context Rot)**: Even when context windows aren't exceeded, LLM accuracy degrades on reasoning tasks as input length grows. Attention mechanisms dilute focus; the model gets "dumber" with more context. This affects counting, classification, and multi-hop reasoning over large inputs.
+
+**The Fix**: Separate query from context. Context lives in an external REPL environment. Model gets tools (peek, grep, partition, recursive_call) and discovers the decomposition strategy dynamically — no hardcoded workflow.
+
+**Key Results**:
+- Accuracy holds regardless of document size (no context rot)
+- Handles inputs up to 100x beyond context windows
+- +34 points vs base GPT-5-mini on retrieval-heavy benchmarks (OOLONG)
+- No special training needed — frontier models already know how to grep/partition
+- Fully interpretable (every tool call is logged)
+
+**Actionable for HiveAI**:
+- **NOW**: Add query-focused context filtering to chat pipeline (lightweight RLM). Instead of dumping all 12 sections into the prompt, filter sections by query relevance and budget total context to prevent dilution.
+- **NOW**: Create agent skill teaching the model about RLM patterns for architecture queries.
+- **LATER**: Full RLM integration for Phase 5 consolidation (analyzing batches of stored responses recursively).
+- **LATER**: Benchmark RLM decomposition vs current RAG on our growing knowledge base.
+
+**Limitations**:
+- Latency: recursive calls add seconds-to-minutes per query
+- Weak models produce bad decompositions (bad regex → bad filtering → amplified errors)
+- Not worth it for short contexts (<10K tokens)
+- Text-focused; current implementations don't handle non-text data
+
+**Comparison**:
+| Approach | Scales | Best For |
+|----------|--------|----------|
+| RAG | Lookup speed | Factual Q&A, docs search |
+| Agents | Task complexity | Multi-step workflows |
+| Chain-of-thought | Reasoning depth | Math, logic, short context |
+| **RLMs** | Context breadth | Large document analysis, counting, multi-hop |
+
+---
+
+## 9. Meta-Lessons Across All Research
 
 1. **Quality > quantity** in training data (Jackrong: 4K pairs beat larger noisy sets)
 2. **Optimizer config can make or break training** (QAD: 4.52 dB from optimizer alone)
@@ -154,3 +193,5 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 4. **Pre-compute expensive operations offline** (QAD: teacher outputs, Upskill: agent traces)
 5. **Test the trained result, not just the starting point** (QAD: rankings invert)
 6. **Simple approaches often win** (QAD: simple MSE beat complex KL; Upskill: 500 tokens of context beat fine-tuning)
+7. **Separate query from context** (RLM: context in environment, model interacts through tools — prevents attention dilution)
+8. **Let the model decide decomposition** (RLM: emergent strategy beats scripted workflows — the model adapts to data structure)
