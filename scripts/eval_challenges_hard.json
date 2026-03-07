@@ -1,0 +1,968 @@
+[
+  {
+    "id": "hard_001",
+    "category": "multi_step",
+    "topic": "cli_pipeline",
+    "difficulty": 5,
+    "instruction": "Build a Python module with three connected components:\n1. A `CommandRegistry` class that supports registering commands via a `@registry.command(name, help_text)` decorator. Each command function receives parsed args as a dict.\n2. A `parse_args(argv: list[str]) -> tuple[str, dict]` function that parses CLI-style arguments. It must handle `--key=value`, `--flag` (boolean True), and positional args (stored under key '_positional'). The first positional arg is the command name.\n3. A `run(argv: list[str], registry: CommandRegistry) -> Any` function that parses argv, looks up the command in the registry, calls it with the parsed args dict, and returns the result. If the command is not found, raise `KeyError` with the command name.\n\nExample usage:\n```\nreg = CommandRegistry()\n@reg.command('greet', 'Say hello')\ndef greet(args):\n    return f\"Hello {args.get('name', 'World')}\"\nresult = run(['greet', '--name=Alice'], reg)\n# result == 'Hello Alice'\n```",
+    "expected_concepts": [
+      "class",
+      "decorator",
+      "registry",
+      "parse",
+      "argv",
+      "positional",
+      "KeyError",
+      "command",
+      "dict"
+    ],
+    "test_code": "reg = CommandRegistry()\n@reg.command('greet', 'Say hello')\ndef greet(args):\n    return f\"Hello {args.get('name', 'World')}\"\n@reg.command('add', 'Add numbers')\ndef add(args):\n    nums = [int(x) for x in args.get('_positional', [])]\n    return sum(nums)\nassert run(['greet', '--name=Alice'], reg) == 'Hello Alice'\nassert run(['greet'], reg) == 'Hello World'\nassert run(['add', '3', '4', '5'], reg) == 12\ntry:\n    run(['nonexistent'], reg)\n    assert False, 'Should have raised KeyError'\nexcept KeyError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_002",
+    "category": "multi_step",
+    "topic": "event_system",
+    "difficulty": 4,
+    "instruction": "Implement a typed event system in Python with these components:\n1. `Event` dataclass with fields: `name` (str), `data` (dict), `timestamp` (float, defaults to time.time()), `cancelled` (bool, defaults to False).\n2. `EventBus` class with methods:\n   - `on(event_name: str, handler: Callable, priority: int = 0)` — register handler. Higher priority runs first.\n   - `emit(event_name: str, data: dict = None) -> Event` — create Event, call all handlers in priority order (descending). If any handler sets `event.cancelled = True`, skip remaining handlers. Return the Event.\n   - `off(event_name: str, handler: Callable)` — unregister a specific handler.\n   - `once(event_name: str, handler: Callable, priority: int = 0)` — register handler that auto-unregisters after one call.\n3. Handlers receive the Event object as their sole argument.",
+    "expected_concepts": [
+      "dataclass",
+      "EventBus",
+      "priority",
+      "cancelled",
+      "once",
+      "emit",
+      "handler",
+      "Callable",
+      "timestamp",
+      "unregister"
+    ],
+    "test_code": "bus = EventBus()\nlog = []\ndef h1(e): log.append(('h1', e.name))\ndef h2(e): log.append(('h2', e.name))\ndef h_cancel(e): e.cancelled = True; log.append('cancel')\nbus.on('click', h1, priority=1)\nbus.on('click', h2, priority=0)\ne = bus.emit('click', {'x': 10})\nassert log == [('h1', 'click'), ('h2', 'click')]\nassert e.data == {'x': 10}\nassert not e.cancelled\nlog.clear()\nbus.on('click', h_cancel, priority=10)\ne2 = bus.emit('click')\nassert e2.cancelled\nassert log == ['cancel']\nlog.clear()\nbus.off('click', h_cancel)\nonce_log = []\ndef h_once(e): once_log.append(1)\nbus.once('tap', h_once)\nbus.emit('tap')\nbus.emit('tap')\nassert once_log == [1], f'once handler called {len(once_log)} times'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_003",
+    "category": "multi_step",
+    "topic": "data_pipeline",
+    "difficulty": 5,
+    "instruction": "Create a composable data pipeline framework in Python:\n1. A `Stage` base class with an abstract `process(self, item: Any) -> Any` method. Returning `None` filters the item out.\n2. A `Pipeline` class that chains stages: `Pipeline(stages: list[Stage])` with method `run(items: Iterable) -> list` that passes each item through all stages sequentially, collecting non-None results.\n3. Implement these concrete stages:\n   - `FilterStage(predicate: Callable)` — returns item if predicate(item) is truthy, else None.\n   - `MapStage(func: Callable)` — returns func(item).\n   - `BatchStage(size: int)` — accumulates items and yields lists of `size`. The pipeline must call `flush()` at the end to emit any remaining partial batch. Add a `flush() -> list` method to Stage (default returns []) and BatchStage overrides it.\n4. `Pipeline.run` must call `flush()` on each stage after all items are processed, feeding flush results through remaining stages.",
+    "expected_concepts": [
+      "abstract",
+      "Stage",
+      "Pipeline",
+      "FilterStage",
+      "MapStage",
+      "BatchStage",
+      "flush",
+      "predicate",
+      "chain",
+      "Iterable"
+    ],
+    "test_code": "p = Pipeline([\n    FilterStage(lambda x: x > 0),\n    MapStage(lambda x: x * 2),\n])\nassert p.run([-1, 0, 1, 2, 3]) == [2, 4, 6]\np2 = Pipeline([\n    MapStage(lambda x: x.strip()),\n    FilterStage(lambda x: len(x) > 0),\n])\nassert p2.run(['  hello  ', '', '  ', 'world']) == ['hello', 'world']\np3 = Pipeline([\n    FilterStage(lambda x: x % 2 == 0),\n    BatchStage(3),\n])\nresult = p3.run([1,2,3,4,5,6,7,8,9,10])\nassert result == [[2,4,6],[8,10]], f'Got {result}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_004",
+    "category": "multi_step",
+    "topic": "state_machine",
+    "difficulty": 4,
+    "instruction": "Implement a finite state machine (FSM) in Python:\n1. `State` — a simple class holding a name (str).\n2. `Transition` — holds `source` (State), `event` (str), `target` (State), and an optional `guard` callable that takes context dict and returns bool.\n3. `FSM` class:\n   - `__init__(self, initial: State, transitions: list[Transition])` — set initial state.\n   - `current` property returns current State.\n   - `send(event: str, context: dict = None) -> State` — find matching transition from current state for event. If guard exists and returns False, raise `ValueError('Guard rejected')`. If no transition matches, raise `ValueError('No transition')`. Otherwise transition and return new state.\n   - `can(event: str, context: dict = None) -> bool` — returns True if event has a valid transition from current state (guard passes).\n   - `reset()` — go back to initial state.",
+    "expected_concepts": [
+      "State",
+      "Transition",
+      "FSM",
+      "guard",
+      "current",
+      "send",
+      "ValueError",
+      "reset",
+      "transition"
+    ],
+    "test_code": "locked = State('locked')\nunlocked = State('unlocked')\ntransitions = [\n    Transition(locked, 'coin', unlocked),\n    Transition(unlocked, 'push', locked),\n    Transition(unlocked, 'coin', unlocked),\n]\nfsm = FSM(locked, transitions)\nassert fsm.current.name == 'locked'\nassert fsm.can('coin')\nassert not fsm.can('push')\nfsm.send('coin')\nassert fsm.current.name == 'unlocked'\nfsm.send('push')\nassert fsm.current.name == 'locked'\nfsm.send('coin')\nfsm.reset()\nassert fsm.current.name == 'locked'\ntry:\n    fsm.send('push')\n    assert False\nexcept ValueError:\n    pass\ng_locked = State('locked')\ng_unlocked = State('unlocked')\ng_transitions = [\n    Transition(g_locked, 'coin', g_unlocked, guard=lambda ctx: ctx.get('amount', 0) >= 25),\n]\ngfsm = FSM(g_locked, g_transitions)\nassert not gfsm.can('coin', {'amount': 10})\ntry:\n    gfsm.send('coin', {'amount': 10})\n    assert False\nexcept ValueError as e:\n    assert 'Guard' in str(e)\ngfsm.send('coin', {'amount': 25})\nassert gfsm.current.name == 'unlocked'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_005",
+    "category": "multi_step",
+    "topic": "plugin_system",
+    "difficulty": 5,
+    "instruction": "Build a plugin system in Python:\n1. `PluginMeta` — a dataclass with fields: `name` (str), `version` (str), `dependencies` (list[str], default empty).\n2. `Plugin` — abstract base class with abstract methods `activate(self, context: dict)` and `deactivate(self)`. Has a `meta` class attribute of type PluginMeta.\n3. `PluginManager` class:\n   - `register(plugin_class: type[Plugin])` — register a plugin class (not instance). Raise `ValueError` if already registered.\n   - `activate(name: str, context: dict = None)` — instantiate and activate plugin. First recursively activate any unactivated dependencies. Raise `KeyError` if dependency not registered. Store the instance.\n   - `deactivate(name: str)` — deactivate plugin. Raise `ValueError` if other active plugins depend on it. Call deactivate() on instance.\n   - `get(name: str) -> Plugin` — return active plugin instance. Raise `KeyError` if not active.\n   - `list_active() -> list[str]` — return sorted list of active plugin names.",
+    "expected_concepts": [
+      "PluginMeta",
+      "Plugin",
+      "PluginManager",
+      "activate",
+      "deactivate",
+      "dependencies",
+      "abstract",
+      "register",
+      "recursive",
+      "dataclass"
+    ],
+    "test_code": "class LogPlugin(Plugin):\n    meta = PluginMeta('logger', '1.0')\n    def activate(self, context): self.ctx = context\n    def deactivate(self): pass\nclass DBPlugin(Plugin):\n    meta = PluginMeta('database', '1.0', dependencies=['logger'])\n    def activate(self, context): self.ctx = context\n    def deactivate(self): pass\npm = PluginManager()\npm.register(LogPlugin)\npm.register(DBPlugin)\ntry:\n    pm.register(LogPlugin)\n    assert False\nexcept ValueError:\n    pass\npm.activate('database', {'env': 'test'})\nassert 'logger' in pm.list_active()\nassert 'database' in pm.list_active()\nassert pm.list_active() == ['database', 'logger']\ntry:\n    pm.deactivate('logger')\n    assert False, 'Should fail because database depends on logger'\nexcept ValueError:\n    pass\npm.deactivate('database')\npm.deactivate('logger')\nassert pm.list_active() == []\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_006",
+    "category": "multi_step",
+    "topic": "middleware_chain",
+    "difficulty": 4,
+    "instruction": "Implement a middleware chain pattern (like Express.js or Django middleware) in Python:\n1. `Request` dataclass with fields: `path` (str), `method` (str), `headers` (dict), `body` (Any = None).\n2. `Response` dataclass with fields: `status` (int = 200), `body` (Any = None), `headers` (dict = field(default_factory=dict)).\n3. `App` class:\n   - `use(middleware: Callable)` — add middleware. Middleware signature: `(req: Request, res: Response, next: Callable) -> None`. Calling `next()` proceeds to next middleware. Not calling `next()` short-circuits.\n   - `handle(req: Request) -> Response` — create a Response, run middleware chain, return Response.\n4. If no middleware calls `next()` or sets response body, status should remain 200.\n5. Middleware can modify both req and res before/after calling next() (for logging, auth, etc.).",
+    "expected_concepts": [
+      "Request",
+      "Response",
+      "middleware",
+      "next",
+      "chain",
+      "dataclass",
+      "short-circuit",
+      "handle",
+      "headers",
+      "Callable"
+    ],
+    "test_code": "app = App()\ncall_order = []\ndef logger(req, res, next):\n    call_order.append('log_before')\n    next()\n    call_order.append('log_after')\ndef auth(req, res, next):\n    if req.headers.get('token') == 'secret':\n        next()\n    else:\n        res.status = 401\n        res.body = 'Unauthorized'\ndef handler(req, res, next):\n    res.body = f'Hello {req.path}'\n    next()\napp.use(logger)\napp.use(auth)\napp.use(handler)\nr1 = app.handle(Request('/home', 'GET', {'token': 'secret'}))\nassert r1.status == 200\nassert r1.body == 'Hello /home'\nassert call_order == ['log_before', 'log_after']\ncall_order.clear()\nr2 = app.handle(Request('/home', 'GET', {}))\nassert r2.status == 401\nassert r2.body == 'Unauthorized'\nassert call_order == ['log_before', 'log_after']\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_007",
+    "category": "multi_step",
+    "topic": "schema_validator",
+    "difficulty": 5,
+    "instruction": "Build a JSON schema validator in Python (no external libs):\n1. Support these type validators: `StringType(min_len=0, max_len=None, pattern=None)`, `IntType(min_val=None, max_val=None)`, `ListType(item_type, min_items=0, max_items=None)`, `ObjectType(fields: dict[str, tuple[TypeValidator, bool]])` where the bool indicates required.\n2. Each type validator has a `validate(value) -> list[str]` method returning a list of error messages (empty = valid).\n3. `ObjectType` validates nested objects recursively. Field errors should be prefixed with the field path: `\"field.subfield: error message\"`.\n4. `StringType` with `pattern` should match using `re.fullmatch`.\n5. Unknown fields in ObjectType should produce a warning: `\"unknown field: fieldname\"`.",
+    "expected_concepts": [
+      "StringType",
+      "IntType",
+      "ListType",
+      "ObjectType",
+      "validate",
+      "pattern",
+      "fullmatch",
+      "recursive",
+      "required",
+      "error"
+    ],
+    "test_code": "import re\nschema = ObjectType({\n    'name': (StringType(min_len=1, max_len=50), True),\n    'age': (IntType(min_val=0, max_val=150), True),\n    'tags': (ListType(StringType(), min_items=1), False),\n    'email': (StringType(pattern=r'[^@]+@[^@]+\\.[^@]+'), False),\n})\nerrs = schema.validate({'name': 'Alice', 'age': 30, 'tags': ['dev']})\nassert errs == [], f'Unexpected errors: {errs}'\nerrs2 = schema.validate({'name': '', 'age': -1})\nassert any('name' in e for e in errs2)\nassert any('age' in e for e in errs2)\nerrs3 = schema.validate({'name': 'Bob', 'age': 25, 'email': 'invalid'})\nassert any('email' in e for e in errs3)\nerrs4 = schema.validate({'name': 'X', 'age': 1, 'extra': True})\nassert any('unknown' in e.lower() for e in errs4)\nerrs5 = schema.validate({})\nassert any('name' in e for e in errs5) and any('age' in e for e in errs5)\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_008",
+    "category": "multi_step",
+    "topic": "retry_with_backoff",
+    "difficulty": 4,
+    "instruction": "Implement a retry mechanism with exponential backoff in Python:\n1. `RetryConfig` dataclass: `max_retries` (int), `base_delay` (float), `max_delay` (float), `backoff_factor` (float = 2.0), `retryable_exceptions` (tuple of exception types = (Exception,)).\n2. `retry(config: RetryConfig)` — decorator that retries the decorated function on failure.\n   - Delay between retries: `min(base_delay * backoff_factor ** attempt, max_delay)`\n   - Only retry on exceptions in `retryable_exceptions`; re-raise others immediately.\n   - After all retries exhausted, raise the last exception.\n   - Add a `sleep_func` parameter to RetryConfig (default `time.sleep`) for testability.\n3. `RetryStats` dataclass: `attempts` (int), `last_exception` (Exception | None), `total_time` (float).\n4. The decorated function should have an attribute `last_stats` of type RetryStats updated after each call.",
+    "expected_concepts": [
+      "RetryConfig",
+      "retry",
+      "exponential",
+      "backoff",
+      "decorator",
+      "max_delay",
+      "retryable_exceptions",
+      "RetryStats",
+      "sleep_func",
+      "dataclass"
+    ],
+    "test_code": "call_count = 0\ndelays = []\ndef fake_sleep(d): delays.append(d)\ncfg = RetryConfig(max_retries=3, base_delay=1.0, max_delay=10.0, sleep_func=fake_sleep)\n@retry(cfg)\ndef flaky():\n    global call_count\n    call_count += 1\n    if call_count < 3:\n        raise ValueError('fail')\n    return 'ok'\nresult = flaky()\nassert result == 'ok'\nassert call_count == 3\nassert len(delays) == 2\nassert delays[0] == 1.0\nassert delays[1] == 2.0\nassert flaky.last_stats.attempts == 3\ncall_count = 0\ndelays.clear()\ncfg2 = RetryConfig(max_retries=1, base_delay=0.1, max_delay=1.0, retryable_exceptions=(IOError,), sleep_func=fake_sleep)\n@retry(cfg2)\ndef wrong_exc():\n    raise TypeError('not retryable')\ntry:\n    wrong_exc()\n    assert False\nexcept TypeError:\n    pass\nassert wrong_exc.last_stats.attempts == 1\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_009",
+    "category": "multi_step",
+    "topic": "query_builder",
+    "difficulty": 5,
+    "instruction": "Build a SQL query builder in Python (generates SQL strings, does NOT execute):\n1. `Query` class with chainable methods:\n   - `select(*columns)` — specify columns (default '*').\n   - `from_table(table: str)` — set table name.\n   - `where(condition: str, **params)` — add WHERE condition. Multiple calls AND them together. Params use `:name` placeholders.\n   - `join(table: str, on: str, join_type='INNER')` — add JOIN clause.\n   - `order_by(column: str, direction='ASC')` — add ORDER BY.\n   - `limit(n: int)` and `offset(n: int)`.\n   - `build() -> tuple[str, dict]` — return (sql_string, params_dict).\n2. All methods return `self` for chaining except `build()`.\n3. Handle multiple joins, multiple where clauses, and multiple order_by calls.\n4. Raise `ValueError` if `build()` called without `from_table()`.",
+    "expected_concepts": [
+      "Query",
+      "select",
+      "from_table",
+      "where",
+      "join",
+      "order_by",
+      "limit",
+      "offset",
+      "build",
+      "chainable"
+    ],
+    "test_code": "sql, params = Query().select('name', 'age').from_table('users').where('age > :min_age', min_age=18).where('active = :active', active=True).order_by('name').limit(10).build()\nassert 'SELECT name, age' in sql\nassert 'FROM users' in sql\nassert 'age > :min_age' in sql\nassert 'active = :active' in sql\nassert 'AND' in sql\nassert 'ORDER BY name ASC' in sql\nassert 'LIMIT 10' in sql\nassert params == {'min_age': 18, 'active': True}\nsql2, p2 = Query().from_table('orders').join('users', 'orders.user_id = users.id').join('products', 'orders.product_id = products.id', 'LEFT').select('orders.id').build()\nassert 'INNER JOIN users ON orders.user_id = users.id' in sql2\nassert 'LEFT JOIN products ON orders.product_id = products.id' in sql2\ntry:\n    Query().select('x').build()\n    assert False\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_010",
+    "category": "multi_step",
+    "topic": "dependency_injection",
+    "difficulty": 5,
+    "instruction": "Implement a simple dependency injection container in Python:\n1. `Container` class:\n   - `register(name: str, factory: Callable, singleton: bool = True)` — register a factory function. If singleton, cache the instance after first creation.\n   - `resolve(name: str) -> Any` — create/return instance. The factory can request dependencies via parameter names that match other registered names. Use `inspect.signature` to auto-inject.\n   - `register_instance(name: str, instance: Any)` — register a pre-built instance.\n2. Detect circular dependencies and raise `RuntimeError('Circular dependency: ...')`.\n3. If a factory parameter has a default value and isn't registered, use the default.\n4. If a required parameter is not registered and has no default, raise `KeyError`.",
+    "expected_concepts": [
+      "Container",
+      "register",
+      "resolve",
+      "factory",
+      "singleton",
+      "inspect",
+      "signature",
+      "circular",
+      "dependency",
+      "injection"
+    ],
+    "test_code": "c = Container()\nc.register_instance('config', {'db': 'sqlite://test.db'})\nc.register('db', lambda config: f\"DB({config['db']})\")\nc.register('repo', lambda db: f'Repo({db})')\nassert c.resolve('repo') == \"Repo(DB(sqlite://test.db))\"\nassert c.resolve('db') is c.resolve('db')  # singleton\nc2 = Container()\nc2.register('a', lambda b: 'a', singleton=False)\nc2.register('b', lambda a: 'b', singleton=False)\ntry:\n    c2.resolve('a')\n    assert False\nexcept RuntimeError as e:\n    assert 'ircular' in str(e)\nc3 = Container()\nc3.register('svc', lambda missing_dep='default_val': f'svc({missing_dep})')\nassert c3.resolve('svc') == 'svc(default_val)'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_011",
+    "category": "debugging",
+    "topic": "off_by_one",
+    "difficulty": 4,
+    "instruction": "The following Python function is supposed to implement binary search returning the INDEX of the target in a sorted list, or -1 if not found. It has TWO bugs. Find and fix both bugs, and return the corrected function.\n\n```python\ndef binary_search(arr, target):\n    left = 0\n    right = len(arr)\n    while left < right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid\n        else:\n            right = mid - 1\n    return -1\n```\n\nBug hints: one bug causes infinite loop on certain inputs, the other causes it to miss valid elements.",
+    "expected_concepts": [
+      "binary_search",
+      "left",
+      "right",
+      "mid",
+      "infinite_loop",
+      "off_by_one",
+      "len(arr) - 1",
+      "left = mid + 1"
+    ],
+    "test_code": "assert binary_search([1, 3, 5, 7, 9], 5) == 2\nassert binary_search([1, 3, 5, 7, 9], 1) == 0\nassert binary_search([1, 3, 5, 7, 9], 9) == 4\nassert binary_search([1, 3, 5, 7, 9], 4) == -1\nassert binary_search([1, 3, 5, 7, 9], 0) == -1\nassert binary_search([1, 3, 5, 7, 9], 10) == -1\nassert binary_search([], 1) == -1\nassert binary_search([1], 1) == 0\nassert binary_search([1], 2) == -1\nassert binary_search([1, 2], 2) == 1\nassert binary_search([1, 2], 1) == 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_012",
+    "category": "debugging",
+    "topic": "race_condition",
+    "difficulty": 5,
+    "instruction": "The following Python class implements a thread-safe counter, but it has a race condition bug. Find the bug, explain it, and provide the fixed version.\n\n```python\nimport threading\n\nclass SafeCounter:\n    def __init__(self):\n        self._value = 0\n        self._lock = threading.Lock()\n    \n    def increment(self):\n        with self._lock:\n            self._value += 1\n    \n    def decrement(self):\n        with self._lock:\n            self._value -= 1\n    \n    def get_and_reset(self):\n        val = self._value\n        self._value = 0\n        return val\n    \n    @property\n    def value(self):\n        return self._value\n```\n\nThe bug is in `get_and_reset` — it reads and writes without holding the lock, creating a TOCTOU race. Fix it.",
+    "expected_concepts": [
+      "threading",
+      "Lock",
+      "race_condition",
+      "TOCTOU",
+      "get_and_reset",
+      "with self._lock",
+      "atomic",
+      "thread-safe"
+    ],
+    "test_code": "import threading\nc = SafeCounter()\nthreads = []\nfor _ in range(100):\n    t = threading.Thread(target=c.increment)\n    threads.append(t)\n    t.start()\nfor t in threads:\n    t.join()\nassert c.value == 100, f'Expected 100 got {c.value}'\nval = c.get_and_reset()\nassert val == 100\nassert c.value == 0\n# Test atomicity of get_and_reset\nc2 = SafeCounter()\nfor _ in range(50):\n    c2.increment()\nresults = []\ndef grab():\n    r = c2.get_and_reset()\n    if r > 0:\n        results.append(r)\nthreads2 = [threading.Thread(target=grab) for _ in range(10)]\nfor t in threads2: t.start()\nfor t in threads2: t.join()\nassert sum(results) == 50, f'Lost updates: sum={sum(results)}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_013",
+    "category": "debugging",
+    "topic": "closure_bug",
+    "difficulty": 4,
+    "instruction": "The following code is supposed to create a list of functions where the i-th function returns i. But it doesn't work correctly — all functions return the same value. Fix the bug.\n\n```python\ndef make_functions(n):\n    functions = []\n    for i in range(n):\n        def func():\n            return i\n        functions.append(func)\n    return functions\n\n# Expected: [f() for f in make_functions(5)] == [0, 1, 2, 3, 4]\n# Actual: [f() for f in make_functions(5)] == [4, 4, 4, 4, 4]\n```\n\nExplain WHY the bug occurs (late binding of closures) and provide the fix using a default argument or other approach.",
+    "expected_concepts": [
+      "closure",
+      "late_binding",
+      "default_argument",
+      "lambda",
+      "scope",
+      "capture",
+      "for_loop",
+      "make_functions"
+    ],
+    "test_code": "funcs = make_functions(5)\nresults = [f() for f in funcs]\nassert results == [0, 1, 2, 3, 4], f'Got {results}'\nfuncs2 = make_functions(1)\nassert funcs2[0]() == 0\nfuncs3 = make_functions(0)\nassert len(funcs3) == 0\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_014",
+    "category": "debugging",
+    "topic": "iterator_exhaustion",
+    "difficulty": 4,
+    "instruction": "The following code has a bug where iterating over data twice gives wrong results because the generator is exhausted after the first pass. Fix the code so that `DataSet` can be iterated multiple times.\n\n```python\nclass DataSet:\n    def __init__(self, source):\n        self._data = (x for x in source)  # BUG: generator exhausts\n    \n    def __iter__(self):\n        return iter(self._data)\n    \n    def sum(self):\n        return sum(self)\n    \n    def mean(self):\n        total = self.sum()\n        count = sum(1 for _ in self)\n        return total / count  # BUG: count is 0 on second iteration\n\n# ds = DataSet([1, 2, 3])\n# ds.sum()  -> 6\n# ds.mean() -> ZeroDivisionError because generator exhausted\n```\n\nFix the class so `sum()` and `mean()` work correctly, and the DataSet can be iterated any number of times.",
+    "expected_concepts": [
+      "generator",
+      "exhaustion",
+      "list",
+      "__iter__",
+      "reusable",
+      "DataSet",
+      "sum",
+      "mean",
+      "iteration"
+    ],
+    "test_code": "ds = DataSet([1, 2, 3, 4, 5])\nassert ds.sum() == 15\nassert ds.mean() == 3.0\nassert ds.sum() == 15  # should work again\nassert list(ds) == [1, 2, 3, 4, 5]\nassert list(ds) == [1, 2, 3, 4, 5]  # iterate again\nds2 = DataSet(range(100))\nassert ds2.sum() == 4950\nassert ds2.mean() == 49.5\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_015",
+    "category": "debugging",
+    "topic": "mutable_default",
+    "difficulty": 4,
+    "instruction": "The following class has the classic mutable default argument bug. Find ALL instances of the bug and fix them.\n\n```python\nclass UserManager:\n    def __init__(self, users=[]):\n        self.users = users\n    \n    def add_user(self, name, roles=['viewer']):\n        self.users.append({'name': name, 'roles': roles})\n        return self.users[-1]\n    \n    def create_group(self, name, members=[]):\n        return {'name': name, 'members': members}\n```\n\nDemonstrate the bug: creating two UserManager instances and showing that they share the same list. Then provide the fixed version.",
+    "expected_concepts": [
+      "mutable_default",
+      "None",
+      "shared_state",
+      "list",
+      "default_argument",
+      "UserManager",
+      "append",
+      "independent"
+    ],
+    "test_code": "m1 = UserManager()\nm1.add_user('Alice')\nm2 = UserManager()\nassert len(m2.users) == 0, f'Bug: m2.users has {len(m2.users)} items (shared mutable default)'\nm2.add_user('Bob')\nassert len(m1.users) == 1\nassert len(m2.users) == 1\nu1 = m1.add_user('Carol')\nu2 = m1.add_user('Dave')\nassert u1['roles'] is not u2['roles'], 'roles lists should not be shared'\nu1['roles'].append('admin')\nassert 'admin' not in u2['roles'], 'Modifying u1 roles should not affect u2'\ng1 = m1.create_group('team1')\ng2 = m1.create_group('team2')\ng1['members'].append('Alice')\nassert g2['members'] == [], 'Groups should have independent member lists'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_016",
+    "category": "debugging",
+    "topic": "async_deadlock",
+    "difficulty": 5,
+    "instruction": "The following async Python code has a deadlock bug. The `Semaphore` is acquired but never released on exception, causing the program to hang. Find and fix the bug.\n\n```python\nimport asyncio\n\nclass RateLimiter:\n    def __init__(self, max_concurrent: int):\n        self._sem = asyncio.Semaphore(max_concurrent)\n    \n    async def execute(self, coro):\n        await self._sem.acquire()\n        result = await coro  # If coro raises, semaphore never released!\n        self._sem.release()\n        return result\n    \n    @property\n    def available(self):\n        return self._sem._value\n```\n\nFix it using proper try/finally or async context manager pattern. Also add a `execute_many(coros)` method that runs multiple coroutines with rate limiting and returns results (or exceptions) for each.",
+    "expected_concepts": [
+      "asyncio",
+      "Semaphore",
+      "acquire",
+      "release",
+      "try",
+      "finally",
+      "deadlock",
+      "RateLimiter",
+      "async with",
+      "gather"
+    ],
+    "test_code": "import asyncio\nasync def test_rate_limiter():\n    rl = RateLimiter(2)\n    results = []\n    async def ok_task(val):\n        await asyncio.sleep(0.01)\n        return val\n    async def bad_task():\n        raise ValueError('boom')\n    r = await rl.execute(ok_task(42))\n    assert r == 42\n    assert rl.available == 2, f'Semaphore leak: {rl.available}'\n    try:\n        await rl.execute(bad_task())\n    except ValueError:\n        pass\n    assert rl.available == 2, f'Semaphore leak after exception: {rl.available}'\n    results = await rl.execute_many([ok_task(1), ok_task(2), ok_task(3)])\n    assert results == [1, 2, 3]\nasyncio.run(test_rate_limiter())\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_017",
+    "category": "debugging",
+    "topic": "deepcopy_trap",
+    "difficulty": 4,
+    "instruction": "The following code attempts to implement an undo system using copy, but it has a bug: it uses shallow copy so nested mutations aren't properly undone. Fix it.\n\n```python\nimport copy\n\nclass UndoableState:\n    def __init__(self, data: dict):\n        self._data = data\n        self._history = []\n    \n    def set(self, key, value):\n        self._history.append(copy.copy(self._data))  # BUG: shallow copy\n        self._data[key] = value\n    \n    def undo(self):\n        if self._history:\n            self._data = self._history.pop()\n        else:\n            raise IndexError('Nothing to undo')\n    \n    def get(self, key, default=None):\n        return self._data.get(key, default)\n    \n    @property\n    def data(self):\n        return dict(self._data)\n```\n\nFix it so nested dict/list mutations are properly tracked in history.",
+    "expected_concepts": [
+      "deepcopy",
+      "shallow_copy",
+      "nested",
+      "undo",
+      "history",
+      "mutation",
+      "UndoableState",
+      "copy.deepcopy"
+    ],
+    "test_code": "s = UndoableState({'users': ['Alice'], 'count': 1})\ns.set('count', 2)\nassert s.get('count') == 2\ns.undo()\nassert s.get('count') == 1\ns.set('users', s.get('users') + ['Bob'])\nassert s.get('users') == ['Alice', 'Bob']\ns.undo()\nassert s.get('users') == ['Alice'], f\"Got {s.get('users')}\"\n# Test that history stores deep copies\ns2 = UndoableState({'nested': {'a': [1, 2, 3]}})\ns2.set('nested', {'a': [1, 2, 3, 4]})\ns2.get('nested')  # should not affect history\ns2.undo()\nassert s2.get('nested') == {'a': [1, 2, 3]}\ntry:\n    s2.undo()\n    assert False\nexcept IndexError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_018",
+    "category": "debugging",
+    "topic": "descriptor_bug",
+    "difficulty": 5,
+    "instruction": "The following Python descriptor is supposed to enforce type checking on class attributes, but it has a critical bug: all instances share the same value because the descriptor stores the value on itself, not on the instance. Fix it.\n\n```python\nclass TypeChecked:\n    def __init__(self, name, expected_type):\n        self.name = name\n        self.expected_type = expected_type\n        self.value = None  # BUG: shared across all instances\n    \n    def __get__(self, obj, objtype=None):\n        if obj is None:\n            return self\n        return self.value  # Returns same value for all instances!\n    \n    def __set__(self, obj, value):\n        if not isinstance(value, self.expected_type):\n            raise TypeError(f'{self.name} must be {self.expected_type.__name__}, got {type(value).__name__}')\n        self.value = value  # Stores on descriptor, not instance\n\nclass Person:\n    name = TypeChecked('name', str)\n    age = TypeChecked('age', int)\n    \n    def __init__(self, name, age):\n        self.name = name\n        self.age = age\n```\n\nFix it so each instance has its own values. The standard pattern is to store in `obj.__dict__`.",
+    "expected_concepts": [
+      "descriptor",
+      "__get__",
+      "__set__",
+      "obj.__dict__",
+      "TypeChecked",
+      "isinstance",
+      "TypeError",
+      "per-instance",
+      "shared_state"
+    ],
+    "test_code": "p1 = Person('Alice', 30)\np2 = Person('Bob', 25)\nassert p1.name == 'Alice'\nassert p2.name == 'Bob'\nassert p1.age == 30\nassert p2.age == 25\np1.name = 'Carol'\nassert p1.name == 'Carol'\nassert p2.name == 'Bob', f'p2.name changed to {p2.name} (shared state bug)'\ntry:\n    p1.name = 123\n    assert False, 'Should raise TypeError'\nexcept TypeError:\n    pass\ntry:\n    p1.age = 'old'\n    assert False, 'Should raise TypeError'\nexcept TypeError:\n    pass\nassert p1.name == 'Carol'  # unchanged after failed set\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_019",
+    "category": "rust",
+    "topic": "lifetime_structs",
+    "difficulty": 5,
+    "instruction": "Write a Rust program that demonstrates lifetime annotations with a `TextAnalyzer` struct that borrows a string slice. Implement:\n1. `TextAnalyzer<'a>` struct holding a `&'a str`.\n2. `fn new(text: &'a str) -> Self`\n3. `fn words(&self) -> Vec<&'a str>` — split by whitespace.\n4. `fn longest_word(&self) -> Option<&'a str>` — return longest word.\n5. `fn find_lines_containing(&self, pattern: &str) -> Vec<&'a str>` — split by newline, return lines containing pattern.\n6. Write a `fn demonstrate()` function that shows the borrow checker in action: create a TextAnalyzer, use it, and show that the returned references are valid as long as the original string lives.\n\nInclude proper lifetime annotations everywhere they're needed. Add a `main()` that calls demonstrate() with assertions.",
+    "expected_concepts": [
+      "lifetime",
+      "struct",
+      "borrow",
+      "TextAnalyzer",
+      "Option",
+      "Vec",
+      "split_whitespace",
+      "contains",
+      "reference",
+      "annotation"
+    ]
+  },
+  {
+    "id": "hard_020",
+    "category": "rust",
+    "topic": "error_handling_chain",
+    "difficulty": 5,
+    "instruction": "Write a Rust program implementing a multi-layer error handling chain:\n1. Define custom error types: `ParseError`, `ValidationError`, `ProcessError` using an enum `AppError` with `#[derive(Debug)]`.\n2. Implement `std::fmt::Display` and `std::error::Error` for `AppError`.\n3. Implement `From<ParseError>` for `AppError`, etc., so `?` operator works through the chain.\n4. Write these functions forming a pipeline:\n   - `parse_input(s: &str) -> Result<(String, i32), AppError>` — parse \"name:age\" format.\n   - `validate(name: &str, age: i32) -> Result<(), AppError>` — name non-empty, age 0-150.\n   - `process(input: &str) -> Result<String, AppError>` — calls parse then validate, returns formatted string.\n5. In `main()`, demonstrate error propagation with `?` and pattern matching on AppError variants.",
+    "expected_concepts": [
+      "enum",
+      "AppError",
+      "Display",
+      "Error",
+      "From",
+      "Result",
+      "question_mark",
+      "parse",
+      "validate",
+      "match"
+    ]
+  },
+  {
+    "id": "hard_021",
+    "category": "rust",
+    "topic": "trait_objects",
+    "difficulty": 5,
+    "instruction": "Write a Rust program that implements a plugin system using trait objects:\n1. Define a `Plugin` trait with methods: `name(&self) -> &str`, `version(&self) -> &str`, `execute(&self, input: &str) -> Result<String, Box<dyn std::error::Error>>`.\n2. Implement at least 3 concrete plugins: `UppercasePlugin`, `ReversePlugin`, `Base64Plugin` (use manual base64 encoding, not a crate).\n3. Create a `PluginRegistry` that stores `Vec<Box<dyn Plugin>>` and has:\n   - `register(&mut self, plugin: Box<dyn Plugin>)`\n   - `execute_all(&self, input: &str) -> Vec<(String, Result<String, String>)>` — runs all plugins and collects (name, result).\n   - `find(&self, name: &str) -> Option<&dyn Plugin>`\n4. In main, demonstrate dynamic dispatch with the registry.",
+    "expected_concepts": [
+      "trait",
+      "dyn",
+      "Box",
+      "Plugin",
+      "trait_object",
+      "dynamic_dispatch",
+      "Vec",
+      "Result",
+      "registry",
+      "impl"
+    ]
+  },
+  {
+    "id": "hard_022",
+    "category": "rust",
+    "topic": "iterator_adaptor",
+    "difficulty": 4,
+    "instruction": "Write a Rust program that creates a custom iterator adaptor:\n1. Implement a `Chunks<I>` struct that takes any iterator and yields vectors of N items at a time (like Python's `itertools.batched` or Rust's `chunks` but for arbitrary iterators, not just slices).\n2. Implement `Iterator` for `Chunks<I>` where `I: Iterator`. The `Item` type should be `Vec<I::Item>`.\n3. Create an extension trait `ChunkExt` for all iterators that adds a `.chunks(n: usize)` method.\n4. Handle the last chunk being smaller than N.\n5. In main, demonstrate: `(1..=10).chunks(3)` yielding `[1,2,3], [4,5,6], [7,8,9], [10]`.\n6. Also show it working with a string iterator: `\"hello world\".chars().chunks(4)`.",
+    "expected_concepts": [
+      "Iterator",
+      "impl",
+      "Item",
+      "Vec",
+      "extension_trait",
+      "chunks",
+      "next",
+      "Some",
+      "None",
+      "generics"
+    ]
+  },
+  {
+    "id": "hard_023",
+    "category": "rust",
+    "topic": "smart_pointers",
+    "difficulty": 5,
+    "instruction": "Write a Rust program implementing a simple arena allocator using smart pointers:\n1. Create an `Arena<T>` struct that pre-allocates a `Vec<T>` and hands out references.\n2. `Arena::new(capacity: usize) -> Self`\n3. `Arena::alloc(&self, value: T) -> &T` — store value and return a reference. Use `RefCell<Vec<T>>` for interior mutability.\n4. Implement a `Graph` using the arena: nodes stored in arena, edges as indices.\n5. `Graph::add_node(&self, data: T) -> usize` — returns node index.\n6. `Graph::add_edge(&self, from: usize, to: usize)`\n7. `Graph::neighbors(&self, node: usize) -> Vec<usize>`\n8. In main, build a small graph and traverse it with BFS, printing the traversal order.",
+    "expected_concepts": [
+      "Arena",
+      "RefCell",
+      "Vec",
+      "interior_mutability",
+      "borrow",
+      "Graph",
+      "BFS",
+      "index",
+      "smart_pointer",
+      "capacity"
+    ]
+  },
+  {
+    "id": "hard_024",
+    "category": "rust",
+    "topic": "async_channels",
+    "difficulty": 5,
+    "instruction": "Write a Rust program (using only std library, no tokio/async-std) that implements a bounded multi-producer single-consumer channel:\n1. `Channel<T>` with `fn new(capacity: usize) -> (Sender<T>, Receiver<T>)`.\n2. `Sender<T>` implements `fn send(&self, value: T) -> Result<(), T>` — blocks if full, returns Err(value) if receiver dropped.\n3. `Receiver<T>` implements `fn recv(&self) -> Option<T>` — blocks if empty, returns None if all senders dropped.\n4. `Sender` must be `Clone`able (multi-producer).\n5. Use `Arc<Mutex<...>>` and `Condvar` for synchronization.\n6. In main, spawn 3 producer threads each sending 10 messages, collect all 30 in the receiver thread, and verify count.",
+    "expected_concepts": [
+      "Arc",
+      "Mutex",
+      "Condvar",
+      "Channel",
+      "Sender",
+      "Receiver",
+      "Clone",
+      "thread",
+      "spawn",
+      "bounded"
+    ]
+  },
+  {
+    "id": "hard_025",
+    "category": "go",
+    "topic": "context_propagation",
+    "difficulty": 5,
+    "instruction": "Write a Go program demonstrating proper context propagation and cancellation:\n1. Implement a `Pipeline` struct with stages that process data. Each stage is a function `func(ctx context.Context, in <-chan int) <-chan int`.\n2. Create 3 stages: `generate` (produces numbers 1..N), `square` (squares each), `filter` (keeps only values > threshold).\n3. Wire them together so cancelling the root context cleanly shuts down all goroutines with no leaks.\n4. Add a `WithTimeout` variant that cancels after a deadline.\n5. Use `errgroup` pattern (or manual WaitGroup) to ensure all goroutines exit before main returns.\n6. Print how many results were processed before timeout.\n\nMust handle: channel closing, context.Done() checks in every stage, no goroutine leaks.",
+    "expected_concepts": [
+      "context",
+      "cancel",
+      "Done",
+      "channel",
+      "goroutine",
+      "WaitGroup",
+      "pipeline",
+      "timeout",
+      "select",
+      "close"
+    ]
+  },
+  {
+    "id": "hard_026",
+    "category": "go",
+    "topic": "interface_composition",
+    "difficulty": 4,
+    "instruction": "Write a Go program demonstrating interface composition for a storage system:\n1. Define small interfaces: `Reader` (Get(key string) ([]byte, error)), `Writer` (Put(key string, value []byte) error), `Deleter` (Delete(key string) error), `Lister` (List(prefix string) ([]string, error)).\n2. Compose them: `ReadWriter` embeds Reader + Writer, `Store` embeds all four.\n3. Implement `MemoryStore` satisfying `Store`. Use sync.RWMutex for thread safety.\n4. Implement `PrefixStore` that wraps any `Store` and prepends a prefix to all keys.\n5. Implement `CachedStore` that wraps a `Store` with an LRU cache (capacity N) for reads.\n6. Write tests in main demonstrating polymorphism: a function taking `Reader` works with all three implementations.",
+    "expected_concepts": [
+      "interface",
+      "composition",
+      "embedding",
+      "Reader",
+      "Writer",
+      "Store",
+      "RWMutex",
+      "prefix",
+      "cache",
+      "polymorphism"
+    ]
+  },
+  {
+    "id": "hard_027",
+    "category": "go",
+    "topic": "goroutine_leak_prevention",
+    "difficulty": 5,
+    "instruction": "Write a Go program that demonstrates common goroutine leak patterns and their fixes:\n1. **Leak Pattern 1**: A goroutine sending to a channel that nobody reads. Show the leak, then fix with buffered channel or context cancellation.\n2. **Leak Pattern 2**: A goroutine blocked on a select with no default/done case. Show and fix.\n3. **Leak Pattern 3**: A goroutine in an infinite loop without checking context. Show and fix.\n4. Implement a `LeakDetector` that uses `runtime.NumGoroutine()` before and after each test to verify no leaks.\n5. Each pattern should be in its own function: `demoLeak1Fixed()`, etc.\n6. main() runs all demos through LeakDetector and asserts goroutine count returns to baseline.",
+    "expected_concepts": [
+      "goroutine",
+      "leak",
+      "NumGoroutine",
+      "context",
+      "cancel",
+      "buffered",
+      "channel",
+      "select",
+      "default",
+      "Done"
+    ]
+  },
+  {
+    "id": "hard_028",
+    "category": "go",
+    "topic": "generics_constraints",
+    "difficulty": 4,
+    "instruction": "Write a Go program (Go 1.21+) using generics:\n1. Define a `Number` constraint interface: `~int | ~int32 | ~int64 | ~float32 | ~float64`.\n2. Implement generic `Map[T, U any](slice []T, fn func(T) U) []U`.\n3. Implement generic `Filter[T any](slice []T, pred func(T) bool) []T`.\n4. Implement generic `Reduce[T, U any](slice []T, initial U, fn func(U, T) U) U`.\n5. Implement a generic `Set[T comparable]` with Add, Remove, Contains, Union, Intersection methods.\n6. Implement a generic `Result[T any]` type (like Rust's Result) with `Ok(T)`, `Err(error)` constructors, `Unwrap() T`, `UnwrapOr(T) T`, `Map(func(T) T) Result[T]` methods.\n7. In main, demonstrate all of these with multiple types.",
+    "expected_concepts": [
+      "generics",
+      "constraint",
+      "comparable",
+      "any",
+      "Map",
+      "Filter",
+      "Reduce",
+      "Set",
+      "Result",
+      "type_parameter"
+    ]
+  },
+  {
+    "id": "hard_029",
+    "category": "go",
+    "topic": "worker_pool",
+    "difficulty": 4,
+    "instruction": "Write a Go program implementing a robust worker pool:\n1. `Pool` struct with configurable number of workers.\n2. `NewPool(workers int, queueSize int) *Pool` — creates pool with bounded job queue.\n3. `Submit(job func() (interface{}, error)) *Future` — submit a job, get a Future back.\n4. `Future` struct with `Result() (interface{}, error)` that blocks until job completes.\n5. `Pool.Shutdown()` — stop accepting jobs, wait for in-flight jobs to finish.\n6. `Pool.Resize(n int)` — dynamically change worker count.\n7. Handle panics in jobs: catch with recover, return as error in Future.\n8. In main, submit 100 jobs (mix of success, error, panic), collect all Futures, verify results.",
+    "expected_concepts": [
+      "goroutine",
+      "channel",
+      "WaitGroup",
+      "Future",
+      "Pool",
+      "Submit",
+      "Shutdown",
+      "recover",
+      "panic",
+      "sync"
+    ]
+  },
+  {
+    "id": "hard_030",
+    "category": "go",
+    "topic": "rate_limiter",
+    "difficulty": 5,
+    "instruction": "Write a Go program implementing a token bucket rate limiter with these features:\n1. `RateLimiter` struct with `NewRateLimiter(rate float64, burst int) *RateLimiter`. Rate is tokens/second, burst is max tokens.\n2. `Allow() bool` — non-blocking, returns true if a token is available.\n3. `Wait(ctx context.Context) error` — blocks until a token is available or context cancelled.\n4. `AllowN(n int) bool` — try to consume N tokens at once.\n5. `Reserve() *Reservation` — reserve a token, get a `Reservation` with `Delay() time.Duration` (how long to wait) and `Cancel()` method.\n6. Use `time.Now()` based token replenishment (not ticker), to avoid goroutine overhead.\n7. Must be safe for concurrent use (sync.Mutex).\n8. In main, demonstrate rate limiting with 10 goroutines hitting the limiter concurrently.",
+    "expected_concepts": [
+      "token_bucket",
+      "rate",
+      "burst",
+      "Allow",
+      "Wait",
+      "Reserve",
+      "Mutex",
+      "context",
+      "Duration",
+      "concurrent"
+    ]
+  },
+  {
+    "id": "hard_031",
+    "category": "hive",
+    "topic": "delegation_operations",
+    "difficulty": 4,
+    "instruction": "Write a Python module for Hive blockchain delegation operations using the `beem` library:\n1. `get_vesting_delegations(account: str) -> list[dict]` — return all outgoing vesting delegations with fields: delegatee, vesting_shares (as float in VESTS), and equivalent HP.\n2. `delegate_vesting_shares(delegator: str, delegatee: str, amount_hp: float, wif: str) -> dict` — create and broadcast a delegation operation. Convert HP to VESTS using the global properties (total_vesting_fund_hive / total_vesting_shares).\n3. `calculate_hp_from_vests(vests: float) -> float` — use dynamic global properties.\n4. `get_expiring_delegations(account: str) -> list[dict]` — return delegations that are in the 5-day cooldown period after being removed.\n5. `estimate_delegation_roi(account: str, delegatee: str, amount_hp: float) -> dict` — estimate curation rewards the delegatee earns and your share.\n\nHandle edge cases: account not found, insufficient HP, self-delegation (should raise ValueError).",
+    "expected_concepts": [
+      "delegate_vesting_shares",
+      "vesting",
+      "VESTS",
+      "HP",
+      "global_properties",
+      "total_vesting_fund",
+      "cooldown",
+      "beem",
+      "delegation",
+      "broadcast"
+    ]
+  },
+  {
+    "id": "hard_032",
+    "category": "hive",
+    "topic": "witness_operations",
+    "difficulty": 5,
+    "instruction": "Write a Python module for Hive witness-related operations:\n1. `get_witness_info(witness: str) -> dict` — return comprehensive witness data: signing key, feed price, last confirmed block, total missed, running version, HBD interest rate.\n2. `vote_for_witness(voter: str, witness: str, wif: str, approve: bool = True) -> dict` — broadcast witness vote operation.\n3. `set_witness_properties(witness: str, wif: str, props: dict) -> dict` — broadcast witness_set_properties operation. Support: account_creation_fee, maximum_block_size, hbd_interest_rate, new_signing_key.\n4. `get_witness_schedule() -> dict` — return current witness schedule with current shuffled round.\n5. `analyze_witness_reliability(witness: str, blocks: int = 1000) -> dict` — analyze last N blocks to calculate miss rate, average block time, and reliability score.\n6. `get_top_witnesses(limit: int = 21) -> list[dict]` — return top witnesses by vote weight.\n\nAll functions should use `beem` library. Include proper error handling for invalid witnesses.",
+    "expected_concepts": [
+      "witness",
+      "signing_key",
+      "feed_price",
+      "missed_blocks",
+      "witness_set_properties",
+      "account_creation_fee",
+      "hbd_interest_rate",
+      "schedule",
+      "beem",
+      "vote"
+    ]
+  },
+  {
+    "id": "hard_033",
+    "category": "hive",
+    "topic": "custom_json",
+    "difficulty": 4,
+    "instruction": "Write a Python module for Hive custom_json operations, commonly used for layer-2 protocols:\n1. `broadcast_custom_json(account: str, wif: str, id: str, json_data: dict, required_posting_auths: list = None, required_auths: list = None) -> dict` — broadcast a custom_json operation. If neither auth list provided, default to posting auth with the account.\n2. `build_hive_engine_transfer(from_account: str, to: str, symbol: str, quantity: str, memo: str = '') -> dict` — construct a Hive-Engine sidechain transfer custom_json payload (id='ssc-mainnet-hive', json contains contractName, contractAction, contractPayload).\n3. `build_splinterlands_action(player: str, action: str, params: dict) -> dict` — construct a Splinterlands custom_json (id='sm_<action>').\n4. `stream_custom_json(id_filter: str = None, callback: callable = None, timeout: int = 60)` — stream custom_json operations from the blockchain, optionally filtering by id. Call callback(op_data) for each match.\n5. `decode_custom_json_history(account: str, id_filter: str = None, limit: int = 100) -> list[dict]` — get recent custom_json operations from account history.\n\nUse beem library. Handle JSON parsing errors gracefully.",
+    "expected_concepts": [
+      "custom_json",
+      "posting_auth",
+      "active_auth",
+      "ssc-mainnet-hive",
+      "contractName",
+      "contractAction",
+      "stream",
+      "beem",
+      "json",
+      "broadcast"
+    ]
+  },
+  {
+    "id": "hard_034",
+    "category": "hive",
+    "topic": "hbd_conversions",
+    "difficulty": 5,
+    "instruction": "Write a Python module for Hive HBD (Hive Backed Dollars) conversion operations:\n1. `convert_hbd_to_hive(account: str, wif: str, amount: float) -> dict` — broadcast convert operation (3.5 day conversion using median price).\n2. `convert_hive_to_hbd(account: str, wif: str, amount: float) -> dict` — broadcast collateralized_convert operation (instant but uses collateral).\n3. `get_conversion_requests(account: str) -> list[dict]` — get pending conversions with estimated completion time.\n4. `calculate_conversion_value(amount_hbd: float) -> dict` — using current median feed price, calculate expected HIVE output. Include the 3.5-day price risk warning.\n5. `get_hbd_savings_info(account: str) -> dict` — return HBD savings balance, current APR (from witness median), estimated daily/monthly/yearly interest.\n6. `transfer_to_savings(account: str, wif: str, amount: float, asset: str = 'HBD', memo: str = '') -> dict` — broadcast transfer_to_savings.\n7. `withdraw_from_savings(account: str, wif: str, amount: float, asset: str = 'HBD', memo: str = '') -> dict` — broadcast (3-day delay).\n\nUse beem. Handle: insufficient balance, invalid amounts, wrong asset types.",
+    "expected_concepts": [
+      "convert",
+      "collateralized_convert",
+      "median_price",
+      "HBD",
+      "HIVE",
+      "savings",
+      "interest_rate",
+      "transfer_to_savings",
+      "withdraw",
+      "beem"
+    ]
+  },
+  {
+    "id": "hard_035",
+    "category": "hive",
+    "topic": "key_hierarchy",
+    "difficulty": 5,
+    "instruction": "Write a Python module explaining and working with Hive's key hierarchy:\n1. `derive_keys(master_password: str, account: str) -> dict` — derive all 4 key pairs (owner, active, posting, memo) from a master password using Hive's key derivation scheme. Return dict with public and private (WIF) for each role.\n2. `verify_key_authority(account: str, public_key: str) -> dict` — check which authority level(s) a public key has for the account (could be owner, active, posting, or none). Query the blockchain.\n3. `get_account_authorities(account: str) -> dict` — return full authority structure: owner (keys + accounts + threshold), active (same), posting (same), memo_key.\n4. `change_key(account: str, role: str, new_public_key: str, wif: str) -> dict` — broadcast account_update to change a specific key. Owner key changes require owner authority. Active/posting require active authority.\n5. `check_key_compromised(public_key: str) -> bool` — check if a key appears in known compromised key databases (simulate with a list).\n\nUse beem and beemgraphenebase for key derivation. CRITICAL: never log or print private keys.",
+    "expected_concepts": [
+      "owner",
+      "active",
+      "posting",
+      "memo",
+      "authority",
+      "threshold",
+      "derive",
+      "WIF",
+      "public_key",
+      "account_update"
+    ]
+  },
+  {
+    "id": "hard_036",
+    "category": "hive",
+    "topic": "resource_credits",
+    "difficulty": 4,
+    "instruction": "Write a Python module for Hive Resource Credits (RC) system:\n1. `get_rc_info(account: str) -> dict` — return current RC mana, max RC mana, percentage, estimated recovery time to 100%.\n2. `estimate_rc_cost(operation_type: str, **kwargs) -> dict` — estimate RC cost for operations: 'comment', 'vote', 'transfer', 'custom_json', 'claim_account'. Return cost in RC and as percentage of typical account's RC.\n3. `get_rc_delegations(account: str) -> list[dict]` — get outgoing RC delegations.\n4. `delegate_rc(delegator: str, delegatee: str, max_rc: int, wif: str) -> dict` — broadcast delegate_rc operation.\n5. `estimate_operations_available(account: str) -> dict` — given current RC, estimate how many of each operation type the account can perform before running out.\n6. `monitor_rc_usage(account: str, interval: int = 60, duration: int = 3600, callback: callable = None)` — monitor RC usage over time, calling callback with usage stats.\n\nUse beem. Handle RC calculation with proper mana regeneration math (5-day full regen).",
+    "expected_concepts": [
+      "resource_credits",
+      "RC",
+      "mana",
+      "regeneration",
+      "delegate_rc",
+      "claim_account",
+      "operation_cost",
+      "beem",
+      "percentage",
+      "monitor"
+    ]
+  },
+  {
+    "id": "hard_037",
+    "category": "hive",
+    "topic": "powerup_powerdown",
+    "difficulty": 4,
+    "instruction": "Write a Python module for Hive Power (HP) operations:\n1. `power_up(account: str, wif: str, amount: float) -> dict` — broadcast transfer_to_vesting (HIVE -> HP). Validate sufficient liquid HIVE balance.\n2. `power_down(account: str, wif: str, amount_hp: float) -> dict` — broadcast withdraw_vesting. Convert HP to VESTS. Validate sufficient HP (excluding delegated-out).\n3. `get_powerdown_status(account: str) -> dict` — return: is_powering_down, weekly_amount (HP), next_payout_date, total_remaining, weeks_left (out of 13).\n4. `cancel_powerdown(account: str, wif: str) -> dict` — broadcast withdraw_vesting with 0 VESTS.\n5. `set_withdraw_vesting_route(from_account: str, to_account: str, percent: int, wif: str, auto_vest: bool = False) -> dict` — set up routing for powerdown payments. percent is 1-10000 (basis points).\n6. `simulate_powerdown_schedule(amount_hp: float) -> list[dict]` — return 13-week schedule showing date and amount for each payment.\n\nUse beem. Handle: active authority required, minimum powerdown amount, vesting routes summing to <= 100%.",
+    "expected_concepts": [
+      "transfer_to_vesting",
+      "withdraw_vesting",
+      "power_up",
+      "power_down",
+      "13_weeks",
+      "vesting_route",
+      "auto_vest",
+      "VESTS",
+      "HP",
+      "beem"
+    ]
+  },
+  {
+    "id": "hard_038",
+    "category": "hive",
+    "topic": "multisig_operations",
+    "difficulty": 5,
+    "instruction": "Write a Python module for Hive multi-signature operations:\n1. `create_multisig_account(creator: str, new_account: str, wif: str, owners: list[str], threshold: int) -> dict` — create an account where owner authority requires `threshold` out of `len(owners)` keys.\n2. `build_multisig_transfer(from_account: str, to_account: str, amount: str, asset: str, memo: str = '') -> dict` — build a transfer operation WITHOUT broadcasting. Return the serialized transaction.\n3. `sign_transaction(serialized_tx: dict, wif: str) -> dict` — add a signature to a serialized transaction. Return updated tx.\n4. `broadcast_if_complete(serialized_tx: dict, required_threshold: int) -> dict` — check if enough signatures, broadcast if so.\n5. `get_pending_proposals(account: str) -> list[dict]` — using Hive proposal system (update_proposal_votes), list proposals.\n6. `verify_transaction_signatures(serialized_tx: dict) -> list[str]` — return list of public keys that signed the transaction.\n\nUse beem and beemgraphenebase. Handle: insufficient signatures, expired transactions, invalid keys.",
+    "expected_concepts": [
+      "multisig",
+      "threshold",
+      "authority",
+      "sign",
+      "broadcast",
+      "serialized",
+      "transaction",
+      "proposal",
+      "beem",
+      "signature"
+    ]
+  },
+  {
+    "id": "hard_039",
+    "category": "algorithms_hard",
+    "topic": "dp_on_trees",
+    "difficulty": 5,
+    "instruction": "Implement the Maximum Independent Set problem on a tree in Python:\n1. Given a tree as an adjacency list (dict[int, list[int]]) and node weights (dict[int, int]), find the maximum weight independent set (no two adjacent nodes selected).\n2. Use dynamic programming on the tree: for each node, compute dp[node][0] (not selected) and dp[node][1] (selected).\n3. Implement `max_independent_set(adj: dict, weights: dict, root: int = 0) -> tuple[int, set[int]]` — return (max_weight, set_of_selected_nodes).\n4. Handle edge cases: single node, linear chain (path graph), star graph.\n5. Use iterative DFS (not recursive) to avoid stack overflow on large trees.\n6. Time complexity must be O(n).",
+    "expected_concepts": [
+      "dynamic_programming",
+      "tree",
+      "independent_set",
+      "adjacency_list",
+      "DFS",
+      "iterative",
+      "dp",
+      "weights",
+      "backtrack",
+      "O(n)"
+    ],
+    "test_code": "# Path graph: 1-2-3-4-5 with weights all 1\nadj = {0: [1], 1: [0, 2], 2: [1, 3], 3: [2, 4], 4: [3]}\nweights = {i: 1 for i in range(5)}\nw, s = max_independent_set(adj, weights, 0)\nassert w == 3, f'Expected 3, got {w}'\nassert not any(a in s and b in s for a in adj for b in adj[a]), 'Adjacent nodes selected'\n# Star graph: 0 connected to 1,2,3,4,5 with center weight 10, leaves weight 3\nadj2 = {0: [1,2,3,4,5], 1: [0], 2: [0], 3: [0], 4: [0], 5: [0]}\nweights2 = {0: 10, 1: 3, 2: 3, 3: 3, 4: 3, 5: 3}\nw2, s2 = max_independent_set(adj2, weights2, 0)\nassert w2 == 15, f'Expected 15 (5 leaves), got {w2}'\nassert 0 not in s2\n# Single node\nw3, s3 = max_independent_set({0: []}, {0: 42}, 0)\nassert w3 == 42 and s3 == {0}\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_040",
+    "category": "algorithms_hard",
+    "topic": "graph_shortest_path",
+    "difficulty": 5,
+    "instruction": "Implement Dijkstra's algorithm with several extensions in Python:\n1. `dijkstra(graph: dict[str, list[tuple[str, float]]], source: str, target: str = None) -> tuple[dict[str, float], dict[str, str]]` — return (distances, predecessors). If target given, can early-exit.\n2. `reconstruct_path(predecessors: dict, source: str, target: str) -> list[str]` — return the shortest path as list of nodes.\n3. `k_shortest_paths(graph, source, target, k: int) -> list[tuple[float, list[str]]]` — find k shortest paths using Yen's algorithm.\n4. `bidirectional_dijkstra(graph, source, target) -> tuple[float, list[str]]` — implement bidirectional search for faster point-to-point queries. Assumes undirected graph.\n5. Use a proper min-heap (heapq). Handle disconnected nodes (distance = inf).",
+    "expected_concepts": [
+      "dijkstra",
+      "heapq",
+      "shortest_path",
+      "predecessors",
+      "reconstruct",
+      "bidirectional",
+      "Yen",
+      "k_shortest",
+      "min_heap",
+      "priority_queue"
+    ],
+    "test_code": "g = {'A': [('B', 1), ('C', 4)], 'B': [('A', 1), ('C', 2), ('D', 5)], 'C': [('A', 4), ('B', 2), ('D', 1)], 'D': [('B', 5), ('C', 1)]}\ndist, pred = dijkstra(g, 'A')\nassert dist['D'] == 4, f\"Expected 4, got {dist['D']}\"\npath = reconstruct_path(pred, 'A', 'D')\nassert path == ['A', 'B', 'C', 'D'], f'Got {path}'\npaths = k_shortest_paths(g, 'A', 'D', 3)\nassert len(paths) >= 2\nassert paths[0][0] == 4  # shortest\nassert paths[0][1] == ['A', 'B', 'C', 'D']\nd2, p2 = bidirectional_dijkstra(g, 'A', 'D')\nassert d2 == 4\nassert p2 == ['A', 'B', 'C', 'D']\n# Disconnected\ng2 = {'A': [('B', 1)], 'B': [('A', 1)], 'C': []}\ndist2, _ = dijkstra(g2, 'A')\nassert dist2['C'] == float('inf')\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_041",
+    "category": "algorithms_hard",
+    "topic": "trie_advanced",
+    "difficulty": 4,
+    "instruction": "Implement an advanced Trie (prefix tree) in Python with:\n1. `Trie` class with `insert(word: str)`, `search(word: str) -> bool`, `starts_with(prefix: str) -> bool`.\n2. `autocomplete(prefix: str, limit: int = 10) -> list[str]` — return up to `limit` words with given prefix, sorted alphabetically.\n3. `wildcard_search(pattern: str) -> list[str]` — support '.' as single-character wildcard. E.g., 'c.t' matches 'cat', 'cot', 'cut'.\n4. `count_prefix(prefix: str) -> int` — return number of words with given prefix.\n5. `delete(word: str) -> bool` — remove word, cleaning up unused nodes.\n6. `longest_common_prefix() -> str` — find longest prefix shared by ALL words in the trie.\n7. Each node should track word count (for duplicates) and prefix count.",
+    "expected_concepts": [
+      "Trie",
+      "prefix",
+      "autocomplete",
+      "wildcard",
+      "delete",
+      "children",
+      "is_end",
+      "DFS",
+      "longest_common_prefix",
+      "count"
+    ],
+    "test_code": "t = Trie()\nfor w in ['cat', 'car', 'card', 'care', 'careful', 'dog', 'dot']:\n    t.insert(w)\nassert t.search('cat')\nassert not t.search('ca')\nassert t.starts_with('ca')\nassert set(t.autocomplete('car')) == {'car', 'card', 'care', 'careful'}\nassert t.count_prefix('car') == 4\nassert t.count_prefix('dog') == 1\nassert t.count_prefix('z') == 0\nwild = t.wildcard_search('c.t')\nassert 'cat' in wild\nassert 'dot' not in wild\nwild2 = t.wildcard_search('d..')\nassert 'dog' in wild2 and 'dot' in wild2\nassert t.delete('car')\nassert not t.search('car')\nassert t.search('card')  # 'card' still exists\nassert t.count_prefix('car') == 3\nt2 = Trie()\nt2.insert('abc')\nt2.insert('abcd')\nt2.insert('abce')\nassert t2.longest_common_prefix() == 'abc'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_042",
+    "category": "algorithms_hard",
+    "topic": "segment_tree",
+    "difficulty": 5,
+    "instruction": "Implement a Segment Tree in Python supporting range queries and range updates:\n1. `SegmentTree` class initialized with a list of integers.\n2. `query(left: int, right: int) -> int` — return sum of elements in range [left, right] (inclusive). O(log n).\n3. `update(index: int, value: int)` — set element at index to value. O(log n).\n4. `range_update(left: int, right: int, delta: int)` — add delta to all elements in range. Use lazy propagation for O(log n).\n5. `range_min(left: int, right: int) -> int` — return minimum in range.\n6. `range_max(left: int, right: int) -> int` — return maximum in range.\n7. Support lazy propagation for range_update to maintain O(log n) per operation.",
+    "expected_concepts": [
+      "segment_tree",
+      "lazy_propagation",
+      "range_query",
+      "range_update",
+      "build",
+      "push_down",
+      "left_child",
+      "right_child",
+      "O(log n)",
+      "tree_array"
+    ],
+    "test_code": "st = SegmentTree([1, 3, 5, 7, 9, 11])\nassert st.query(0, 5) == 36\nassert st.query(1, 3) == 15\nassert st.range_min(0, 5) == 1\nassert st.range_max(0, 5) == 11\nst.update(2, 10)\nassert st.query(1, 3) == 20\nassert st.range_min(0, 5) == 1\nst.range_update(0, 2, 5)  # add 5 to indices 0,1,2\nassert st.query(0, 0) == 6  # was 1, now 6\nassert st.query(1, 1) == 8  # was 3, now 8\nassert st.query(2, 2) == 15  # was 10, now 15\nassert st.query(0, 5) == 51  # 36 - 5 + 10 + 15 = 36 + 15\nst2 = SegmentTree([5])\nassert st2.query(0, 0) == 5\nst2.range_update(0, 0, -3)\nassert st2.query(0, 0) == 2\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_043",
+    "category": "algorithms_hard",
+    "topic": "topological_sort",
+    "difficulty": 4,
+    "instruction": "Implement topological sorting with cycle detection and multiple algorithms in Python:\n1. `topo_sort_kahn(graph: dict[str, list[str]]) -> list[str]` — Kahn's algorithm (BFS-based). Raise `ValueError('Cycle detected')` if cycle exists.\n2. `topo_sort_dfs(graph: dict[str, list[str]]) -> list[str]` — DFS-based. Also detect cycles.\n3. `all_topological_sorts(graph: dict[str, list[str]]) -> list[list[str]]` — return ALL valid topological orderings (for small graphs).\n4. `critical_path(graph: dict[str, list[tuple[str, int]]]) -> tuple[int, list[str]]` — given a DAG with weighted edges (task dependencies with durations), find the critical path (longest path). Return (length, path).\n5. `is_dag(graph: dict[str, list[str]]) -> bool` — check if graph is a DAG.",
+    "expected_concepts": [
+      "topological_sort",
+      "Kahn",
+      "DFS",
+      "cycle_detection",
+      "in_degree",
+      "DAG",
+      "critical_path",
+      "all_orderings",
+      "backtrack",
+      "ValueError"
+    ],
+    "test_code": "g = {'A': ['B', 'C'], 'B': ['D'], 'C': ['D'], 'D': []}\nresult = topo_sort_kahn(g)\nassert result.index('A') < result.index('B')\nassert result.index('A') < result.index('C')\nassert result.index('B') < result.index('D')\nassert result.index('C') < result.index('D')\nresult2 = topo_sort_dfs(g)\nassert result2.index('A') < result2.index('D')\nassert is_dag(g)\ncyclic = {'A': ['B'], 'B': ['C'], 'C': ['A']}\nassert not is_dag(cyclic)\ntry:\n    topo_sort_kahn(cyclic)\n    assert False\nexcept ValueError:\n    pass\nall_sorts = all_topological_sorts({'A': ['C'], 'B': ['C'], 'C': []})\nassert ['A', 'B', 'C'] in all_sorts\nassert ['B', 'A', 'C'] in all_sorts\nassert len(all_sorts) == 2\nwg = {'A': [('B', 3), ('C', 2)], 'B': [('D', 4)], 'C': [('D', 1)], 'D': []}\nlength, path = critical_path(wg)\nassert length == 7, f'Expected 7, got {length}'\nassert path == ['A', 'B', 'D']\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_044",
+    "category": "algorithms_hard",
+    "topic": "lru_cache_impl",
+    "difficulty": 4,
+    "instruction": "Implement an LRU Cache from scratch in Python (do NOT use functools.lru_cache or OrderedDict):\n1. `LRUCache(capacity: int)` class.\n2. `get(key) -> value` — return value or -1 if not found. Marks as recently used. O(1).\n3. `put(key, value)` — insert or update. If at capacity, evict least recently used. O(1).\n4. Use a doubly-linked list + hash map for O(1) operations.\n5. Add `peek(key) -> value` — return value without marking as recently used.\n6. Add `evict_count` property — total number of evictions so far.\n7. Add `items() -> list[tuple]` — return all items in order from most recently used to least.\n8. Implement `__contains__` (for `key in cache` syntax).\n\nYou must implement the doubly-linked list nodes yourself (Node class with prev/next pointers).",
+    "expected_concepts": [
+      "LRUCache",
+      "doubly_linked_list",
+      "Node",
+      "prev",
+      "next",
+      "hash_map",
+      "evict",
+      "capacity",
+      "O(1)",
+      "sentinel"
+    ],
+    "test_code": "cache = LRUCache(3)\ncache.put('a', 1)\ncache.put('b', 2)\ncache.put('c', 3)\nassert cache.get('a') == 1\ncache.put('d', 4)  # evicts 'b' (least recently used)\nassert cache.get('b') == -1\nassert cache.evict_count == 1\nassert 'a' in cache\nassert 'b' not in cache\ncache.put('e', 5)  # evicts 'c'\nassert cache.get('c') == -1\nassert cache.evict_count == 2\nitems = cache.items()\nassert items[0][0] == 'e', f'Most recent should be e, got {items[0][0]}'\nassert len(items) == 3\ncache.put('a', 10)  # update existing\nassert cache.get('a') == 10\nassert cache.evict_count == 2  # no new eviction\nassert cache.peek('d') == 4\n# After peek, 'd' should NOT be most recent\nassert cache.items()[0][0] == 'a'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_045",
+    "category": "architecture",
+    "topic": "connection_pool",
+    "difficulty": 5,
+    "instruction": "Implement a generic connection pool in Python:\n1. `ConnectionPool(factory: Callable[[], T], max_size: int = 10, min_size: int = 2, max_idle_time: float = 300)` — generic pool.\n2. `factory` creates new connections. Connections must implement a `close()` method and an `is_alive() -> bool` health check.\n3. `acquire(timeout: float = 30) -> T` — get a connection. If pool empty and under max_size, create new. If at max_size, block until one returns or timeout (raise `TimeoutError`).\n4. `release(conn: T)` — return connection to pool. If connection is dead (is_alive() False), discard and create replacement.\n5. `Connection` context manager: `with pool.connection() as conn:` pattern that auto-releases.\n6. Background reaper: `_reap_idle()` method that closes connections idle longer than max_idle_time. Track last-used timestamp per connection.\n7. `stats() -> dict` — return: total_created, active, idle, total_wait_time.\n8. Thread-safe using threading.Condition.",
+    "expected_concepts": [
+      "ConnectionPool",
+      "factory",
+      "acquire",
+      "release",
+      "context_manager",
+      "Condition",
+      "timeout",
+      "health_check",
+      "idle",
+      "thread_safe"
+    ],
+    "test_code": "import threading, time\nclass FakeConn:\n    _alive = True\n    def close(self): self._alive = False\n    def is_alive(self): return self._alive\npool = ConnectionPool(FakeConn, max_size=3, min_size=1)\nwith pool.connection() as c1:\n    assert isinstance(c1, FakeConn)\n    assert c1.is_alive()\nstats = pool.stats()\nassert stats['idle'] >= 1\nassert stats['active'] == 0\nconns = [pool.acquire() for _ in range(3)]\nassert pool.stats()['active'] == 3\ndef try_acquire():\n    try:\n        pool.acquire(timeout=0.1)\n        results.append('got')\n    except TimeoutError:\n        results.append('timeout')\nresults = []\nt = threading.Thread(target=try_acquire)\nt.start()\nt.join()\nassert results == ['timeout'], f'Expected timeout, got {results}'\nfor c in conns:\n    pool.release(c)\nassert pool.stats()['active'] == 0\nassert pool.stats()['idle'] == 3\n# Dead connection handling\nc = pool.acquire()\nc._alive = False\npool.release(c)\nassert pool.stats()['idle'] >= 1  # replacement created\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_046",
+    "category": "architecture",
+    "topic": "circuit_breaker",
+    "difficulty": 5,
+    "instruction": "Implement the Circuit Breaker pattern in Python:\n1. Three states: CLOSED (normal), OPEN (failing, reject calls), HALF_OPEN (testing recovery).\n2. `CircuitBreaker(failure_threshold: int = 5, recovery_timeout: float = 30, success_threshold: int = 3)` — config params.\n3. `call(func: Callable, *args, **kwargs) -> Any` — execute func through circuit breaker.\n   - CLOSED: call func. On exception, increment failure counter. If failures >= threshold, transition to OPEN.\n   - OPEN: immediately raise `CircuitOpenError` without calling func. After recovery_timeout seconds, transition to HALF_OPEN.\n   - HALF_OPEN: call func. On success, increment success counter. After success_threshold successes, transition to CLOSED. On failure, immediately transition back to OPEN.\n4. `state` property — return current state as string.\n5. `reset()` — force back to CLOSED.\n6. `stats() -> dict` — total_calls, total_failures, total_successes, state_changes list.\n7. Support `on_state_change(callback)` for monitoring.\n8. Thread-safe.",
+    "expected_concepts": [
+      "CircuitBreaker",
+      "CLOSED",
+      "OPEN",
+      "HALF_OPEN",
+      "failure_threshold",
+      "recovery_timeout",
+      "CircuitOpenError",
+      "state_change",
+      "thread_safe",
+      "call"
+    ],
+    "test_code": "import time\ncb = CircuitBreaker(failure_threshold=3, recovery_timeout=0.1, success_threshold=2)\nstate_changes = []\ncb.on_state_change(lambda old, new: state_changes.append((old, new)))\nassert cb.state == 'CLOSED'\nassert cb.call(lambda: 42) == 42\nfor i in range(3):\n    try:\n        cb.call(lambda: 1/0)\n    except ZeroDivisionError:\n        pass\nassert cb.state == 'OPEN'\ntry:\n    cb.call(lambda: 42)\n    assert False, 'Should raise CircuitOpenError'\nexcept CircuitOpenError:\n    pass\ntime.sleep(0.15)  # wait for recovery timeout\nassert cb.state == 'HALF_OPEN'\nassert cb.call(lambda: 'ok') == 'ok'\nassert cb.state == 'HALF_OPEN'  # need 2 successes\nassert cb.call(lambda: 'ok2') == 'ok2'\nassert cb.state == 'CLOSED'\nassert len(state_changes) >= 3\nstats = cb.stats()\nassert stats['total_failures'] == 3\nassert stats['total_successes'] >= 3\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_047",
+    "category": "architecture",
+    "topic": "pubsub_system",
+    "difficulty": 4,
+    "instruction": "Implement a pub/sub messaging system in Python:\n1. `MessageBroker` class — central broker managing topics and subscriptions.\n2. `create_topic(name: str)` — create a named topic. Raise ValueError if exists.\n3. `subscribe(topic: str, subscriber_id: str, handler: Callable, filter_fn: Callable = None)` — subscribe to topic. Optional filter_fn(message) -> bool to receive only matching messages.\n4. `publish(topic: str, message: dict, publisher_id: str = None) -> int` — publish message to topic. Return number of subscribers that received it. Add metadata: timestamp, publisher_id, message_id (uuid4).\n5. `unsubscribe(topic: str, subscriber_id: str)` — remove subscription.\n6. `get_topic_stats(topic: str) -> dict` — subscriber_count, message_count, last_message_time.\n7. Support `dead_letter_queue`: if a handler raises an exception, catch it, log the error, and add the message to a DLQ. `get_dlq(topic: str) -> list[dict]` returns failed messages with error info.\n8. Thread-safe for concurrent publish/subscribe.",
+    "expected_concepts": [
+      "MessageBroker",
+      "topic",
+      "subscribe",
+      "publish",
+      "filter",
+      "dead_letter_queue",
+      "handler",
+      "uuid",
+      "thread_safe",
+      "unsubscribe"
+    ],
+    "test_code": "broker = MessageBroker()\nbroker.create_topic('orders')\nreceived = []\ndef on_order(msg): received.append(msg)\ndef on_big_order(msg): received.append(('big', msg))\ndef bad_handler(msg): raise RuntimeError('handler crashed')\nbroker.subscribe('orders', 'sub1', on_order)\nbroker.subscribe('orders', 'sub2', on_big_order, filter_fn=lambda m: m.get('amount', 0) > 100)\nbroker.subscribe('orders', 'sub3', bad_handler)\nn = broker.publish('orders', {'item': 'widget', 'amount': 50})\nassert n == 2  # sub1 + sub3 (sub2 filtered out, sub3 received but crashed)\nassert len(received) == 1  # only sub1 got it\nassert received[0]['item'] == 'widget'\nreceived.clear()\nn2 = broker.publish('orders', {'item': 'gadget', 'amount': 200})\nassert n2 == 3  # all three\nassert len(received) == 2  # sub1 + sub2\nstats = broker.get_topic_stats('orders')\nassert stats['subscriber_count'] == 3\nassert stats['message_count'] == 2\ndlq = broker.get_dlq('orders')\nassert len(dlq) == 2  # bad_handler failed twice\nassert 'error' in dlq[0]\nbroker.unsubscribe('orders', 'sub3')\nassert broker.get_topic_stats('orders')['subscriber_count'] == 2\ntry:\n    broker.create_topic('orders')\n    assert False\nexcept ValueError:\n    pass\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_048",
+    "category": "architecture",
+    "topic": "cqrs_event_sourcing",
+    "difficulty": 5,
+    "instruction": "Implement a simplified CQRS + Event Sourcing system in Python:\n1. `Event` dataclass: `type` (str), `data` (dict), `timestamp` (float), `aggregate_id` (str).\n2. `EventStore` class:\n   - `append(event: Event)` — store event.\n   - `get_events(aggregate_id: str, after_version: int = 0) -> list[Event]` — get events for aggregate.\n   - `get_all_events() -> list[Event]` — all events in order.\n3. `BankAccount` aggregate:\n   - Rebuilt from events: 'AccountCreated', 'MoneyDeposited', 'MoneyWithdrawn'.\n   - Commands: `create(account_id, owner)`, `deposit(amount)`, `withdraw(amount)` — validate and emit events.\n   - Withdraw must check balance (raise `ValueError` if insufficient).\n   - `apply(event)` — update internal state from event.\n   - `load_from_events(events: list[Event])` — rebuild state.\n4. `ReadModel` (query side):\n   - `AccountSummaryProjection` — listens to events and maintains a dict of {account_id: {owner, balance, transaction_count}}.\n   - `process(event: Event)` — update projection.\n   - `get_summary(account_id: str) -> dict`\n5. Show the full flow: command -> validate -> emit event -> store -> project to read model.",
+    "expected_concepts": [
+      "Event",
+      "EventStore",
+      "aggregate",
+      "command",
+      "projection",
+      "rebuild",
+      "CQRS",
+      "event_sourcing",
+      "apply",
+      "read_model"
+    ],
+    "test_code": "store = EventStore()\nprojection = AccountSummaryProjection()\naccount = BankAccount('acc-1', store)\naccount.create('Alice')\naccount.deposit(100)\naccount.deposit(50)\naccount.withdraw(30)\nevents = store.get_events('acc-1')\nassert len(events) == 4\nfor e in events:\n    projection.process(e)\nsummary = projection.get_summary('acc-1')\nassert summary['owner'] == 'Alice'\nassert summary['balance'] == 120, f\"Expected 120, got {summary['balance']}\"\nassert summary['transaction_count'] == 4\ntry:\n    account.withdraw(200)\n    assert False, 'Should raise ValueError for insufficient funds'\nexcept ValueError:\n    pass\naccount2 = BankAccount('acc-1', store)\naccount2.load_from_events(store.get_events('acc-1'))\nassert account2.balance == 120\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_049",
+    "category": "architecture",
+    "topic": "task_scheduler",
+    "difficulty": 5,
+    "instruction": "Implement a task scheduler with dependencies in Python:\n1. `Task` dataclass: `id` (str), `func` (Callable), `dependencies` (list[str] = []), `timeout` (float = None), `retries` (int = 0).\n2. `Scheduler` class:\n   - `add_task(task: Task)` — register task. Raise ValueError if dependency references unknown task.\n   - `run() -> dict[str, TaskResult]` — execute all tasks respecting dependency order. Use topological sort. Run independent tasks in parallel (ThreadPoolExecutor).\n   - `TaskResult` dataclass: `task_id` (str), `status` ('success' | 'failed' | 'skipped'), `result` (Any), `error` (str | None), `duration` (float).\n3. If a task fails, skip all tasks that depend on it (transitively). Set their status to 'skipped'.\n4. Respect timeout: if task exceeds timeout, cancel and mark as failed.\n5. Respect retries: retry failed tasks up to N times before marking as failed.\n6. `get_execution_order() -> list[list[str]]` — return execution plan as layers (tasks in same layer can run in parallel).",
+    "expected_concepts": [
+      "Task",
+      "Scheduler",
+      "topological_sort",
+      "dependencies",
+      "ThreadPoolExecutor",
+      "parallel",
+      "timeout",
+      "retry",
+      "skip",
+      "TaskResult"
+    ],
+    "test_code": "import time\ns = Scheduler()\nlog = []\ns.add_task(Task('A', lambda: (time.sleep(0.01), 'a')[1]))\ns.add_task(Task('B', lambda: (time.sleep(0.01), 'b')[1], dependencies=['A']))\ns.add_task(Task('C', lambda: (time.sleep(0.01), 'c')[1]))\ns.add_task(Task('D', lambda: 'd', dependencies=['B', 'C']))\nresults = s.run()\nassert results['A'].status == 'success'\nassert results['B'].status == 'success'\nassert results['C'].status == 'success'\nassert results['D'].status == 'success'\nassert results['D'].result == 'd'\norder = s.get_execution_order()\nassert len(order) >= 2  # at least 2 layers\nassert set(order[0]) == {'A', 'C'} or 'A' in order[0]  # A and C can be parallel\ns2 = Scheduler()\ns2.add_task(Task('X', lambda: 1/0))  # will fail\ns2.add_task(Task('Y', lambda: 'y', dependencies=['X']))\nresults2 = s2.run()\nassert results2['X'].status == 'failed'\nassert results2['Y'].status == 'skipped'\ns3 = Scheduler()\ncall_count = 0\ndef flaky():\n    global call_count\n    call_count += 1\n    if call_count < 3:\n        raise RuntimeError('not yet')\n    return 'ok'\ns3.add_task(Task('F', flaky, retries=3))\nresults3 = s3.run()\nassert results3['F'].status == 'success'\nassert results3['F'].result == 'ok'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hard_050",
+    "category": "architecture",
+    "topic": "rule_engine",
+    "difficulty": 5,
+    "instruction": "Implement a business rule engine in Python:\n1. `Condition` — base class with abstract `evaluate(context: dict) -> bool`.\n2. Concrete conditions:\n   - `FieldEquals(field: str, value: Any)` — context[field] == value. Support nested fields with dot notation: 'user.role'.\n   - `FieldGreaterThan(field: str, value)` — context[field] > value.\n   - `And(*conditions)` — all conditions true.\n   - `Or(*conditions)` — any condition true.\n   - `Not(condition)` — negate.\n3. `Action` — base class with abstract `execute(context: dict) -> dict` that returns modified context.\n4. `SetField(field: str, value: Any)` — set field in context (support dot notation).\n5. `Rule(name: str, condition: Condition, actions: list[Action], priority: int = 0, stop: bool = False)` — if stop=True, no further rules execute after this one.\n6. `RuleEngine(rules: list[Rule])` — `evaluate(context: dict) -> tuple[dict, list[str]]` — run rules in priority order (high first), return (modified_context, list_of_fired_rule_names).",
+    "expected_concepts": [
+      "Condition",
+      "Action",
+      "Rule",
+      "RuleEngine",
+      "evaluate",
+      "dot_notation",
+      "And",
+      "Or",
+      "Not",
+      "priority"
+    ],
+    "test_code": "engine = RuleEngine([\n    Rule('premium_discount', \n         And(FieldEquals('user.tier', 'premium'), FieldGreaterThan('order.total', 100)),\n         [SetField('order.discount', 0.2)],\n         priority=10),\n    Rule('basic_discount',\n         And(FieldEquals('user.tier', 'basic'), FieldGreaterThan('order.total', 200)),\n         [SetField('order.discount', 0.1)],\n         priority=5),\n    Rule('free_shipping',\n         Or(FieldGreaterThan('order.total', 50), FieldEquals('user.tier', 'premium')),\n         [SetField('order.free_shipping', True)],\n         priority=1),\n])\nctx = {'user': {'tier': 'premium', 'name': 'Alice'}, 'order': {'total': 150, 'items': 3}}\nresult, fired = engine.evaluate(ctx)\nassert result['order']['discount'] == 0.2, f\"Got {result['order'].get('discount')}\"\nassert result['order']['free_shipping'] == True\nassert 'premium_discount' in fired\nassert 'basic_discount' not in fired\nassert 'free_shipping' in fired\nctx2 = {'user': {'tier': 'basic'}, 'order': {'total': 30}}\nresult2, fired2 = engine.evaluate(ctx2)\nassert 'discount' not in result2.get('order', {})\nassert 'free_shipping' not in result2.get('order', {})\nassert fired2 == []\nstop_engine = RuleEngine([\n    Rule('stopper', FieldEquals('x', 1), [SetField('stopped', True)], priority=10, stop=True),\n    Rule('after', FieldEquals('x', 1), [SetField('after', True)], priority=1),\n])\nr3, f3 = stop_engine.evaluate({'x': 1})\nassert r3['stopped'] == True\nassert 'after' not in r3\nassert f3 == ['stopper']\nprint('ALL TESTS PASSED')"
+  }
+]

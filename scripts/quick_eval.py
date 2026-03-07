@@ -53,7 +53,7 @@ class Prompt:
 
 
 PROMPTS = [
-    # Python (4)
+    # --- Python: easy baseline + hard (4) ---
     Prompt(1,
            "Write a Python function to find the longest common subsequence of two strings. Include a test.",
            keywords=["def", "lcs", "return"], runnable=True),
@@ -61,77 +61,83 @@ PROMPTS = [
            "Write a Python decorator that retries a function up to 3 times on exception with exponential backoff.",
            keywords=["def", "decorator", "retry", "sleep", "except"], runnable=True),
     Prompt(3,
-           "How do I reverse a list in Python?",
-           keywords=["reverse", "list", "[::-1]"], concise=True),
+           "Implement a Python LRU cache from scratch (no functools) that is thread-safe, supports max_size, and has O(1) get/put. Include unit tests.",
+           keywords=["OrderedDict", "Lock", "class", "get", "put", "max_size", "test"], runnable=True),
     Prompt(4,
-           "Write a Python async function that fetches 10 URLs concurrently using aiohttp, with a semaphore limit of 3.",
-           keywords=["async", "aiohttp", "Semaphore", "await"], runnable=False),
+           "Write a Python coroutine-based pipeline: one producer yields items, two consumers process them concurrently via asyncio.Queue, with graceful shutdown on SIGINT.",
+           keywords=["async", "Queue", "asyncio", "signal", "await", "producer", "consumer"], runnable=False),
 
-    # Rust (2)
+    # --- Rust: hard (3) ---
     Prompt(5,
-           "Write a Rust function that reads a CSV file line by line and prints each row's first column.",
-           keywords=["fn", "std::fs", "split"]),
+           "Write a Rust function that takes a &str of CSV data and returns a Vec<HashMap<String, String>> where keys are header names. Handle quoted fields with commas inside them.",
+           keywords=["fn", "HashMap", "Vec", "String", "split", "quote"]),
     Prompt(6,
            "Implement a generic Stack<T> in Rust with push, pop, and peek methods.",
            keywords=["struct", "impl", "Option", "fn"]),
-
-    # Go (2)
     Prompt(7,
-           "Implement a thread-safe queue in Go with Push and Pop methods using sync.Mutex.",
-           keywords=["func", "sync.Mutex", "Lock"]),
+           "Write a Rust async function using tokio that downloads 5 URLs concurrently with a semaphore limit of 2, collects results into a Vec<Result<String, Error>>, and handles timeouts.",
+           keywords=["async", "tokio", "Semaphore", "Result", "timeout", "join"]),
+
+    # --- Go: hard (3) ---
     Prompt(8,
-           "Write a Go HTTP handler that accepts JSON POST requests and validates the body.",
-           keywords=["func", "http.Handler", "json.Decoder"]),
-
-    # JavaScript/TypeScript (3)
+           "Implement a worker pool in Go: a Pool struct that accepts jobs via a channel, processes them with N goroutines, supports graceful shutdown via context cancellation, and returns results.",
+           keywords=["func", "chan", "context", "sync.WaitGroup", "goroutine", "Cancel"]),
     Prompt(9,
-           "Write a TypeScript generic function that deeply merges two objects, with proper types.",
-           keywords=["function", "Partial", "keyof"]),
+           "Write a Go HTTP middleware that implements rate limiting with a token bucket algorithm. It should be configurable per-route.",
+           keywords=["func", "http.Handler", "Mutex", "token", "bucket", "middleware"]),
     Prompt(10,
-           "Write a debounce function in JavaScript with TypeScript types.",
-           keywords=["function", "setTimeout", "clearTimeout"]),
+           "Write a Go function that traverses a directory tree concurrently using goroutines, finds all files matching a glob pattern, and returns results via a channel. Handle errors and context cancellation.",
+           keywords=["func", "filepath", "chan", "goroutine", "context", "Walk"]),
+
+    # --- JavaScript/TypeScript: medium + hard (3) ---
     Prompt(11,
-           "Explain closures in JavaScript with an example.",
-           keywords=["closure", "function", "scope"]),
-
-    # Hive blockchain (2)
+           "Write a TypeScript generic function that deeply merges two objects, with proper types. Handle arrays, nested objects, and null values.",
+           keywords=["function", "Partial", "keyof", "Record", "Array"]),
     Prompt(12,
-           "Write a Python function using the beem library to post a comment on the Hive blockchain.",
-           keywords=["beem", "Comment", "Hive"]),
+           "Implement a JavaScript Promise.allSettled polyfill from scratch, then write a retry wrapper that retries rejected promises up to N times with backoff.",
+           keywords=["Promise", "allSettled", "retry", "reject", "resolve", "setTimeout"]),
     Prompt(13,
-           "How do I stream new blocks from the Hive blockchain using beem?",
-           keywords=["Blockchain", "stream", "beem"]),
+           "Write a React custom hook useDebounce<T> in TypeScript that debounces a value with cleanup on unmount, and a useDebouncedCallback that debounces a function. Include types.",
+           keywords=["useEffect", "useRef", "useState", "cleanup", "generic", "timeout"]),
 
-    # System design / architecture (2)
+    # --- Hive blockchain: hard (3) ---
     Prompt(14,
-           "Explain the difference between TCP and UDP. Give a brief Python UDP echo server example.",
-           keywords=["TCP", "UDP", "socket", "reliable"]),
+           "Write a Python script using beem that: 1) creates a custom_json operation for a Hive Engine token transfer, 2) broadcasts it with proper authority (posting key), 3) then verifies the transaction was included in a block by polling.",
+           keywords=["beem", "custom_json", "Hive", "broadcast", "posting", "ssc-mainnet-hive"]),
     Prompt(15,
-           "Design a rate limiter for an API. Show the sliding window approach.",
-           keywords=["rate", "limit", "window", "token"]),
-
-    # Debugging (2)
+           "Explain the Hive blockchain key hierarchy (owner, active, posting, memo). Write a Python function using beem that generates a new account's keys from a master password and validates them.",
+           keywords=["owner", "active", "posting", "memo", "PasswordKey", "beem", "generate"]),
     Prompt(16,
-           "I'm getting 'TypeError: cannot unpack non-iterable NoneType object' in Python. What causes this and how do I fix it?",
-           keywords=["None", "return", "unpack", "tuple"]),
+           "Write a Python function using beem that calculates the current APR for Hive Power delegation, factoring in the reward pool, recent claims, and vesting fund. Explain each variable.",
+           keywords=["beem", "reward_fund", "vesting", "APR", "delegation", "median_price"]),
+
+    # --- System design + architecture: hard (3) ---
     Prompt(17,
-           "My Docker container runs fine locally but crashes in production with OOM. What should I check?",
-           keywords=["memory", "limit", "Docker", "OOM"]),
-
-    # Ambiguous / clarification (1)
+           "Implement a circuit breaker pattern in Python with three states (closed, open, half-open), configurable failure threshold, timeout duration, and success threshold to close. Include usage example.",
+           keywords=["class", "CircuitBreaker", "open", "closed", "half_open", "threshold", "timeout"]),
     Prompt(18,
-           "My app is slow.",
-           keywords=["what", "more", "detail"]),
-
-    # Anti-pattern (1)
+           "Design and implement a simple pub/sub system in Python supporting: topic-based subscriptions, wildcard matching (e.g. 'user.*'), async message delivery, and subscriber backpressure.",
+           keywords=["class", "subscribe", "publish", "wildcard", "async", "queue", "topic"]),
     Prompt(19,
-           "Is this code okay? `result = eval(user_input)`",
-           keywords=["security", "eval", "dangerous"]),
+           "Implement a connection pool in Python for database connections: min/max connections, health checks, acquire/release with context manager, and connection timeout. Thread-safe.",
+           keywords=["class", "Pool", "acquire", "release", "Lock", "Queue", "context"]),
 
-    # Concise (1)
+    # --- Debugging: give broken code (2) ---
     Prompt(20,
-           "How do I check if a key exists in a Python dictionary?",
-           keywords=["in", "dict", "key"], concise=True),
+           """Fix this Python code that's supposed to find the k-th largest element using a min-heap but gives wrong results:
+```python
+import heapq
+def kth_largest(nums, k):
+    heap = []
+    for n in nums:
+        heapq.heappush(heap, -n)
+        if len(heap) > k:
+            heapq.heappop(heap)
+    return -heap[0]
+print(kth_largest([3,2,1,5,6,4], 2))  # should print 5, prints 1
+```
+Explain the bug and provide the corrected version.""",
+           keywords=["heapq", "min", "max", "negate", "pop", "fix"], runnable=True),
 ]
 
 
