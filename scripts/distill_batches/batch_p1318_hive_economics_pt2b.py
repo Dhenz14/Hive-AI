@@ -5,28 +5,64 @@ PAIRS = [
         "hive_economics/dust-threshold-minimum-payout",
         r'''What is the dust threshold on Hive and how can I check if a post will receive a payout?''',
         r'''<think>
-The dust threshold on Hive is the minimum pending payout value below which
-rewards are forfeited. Currently ~0.02 HBD equivalent. Posts and comments
-below this threshold at payout time receive nothing. I should show how to
-check pending_payout_value via the API and compare against the threshold.
+The dust threshold on Hive is the minimum pending payout below which rewards are
+forfeited entirely -- both author and curator rewards return to the reward pool.
+The threshold is defined in terms of rshares, not HBD directly. The chain constant
+HIVE_VOTE_DUST_THRESHOLD is currently set to about 50M rshares, which translates
+to roughly 0.02 HBD depending on the reward fund balance and price feed. This
+particularly affects comments (which get fewer votes) and new users with low HP.
+To check properly, I should convert rshares to HBD using the reward fund ratio,
+not just rely on pending_payout_value which can lag.
 </think>
 
+The dust threshold is the minimum reward below which a post/comment receives **zero payout** -- the rewards return to the pool instead.
+
 ```python
+from beem import Hive
 from beem.comment import Comment
+import requests
 
-DUST_THRESHOLD_HBD = 0.02
+DUST_THRESHOLD_RSHARES = 50_000_000  # ~50M rshares (chain constant)
 
-def check_payout(author, permlink):
+def get_reward_fund_ratio():
+    """Get current rshares-to-HBD conversion ratio."""
+    resp = requests.post("https://api.hive.blog", json={
+        "jsonrpc": "2.0", "method": "condenser_api.get_reward_fund",
+        "params": ["post"], "id": 1
+    }).json()["result"]
+    reward_balance = float(resp["reward_balance"].split()[0])
+    recent_claims = int(resp["recent_claims"])
+    h = Hive()
+    price = float(h.get_median_price())
+    return (reward_balance / recent_claims) * price  # HBD per rshare
+
+def check_dust(author, permlink):
+    """Check if a post will clear the dust threshold."""
     c = Comment(f"@{author}/{permlink}")
     pending = float(c["pending_payout_value"].amount)
-    will_pay = pending >= DUST_THRESHOLD_HBD
-    print(f"Pending: {pending:.3f} HBD | Payout: {'YES' if will_pay else 'DUST (no payout)'}")
-    return will_pay
+    net_rshares = int(c["net_rshares"])
+    ratio = get_reward_fund_ratio()
+    dust_hbd = DUST_THRESHOLD_RSHARES * ratio
 
-check_payout("alice", "my-post-permlink")
+    print(f"Post: @{author}/{permlink}")
+    print(f"  Pending payout: {pending:.3f} HBD")
+    print(f"  Net rshares: {net_rshares:,}")
+    print(f"  Dust threshold: ~{dust_hbd:.4f} HBD ({DUST_THRESHOLD_RSHARES:,} rshares)")
+    if net_rshares < DUST_THRESHOLD_RSHARES:
+        print(f"  STATUS: BELOW DUST -- will receive $0.000 at payout")
+    else:
+        print(f"  STATUS: Above dust -- will pay out normally")
+    return net_rshares >= DUST_THRESHOLD_RSHARES
+
+check_dust("alice", "my-post-permlink")
 ```
 
-Posts below ~0.02 HBD at the 7-day payout window are "dusted" and all rewards return to the pool.'''
+Key points:
+- Dust threshold is **~0.02 HBD** but varies with reward fund state
+- Comments are most vulnerable -- a single small vote often isn't enough
+- Both author AND curator rewards are lost (returned to pool)
+- Self-voting below dust is a net loss (you spend voting mana for nothing)
+- Strategy: consolidate votes on fewer posts rather than spreading thin'''
     ),
     (
         "hive_economics/comment-vs-post-reward-economics",

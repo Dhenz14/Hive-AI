@@ -984,9 +984,13 @@ Key captures:
         "cpp/optional-usage",
         r'''When should I use std::optional and what are the best practices for working with it?''',
         r'''<think>
-std::optional represents a value that may or may not be present — a safer alternative
-to sentinel values, null pointers, or output parameters. I should show construction,
-access patterns, monadic operations (C++23), and common pitfalls. Intermediate topic.
+std::optional represents a value that may or may not be present. Before C++17, we used
+sentinel values (-1, nullptr, empty strings) or out-parameters, all of which are error-prone.
+std::optional makes the "might not exist" semantic explicit in the type system.
+Key design decisions: value_or() for defaults, has_value() or operator bool for checking,
+and the C++23 monadic operations (transform, and_then, or_else) that enable chaining
+without nested if-statements. The main pitfall is calling value() without checking --
+it throws std::bad_optional_access, unlike operator* which is UB if empty.
 </think>
 
 `std::optional<T>` represents a value that might not exist — replacing nullptrs, sentinel values (`-1`, `""`) and boolean out-parameters.
@@ -1489,9 +1493,13 @@ C++23 adds `std::print` / `std::println` for direct output without `std::cout <<
         "cpp/thread-concurrency",
         r'''How do I use std::thread for basic concurrency in C++? What are the common pitfalls?''',
         r'''<think>
-std::thread basics — creating threads, joining, detaching, passing arguments,
-sharing data with mutexes. I need to cover the common pitfalls: forgetting to join,
-data races, passing references incorrectly. Intermediate level.
+std::thread provides OS-level threading in C++. The critical invariant is that every
+std::thread must be either joined or detached before destruction, otherwise std::terminate
+is called. Passing arguments by reference requires std::ref() because thread constructors
+copy by default (a safety feature). Data races are the #1 pitfall -- any shared mutable
+state needs a std::mutex or std::atomic. Detached threads are dangerous because they can
+outlive the objects they reference. Best practice: prefer std::jthread (C++20) which
+auto-joins, or use std::async for simpler fire-and-forget patterns.
 </think>
 
 `std::thread` launches OS threads. The key rules: always join or detach, protect shared data, pass references explicitly.
@@ -1662,9 +1670,14 @@ Use `async` when you want a **result**. Use raw threads for long-running backgro
         "cpp/jthread-stop-token",
         r'''What is std::jthread and how do stop tokens work for cooperative cancellation in C++20?''',
         r'''<think>
-std::jthread (C++20) is an improved thread that auto-joins on destruction and supports
-cooperative cancellation via stop_token. This solves two major std::thread problems:
-forgetting to join and the lack of a standard cancellation mechanism. Advanced topic.
+std::jthread (C++20) solves two major std::thread pain points: forgetting to join
+(jthread auto-joins in its destructor) and the lack of standard cancellation. The
+stop_token mechanism is cooperative -- the thread must periodically check
+stop_requested() and exit gracefully. This is fundamentally different from thread
+killing (which is unsafe due to resource leaks). The stop_callback allows registering
+cleanup functions that fire when stop is requested, useful for unblocking I/O waits.
+Key insight: stop_source (owned by jthread) -> stop_token (passed to worker) is a
+producer-consumer pattern for cancellation signals.
 </think>
 
 `std::jthread` (C++20) auto-joins on destruction and provides **cooperative cancellation** via `std::stop_token` — solving the two biggest `std::thread` pain points.

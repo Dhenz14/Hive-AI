@@ -516,7 +516,7 @@ import subprocess
 import requests
 
 # --- Unit testing with mocked JS runtime ---
-MOCK_TEST_JS = '''
+MOCK_TEST_JS = \"\"\"
 // mock_test.js - Run with: node mock_test.js
 const contract = require('./mycontract.js');
 
@@ -556,7 +556,7 @@ try {
   console.log('Correctly rejected insufficient balance:', e.message);
 }
 console.log('All tests passed!');
-'''
+\"\"\"
 
 def run_contract_tests():
     """Write and execute the mock test."""

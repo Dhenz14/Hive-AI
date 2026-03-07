@@ -44,32 +44,61 @@ def delegation_roi(delegator: str, delegatee: str, days: int = 30):
         r'''Write a script to estimate my curation APR on Hive based on recent curation rewards.''',
         r'''<think>
 Curation APR = (annualized curation rewards / effective HP) * 100.
-Pull recent curation_reward ops from account history, sum the vesting
-payout over a window (e.g. 7 days), convert VESTS to HP, then
-annualize. Effective HP includes own HP plus any received delegations
-minus outgoing delegations.
+Pull recent curation_reward virtual ops from account history, sum the vesting
+payout over a window (e.g. 7 days), convert VESTS to HP using the global
+total_vesting_fund_hive / total_vesting_shares ratio, then annualize.
+Effective HP must include own HP plus any received delegations minus outgoing
+delegations -- this is the actual stake generating curation rewards.
+Important nuance: curation rewards are paid in VESTS (vesting_payout), not
+liquid HIVE, so the APR measures growth of staked position, not cash yield.
 </think>
 
 ```python
+from beem import Hive
 from beem.account import Account
 from datetime import datetime, timedelta
 
 def curation_apr(username: str, window_days: int = 7):
-    acc = Account(username)
+    """Estimate curation APR from recent curation_reward operations."""
+    h = Hive()
+    acc = Account(username, blockchain_instance=h)
+    props = h.get_dynamic_global_properties()
+    tvf = float(props["total_vesting_fund_hive"].amount)
+    tvs = float(props["total_vesting_shares"].amount)
+    vests_to_hp = tvf / tvs
+
     cutoff = datetime.utcnow() - timedelta(days=window_days)
     total_vests = 0.0
+    reward_count = 0
     for op in acc.history(start=cutoff, only_ops=["curation_reward"]):
         vests = float(op["reward"].split()[0])
         total_vests += vests
-    earned_hp = float(acc.blockchain.vests_to_hp(total_vests))
+        reward_count += 1
+
+    earned_hp = total_vests * vests_to_hp
+    # Effective HP = own + incoming delegations - outgoing delegations
     effective_hp = acc.get_steem_power(onlyOwnSP=False)
     if effective_hp == 0:
-        return 0.0
-    apr = (earned_hp / window_days * 365 / effective_hp) * 100
-    return round(apr, 2)
+        return {"apr": 0.0, "error": "No effective HP"}
 
-# Usage: print(f"Curation APR: {curation_apr('myaccount')}%")
-```'''
+    daily_hp = earned_hp / window_days
+    apr = (daily_hp * 365 / effective_hp) * 100
+
+    return {
+        "apr_pct": round(apr, 2),
+        "earned_hp": round(earned_hp, 4),
+        "daily_hp": round(daily_hp, 4),
+        "effective_hp": round(effective_hp, 2),
+        "curation_events": reward_count,
+        "window_days": window_days,
+    }
+
+result = curation_apr("myaccount", window_days=14)
+print(f"Curation APR: {result['apr_pct']}%")
+print(f"Earned {result['earned_hp']} HP over {result['window_days']}d ({result['curation_events']} rewards)")
+```
+
+Typical curation APR on Hive is 8-12% for active curators. Auto-voters following whale trails can reach higher, but manual curation of undervalued content is the most profitable strategy long-term.'''
     ),
     (
         "hive_economics/optimal-voting-strategy",
