@@ -229,7 +229,59 @@ The biggest win from Qwen-Agent is **knowledge positioning** — where you place
 
 ---
 
-## 10. Meta-Lessons Across All Research
+## 10. LangWatch — LLM Evaluation Patterns
+
+**Source**: https://github.com/langwatch/langwatch (Apache 2.0)
+
+**What it is**: LLM evaluation and monitoring platform. The gems are in their evaluator implementations, not the platform itself.
+
+### LLM-as-Judge with Forced Function Calling (FUTURE)
+
+The key pattern: instead of asking the LLM to output a score as text (unreliable parsing), use `tool_choice` to **force** structured output:
+
+```python
+tools=[{
+    "function": {
+        "name": "evaluation",
+        "parameters": {
+            "properties": {
+                "reasoning": {"type": "string"},  # think BEFORE scoring
+                "final_score": {"type": "number"}
+            },
+            "required": ["reasoning", "final_score"]
+        }
+    }
+}],
+tool_choice={"type": "function", "function": {"name": "evaluation"}}
+```
+
+**Why it matters**: The `reasoning` field forces chain-of-thought BEFORE the score. The model must explain its evaluation before committing to a number. This produces better-calibrated scores than "rate this 0-10" in plain text.
+
+**Applicable to HiveAI**: Could improve `run_eval.py` scorer reliability. However, llama-server's `tool_choice` support needs testing first. Fallback: use structured `<reasoning>...</reasoning><score>...</score>` XML tags in the prompt (no function calling needed).
+
+### Valid Format Evaluator (REFERENCE)
+
+Uses actual parsers for format validation: `ast.parse()` for Python, `json.loads()` for JSON, `sqlglot.parse()` for SQL. Our v3 scorer already does similar structural analysis for non-Python code. Clean pattern to reference if we expand format checking.
+
+### Off-Topic Detection Guardrail (FUTURE)
+
+LLM-based intent classification with allowed topics list. Define topics → model classifies → reject if "other". Could prevent HiveAI from going off-rails. Low priority — our knowledge-gated RAG naturally constrains topics.
+
+### Embedding Similarity Guardrail (FUTURE)
+
+Cosine similarity between output and target values to detect copypasta responses or off-topic drift. Uses embedding model for semantic comparison. Could be useful for detecting when LoRA training produces repetitive outputs.
+
+### Composable Evaluator Framework (REFERENCE)
+
+`BaseEvaluator[Entry, Settings, Result]` with typed generics. Each evaluator is independent with a clean `evaluate(entry) -> result` interface. Our eval pipeline is simpler and doesn't need this abstraction yet, but worth noting for when we scale up evaluation.
+
+### Key Takeaway
+
+The biggest win from LangWatch is **"reasoning before scoring"** — forcing the evaluator to explain its reasoning before committing to a score produces better-calibrated evaluations. This applies whether using function calling or structured XML prompts.
+
+---
+
+## 11. Meta-Lessons Across All Research
 
 1. **Quality > quantity** in training data (Jackrong: 4K pairs beat larger noisy sets)
 2. **Optimizer config can make or break training** (QAD: 4.52 dB from optimizer alone)
@@ -240,3 +292,4 @@ The biggest win from Qwen-Agent is **knowledge positioning** — where you place
 7. **Separate query from context** (RLM: context in environment, model interacts through tools — prevents attention dilution)
 8. **Let the model decide decomposition** (RLM: emergent strategy beats scripted workflows — the model adapts to data structure)
 9. **Knowledge positioning matters** (Qwen-Agent: system message position gets stronger attention than user message — same content, better recall)
+10. **Force reasoning before scoring** (LangWatch: structured "reasoning" field before "score" field produces better-calibrated LLM-as-judge evaluations)
