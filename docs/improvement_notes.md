@@ -324,3 +324,51 @@ Server-side compaction returns AES-encrypted blobs — keys stay on server. Clie
 ### Compaction Quality Metrics (FUTURE)
 
 Track compaction effectiveness: token savings ratio, continuity score (does the model maintain context after compaction?), information loss (are key decisions preserved?). Could be integrated into our eval harness as a long-conversation test suite.
+
+---
+
+## 13. Unsloth Optimization Patterns (March 2026)
+
+**Source**: https://unsloth.ai/docs/models/qwen3.5/fine-tune + Unsloth GitHub
+
+### Implemented: Zero Dropout for Unsloth Kernels (DONE)
+
+Changed `lora_dropout` from 0.1 to 0.0 in `scripts/train_v5.py`. Unsloth's Triton kernels are specifically optimized for zero dropout — all their official examples use `dropout=0`. Non-zero dropout adds computational overhead without clear benefit when using Unsloth's fused kernels.
+
+### Implemented: Chat Template / EOS Token Verification (DONE)
+
+Verified our LoRA deployment uses correct ChatML format (`<|im_start|>` / `<|im_end|>`) with EOS token `<|im_end|>` (id 151645). Unsloth warns: "If the exported model behaves worse in another runtime, the most common cause is wrong chat template / EOS token at inference time." Our setup is correct.
+
+### QLoRA Warning for Qwen3.5 (REFERENCE)
+
+Unsloth explicitly warns: "It is not recommended to do QLoRA (4-bit) training on the Qwen3.5 models due to higher than normal quantization differences." We use Qwen 2.5 Coder with bf16 LoRA (not QLoRA), so this doesn't apply, but keep in mind if upgrading base model to Qwen 3.5.
+
+### GRPO — Group Relative Policy Optimization (FUTURE)
+
+Next frontier after SFT. Instead of just showing the model good outputs, generate multiple outputs per prompt and train on relative quality rankings. Unsloth supports GRPO with 7x longer context and 50% less VRAM. Also supports GSPO, DrGRPO, and DAPO variants. Would require:
+- A reward model or LLM-as-judge scorer
+- Multiple candidate generation per training prompt
+- Significantly more compute than SFT
+- Best applied after SFT establishes baseline quality
+
+### Vision Fine-Tuning (FUTURE)
+
+`FastVisionModel` supports selective fine-tuning of vision layers, language layers, attention, and MLP independently. Could be useful for:
+- Training the model to understand architecture diagrams
+- Processing screenshots of code/errors in the knowledge pipeline
+- Multi-image understanding for documentation analysis
+
+Requires `UnslothVisionDataCollator` and specific SFTConfig flags:
+```python
+remove_unused_columns = False
+dataset_text_field = ""
+dataset_kwargs = {"skip_prepare_dataset": True}
+```
+
+### Dynamic 4-bit Quantization (FUTURE)
+
+Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standard quantization. Could enable running larger base models (27B+) on our 16GB GPU. Requires testing against our eval harness.
+
+### MoE Training Optimization (REFERENCE)
+
+12x faster MoE training with 35% less VRAM and 6x longer context. Router-layer fine-tuning disabled by default for stability. Relevant if we upgrade to Qwen3.5-35B-A3B (MoE) or similar.

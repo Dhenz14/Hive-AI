@@ -9,7 +9,7 @@ One-command training:
 What's new in v7:
     - 5,998 quality-filtered training pairs from 1,156 batch files
     - LoRA r=16 (was r=32) — less capacity, less overfitting
-    - RSLoRA + dropout=0.1 — better regularization
+    - RSLoRA + dropout=0.0 — Unsloth kernels optimized for zero dropout
     - 2 epochs (was 3) — prevent overfitting
     - Assistant-only loss — only train on response tokens (DataCollatorForCompletionOnlyLM)
     - KL anchoring ON by default (lambda=0.3)
@@ -63,7 +63,7 @@ LORA_CONFIG = {
         "q_proj", "k_proj", "v_proj", "o_proj",   # attention
         "gate_proj", "up_proj", "down_proj",        # MLP layers
     ],
-    "lora_dropout": 0.1,             # Regularization (was 0.0)
+    "lora_dropout": 0.0,             # Unsloth kernels optimized for 0 dropout (was 0.1)
     "bias": "none",
     "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
     "use_rslora": True,               # Rank-stabilized LoRA
