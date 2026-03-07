@@ -870,17 +870,21 @@ def chat_api():
         skill_context = load_skills_for_query(message)
         skill_block = f"\n\n{skill_context}" if skill_context else ""
 
-        prompt = f"""{CHAT_SYSTEM_PROMPT}
+        # Virtual Memory pattern: knowledge in system position for stronger attention
+        system_prompt = f"""{CHAT_SYSTEM_PROMPT}
 {skill_block}
+
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
-{conversation_context}
-
-User's question: {message}
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
 
-        response = smart_call(prompt, question=message,
+        user_prompt = f"""{conversation_context}
+
+User's question: {message}"""
+
+        response = smart_call(user_prompt, question=message,
+                             system_prompt=system_prompt,
                              num_sections=len(top_sections), max_tokens=4096)
         response = clean_llm_response(response)
 
@@ -1006,6 +1010,7 @@ def chat_stream():
                 for b in books if b.title
             ]
 
+            rich_system_prompt = CHAT_SYSTEM_PROMPT  # default; overridden when books exist
             if not books:
                 # No Golden Books yet — stream direct Ollama response without RAG
                 yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
@@ -1037,18 +1042,21 @@ Answer the question directly and helpfully. Note: The knowledge library is still
                 skill_context = load_skills_for_query(message)
                 skill_block = f"\n\n{skill_context}" if skill_context else ""
 
-                prompt = f"""{CHAT_SYSTEM_PROMPT}
+                # Virtual Memory pattern: knowledge in system position for stronger attention
+                rich_system_prompt = f"""{CHAT_SYSTEM_PROMPT}
 {skill_block}
+
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
-{conversation_context}
-
-User's question: {message}
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
 
+                prompt = f"""{conversation_context}
+
+User's question: {message}"""
+
             # Phase 2: Stream tokens from Ollama
-            for chunk in stream_llm_call(prompt, system_prompt=CHAT_SYSTEM_PROMPT, max_tokens=4096):
+            for chunk in stream_llm_call(prompt, system_prompt=rich_system_prompt, max_tokens=4096):
                 if "error" in chunk:
                     yield f"event: error\ndata: {json.dumps({'error': chunk['error']})}\n\n"
                     return

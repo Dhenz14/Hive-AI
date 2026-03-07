@@ -185,7 +185,51 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 
 ---
 
-## 9. Meta-Lessons Across All Research
+## 9. Qwen-Agent Framework — Architecture Patterns for Local Agents
+
+**Source**: https://github.com/QwenLM/Qwen-Agent (Alibaba/Qwen team, Apache 2.0)
+
+**What it is**: Production agent framework powering Qwen Chat. Multi-agent orchestration, tool registry, parallel document QA, function calling templates.
+
+### Virtual Memory Pattern (IMPLEMENTED)
+The `VirtualMemoryAgent` prepends retrieved knowledge into the **system message** instead of appending to user messages. Transformer attention weights the start of context more heavily, so putting knowledge in system position = better recall for the same token budget.
+
+**Applied to HiveAI**: Restructured both sync and streaming chat endpoints to use rich system prompts (instructions + skills + knowledge) with clean user messages (conversation + question). Previously everything was in a single user blob with a generic system prompt.
+
+### LLM-Powered Keyword Extraction (FUTURE)
+`GenKeyword` agent: dedicated LLM call generates bilingual search keywords + semantically related terms not in the original query. User asks "core formula" → LLM generates `["formula", "equation", "derivation"]`. Much better retrieval than naive word-splitting.
+
+**Trade-off**: Extra LLM roundtrip (~1-2s latency). Worth it for knowledge-heavy queries, overkill for simple chat. Could implement as optional for "complex" difficulty queries only.
+
+### Parallel Document QA (FUTURE — Phase 5)
+`ParallelDocQA`: chunks documents → spawns parallel worker agents (ThreadPoolExecutor with jitter) → each worker answers independently → filters "none" responses → RAG retrieves from combined results → summary agent synthesizes final answer.
+
+This is the RLM pattern (see Section 8) but production-grade. Key implementation details:
+- `PARALLEL_CHUNK_SIZE = 1000` tokens per chunk
+- `MAX_RAG_TOKEN_SIZE = 4500` for retrieval results
+- Workers return `{"res": "ans"|"none", "content": "..."}` JSON
+- Up to 4 retries if all workers return "none" (needed for smaller models)
+- Jitter between thread submissions to avoid rate limits
+
+### Tool Registry Decorator Pattern (REFERENCE ONLY)
+```python
+@register_tool('my_tool')
+class MyTool(BaseTool):
+    description = '...'
+    parameters = [{'name': 'prompt', 'type': 'string', 'required': True}]
+    def call(self, params, **kwargs): ...
+```
+Global `TOOL_REGISTRY` dict. Clean but our regex-based skill loader works well for markdown injection without needing Python tool classes. Not worth migrating.
+
+### FnCallAgent Loop Pattern (REFERENCE)
+Simple while loop with safety cap: `while num_calls > 0: call_llm → detect_tool → call_tool → append_result → yield`. `MAX_LLM_CALL_PER_RUN` prevents infinite loops. Uses `<tool_call>` XML tags. The "nous" template is Qwen's default for function calling.
+
+### Key Takeaway
+The biggest win from Qwen-Agent is **knowledge positioning** — where you place retrieved context in the prompt matters as much as what you retrieve. System position > user position for attention-critical information.
+
+---
+
+## 10. Meta-Lessons Across All Research
 
 1. **Quality > quantity** in training data (Jackrong: 4K pairs beat larger noisy sets)
 2. **Optimizer config can make or break training** (QAD: 4.52 dB from optimizer alone)
@@ -195,3 +239,4 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 6. **Simple approaches often win** (QAD: simple MSE beat complex KL; Upskill: 500 tokens of context beat fine-tuning)
 7. **Separate query from context** (RLM: context in environment, model interacts through tools — prevents attention dilution)
 8. **Let the model decide decomposition** (RLM: emergent strategy beats scripted workflows — the model adapts to data structure)
+9. **Knowledge positioning matters** (Qwen-Agent: system message position gets stronger attention than user message — same content, better recall)

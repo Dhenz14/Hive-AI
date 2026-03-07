@@ -379,13 +379,19 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
         yield {"error": str(e), "done": True}
 
 
-def reason(prompt, max_tokens=8192):
-    return llm_call(prompt, model=_get_model_for_backend("reasoning"), max_tokens=max_tokens, temperature=0.2)
+def reason(prompt, max_tokens=8192, system_prompt=None):
+    kwargs = {"model": _get_model_for_backend("reasoning"), "max_tokens": max_tokens, "temperature": 0.2}
+    if system_prompt:
+        kwargs["system_prompt"] = system_prompt
+    return llm_call(prompt, **kwargs)
 
 
 
-def fast(prompt, max_tokens=8192):
-    return llm_call(prompt, model=_get_model_for_backend("fast"), max_tokens=max_tokens, temperature=0.2)
+def fast(prompt, max_tokens=8192, system_prompt=None):
+    kwargs = {"model": _get_model_for_backend("fast"), "max_tokens": max_tokens, "temperature": 0.2}
+    if system_prompt:
+        kwargs["system_prompt"] = system_prompt
+    return llm_call(prompt, **kwargs)
 
 
 def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
@@ -438,7 +444,7 @@ def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
 
 
 def smart_call(prompt: str, question: str = "", num_sections: int = 0,
-               max_tokens: int = 4096) -> str:
+               max_tokens: int = 4096, system_prompt: str = None) -> str:
     """
     Confidence-based model routing: routes easy queries to fast model,
     complex queries to full reasoning model.
@@ -455,7 +461,10 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
             domain, domain_model = _molora_router.route(query_text)
             if domain != "general":
                 logger.info(f"MoLoRA routing: {domain} → {domain_model}")
-                return llm_call(prompt, model=domain_model, max_tokens=max_tokens, temperature=0.2)
+                kwargs = {"model": domain_model, "max_tokens": max_tokens, "temperature": 0.2}
+                if system_prompt:
+                    kwargs["system_prompt"] = system_prompt
+                return llm_call(prompt, **kwargs)
         except Exception as e:
             logger.warning(f"MoLoRA routing failed, falling back to standard: {e}")
 
@@ -464,10 +473,10 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
 
     if difficulty in ("trivial", "simple"):
         logger.info(f"Smart routing: {difficulty} → fast model")
-        return fast(prompt, max_tokens=min(max_tokens, 2048))
+        return fast(prompt, max_tokens=min(max_tokens, 2048), system_prompt=system_prompt)
     else:
         logger.info(f"Smart routing: {difficulty} → reason model")
-        return reason(prompt, max_tokens=max_tokens)
+        return reason(prompt, max_tokens=max_tokens, system_prompt=system_prompt)
 
 
 _instructor_clients = {}  # Cache instructor-wrapped clients per backend key
