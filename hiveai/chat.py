@@ -4,7 +4,8 @@ import hashlib
 import time as _time
 import threading
 from hiveai.models import SessionLocal, Job, GoldenBook, BookSection, Community
-from hiveai.llm.client import embed_text, rerank_sections
+from hiveai.llm.client import embed_text, rerank_sections, fast
+from hiveai.llm.prompts import COMPACTION_PROMPT, COMPACTION_HANDOFF
 
 # RAG query result cache — avoids re-embedding + re-searching for repeated questions.
 # Key: hash(query), Value: (timestamp, sections, source_books, books)
@@ -326,10 +327,102 @@ def search_knowledge_sections(question, db, history=None):
     return result
 
 
+_compaction_cache = {}
+_compaction_cache_lock = threading.Lock()
+COMPACTION_THRESHOLD = 10  # compact when history exceeds this many messages
+RECENT_KEEP = 4  # keep this many recent messages verbatim
+
+
+def _format_turns_for_compaction(messages):
+    """Format message list into readable text for the compactor LLM."""
+    lines = []
+    for m in messages:
+        role = m.get("role", "unknown").capitalize()
+        content = m.get("content", "")[:800]
+        lines.append(f"{role}: {content}")
+    return "\n\n".join(lines)
+
+
+def _format_recent_turns(messages):
+    """Format recent messages as verbatim conversation context."""
+    lines = []
+    for m in messages:
+        role = m.get("role", "")
+        content = m.get("content", "")
+        if role == "user":
+            lines.append(f"User asked: {content[:500]}")
+        elif role == "assistant":
+            summary = content[:600]
+            if len(content) > 600:
+                summary += "..."
+            lines.append(f"Keeper answered: {summary}")
+    return "\n".join(lines)
+
+
+def compact_conversation(history):
+    """Compact older conversation turns into a structured summary via LLM.
+
+    When history exceeds COMPACTION_THRESHOLD messages, the older turns are
+    summarized into a handoff blob. Recent turns are kept verbatim. This
+    preserves continuity while fitting within the context window.
+
+    Returns the compacted context string ready for the user prompt.
+    """
+    log = logging.getLogger(__name__)
+
+    if not history or len(history) <= COMPACTION_THRESHOLD:
+        return None  # no compaction needed
+
+    # Split: older turns get compacted, recent stay verbatim
+    older = history[:-RECENT_KEEP]
+    recent = history[-RECENT_KEEP:]
+
+    # Cache key: hash of older messages to avoid re-compacting identical history
+    older_text = _format_turns_for_compaction(older)
+    cache_key = hashlib.md5(older_text.encode("utf-8", errors="replace")).hexdigest()
+
+    with _compaction_cache_lock:
+        if cache_key in _compaction_cache:
+            cached_summary = _compaction_cache[cache_key]
+            log.info(f"Compaction cache hit ({len(older)} older turns)")
+            recent_text = _format_recent_turns(recent)
+            return COMPACTION_HANDOFF.format(summary=cached_summary) + "\n" + recent_text
+
+    # LLM-based compaction of older turns
+    prompt = COMPACTION_PROMPT.format(conversation=older_text)
+    try:
+        summary = fast(prompt, max_tokens=1024)
+        if not summary or len(summary.strip()) < 20:
+            log.warning("Compaction returned empty/too-short summary, falling back")
+            return None
+        log.info(f"Compacted {len(older)} older turns into {len(summary)} chars")
+
+        with _compaction_cache_lock:
+            # Evict if cache gets too large
+            if len(_compaction_cache) > 50:
+                _compaction_cache.clear()
+            _compaction_cache[cache_key] = summary.strip()
+
+        recent_text = _format_recent_turns(recent)
+        return COMPACTION_HANDOFF.format(summary=summary.strip()) + "\n" + recent_text
+
+    except Exception as e:
+        log.error(f"Compaction failed: {e}, falling back to truncation")
+        return None
+
+
 def build_conversation_context(history):
+    """Build conversation context, using LLM compaction for long histories."""
     if not history:
         return ""
 
+    # Try compaction for long conversations
+    if len(history) > COMPACTION_THRESHOLD:
+        compacted = compact_conversation(history)
+        if compacted:
+            return f"\nConversation history (build on this, don't repeat):\n{compacted}"
+
+    # Short conversations: keep last 6 messages with truncation (original behavior)
     recent = history[-6:]
     topics_discussed = []
     context_lines = []

@@ -293,3 +293,34 @@ The biggest win from LangWatch is **"reasoning before scoring"** — forcing the
 8. **Let the model decide decomposition** (RLM: emergent strategy beats scripted workflows — the model adapts to data structure)
 9. **Knowledge positioning matters** (Qwen-Agent: system message position gets stronger attention than user message — same content, better recall)
 10. **Force reasoning before scoring** (LangWatch: structured "reasoning" field before "score" field produces better-calibrated LLM-as-judge evaluations)
+11. **Compaction is a core primitive** (Codex CLI: intelligent summarization of older conversation turns preserves continuity at fraction of token cost — naive truncation loses state, full history is unsustainable)
+
+---
+
+## 12. Context Compaction — Architecture Patterns (from OpenAI Codex CLI Research)
+
+**Source**: Kangwook Lee's reverse-engineering of OpenAI Codex CLI compaction (March 2026)
+
+### Implemented: LLM-Based Conversation Compaction (DONE)
+
+When chat history exceeds 10 messages, older turns are summarized via LLM into a structured handoff blob. Last 4 messages stay verbatim. Compaction results are cached by content hash to avoid redundant LLM calls. See `hiveai/chat.py:compact_conversation()`.
+
+### Dual-Path Compaction Architecture (REFERENCE)
+
+Codex CLI uses two paths: open-source (local LLM summarizer with visible prompts) and proprietary (server-side encrypted blob). Our implementation follows the open path — full transparency, no encryption needed since we're local-only.
+
+### Structured Handoff Prompts (IMPLEMENTED)
+
+The key insight: don't just summarize — prepend a structured "handoff" that frames the compact summary for the next model turn. This preserves intent, decisions, and task state across compaction boundaries. Our implementation uses `COMPACTION_HANDOFF` in `hiveai/llm/prompts.py`.
+
+### Multi-Turn Injection via Compacted Memory (FUTURE SECURITY)
+
+Compacted memory is an attack surface for indirect prompt injection. An adversary could craft messages that, when compacted, inject instructions into the summary. Mitigation: validate compaction output for instruction-like patterns, or use a separate model for compaction vs. generation. Low priority for local-only deployment but worth noting for any future API exposure.
+
+### Encrypted Blob Pattern (REFERENCE ONLY)
+
+Server-side compaction returns AES-encrypted blobs — keys stay on server. Client never sees the summary. Useful for multi-tenant SaaS where you don't want clients to see internal reasoning. Not applicable to our local-only architecture.
+
+### Compaction Quality Metrics (FUTURE)
+
+Track compaction effectiveness: token savings ratio, continuity score (does the model maintain context after compaction?), information loss (are key decisions preserved?). Could be integrated into our eval harness as a long-conversation test suite.

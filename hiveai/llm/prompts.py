@@ -431,3 +431,30 @@ Rewrite requirements:
 - Start directly with the document title as a level-1 header
 
 Output the complete rewritten document in markdown format."""
+
+
+COMPACTION_PROMPT = """You are a conversation state compactor. Summarize the older conversation turns below into a structured handoff that preserves all actionable state.
+
+Extract and preserve:
+1. **Decisions made** — any choices, preferences, or conclusions reached
+2. **Key facts established** — specific information the user shared or that was looked up
+3. **Current task state** — what was being worked on, what's done, what's pending
+4. **User corrections** — anything the user corrected or clarified
+
+Rules:
+- Be concise but preserve ALL actionable information
+- Use bullet points, not prose
+- Never hallucinate or add information not in the conversation
+- If code was discussed, note the language and what was built/fixed
+- Omit pleasantries, greetings, and filler
+
+Conversation to compact:
+{conversation}
+
+Output a structured summary (no preamble):"""
+
+
+COMPACTION_HANDOFF = """Previous conversation summary (compacted from earlier turns):
+{summary}
+
+Recent conversation (verbatim):"""
