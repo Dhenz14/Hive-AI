@@ -124,22 +124,41 @@ def load_batch_pairs() -> list[dict]:
             spec = importlib.util.spec_from_file_location("batch", str(batch_file))
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-            batch_pairs = getattr(mod, "PAIRS", [])
-            for tag, instruction, response in batch_pairs:
-                match = re.search(r"batch_p(\d+)", batch_file.stem)
-                batch_num = int(match.group(1)) if match else 0
+            match = re.search(r"batch_p(\d+)", batch_file.stem)
+            batch_num = int(match.group(1)) if match else 0
 
-                pairs.append({
-                    "instruction": instruction,
-                    "input": "",
-                    "output": response,
-                    "metadata": {
-                        "source": f"batch/{batch_file.stem}",
-                        "tag": tag,
-                        "has_thinking": "<think>" in response,
-                        "batch_num": batch_num,
-                    },
-                })
+            # Support both formats: PAIRS (tag, instruction, response) tuples
+            # and pairs [{"instruction": ..., "output": ...}] dicts
+            batch_pairs = getattr(mod, "PAIRS", None)
+            if batch_pairs is not None:
+                for tag, instruction, response in batch_pairs:
+                    pairs.append({
+                        "instruction": instruction,
+                        "input": "",
+                        "output": response,
+                        "metadata": {
+                            "source": f"batch/{batch_file.stem}",
+                            "tag": tag,
+                            "has_thinking": "<think>" in response,
+                            "batch_num": batch_num,
+                        },
+                    })
+            else:
+                dict_pairs = getattr(mod, "pairs", [])
+                for p in dict_pairs:
+                    instruction = p.get("instruction", "")
+                    response = p.get("output", "")
+                    pairs.append({
+                        "instruction": instruction,
+                        "input": "",
+                        "output": response,
+                        "metadata": {
+                            "source": f"batch/{batch_file.stem}",
+                            "tag": batch_file.stem,
+                            "has_thinking": "<think>" in response,
+                            "batch_num": batch_num,
+                        },
+                    })
         except Exception as e:
             logger.warning(f"Failed to load {batch_file.name}: {e}")
 

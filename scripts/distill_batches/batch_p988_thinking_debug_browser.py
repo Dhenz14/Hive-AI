@@ -415,18 +415,26 @@ registerServiceWorker();
         "thinking/debugging",
         r'''My Web Worker is throwing "DataCloneError: Failed to execute 'postMessage' on 'Worker': [object Object] could not be cloned" when I try to send data to the worker. Some objects transfer fine but others fail. What types cannot be sent?''',
         r'''<think>
-The structured clone algorithm used by postMessage cannot clone certain types:
-1. Functions (including methods on objects)
-2. DOM nodes (Element, Document, etc.)
-3. Error objects (in some browsers)
-4. Symbols
-5. Property descriptors, getters/setters
-6. Prototype chain is lost (only own enumerable properties are cloned)
-7. Map/Set work, but WeakMap/WeakSet do not
-8. RegExp works, Date works
-9. Circular references are handled correctly
+The user is getting DataCloneError when sending objects to a Web Worker via postMessage. The structured clone algorithm cannot clone certain types, but WHICH types exactly?
 
-The fix is to serialize the data before sending, or use Transferable objects for performance.
+My first thought was "anything that is not JSON-serializable will fail." But that is not quite right -- structured clone is more capable than JSON. It handles Date objects, Map, Set, ArrayBuffer, RegExp, and even circular references. JSON cannot handle any of those.
+
+So what CAN'T structured clone handle? The key insight is that structured clone cannot serialize anything that involves executable code or runtime-specific resources:
+- Functions (including methods on objects) -- because code is not data
+- DOM nodes -- because they are tied to the document's rendering context
+- Symbols -- because they are unique by definition and cannot be recreated
+- WeakMap/WeakSet -- because their entries are tied to garbage collection state
+
+Wait, what about class instances? They CAN be cloned, but... hmm, actually the prototype chain is lost. Structured clone copies only own enumerable properties into a plain object. So `new User("Alice")` becomes `{name: "Alice"}` with no methods. That is technically not an error (no DataCloneError), but it breaks any code that expects methods on the received object.
+
+I initially assumed Error objects could not be cloned, but actually in modern browsers (Chrome 77+), Error objects ARE structured-cloneable. Older browsers throw DataCloneError for them.
+
+For the fix, there are several approaches:
+1. Serialize to plain objects before sending (strip methods, convert non-cloneable types)
+2. Use Transferable objects for large ArrayBuffers (zero-copy transfer, much faster)
+3. Use a library like Comlink that provides transparent RPC over postMessage
+
+The Transferable approach is particularly important for performance -- cloning a 10MB ArrayBuffer copies all the bytes, while transferring moves ownership in O(1).
 </think>
 
 The `postMessage` API uses the structured clone algorithm, which cannot clone certain JavaScript types. Here is what works and what does not:
@@ -648,14 +656,17 @@ userReq.onsuccess = () => {
         });
 };''',
         r'''<think>
-The issue is that IndexedDB transactions auto-commit when there are no pending requests within the same event loop microtask. When the code does `fetch()` inside the onsuccess callback, the fetch is asynchronous and returns a Promise. The transaction sees no pending IDB requests and auto-commits. By the time the fetch resolves and tries to use `orderStore.put()`, the transaction is already committed/closed.
+The IndexedDB transaction is aborting silently. The user does `fetch()` inside the `onsuccess` callback and then tries to use the transaction after the fetch resolves. Let me think about why this fails.
 
-This is one of the most confusing aspects of IndexedDB: transactions have an "auto-commit" behavior tied to the microtask queue. You cannot use regular async/await patterns with IDB transactions because any async gap closes the transaction.
+My first thought was that the transaction object expires or gets garbage collected. But actually, the issue is more subtle: IndexedDB transactions auto-commit when there are no pending IDB requests in the current microtask. When the code calls `fetch()`, that starts an asynchronous operation that returns a Promise. The `.then()` callback runs in a LATER microtask. Between the `onsuccess` callback finishing and the `.then()` callback running, the transaction sees zero pending IDB requests and auto-commits.
 
-The fix is to either:
-1. Do all IDB operations synchronously (no await/fetch between them)
-2. Do the fetch BEFORE starting the transaction
-3. Use a library like idb that provides better Promise-based wrappers
+Wait, but why would the transaction commit just because there are no pending requests? Could it not stay open until explicitly committed? Actually no -- IndexedDB was designed this way intentionally. Transactions auto-commit to prevent holding database locks indefinitely. If a transaction stayed open across async boundaries, a slow network request could block all other IDB operations.
+
+Hmm, but this means you cannot mix IDB transactions with ANY async operation -- no fetch, no setTimeout, no await, no reading from another async source. That severely limits what you can do inside a transaction.
+
+I initially considered using `Promise.resolve().then()` to chain IDB operations, thinking microtask-level chaining would keep the transaction alive. But even microtask boundaries can close the transaction if no IDB requests are pending during the gap. The only safe pattern is to have continuously pending IDB requests with no async gaps between them.
+
+The fix is to restructure the code: do ALL async work (fetch, etc.) BEFORE starting the transaction, then do all IDB operations synchronously within the transaction scope. Alternatively, split into separate transactions -- first transaction saves the user, then fetch the validation data, then a second transaction saves the order. The tradeoff is losing atomicity across the two transactions.
 </think>
 
 IndexedDB transactions auto-commit when there are no pending requests in the current microtask. The `fetch()` call creates an async gap that closes the transaction before the order can be stored.
@@ -840,14 +851,17 @@ Console errors:
 "Refused to execute inline script because it violates the Content-Security-Policy directive: 'script-src'"
 "Refused to load the image 'https://cdn.example.com/logo.png' because it violates the Content-Security-Policy directive: 'img-src 'self'"''',
         r'''<think>
-CSP debugging involves:
-1. Understanding which directives are blocking which resources
-2. Using CSP report-only mode to test policies without breaking the site
-3. Identifying all resources the site needs (scripts, styles, images, fonts, etc.)
-4. Building a policy incrementally
-5. Handling inline scripts/styles with nonces or hashes
+CSP debugging. The user is getting two violations: one for inline scripts and one for images from a CDN. Let me think about the systematic approach.
 
-Let me provide a systematic approach.
+My first instinct is to add `'unsafe-inline'` for scripts and the CDN URL for images. But wait -- `'unsafe-inline'` defeats the entire purpose of CSP for scripts, since XSS attacks inject inline scripts. That is like disabling the lock because the key is inconvenient.
+
+Could I use hashes instead? I can compute the hash of each inline script and add it to the CSP. But that breaks whenever the inline script changes, which makes it fragile for dynamic content. Hmm, what about nonces? A nonce is a random value generated per-request: `script-src 'nonce-abc123'`. Each inline script gets a `nonce="abc123"` attribute. Since the nonce is random and changes every page load, an attacker cannot predict it, so injected scripts are still blocked. That is the right approach for inline scripts.
+
+But there is a deployment challenge: how do I test a CSP without breaking the live site? If I set a strict policy and forget to allow a legitimate resource, users see a broken page. The answer is `Content-Security-Policy-Report-Only` -- it logs violations without blocking anything. I can deploy in report-only mode, collect violations for a week, build the allow-list from the reports, then switch to enforcing mode.
+
+I initially thought building the CSP would be a one-time task, but actually it requires ongoing maintenance. Adding a new CDN, embedding a third-party widget, or changing analytics providers all require CSP updates. The `report-uri` directive should stay in the enforcing policy to catch regressions.
+
+The systematic approach: start strict (default-src 'self'), deploy in report-only mode, analyze violations, add exceptions, use nonces for inline scripts, switch to enforcing, keep monitoring.
 </think>
 
 CSP debugging requires a systematic approach: start with report-only mode, identify all resources, then build the policy incrementally.

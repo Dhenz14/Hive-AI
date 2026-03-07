@@ -9,14 +9,25 @@ PAIRS = [
 
 But on iPhone, the page is wider than the screen and users have to scroll horizontally. Some elements extend past the viewport edge. How do I fix this?''',
         r'''<think>
-The viewport meta tag looks correct. The issue is likely caused by:
-1. Elements with fixed widths wider than the viewport (e.g., a 500px wide element on a 375px wide screen)
-2. Elements with overflow not handled (tables, pre, code blocks, images)
-3. CSS using vw units without accounting for scrollbar
-4. Absolute/fixed positioning pushing elements off-screen
-5. iOS Safari has specific quirks with viewport and the address bar
+The viewport meta tag `width=device-width, initial-scale=1` looks correct. So why is the page wider than the screen on iPhone?
 
-The most common cause is content that is wider than the viewport, which forces Safari to zoom out to fit it.
+My first thought was that the meta tag is being ignored or overridden. But iOS Safari does respect this tag. The issue must be that some content is wider than the viewport, and Safari responds by expanding the layout viewport to fit it. Even with `width=device-width`, if an element is 500px wide on a 375px screen, Safari will make the viewport 500px to fit the content, causing horizontal scroll.
+
+But which element is causing the overflow? It could be:
+- An image without `max-width: 100%`
+- A table that is wider than the screen
+- A pre/code block with a long line
+- CSS using `width: 100vw` (which includes the scrollbar width, making it wider than `100%`)
+- A fixed/absolute positioned element with negative left/right positioning
+
+Wait, there is another common culprit I almost forgot: flexbox items with `flex-basis` or `min-width` that exceed the container width. If a flex item has `min-width: 400px` and the screen is 375px, the item overflows.
+
+Hmm, I also need to consider iOS-specific issues:
+- `100vh` includes the address bar height, making elements taller than the visible area
+- Input fields with font-size < 16px trigger auto-zoom on focus
+- The notch (iPhone X+) requires `viewport-fit=cover` and safe area insets
+
+The debugging approach should be: use a temporary `* { outline: 1px solid red }` to visualize all elements, or run a JS snippet that finds all elements wider than `document.documentElement.clientWidth`. Fix the overflowing elements, then add global defensive CSS rules for images, tables, and other common overflow sources.
 </think>
 
 The viewport meta tag is correct, but content wider than the screen forces Safari to zoom out. Here is how to diagnose and fix:
@@ -212,12 +223,17 @@ function findOverflowingElements() {
 
 Console warning: "[Violation] Added non-passive event listener to a scroll-blocking 'touchstart' event. Consider marking event listener as 'passive' to make the page more responsive."''',
         r'''<think>
-Several touch event issues here:
-1. The 300ms tap delay was historically added by mobile browsers to detect double-tap zoom. Modern browsers have removed this if you have the proper viewport meta tag, but it can still be an issue.
-2. Passive event listeners: when you add a touchstart/touchmove listener, the browser cannot know if you will call preventDefault(), so it must wait before scrolling. Marking as passive tells the browser you will not prevent default, allowing immediate scrolling.
-3. Janky scroll: caused by non-passive touch listeners or expensive event handlers running on the main thread.
+Three separate touch event issues. Let me work through each one.
 
-Let me cover all fixes.
+**300ms tap delay**: My first thought was "this is outdated, modern browsers removed it." But wait -- modern browsers only remove it IF you have the proper viewport meta tag (`width=device-width`). Without it, the browser still needs the delay to distinguish single-tap from double-tap-to-zoom. And even with the meta tag, some older browsers or WebViews might still have the delay. So `touch-action: manipulation` in CSS is a belt-and-suspenders fix -- it explicitly tells the browser "no double-tap zoom on this element," eliminating the delay regardless of viewport settings.
+
+**Passive event listeners**: The console warning says the listener is "scroll-blocking." Why? When the browser sees a touchstart/touchmove listener, it does not know if the handler will call `preventDefault()`. If it does, the default behavior (scrolling) must be suppressed. So the browser MUST wait for the handler to finish before it can start scrolling. This waiting causes jank.
+
+Hmm, but why not just let the browser scroll and call preventDefault() if needed? Because `preventDefault()` STOPS the scroll -- the browser cannot undo a scroll that already started. So it has to wait.
+
+Marking the listener as `{ passive: true }` is a promise to the browser: "I will NOT call preventDefault()." The browser can then start scrolling immediately without waiting for the handler to finish. But wait -- what if I DO need to call preventDefault(), like for a custom drag gesture? Then I must use `{ passive: false }` explicitly. The key is to only use passive: false on specific elements that need it, not on document-level listeners.
+
+**Janky scroll from expensive handlers**: Even with passive listeners, expensive computation in a scroll/touch handler blocks the main thread and causes frame drops. I initially thought `requestAnimationFrame` would solve this, but it only throttles to 60fps -- the computation inside the RAF callback still runs on the main thread. For truly smooth scrolling, the heavy work should be done in a Web Worker, or replaced with CSS animations/IntersectionObserver.
 </think>
 
 Touch event issues on mobile involve three separate problems: the tap delay, passive listeners, and scroll performance. Here is how to fix each:
@@ -443,14 +459,17 @@ class TouchHandler {
         "thinking/debugging",
         r'''My web app has several Safari-specific bugs that do not appear in Chrome or Firefox. I am seeing issues with: date parsing, flexbox rendering, local storage in private mode, and CSS backdrop-filter. How do I handle Safari quirks?''',
         r'''<think>
-Safari has many known quirks:
-1. Date parsing: Safari does not support date strings with dashes (YYYY-MM-DD format with time)
-2. Flexbox: Safari has bugs with flex-basis, gap in flexbox, and nested flexbox
-3. LocalStorage: In private browsing, it used to throw on setItem (fixed in newer versions but quota is very limited)
-4. backdrop-filter: Needs -webkit- prefix
-5. CSS features: Some features need -webkit- prefix or have different behavior
+Safari has numerous platform-specific bugs. Let me think through each one the user mentioned.
 
-Let me provide specific fixes for each.
+**Date parsing**: My first assumption was that Safari rejects ALL date formats, but that is not true. It handles ISO 8601 with the `T` separator fine: `new Date("2024-01-15T10:30:00")`. What it DOES NOT handle is the space-separated format: `new Date("2024-01-15 10:30:00")`. Chrome accepts both, which makes this a nasty cross-browser bug -- code works in Chrome during development, breaks in Safari in production. Hmm, could this be because the space format is not actually part of the ISO 8601 spec? I think that is right -- the `T` separator is required by ISO 8601, and Chrome just happens to be lenient about accepting spaces.
+
+**Flexbox bugs**: Safari has had issues with `gap` in flexbox (not supported until Safari 14.1), `flex-basis` with padding (incorrect box model calculation), and nested flex containers (height calculation bugs). Wait, is the `gap` issue still relevant? Safari 14.1 shipped in April 2021, so most users have it by now. But for apps that need to support older Safari versions (iOS 13, iOS 14.0), the gap workaround is still needed. I should use `@supports (gap: 16px)` to conditionally apply gap vs margin-based spacing.
+
+**LocalStorage in private browsing**: I initially thought this was fixed in modern Safari. Actually, Safari 14+ does allow `setItem()` in private mode, but the storage is ephemeral (cleared when the tab closes) and has a much smaller quota. Older Safari (pre-14) throws `QuotaExceededError` on ANY `setItem()` call in private mode, which crashes apps that do not handle the exception. The safe pattern is to always wrap localStorage operations in try/catch.
+
+**backdrop-filter**: Still needs `-webkit-backdrop-filter` prefix in Safari. This is one of those CSS properties where Safari implemented it first (with prefix) and other browsers caught up later (without prefix). You need both the prefixed and unprefixed versions.
+
+I should also mention the `100vh` issue (Safari includes the address bar in vh calculations) and input auto-zoom (font-size < 16px triggers zoom on focus).
 </think>
 
 Safari has numerous platform-specific behaviors. Here are the most common issues and their fixes:
@@ -710,22 +729,21 @@ if (!hasFlexGap()) {
         "thinking/debugging",
         r'''My Progressive Web App (PWA) is not showing the "Add to Home Screen" install prompt on mobile. The manifest.json is configured and the service worker is registered, but the beforeinstallprompt event never fires. What are the requirements?''',
         r'''<think>
-PWA install criteria are strict and browser-specific. The beforeinstallprompt event requires:
+The PWA install prompt is not showing. Let me think through all the possible failure points.
 
-For Chrome/Android:
-1. Valid web app manifest with required fields
-2. Registered service worker with a fetch handler
-3. Served over HTTPS (or localhost)
-4. Not already installed
-5. User engagement heuristic (user has interacted with the domain for some time)
-6. Manifest must have: name or short_name, icons (192px and 512px), start_url, display (standalone/fullscreen/minimal-ui)
+My first thought was "the manifest is missing a required field." But which fields are actually required? I need to remember the exact list: name or short_name, start_url, display (must be standalone, fullscreen, or minimal-ui), and icons (192x192 and 512x512). Missing any ONE of these silently prevents the install prompt without any console error. That is frustrating because there is no error message telling you what is wrong.
 
-For Safari/iOS:
-- No beforeinstallprompt event at all
-- Users must manually use "Add to Home Screen" from share menu
-- manifest.json support is limited
+Wait, but there are other requirements beyond the manifest:
+- HTTPS (or localhost for development) -- does the user's site use HTTPS?
+- Service worker with a fetch event handler -- not just registered, but actively handling fetch events. An empty service worker file without `addEventListener("fetch", ...)` will not satisfy Chrome's requirement.
+- User engagement -- Chrome requires the user to have interacted with the site for some minimum time. A first-time visitor will not see the prompt even if everything else is correct.
+- Not already installed -- if the app is already installed, the prompt will not fire again.
 
-Let me provide a comprehensive checklist.
+Hmm, could the issue be the icons? I have seen cases where the icons exist but are the wrong size, or the `sizes` attribute in the manifest does not match the actual image dimensions. Chrome silently ignores mismatched icons.
+
+And then there is Safari/iOS, which does NOT support `beforeinstallprompt` at all. Users must manually tap the share button and select "Add to Home Screen." There is no programmatic way to trigger the install prompt on iOS. I should mention this because the user might be testing on an iPhone.
+
+For debugging, Chrome DevTools has an "Application" tab that shows the manifest, service worker status, and installability criteria. I should recommend checking that first, and also provide a diagnostic JavaScript function that checks all the requirements programmatically.
 </think>
 
 PWA installation requirements are strict and differ by browser. Here is a complete checklist and implementation:
@@ -966,13 +984,19 @@ async function diagnoseInstallability() {
         "thinking/debugging",
         r'''When I rotate my mobile device from portrait to landscape, the layout breaks. Elements resize incorrectly and there is a flash of wrong layout. The orientationchange event fires but the new dimensions are not yet available. How do I handle orientation changes properly?''',
         r'''<think>
-The orientationchange event fires BEFORE the viewport dimensions have actually updated. This means window.innerWidth/innerHeight still reflect the old orientation when the event fires. This is a well-known timing issue.
+The user says the orientationchange event fires but the new dimensions are not yet available. Let me think about why this timing issue exists.
 
-Fixes:
-1. Use the resize event instead (fires after dimensions update)
-2. Use matchMedia for orientation detection
-3. Use CSS media queries (no JS needed for most cases)
-4. If JS is needed, debounce the resize event
+When the device rotates, the browser fires `orientationchange` BEFORE it has finished recalculating the viewport dimensions. So `window.innerWidth` and `window.innerHeight` still reflect the OLD orientation inside the event handler. That is extremely confusing -- why fire the event if the new state is not ready yet?
+
+My first thought was to add a setTimeout inside the handler to wait for the dimensions to update. But how long should the timeout be? 100ms? 200ms? There is no guaranteed delay, and it varies by device and browser. That approach is fragile.
+
+Wait -- what about the `resize` event? The resize event fires AFTER the viewport dimensions have been updated. Could I just use that instead of orientationchange? Yes, that works. But resize fires for many reasons (keyboard appearing, address bar toggling), not just orientation changes. I need to filter out non-orientation resize events, or at least debounce the handler.
+
+Hmm, actually there is a better option: `matchMedia("(orientation: landscape)")`. This fires a change event when the orientation actually changes, and by the time the callback runs, the layout has been updated. Plus, it does not fire for non-orientation resizes.
+
+But wait -- for most layout changes, do I even need JavaScript? CSS `@media (orientation: portrait)` and `@media (orientation: landscape)` handle layout changes purely in CSS, with no JS timing issues at all. I should recommend CSS media queries as the primary approach and JS only when JavaScript-dependent elements (like canvas sizing) need updating.
+
+There is also the modern Screen Orientation API (`screen.orientation`) which provides reliable type/angle information and fires after dimensions are settled. But it is not supported in all browsers.
 </think>
 
 The `orientationchange` event fires before viewport dimensions update. Here is how to handle orientation changes correctly:

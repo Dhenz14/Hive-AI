@@ -455,28 +455,26 @@ Max profit: 142
 - Union-Find: O(n log n) time (sorting dominates), O(n) space'''),
 
     ("thinking/algorithms", r'''Solve the Minimum Number of Platforms problem: given arrival and departure times of trains at a station, find the minimum number of platforms required so that no train has to wait.''', r'''<think>
-This is a classic greedy/sweep-line problem. We need to find the maximum number of trains present at the station at any point in time -- that gives us the minimum platforms needed.
+Minimum platforms at a train station. I need the maximum overlap of train intervals at any point in time.
 
-Approach 1 -- Sort and sweep:
-1. Put all arrivals and departures into a single event list
-2. Sort events by time
-3. Sweep through: increment counter on arrival, decrement on departure
-4. Track the maximum counter value
+My first approach idea: for each train, count how many others overlap with it. Take the maximum. But that is O(n^2), which is unnecessary.
 
-But there is a subtlety: if an arrival and departure happen at the same time, which comes first? If a train departs at time t and another arrives at t, they can share a platform. So departures should be processed before arrivals at the same time.
+**Approach 1 -- Event sweep:**
+Create events: +1 for arrival, -1 for departure. Sort by time, sweep through tracking the running count.
 
-Approach 2 -- Sort separately:
-1. Sort arrivals and departures arrays separately
-2. Use two pointers to merge them
-3. If next event is an arrival, increment platforms needed
-4. If next event is a departure, decrement
-5. Track maximum
+But wait, there is a critical tie-breaking question: if a train departs at time t and another arrives at time t, do they need separate platforms? The intervals are half-open [arrival, departure), so departure at t means the platform is free at time t. Therefore departures should be processed before arrivals at the same time, allowing platform reuse.
 
-The two-pointer approach is cleaner and avoids the tie-breaking issue if we handle it correctly: when arrival[i] <= departure[j], it is an arrival event (use <= because if equal, the arriving train needs a platform even though another is departing -- actually this depends on interpretation).
+Hmm, actually I need to double check this. The problem says "arrival and departure times" which could mean the train is present for the entire duration including the departure time. Let me go with the standard convention: if arr[i] <= dep[j], the arriving train needs a platform because the departure has not yet happened. If arr[i] > dep[j], the departure has freed a platform.
 
-Wait, let me reconsider. If arrival == departure at same time, can the departing train free the platform for the arriving one? Usually yes. So we process departure first at ties: if arrival[i] > departure[j], process departure. But with <=, arrival[i] <= departure[j] means we process arrival. If arr[i] == dep[j], processing arrival first means we need an extra platform. The correct interpretation: if a train departs at time t, the platform is available at time t for another train. So we should process departure first at ties: use arr[i] > dep[j] to trigger arrival processing, meaning at ties we process departure.
+Wait, that means with arr[i] <= dep[j], when arr[i] == dep[j] we process the arrival first, requiring an extra platform. But that contradicts what I said earlier about platform reuse. Let me reconsider...
 
-Time: O(n log n), Space: O(1) extra beyond the sorted arrays.
+Actually, the two-pointer approach naturally handles this: if arr[i] <= dep[j], increment (need a platform); if arr[i] > dep[j], decrement (free a platform). At ties (arr[i] == dep[j]), we increment first, meaning both trains need platforms simultaneously. This is the conservative (safe) interpretation.
+
+For the event sweep approach, I should sort by (time, delta) with delta = -1 for departures and +1 for arrivals. Since -1 < +1, departures process first at the same time, which is the more permissive interpretation (allows reuse). The two approaches may give different answers at ties depending on the interpretation. I will implement both and let the user choose.
+
+**Approach 2 -- Two pointers:** Sort arrivals and departures separately, merge with two pointers.
+
+Time: O(n log n) for sorting. Space: O(1) extra for two-pointer, O(n) for event sweep.
 </think>
 
 **Minimum Platforms -- Sweep Line / Two Pointers**
