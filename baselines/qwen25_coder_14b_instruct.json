@@ -1,0 +1,56 @@
+{
+  "model": "Qwen2.5-Coder-14B-Instruct",
+  "source": "Qwen Technical Report (arXiv:2409.12186v3)",
+  "source_url": "https://arxiv.org/html/2409.12186v3",
+  "notes": "Official published benchmarks. These are the ground truth — never re-test the base model.",
+  "benchmarks": {
+    "humaneval": {
+      "pass@1": 89.6,
+      "description": "HumanEval (0-shot)"
+    },
+    "humaneval_plus": {
+      "pass@1": 87.2,
+      "description": "HumanEval+ (EvalPlus augmented tests)"
+    },
+    "mbpp": {
+      "pass@1": 86.2,
+      "description": "MBPP (0-shot)"
+    },
+    "mbpp_plus": {
+      "pass@1": 72.8,
+      "description": "MBPP+ (EvalPlus augmented tests)"
+    },
+    "livecode_bench": {
+      "pass@1": 23.4,
+      "description": "LiveCodeBench (2024.07-2024.11, competitive programming)"
+    },
+    "bigcodebench_full": {
+      "pass@1": 48.4,
+      "description": "BigCodeBench (Full)"
+    },
+    "bigcodebench_hard": {
+      "pass@1": 22.2,
+      "description": "BigCodeBench (Hard)"
+    },
+    "cruxeval_input": {
+      "score": 69.5,
+      "description": "CRUXEval Input-CoT (code reasoning)"
+    },
+    "cruxeval_output": {
+      "score": 79.5,
+      "description": "CRUXEval Output-CoT (code reasoning)"
+    }
+  },
+  "multipl_e": {
+    "description": "MultiPL-E (0-shot) — per-language code generation pass@1",
+    "python": 89.0,
+    "cpp": 69.6,
+    "java": 46.8,
+    "php": 64.6,
+    "typescript": 69.2,
+    "csharp": 63.3,
+    "bash": 39.9,
+    "javascript": 61.5,
+    "average": 59.9
+  }
+}

@@ -1,18 +1,19 @@
 """
-Train HiveAI LoRA v6 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth).
+Train HiveAI LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth).
 
 One-command training:
     python scripts/train_v5.py
     python scripts/train_v5.py --test 5    # smoke test (5 steps)
     python scripts/train_v5.py --no-kl     # disable KL anchoring
 
-What's new in v6:
-    - Qwen2.5-Coder-14B-Instruct base (code-specialized, text-only, ~152K vocab)
-    - QLoRA via Unsloth: 4-bit base + bf16 LoRA adapters = ~10-12GB VRAM on 16GB card
-    - 5,585 training pairs (2x previous) including 1,623 thinking-trace pairs
-    - Standard LoRA r=32 (DoRA disabled — incompatible with Flash Attention)
-    - Previous attempts on Qwen3.5 (VLM) failed: broken loss, VLM wrapper issues
-    - 3 epochs, effective batch size 16, NEFTune + curriculum ordering
+What's new in v7:
+    - 5,998 quality-filtered training pairs from 1,156 batch files
+    - LoRA r=16 (was r=32) — less capacity, less overfitting
+    - RSLoRA + dropout=0.1 — better regularization
+    - 2 epochs (was 3) — prevent overfitting
+    - Assistant-only loss — only train on response tokens (DataCollatorForCompletionOnlyLM)
+    - KL anchoring ON by default (lambda=0.3)
+    - seq=2048, packing OFF — fits reliably on 16GB
 """
 import faulthandler
 import json
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v5.jsonl")
+TRAINING_JSONL = os.path.join(PROJECT_ROOT, "loras", "training_data", "v7.jsonl")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v7")
 
 # Qwen2.5-Coder-14B-Instruct — code-specialized, text-only, standard architecture.
@@ -50,21 +51,22 @@ OUTPUT_DIR = os.path.join(PROJECT_ROOT, "loras", "v7")
 BASE_MODEL = os.path.join(PROJECT_ROOT, "models", "qwen2.5-coder-14b")
 
 # ---------------------------------------------------------------------------
-# v6 Training Configuration — Qwen2.5-Coder-14B QLoRA
+# v7 Training Configuration — Qwen2.5-Coder-14B QLoRA
 # ---------------------------------------------------------------------------
-MAX_SEQ_LENGTH = 4096     # Qwen2.5-Coder supports 128K; 4096 fits on 16GB with proper VRAM mgmt
+MAX_SEQ_LENGTH = 2048     # Qwen2.5-Coder supports 128K; 2048 fits reliably on 16GB
 SMOKE_SEQ_LENGTH = 512    # Shorter for smoke tests — catches same shape/VRAM errors 4x faster
 
 LORA_CONFIG = {
-    "r": 32,                          # r=32 for good quality (DoRA disabled for Flash Attention compat)
-    "lora_alpha": 64,                 # 2x rank for stable scaling
+    "r": 16,                          # r=16 — less capacity, less overfitting (was r=32)
+    "lora_alpha": 32,                 # 2x rank for stable scaling
     "target_modules": [
         "q_proj", "k_proj", "v_proj", "o_proj",   # attention
         "gate_proj", "up_proj", "down_proj",        # MLP layers
     ],
-    "lora_dropout": 0.0,
+    "lora_dropout": 0.1,             # Regularization (was 0.0)
     "bias": "none",
     "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
+    "use_rslora": True,               # Rank-stabilized LoRA
 }
 
 TRAINING_CONFIG = {
@@ -270,7 +272,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     from hiveai.llm.prompts import CODING_SYSTEM_PROMPT
 
     logger.info("=" * 60)
-    logger.info("  HiveAI LoRA v6 Training — Qwen2.5-Coder-14B QLoRA")
+    logger.info("  HiveAI LoRA v7 Training — Qwen2.5-Coder-14B QLoRA")
     logger.info("=" * 60)
     logger.info(f"  Base model:  {model_path}")
     logger.info(f"  Data:        {TRAINING_JSONL}")
@@ -289,6 +291,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
                 f"(lambda={KL_CONFIG['lambda']}, seq_limit={KL_CONFIG['seq_limit']})")
+    logger.info(f"  Loss mask:   assistant_only_loss=True (system/user tokens masked)")
     logger.info(f"  Architecture: DENSE 14B, QLoRA 4-bit base + bf16 adapters")
     if max_steps:
         logger.info(f"  TEST MODE:   stopping after {max_steps} steps")
@@ -409,7 +412,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             lora_dropout=LORA_CONFIG["lora_dropout"],
             bias=LORA_CONFIG["bias"],
             use_gradient_checkpointing="unsloth",  # Unsloth's optimized version (2x faster)
-            use_rslora=False,
+            use_rslora=LORA_CONFIG.get("use_rslora", False),
             use_dora=LORA_CONFIG["use_dora"],
         )
         logger.info("LoRA applied via Unsloth (optimized gradient checkpointing)")
@@ -481,8 +484,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
     logger.info(f"EOS token: '{tokenizer.eos_token}' (id={tokenizer.eos_token_id})")
 
-    def format_prompt(examples):
-        texts = []
+    # Convert instruction/input/output columns → "messages" column (conversational format).
+    # TRL's assistant_only_loss requires this structure to identify assistant tokens.
+    def format_to_messages(examples):
+        all_messages = []
         n_truncated = 0
         for inst, inp, out in zip(
             examples["instruction"], examples["input"], examples["output"]
@@ -497,6 +502,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 {"role": "assistant", "content": out},
             ]
 
+            # Truncate assistant output if full sequence exceeds seq_length
             try:
                 text = tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=False
@@ -508,7 +514,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     f"<|im_start|>assistant\n{out}<|im_end|>"
                 )
 
-            # Truncate if too long (preserve EOS)
             n_tokens = len(tokenizer.encode(text))
             if n_tokens > seq_length:
                 overhead_messages = [
@@ -527,28 +532,18 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 budget = seq_length - overhead_tokens - 1
                 out_tokens = tokenizer.encode(out, add_special_tokens=False)[:budget]
                 truncated_out = tokenizer.decode(out_tokens, skip_special_tokens=False)
-
                 messages[-1]["content"] = truncated_out
-                try:
-                    text = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=False
-                    )
-                except Exception:
-                    text = (
-                        f"<|im_start|>system\n{CODING_SYSTEM_PROMPT}<|im_end|>\n"
-                        f"<|im_start|>user\n{user_content}<|im_end|>\n"
-                        f"<|im_start|>assistant\n{truncated_out}<|im_end|>"
-                    )
                 n_truncated += 1
 
-            texts.append(text)
+            all_messages.append(messages)
 
         if n_truncated > 0:
-            logger.info(f"  format_prompt: truncated {n_truncated}/{len(texts)} "
+            logger.info(f"  format_to_messages: truncated {n_truncated}/{len(all_messages)} "
                         f"to fit {seq_length} tokens")
-        return {"text": texts}
+        return {"messages": all_messages}
 
-    dataset = dataset.map(format_prompt, batched=True)
+    dataset = dataset.map(format_to_messages, batched=True,
+                          remove_columns=dataset.column_names)
 
     # Trim dataset for smoke tests — no point tokenizing 2500+ pairs for 3 steps
     if max_steps > 0:
@@ -571,11 +566,18 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
-    sample = dataset[0]["text"]
-    sample_len = len(tokenizer.encode(sample))
-    ends_with_eos = sample.rstrip().endswith("<|im_end|>")
+    # Log a sample — apply chat template to preview what the model will see
+    sample_msgs = dataset[0]["messages"]
+    try:
+        sample_text = tokenizer.apply_chat_template(
+            sample_msgs, tokenize=False, add_generation_prompt=False
+        )
+    except Exception:
+        sample_text = str(sample_msgs)
+    sample_len = len(tokenizer.encode(sample_text))
+    ends_with_eos = sample_text.rstrip().endswith("<|im_end|>")
     logger.info(f"Sample: {sample_len} tokens, ends_with_EOS={ends_with_eos}")
-    logger.info(f"First 400 chars:\n{sample[:400]}")
+    logger.info(f"First 400 chars:\n{sample_text[:400]}")
 
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
@@ -897,25 +899,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"Unsloth QLoRA mode: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
 
-    # Packing: concatenate short sequences to fill context window (30-50% speedup)
-    # WARNING: Packing without flash_attention_2/3 causes cross-contamination.
-    # Unsloth handles packing internally (may skip for vision-language models).
-    # Standard path: disable packing unless flash attention is available.
-    if use_unsloth:
-        use_packing = True  # Unsloth handles this safely
-    else:
-        # Check for flash attention support
-        try:
-            model_config = getattr(model, "config", None)
-            if model_config is None:
-                model_config = getattr(getattr(model, "base_model", model), "config", None)
-            attn_impl = getattr(model_config, "_attn_implementation", "eager")
-            use_packing = attn_impl in ("flash_attention_2", "flash_attention_3")
-        except Exception:
-            use_packing = False
-        if not use_packing:
-            logger.warning("Packing DISABLED — no flash attention (would cause cross-contamination)")
-    logger.info(f"Sequence packing: {'ON' if use_packing else 'OFF'}")
+    # Packing OFF for v7: saves VRAM on 16GB card, allows formatting_func with Unsloth
+    use_packing = False
+    logger.info("Sequence packing: OFF (VRAM constrained, 16GB)")
 
     sft_kwargs = dict(
         output_dir=OUTPUT_DIR,
@@ -944,10 +930,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logging_first_step=True,
         save_total_limit=3,
         skip_memory_metrics=True,
-        dataset_text_field="text",
         max_length=seq_length,
         packing=use_packing,
         neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
+        assistant_only_loss=True,         # Only compute loss on assistant response tokens (not system/user)
         torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
                                           # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
     )
@@ -975,6 +961,30 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
         logger.info("EarlyStoppingCallback added (patience=3 evals)")
 
+    # Unsloth requires formatting_func that handles both single-example (validation)
+    # and batched (tokenization) calls. Returns list of text strings.
+    def _formatting_func(example):
+        raw = example["messages"]
+        # Detect batched vs single: batched has list-of-lists, single has list-of-dicts
+        if raw and isinstance(raw[0], dict):
+            # Single example: raw = [{"role":..}, {"role":..}]
+            batch = [raw]
+        else:
+            # Batched: raw = [[{"role":..}, ...], [{"role":..}, ...]]
+            batch = raw
+
+        texts = []
+        for msgs in batch:
+            try:
+                text = tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=False)
+            except Exception:
+                parts = []
+                for m in msgs:
+                    parts.append(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>")
+                text = "\n".join(parts)
+            texts.append(text)
+        return texts
+
     trainer = SFTTrainer(
         model=model,
         processing_class=tokenizer,
@@ -982,6 +992,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         eval_dataset=eval_dataset,
         args=sft_config,
         callbacks=callbacks,
+        formatting_func=_formatting_func,
     )
 
     # Preserve curriculum ordering
@@ -1048,7 +1059,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # Save training metadata
     meta = {
-        "version": "v6.0",
+        "version": "v7.0",
         "base_model": model_path,
         "base_model_name": "Qwen2.5-Coder-14B-Instruct",
         "architecture": "dense 14B, QLoRA 4-bit",
@@ -1081,7 +1092,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Print next steps ──
     print("\n" + "=" * 60)
-    print("  v6 Training Complete — Next Steps")
+    print("  v7 Training Complete — Next Steps")
     print("=" * 60)
     print(f"""
   Deploy to Ollama:
@@ -1104,7 +1115,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Train HiveAI v6 on Qwen2.5-Coder-14B QLoRA")
+    parser = argparse.ArgumentParser(description="Train HiveAI v7 on Qwen2.5-Coder-14B QLoRA")
     parser.add_argument("--test", type=int, default=0,
                         help="Smoke test: stop after N steps")
     parser.add_argument("--no-kl", action="store_true",
@@ -1122,6 +1133,12 @@ if __name__ == "__main__":
     parser.add_argument("--step-timeout", type=int, default=0,
                         help="Kill training if a single step exceeds N seconds "
                              "(default: 300 in --test mode, 0=disabled otherwise)")
+    parser.add_argument("--data", type=str, default=None,
+                        help="Override training data JSONL path (default: v7.jsonl)")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Override output directory (default: loras/v7)")
+    parser.add_argument("--epochs", type=int, default=0,
+                        help="Override number of training epochs (default: 2)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1132,6 +1149,15 @@ if __name__ == "__main__":
         logger.info("Test mode: auto-skipping Unsloth (use --force-unsloth to override)")
 
     model_path = args.model or BASE_MODEL
+
+    if args.data:
+        TRAINING_JSONL = os.path.abspath(args.data)
+
+    if args.output_dir:
+        OUTPUT_DIR = os.path.abspath(args.output_dir)
+
+    if args.epochs:
+        TRAINING_CONFIG["num_train_epochs"] = args.epochs
 
     if not os.path.exists(TRAINING_JSONL):
         logger.error(f"Training data not found: {TRAINING_JSONL}")
