@@ -56,9 +56,14 @@ PROVIDER_REGISTRY = {
         base_url="https://openrouter.ai/api/v1",
         api_key_env="AI_INTEGRATIONS_OPENROUTER_API_KEY",
         models=[
-            "qwen/qwen3-coder-480b-a35b:free",
-            "meta-llama/llama-4-maverick:free",
-            "deepseek/deepseek-r1:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free",    # 405B — highest quality free
+            "qwen/qwen3-coder:free",                         # 480B MoE coder, 262K ctx
+            "qwen/qwen3-next-80b-a3b-instruct:free",        # 80B MoE, 262K ctx
+            "openai/gpt-oss-120b:free",                      # OpenAI open model, 131K ctx
+            "meta-llama/llama-3.3-70b-instruct:free",        # Strong 70B, 128K ctx
+            "mistralai/mistral-small-3.1-24b-instruct:free", # Mistral coding, 128K ctx
+            "nvidia/nemotron-3-nano-30b-a3b:free",           # NVIDIA MoE, 256K ctx
+            "google/gemma-3-27b-it:free",                    # Google 27B, 131K ctx
         ],
         rpm_limit=10,
         daily_limit=200,

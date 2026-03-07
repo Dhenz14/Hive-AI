@@ -372,3 +372,29 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 ### MoE Training Optimization (REFERENCE)
 
 12x faster MoE training with 35% less VRAM and 6x longer context. Router-layer fine-tuning disabled by default for stability. Relevant if we upgrade to Qwen3.5-35B-A3B (MoE) or similar.
+
+---
+
+## 14. Multi-Provider Distillation at Scale
+
+**Source**: Audit of free AI APIs (public-apis repo, OpenRouter, provider docs)
+
+**Key finding**: OpenRouter alone offers 27+ free models (was 3 in our config). Expanded to 8 high-value models including 405B Hermes, 480B Qwen3 Coder, 120B gpt-oss, 70B Llama 3.3. Combined with existing providers (Gemini, Groq, Cerebras, DeepSeek, Mistral, HuggingFace, Ollama), we now have massive free compute diversity.
+
+**What was done**:
+- Expanded OpenRouter model list from 3 → 8 carefully selected free models in `hiveai/lora/miner.py`
+- Prioritized models with large parameter counts and coding specialization
+
+**Model selection criteria** (for future updates):
+1. Parameter count > 24B (quality floor for code generation)
+2. Coding specialization preferred (Qwen3 Coder, Mistral Small)
+3. Long context windows (128K+) for complex training pair generation
+4. Active model (not deprecated/rate-limited to uselessness)
+
+**Scaling strategies** (FUTURE):
+- **Provider rotation with quality scoring**: Track per-model quality scores from eval, weight sampling toward better models
+- **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models
+- **Parallel batch distillation**: Run multiple providers concurrently (respect rate limits)
+- **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
+
+**Meta-lesson #12**: Free API landscape changes fast. Audit OpenRouter's free model list quarterly — new models appear regularly as providers use free tier for benchmarking exposure.
