@@ -1,0 +1,19 @@
+{
+  "name": "hive_architecture",
+  "title": "Hive Architecture - Protocol, Consensus & APIs",
+  "description": "DPoS consensus, block structure, API categories, Hivemind, node types",
+  "test_cases": [
+    {
+      "input": "How does Hive consensus work?",
+      "expected_keywords": ["DPoS", "21", "witness", "3", "second"]
+    },
+    {
+      "input": "What APIs does a Hive node expose?",
+      "expected_keywords": ["condenser_api", "database_api", "block_api", "rc_api"]
+    },
+    {
+      "input": "How do I run my own Hive node?",
+      "expected_keywords": ["docker", "hived", "config", "plugin"]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "hive_sdk",
+  "title": "Hive SDK Development (beem + dhive)",
+  "description": "Python beem and JavaScript dhive SDK patterns for Hive blockchain development",
+  "test_cases": [
+    {
+      "input": "Write a Python function using beem to post a comment on the Hive blockchain",
+      "expected_keywords": ["beem", "Hive", "post", "author", "tags"]
+    },
+    {
+      "input": "How do I stream new blocks from Hive using JavaScript?",
+      "expected_keywords": ["dhive", "Client", "blockchain", "getBlocks"]
+    },
+    {
+      "input": "How do I check an account's balance on Hive?",
+      "expected_keywords": ["Account", "get_balances", "HIVE", "HBD"]
+    }
+  ]
+}

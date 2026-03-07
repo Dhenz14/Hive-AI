@@ -1,0 +1,19 @@
+{
+  "name": "hive_security",
+  "title": "Hive Security - Keys, Authorities & Account Safety",
+  "description": "Key hierarchy, multi-sig, account recovery, security best practices",
+  "test_cases": [
+    {
+      "input": "Explain the Hive key hierarchy",
+      "expected_keywords": ["owner", "active", "posting", "memo", "hierarchy"]
+    },
+    {
+      "input": "How does account recovery work on Hive?",
+      "expected_keywords": ["recovery", "30", "days", "owner", "request_account_recovery"]
+    },
+    {
+      "input": "How do I set up multi-sig on a Hive account?",
+      "expected_keywords": ["weight_threshold", "key_auths", "multi"]
+    }
+  ]
+}

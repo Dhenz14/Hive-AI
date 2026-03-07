@@ -1,0 +1,19 @@
+{
+  "name": "hive_layer2",
+  "title": "Hive Layer 2 - Hive-Engine, HAF, VSC",
+  "description": "Hive-Engine tokens and trading, HAF SQL framework, VSC smart contracts",
+  "test_cases": [
+    {
+      "input": "How do I create a token on Hive-Engine?",
+      "expected_keywords": ["ssc-mainnet-hive", "tokens", "create", "BEE"]
+    },
+    {
+      "input": "What is HAF and how do I build an app with it?",
+      "expected_keywords": ["PostgreSQL", "SQL", "hive.operations", "app_create_context"]
+    },
+    {
+      "input": "How do I query token balances on Hive-Engine?",
+      "expected_keywords": ["api.hive-engine.com", "balances", "find", "symbol"]
+    }
+  ]
+}

@@ -10,6 +10,7 @@ from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_re
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, clean_topic, trigger_auto_learn, get_compressed_knowledge
+from skills.skill_loader import load_skills_for_query
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 
@@ -866,8 +867,12 @@ def chat_api():
 
         conversation_context = build_conversation_context(history)
 
-        prompt = f"""{CHAT_SYSTEM_PROMPT}
+        # Inject domain skills for Hive-related queries
+        skill_context = load_skills_for_query(message)
+        skill_block = f"\n\n{skill_context}" if skill_context else ""
 
+        prompt = f"""{CHAT_SYSTEM_PROMPT}
+{skill_block}
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
 {conversation_context}
@@ -1030,8 +1035,12 @@ Answer the question directly and helpfully. Note: The knowledge library is still
 
                 conversation_context = build_conversation_context(history)
 
-                prompt = f"""{CHAT_SYSTEM_PROMPT}
+                # Inject domain skills for Hive-related queries
+                skill_context = load_skills_for_query(message)
+                skill_block = f"\n\n{skill_context}" if skill_context else ""
 
+                prompt = f"""{CHAT_SYSTEM_PROMPT}
+{skill_block}
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
 {conversation_context}

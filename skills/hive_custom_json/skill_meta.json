@@ -1,0 +1,19 @@
+{
+  "name": "hive_custom_json",
+  "title": "Hive Custom JSON Operations",
+  "description": "Custom JSON structure, protocol IDs, authority rules, and L2 integration patterns",
+  "test_cases": [
+    {
+      "input": "How do I broadcast a custom_json operation on Hive?",
+      "expected_keywords": ["custom_json", "id", "required_posting_auths", "json"]
+    },
+    {
+      "input": "What is the max size for a Hive custom JSON payload?",
+      "expected_keywords": ["8192", "bytes"]
+    },
+    {
+      "input": "How do I design a Layer 2 protocol using custom_json?",
+      "expected_keywords": ["deterministic", "id", "version", "action"]
+    }
+  ]
+}

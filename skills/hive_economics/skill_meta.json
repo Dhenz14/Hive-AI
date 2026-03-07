@@ -1,0 +1,19 @@
+{
+  "name": "hive_economics",
+  "title": "Hive Economics & Resource Credits",
+  "description": "RC system, voting power, curation rewards, HBD, delegation, power up/down",
+  "test_cases": [
+    {
+      "input": "How do resource credits work on Hive?",
+      "expected_keywords": ["RC", "HP", "regenerate", "20%"]
+    },
+    {
+      "input": "How does curation work on the Hive blockchain?",
+      "expected_keywords": ["50", "curation", "reward", "vote"]
+    },
+    {
+      "input": "How do I earn interest on HBD?",
+      "expected_keywords": ["savings", "20%", "APR", "transfer_to_savings"]
+    }
+  ]
+}
