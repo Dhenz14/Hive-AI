@@ -507,6 +507,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Load and format dataset ──
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
+    # Strip all columns except instruction/input/output — mixed types break pyarrow/tokenizer
+    keep_cols = {"instruction", "input", "output"}
+    drop_cols = [c for c in dataset.column_names if c not in keep_cols]
+    if drop_cols:
+        dataset = dataset.remove_columns(drop_cols)
+        logger.info(f"Dropped columns: {drop_cols}")
     logger.info(f"EOS token: '{tokenizer.eos_token}' (id={tokenizer.eos_token_id})")
 
     def format_to_messages(examples):

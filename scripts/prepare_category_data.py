@@ -102,7 +102,13 @@ def prepare_category_data(v8_path: str, replay_path: str, output_dir: str):
         out_path = out / f"{cat}_with_replay.jsonl"
         with open(out_path, "w", encoding="utf-8") as f:
             for item in mixed:
-                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+                # Strip metadata — Unsloth/pyarrow chokes on mixed types in nested dicts
+                clean = {
+                    "instruction": str(item.get("instruction", "")),
+                    "input": str(item.get("input", "")),
+                    "output": str(item.get("output", "")),
+                }
+                f.write(json.dumps(clean, ensure_ascii=False) + "\n")
 
         print(f"  {cat.upper():6s}: {len(items):4d} new + {replay_count:3d} replay = {len(mixed):4d} total -> {out_path.name}")
 
