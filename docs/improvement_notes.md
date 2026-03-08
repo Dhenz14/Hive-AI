@@ -577,3 +577,119 @@ python scripts/compaction_quality.py --threshold 0.6 --json
 5. Streaming response with source annotations
 
 **Expected impact**: Transform HiveAI from single-document Q&A to a true research assistant that cross-references multiple sources.
+
+---
+
+## 23. Agentic Code Reasoning — Semi-Formal Verification (2026-03-07)
+
+**Source**: Meta research (Shubham Ugare, Satish Chandra), arXiv:2603.01896v1 (March 2026)
+
+**What it is**: "Semi-formal reasoning" — structured prompting templates that force agents to construct explicit premises, trace execution paths, and derive formal conclusions. Unlike unstructured chain-of-thought, the agent MUST provide evidence for each claim (like a proof certificate).
+
+**Key Results**:
+- Patch equivalence: 78% → 88% accuracy (curated), 93% on real-world agent patches
+- Code question answering: 87% on RubberDuckBench
+- Fault localization: +5pp Top-5 accuracy on Defects4J
+- All WITHOUT executing code — pure reasoning
+
+**Why it matters for HiveAI**:
+1. **Execution-free RL rewards**: Semi-formal reasoning is reliable enough to serve as reward signals for GRPO training (Section 18). Instead of expensive code execution, use structured verification certificates as rewards.
+2. **Training data quality gate**: Use certificate templates to verify miner output quality. The model must prove its code is correct before the pair is accepted. Much stronger than our current 0.45 quality threshold.
+3. **Better eval scoring**: Our `score_code_validity` v3 uses structural analysis for non-Python. Semi-formal templates would make this more rigorous — require the scorer to trace execution paths, not just match patterns.
+4. **Training pair format**: Generate "verify this code" pairs where the output is a structured certificate (premises → code trace → conclusion). Teaches the model to reason about code correctness.
+
+**Certificate template structure**:
+```
+Claim: [what we're verifying]
+Premises:
+  P1: [fact from code]
+  P2: [fact from code]
+Code trace:
+  - Line X: [what happens]
+  - Line Y: [what happens, referencing P1]
+  - Line Z: [what happens, referencing P2]
+Conclusion: [claim is {valid|invalid} because {reasoning from trace}]
+```
+
+**Actionable for HiveAI**:
+- [HIGH] v9 training: Generate 50-100 semi-formal reasoning pairs (code verification, patch analysis, bug detection)
+- [MED] Integrate certificate format into eval scorer for non-Python code
+- [MED] Use as quality gate for miner — model generates certificate for its own response
+- [LOW] GRPO reward function using semi-formal verification instead of code execution
+
+**Meta-lesson #16**: Structured reasoning templates beat both unstructured CoT (too loose, allows skipping) and fully formal verification (too rigid, impractical for arbitrary code). The sweet spot is "semi-formal" — structured enough to require evidence, flexible enough for any language/framework.
+
+---
+
+## 24. Qwen 3.5 Developer Role Jinja Patch (2026-03-07)
+
+**Source**: https://gist.github.com/sudoingX/c2facf7d8f7608c65c1024ef3b22d431
+
+**Problem**: Qwen 3.5 GGUF models reject `"developer"` role messages sent by modern coding agents (Claude Code, OpenCode, Cursor, Aider). The standard ChatML template workaround silently disables `<think>` reasoning mode.
+
+**Fix**: Maps `developer` → `system` in the Jinja template while preserving `thinking = 1`:
+```jinja
+{%- if message.role == "system" or message.role == "developer" %}
+```
+
+**Their llama-server config**:
+```
+llama-server -m Qwen3.5-27B-Q4_K_M.gguf -ngl 99 -c 262144 -np 1 -fa on
+--cache-type-k q4_0 --cache-type-v q4_0 --chat-template-file qwen3.5_chat_template.jinja
+```
+
+**Actionable for HiveAI**:
+- Not needed now (Qwen 2.5 Coder uses ChatML, no developer role issues)
+- **REQUIRED if upgrading to Qwen 3.5 base** — save this patch
+- Confirms Q4_0 KV cache is stable even at 262K context (we use Q4/Q8 at 8K)
+- `--chat-template-file` flag is useful for custom template injection
+
+---
+
+## 25. Jackrong Opus Reasoning GGUF — Updated Findings (2026-03-07)
+
+**Source**: https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
+
+**New details beyond Section 1**:
+
+### GGUF Sizing for Our Hardware
+
+| Quant | Size | Fits 16GB? |
+|-------|------|------------|
+| Q2_K | 10.1 GB | Yes (room for LoRA) |
+| Q3_K_M | 13.3 GB | Yes (tight with LoRA) |
+| Q4_K_M | 16.5 GB | Barely (no LoRA headroom) |
+| Q8_0 | 28.6 GB | No |
+
+Q3_K_M (13.3GB) would be the sweet spot if upgrading — leaves ~2.5GB for LoRA + KV cache.
+
+### Performance Numbers
+- **29-35 tok/s** on RTX 3090 at Q4_K_M — our 4070 Ti SUPER should match
+- **9+ minutes autonomous coding** without interruption (vs base model stalling)
+- **Reduces redundant cognitive loops** — trained to fix Qwen 3.5's verbose reasoning
+
+### Training Stack Comparison
+
+| Config | Jackrong | HiveAI v8 |
+|--------|----------|-----------|
+| Framework | Unsloth 2026.3.3 | Unsloth 2026.2.1 |
+| Transformers | 5.2.0 | 5.2.0 |
+| Loss masking | `train_on_responses_only` | `dataset_text_field="text"` |
+| Data size | ~4,000 pairs | 8,115 pairs |
+| Base model | Qwen3.5-27B | Qwen2.5-Coder-14B |
+| Training focus | Reasoning traces | Code specialization |
+
+### Free Reasoning Datasets (for v9)
+
+All Apache 2.0, ready to download:
+1. `nohurry/Opus-4.6-Reasoning-3000x-filtered` — 3,000 Claude reasoning traces
+2. `TeichAI/claude-4.5-opus-high-reasoning-250x` — 250 high-intensity reasoning
+3. `Jackrong/Qwen3.5-reasoning-700x` — 700 step-by-step problem solving
+
+**Actionable for HiveAI**:
+- [HIGH] Download and mix reasoning datasets into v9 training (free quality data)
+- [MED] Consider Qwen 3.5 27B Q3_K_M as future base model upgrade (13.3GB fits)
+- [MED] Add `<think>` block format to training pairs for reasoning capability
+- [LOW] Update Unsloth to 2026.3.3 before v9 training
+
+**Meta-lesson #17**: The best open LoRA finetunes are small-data, high-quality. Jackrong used ~4K pairs to create a model with 36K downloads/month. Quality of reasoning traces >> quantity of generic pairs.
