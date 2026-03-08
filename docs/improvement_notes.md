@@ -395,7 +395,7 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 **Scaling strategies**:
 
 - **[DONE] Provider rotation with quality scoring** (2026-03-08): Added per-model quality tracking to `hiveai/lora/miner.py`. `ProviderState` now tracks rolling window of 50 quality scores per model. `best_model()` selects highest-quality model with 70/30 exploit/explore ratio. Quality scores recorded after each generation. Per-model stats (avg quality, eligible/rejected counts) exposed via `/api/miner/status`. Metadata now includes actual model used + quality score.
-- **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models
+- **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models [DONE — keyword-based difficulty estimator + model size tier routing in miner.py]
 - **Parallel batch distillation**: Run multiple providers concurrently (respect rate limits)
 - **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
 
@@ -839,7 +839,7 @@ All Apache 2.0, ready to download:
 
 **Actionable for HiveAI**:
 - [DONE] Build a skill lift measurement tool: `scripts/skill_lift.py` measures eval scores WITH vs WITHOUT each skill, reports per-skill delta, improved/degraded/neutral counts, summary table with HELPS/HURTS/NEUTRAL verdicts (2026-03-08). This is the first step of the ACE feedback loop — measure before evolving.
-- [HIGH] Apply diversity constraints to our conversation compaction to prevent context collapse
+- [DONE] Apply diversity constraints to our conversation compaction to prevent context collapse — key signal extraction + retention scoring in chat.py
 - [MED] Use eval harness results as "natural execution feedback" to auto-improve system prompts
 - [MED] Implement generate→reflect→curate cycle for SKILL.md files across domains
 
@@ -880,7 +880,7 @@ superpowers/
 **Actionable for HiveAI**:
 - [HIGH] Evolve SKILL.md from knowledge docs to enforceable workflow gates — add pre/post conditions that must be satisfied
 - [HIGH] Adopt plan-then-execute gate: decompose tasks into 2-5 min chunks with sign-off before implementation
-- [MED] Build a `writing-skills` meta-skill so the agent can bootstrap new domain skills in correct format
+- [DONE] Build a `writing-skills` meta-skill so the agent can bootstrap new domain skills in correct format — skills/writing_skills/ with SKILL.md template + loader route
 - [MED] Use git worktree isolation for parallel training experiments (v8 train + v9 data prep simultaneously)
 - [MED] Implement structured 4-phase debugging protocol in our CLAUDE.md
 - [LOW] Study their two-stage code review (spec compliance → code quality) for our eval harness

@@ -127,6 +127,13 @@ SKILL_ROUTES = [
         r"attention\s*dilut", r"large\s*document", r"too\s*much\s*context",
         r"token\s*limit", r"context\s*budget",
     ], 3),
+
+    # Writing Skills (meta-skill for creating new skills)
+    ("writing_skills", [
+        r"creat.*skill", r"writ.*skill", r"new\s*skill",
+        r"SKILL\.md", r"skill_meta", r"skill.*format",
+        r"meta.?skill", r"bootstrap.*skill",
+    ], 5),
 ]
 
 # Maximum number of skills to inject per query (prevent context bloat)

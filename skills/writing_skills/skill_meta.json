@@ -1,0 +1,17 @@
+{
+  "name": "writing_skills",
+  "description": "Meta-skill: teaches how to create new SKILL.md files in the correct format",
+  "version": "1.0",
+  "categories": ["meta", "skills"],
+  "test_queries": [
+    "How do I create a new agent skill?",
+    "Write a SKILL.md for database patterns",
+    "Create a new skill file for Kubernetes",
+    "What format should a skill meta json use?"
+  ],
+  "negative_queries": [
+    "How do I implement a binary search tree?",
+    "Explain Rust ownership",
+    "What is Hive blockchain?"
+  ]
+}

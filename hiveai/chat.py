@@ -497,12 +497,70 @@ def _format_recent_turns(messages):
     return "\n".join(lines)
 
 
+def _extract_key_signals(text: str) -> set:
+    """Extract key signals from text for diversity checking (ACE §30).
+
+    Returns a set of lowercased key entities that MUST survive compaction:
+    decisions, proper nouns, technical terms, file paths, numbers.
+    """
+    signals = set()
+    # Decisions / intent markers
+    for marker in ["decided", "chose", "will ", "must ", "should ", "need to",
+                    "plan to", "agreed", "confirmed", "rejected", "switched to"]:
+        if marker in text.lower():
+            # Extract the sentence containing the decision
+            for sentence in re.split(r'[.!?\n]', text):
+                if marker in sentence.lower() and len(sentence.strip()) > 10:
+                    # Key phrase: first 6 words after the marker
+                    idx = sentence.lower().index(marker)
+                    phrase = sentence[idx:idx+80].strip().lower()
+                    signals.add(phrase[:60])
+                    break
+
+    # Technical terms (camelCase, snake_case, ALL_CAPS, dotted paths)
+    for match in re.findall(r'\b([a-z]+[A-Z][a-zA-Z]+)\b', text):  # camelCase
+        signals.add(match.lower())
+    for match in re.findall(r'\b([a-z_]{3,}(?:_[a-z]+)+)\b', text):  # snake_case
+        signals.add(match.lower())
+    for match in re.findall(r'\b([A-Z]{2,}(?:_[A-Z]+)*)\b', text):  # SCREAMING
+        if match not in ("THE", "AND", "FOR", "BUT", "NOT", "WITH", "THIS", "USER"):
+            signals.add(match.lower())
+
+    # File paths
+    for match in re.findall(r'[\w/\\]+\.\w{1,5}\b', text):
+        if len(match) > 5:
+            signals.add(match.lower())
+
+    # Version numbers / specific quantities
+    for match in re.findall(r'\bv\d+[\.\d]*\b', text, re.IGNORECASE):
+        signals.add(match.lower())
+
+    return signals
+
+
+def _check_compaction_diversity(original: str, summary: str) -> float:
+    """Check what fraction of key signals survived compaction (ACE §30).
+
+    Returns retention score 0-1. Below 0.3 indicates context collapse.
+    """
+    original_signals = _extract_key_signals(original)
+    if not original_signals:
+        return 1.0  # nothing to check
+
+    summary_lower = summary.lower()
+    retained = sum(1 for s in original_signals if s in summary_lower)
+    return retained / len(original_signals)
+
+
 def compact_conversation(history):
     """Compact older conversation turns into a structured summary via LLM.
 
     When history exceeds COMPACTION_THRESHOLD messages, the older turns are
     summarized into a handoff blob. Recent turns are kept verbatim. This
     preserves continuity while fitting within the context window.
+
+    ACE §30 diversity constraints: validates that key entities/decisions
+    from the original survive compaction, preventing context collapse.
 
     Returns the compacted context string ready for the user prompt.
     """
@@ -541,8 +599,24 @@ def compact_conversation(history):
         original_chars = len(older_text)
         compressed_chars = len(summary.strip())
         ratio = original_chars / max(compressed_chars, 1)
+
+        # ACE §30: Check diversity — key signals must survive compaction
+        retention = _check_compaction_diversity(older_text, summary)
+        if retention < 0.3 and original_chars > 500:
+            log.warning(f"Compaction diversity LOW ({retention:.2f}) — "
+                        f"context collapse risk, keeping more context")
+            # Fallback: keep a longer excerpt to prevent info loss
+            summary_extended = summary.strip() + "\n\n[Key context preserved]:\n"
+            # Append user messages that contain decisions/technical terms
+            for m in older:
+                content = m.get("content", "")
+                if any(marker in content.lower() for marker in
+                       ["decided", "chose", "must", "need to", "plan to"]):
+                    summary_extended += f"- {content[:200]}\n"
+            summary = summary_extended
+
         log.info(f"Compacted {len(older)} turns: {original_chars} → {compressed_chars} chars "
-                 f"({ratio:.1f}x compression)")
+                 f"({ratio:.1f}x compression, diversity={retention:.2f})")
 
         with _metrics_lock:
             _compaction_metrics["compactions"] += 1

@@ -244,29 +244,49 @@ class ProviderState:
                 return 0.5  # neutral prior until we have enough data
             return sum(scores) / len(scores)
 
-    def best_model(self) -> str:
-        """Return the model with highest average quality, or random if no data."""
+    def best_model(self, difficulty: str = "medium") -> str:
+        """Return the best model considering quality history and prompt difficulty.
+
+        Difficulty-aware routing (§14):
+        - 'hard' prompts prefer large models (405B, 120B)
+        - 'easy' prompts can use any model (save big models for hard tasks)
+        - 'medium' uses quality-weighted selection
+        """
         with self._lock:
-            if not self.model_quality:
-                return random.choice(self.provider.models) if self.provider.models else "default"
-            # Score each model: avg quality * (1 + log(eligible+1))
+            if not self.provider.models:
+                return "default"
+
             import math
+
+            # Filter models by difficulty tier
+            candidates = self.provider.models
+            if difficulty == "hard":
+                # Prefer large models for hard prompts
+                large = [m for m in candidates if MODEL_SIZE_TIER.get(m) == "large"]
+                medium = [m for m in candidates if MODEL_SIZE_TIER.get(m) in ("large", "medium")]
+                candidates = large or medium or candidates
+            elif difficulty == "easy":
+                # Any model works for easy prompts; prefer smaller to save quota
+                small_med = [m for m in candidates if MODEL_SIZE_TIER.get(m) in ("small", "medium")]
+                candidates = small_med or candidates
+
+            # Quality-weighted selection within filtered candidates
             scored = []
-            for model in self.provider.models:
+            for model in candidates:
                 scores = self.model_quality.get(model)
                 if not scores or len(scores) < 3:
-                    # Give unknown models exploration bonus
-                    scored.append((model, 0.6))
+                    scored.append((model, 0.6))  # exploration bonus
                 else:
                     avg = sum(scores) / len(scores)
                     eligible = self.model_eligible.get(model, 0)
                     boost = 1 + 0.1 * math.log1p(eligible)
                     scored.append((model, avg * boost))
-            # Weighted random selection (softmax-style with temperature)
+
             if not scored:
-                return random.choice(self.provider.models) if self.provider.models else "default"
+                return random.choice(candidates)
+
             scored.sort(key=lambda x: -x[1])
-            # 70% chance pick best, 30% chance explore
+            # 70% exploit best, 30% explore
             if random.random() < 0.7:
                 return scored[0][0]
             return random.choice([m for m, _ in scored])
@@ -393,6 +413,87 @@ class ProviderRouter:
 # ---------------------------------------------------------------------------
 # Topic Tracker
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Difficulty Estimation (§14: difficulty-aware routing)
+# ---------------------------------------------------------------------------
+
+# Keywords that indicate harder prompts needing bigger models
+HARD_KEYWORDS = {
+    # Concurrency
+    "async", "concurrent", "parallel", "goroutine", "channel", "mutex", "thread",
+    "deadlock", "race condition", "actor model", "tokio", "futures",
+    # Advanced patterns
+    "distributed", "consensus", "raft", "paxos", "circuit breaker", "saga",
+    "event sourcing", "cqrs", "microservice", "orchestration",
+    # Type systems
+    "generic", "trait", "lifetime", "borrow", "ownership", "phantom",
+    "template metaprogramming", "sfinae", "concepts", "constexpr",
+    # Systems
+    "memory management", "garbage collection", "zero-copy", "lock-free",
+    "wait-free", "memory model", "cache coherence", "numa",
+    # Blockchain
+    "custom_json", "witness", "consensus", "smart contract", "layer 2",
+    "cross-chain", "merkle", "state proof",
+    # Architecture
+    "system design", "scalability", "high availability", "load balancing",
+    "sharding", "replication", "consistency model",
+}
+
+EASY_KEYWORDS = {
+    "hello world", "print", "basic", "simple", "beginner", "introduction",
+    "for loop", "if else", "variable", "string", "list", "array",
+    "function", "class definition", "read file", "write file",
+}
+
+
+def estimate_difficulty(topic: str, language: str) -> str:
+    """Estimate prompt difficulty: 'easy', 'medium', or 'hard'.
+
+    Used to route prompts to appropriately-sized models.
+    """
+    topic_lower = topic.lower()
+
+    hard_hits = sum(1 for k in HARD_KEYWORDS if k in topic_lower)
+    easy_hits = sum(1 for k in EASY_KEYWORDS if k in topic_lower)
+
+    # Non-Python languages are inherently harder for most models
+    lang_boost = 1 if language in ("rust", "cpp", "go") else 0
+
+    if hard_hits >= 2 or (hard_hits >= 1 and lang_boost):
+        return "hard"
+    elif easy_hits >= 2 or (easy_hits >= 1 and hard_hits == 0 and not lang_boost):
+        return "easy"
+    return "medium"
+
+
+# Model size tiers for routing
+MODEL_SIZE_TIER = {
+    # OpenRouter large models (>100B)
+    "nousresearch/hermes-3-llama-3.1-405b:free": "large",
+    "qwen/qwen3-coder:free": "large",
+    "openai/gpt-oss-120b:free": "large",
+    # OpenRouter medium models (24-80B)
+    "qwen/qwen3-next-80b-a3b-instruct:free": "medium",
+    "meta-llama/llama-3.3-70b-instruct:free": "medium",
+    "google/gemma-3-27b-it:free": "medium",
+    "mistralai/mistral-small-3.1-24b-instruct:free": "medium",
+    "nvidia/nemotron-3-nano-30b-a3b:free": "medium",
+    # Groq/Cerebras
+    "llama-3.3-70b-versatile": "medium",
+    "llama-3.1-8b-instant": "small",
+    "llama3.1-70b": "medium",
+    # Gemini
+    "gemini-2.5-pro": "large",
+    "gemini-2.5-flash": "medium",
+    # Others
+    "Qwen/Qwen2.5-72B-Instruct": "medium",
+    "codestral-latest": "medium",
+    "mistral-large-latest": "medium",
+    "deepseek-chat": "medium",
+    "deepseek-reasoner": "large",
+}
+
 
 class TopicTracker:
     """Tracks which topics have been used today to maximize diversity."""
@@ -663,8 +764,9 @@ class MinerWorker:
         )
         boosted_instruction = instruction + depth_suffix
 
-        # Select best model for this provider based on quality history
-        selected_model = provider_state.best_model()
+        # Difficulty-aware model selection (§14)
+        difficulty = estimate_difficulty(topic, language)
+        selected_model = provider_state.best_model(difficulty=difficulty)
 
         # Call provider with boosted instruction
         response = self._provider_call(boosted_instruction, provider_state, system_prompt,
@@ -719,6 +821,7 @@ class MinerWorker:
                         "template_key": template_key,
                         "language": language,
                         "quality_score": round(quality, 3),
+                        "difficulty": difficulty,
                     },
                 }
                 _persist_pair(db, pair_dict)
