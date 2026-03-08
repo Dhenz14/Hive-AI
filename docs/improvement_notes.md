@@ -717,3 +717,26 @@ All Apache 2.0, ready to download:
 4. **Minimal architecture search**: Proves that task complexity determines minimum viable architecture. Our 14B base model is extreme overkill for pattern-matching tasks — the LoRA's job is surgical skill injection, not wholesale knowledge
 
 **Meta-lesson #18**: Neural networks are programs. Weights are instructions. Training is compilation. This gist proves you can "write" a working program directly into weights — which means LoRA training is essentially compiling our training data into weight-space instructions.
+
+---
+
+## 27. Scrapling — Adaptive Web Scraping for Training Data Pipelines
+
+**Source**: https://github.com/D4Vinci/Scrapling (25.6k stars, 92% test coverage)
+
+**What it is**: Python scraping framework that unifies fast HTTP, stealth browser automation, and adaptive element tracking. Three fetcher tiers: `Fetcher` (raw HTTP + TLS fingerprint spoofing), `StealthyFetcher` (Cloudflare bypass, anti-bot evasion), `DynamicFetcher` (full Playwright/Chromium for JS-heavy sites).
+
+**Why this matters for HiveAI** (HIGH priority — web extraction is a core future capability):
+
+1. **MCP Server built-in**: Pre-extracts targeted content before passing to AI, cutting token usage dramatically. Could plug directly into our distillation pipeline — scrape docs/tutorials, extract code, generate training pairs
+2. **Adaptive element tracking**: Learns from website changes, auto-relocates elements via similarity matching when DOM structures change. No brittle CSS selectors to maintain — critical for long-running data collection
+3. **Streaming spider with checkpoint persistence**: `async for item in spider.stream()` with pause/resume. Prevents losing progress on large scraping runs — same philosophy as our replay buffer
+4. **Native Cloudflare bypass**: `solve_cloudflare=True` handles Turnstile/interstitial without third-party services
+
+**Actionable for HiveAI**:
+- [HIGH] Integrate Scrapling as the web extraction layer for automated training data generation — scrape documentation sites, GitHub repos, code tutorials
+- [HIGH] Use MCP server mode to feed extracted content directly into distillation prompts (reduce token waste by 5-10x vs raw HTML)
+- [MED] Build a "knowledge harvester" spider that streams code examples from target domains (Rust docs, Go stdlib, Hive docs) into category-specific JSONL
+- [MED] Adaptive tracking means we can set up persistent scrapers that survive site redesigns without manual selector updates
+
+**Meta-lesson #19**: The best training data pipelines aren't static exports — they're living scrapers that continuously harvest and refresh knowledge. Scrapling's adaptive + streaming + checkpoint architecture is exactly the pattern needed for an autonomous knowledge refinery.
