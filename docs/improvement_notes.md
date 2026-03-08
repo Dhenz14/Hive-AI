@@ -803,3 +803,42 @@ All Apache 2.0, ready to download:
 - [LOW] Add skills.sh compatibility metadata to our SKILL.md files for cross-agent portability
 
 **Meta-lesson #21**: The most valuable agent skills aren't complex code — they're curated domain knowledge in a standard format. 184K developers installed a React best practices skill. The hard part isn't the format, it's having knowledge worth distributing.
+
+---
+
+## 30. ACE: Agentic Context Engineering — Self-Improving System Prompts (ICLR 2026)
+
+**Source**: https://arxiv.org/abs/2510.04618 (Accepted ICLR 2026)
+
+**Problem**: Two failure modes in LLM context management:
+- **Brevity bias**: Systems drop domain-specific insights to be concise
+- **Context collapse**: Iterative prompt rewriting erodes important details over successive updates
+
+**Method**: Treat system prompts and agent memory as *evolving playbooks* that self-improve through a three-stage cycle:
+
+1. **Generate** — Create K candidate context variants (different ways to represent task knowledge)
+2. **Reflect** — Execute agent with each variant, collect performance metrics, identify why successes and failures happened
+3. **Curate** — Select top-performing elements, merge into coherent context, integrate into agent memory
+
+**Key techniques**:
+- **Diversity constraints during generation** prevent context collapse — maintain multiple distinct representations rather than converging to one
+- **Offline + online optimization**: Offline bakes best strategies into system prompts pre-deployment; online adapts agent memory during task execution
+- **Natural execution feedback** — improves from task success/failure signals, no human labels needed
+- **Extends Dynamic Cheatsheet** by adding reflection stage (error analysis between runs, not just outcome tracking)
+
+**Results**: +10.6% on agent benchmarks, +8.6% on finance domain, matches production-level performance using smaller open-source models. Outperforms DSPy optimizers (GEPA, MIPROv2) and Dynamic Cheatsheet.
+
+**Why this matters for HiveAI**:
+
+1. **Our SKILL.md files are static playbooks** — ACE says: run evals with skill variants, keep what works, merge, repeat. We could automate skill evolution using our eval harness as feedback
+2. **LoRA = offline, SKILL.md = online** — This maps directly to our architecture. LoRA bakes knowledge into weights (offline). Skills provide runtime context (online). ACE optimizes both layers
+3. **Smaller models + better context = larger model performance** — Validates our thesis: well-tuned 14B + optimized context beats raw 70B
+4. **Context collapse prevention** — We do conversation compaction (handoff prompts). ACE's diversity constraints are a direct fix for the information loss we've seen in long sessions
+
+**Actionable for HiveAI**:
+- [HIGH] Build a skill evolution loop: run eval challenges with K skill variants → keep top performers → merge → repeat
+- [HIGH] Apply diversity constraints to our conversation compaction to prevent context collapse
+- [MED] Use eval harness results as "natural execution feedback" to auto-improve system prompts
+- [MED] Implement generate→reflect→curate cycle for SKILL.md files across domains
+
+**Meta-lesson #22**: Static prompts are the new hardcoded values. The best agent systems evolve their own context through systematic experimentation. ACE proves that prompt engineering should be automated — generate variants, measure outcomes, curate winners. Our eval harness is already the feedback signal; we just need to close the loop.
