@@ -196,56 +196,107 @@ def call_llama_server(prompt: str, model: str, max_tokens: int = 4096,
 # ---------------------------------------------------------------------------
 # Scoring — 4 dimensions
 # ---------------------------------------------------------------------------
+def _score_non_python_block(code: str, language: str) -> float:
+    """
+    Score a non-Python code block (Rust, Go, C++, etc.) by structural analysis.
+    Can't execute these, so we check for language-specific structural markers.
+    Returns 0.0-1.0.
+    """
+    score = 0.0
+    markers_hit = 0
+    markers_total = 0
+
+    if language in ("rust", "rs"):
+        markers = ["fn ", "let ", "->", "::", "impl ", "struct ", "enum ",
+                    "use ", "pub ", "mod ", "mut ", "&", "String", "Vec<"]
+        markers_total = 6  # expect at least 6 of these
+    elif language in ("go", "golang"):
+        markers = ["func ", "package ", "import ", "var ", "type ", "struct ",
+                    "interface ", "go ", "chan ", "defer ", "range ", ":="]
+        markers_total = 5
+    elif language in ("cpp", "c++", "c"):
+        markers = ["#include", "int ", "void ", "class ", "std::", "return ",
+                    "template", "namespace", "auto ", "const ", "->", "new "]
+        markers_total = 5
+    elif language in ("javascript", "js", "typescript", "ts"):
+        markers = ["function ", "const ", "let ", "var ", "=>", "async ",
+                    "await ", "export ", "import ", "require(", "class "]
+        markers_total = 4
+    else:
+        # Unknown language — give benefit of doubt if it has code structure
+        markers = ["(", ")", "{", "}", ";", "="]
+        markers_total = 4
+
+    markers_hit = sum(1 for m in markers if m in code)
+    marker_ratio = min(markers_hit / max(markers_total, 1), 1.0)
+
+    # Check structural signals
+    lines = code.strip().split("\n")
+    has_functions = any(l.strip().startswith(("fn ", "func ", "def ", "void ", "int ",
+                                              "pub fn", "async fn", "function "))
+                        for l in lines)
+    has_braces = "{" in code and "}" in code
+    reasonable_length = len(lines) >= 3
+
+    structure = 0.0
+    if has_functions:
+        structure += 0.3
+    if has_braces:
+        structure += 0.1
+    if reasonable_length:
+        structure += 0.1
+
+    # Blend: 50% marker coverage + 50% structure
+    score = 0.5 * marker_ratio + 0.5 * min(structure, 0.5) / 0.5
+    return round(min(score, 1.0), 3)
+
+
 def score_code_validity(response: str) -> float:
     """
     Dimension 1: Code validity (0.0-1.0).
-    v2: Actually EXECUTES code, not just syntax checking.
+    v3: Language-aware — executes Python, scores non-Python by structure.
 
-    Scoring:
-      - 0.0: No code blocks
-      - 0.1-0.3: Inline code keywords only
-      - 0.4: Code blocks with valid syntax but execution fails
-      - 0.6: Some blocks execute successfully
-      - 0.8: Most blocks execute successfully
-      - 1.0: All blocks execute without errors
+    Python blocks: syntax check + execution (0.0-1.0)
+    Non-Python blocks (Rust/Go/C++/JS): structural analysis (0.0-1.0)
+    Mixed responses: weighted average across all blocks.
     """
     from hiveai.sandbox import extract_code_blocks, validate_syntax, execute_python
 
     blocks = extract_code_blocks(response)
     if not blocks:
-        code_indicators = ["def ", "class ", "import ", "return ", "for ", "while "]
+        code_indicators = ["def ", "class ", "import ", "return ", "for ", "while ",
+                           "fn ", "func ", "#include", "function "]
         hits = sum(1 for k in code_indicators if k in response)
         return min(hits * 0.1, 0.3)
 
-    syntax_valid = 0
-    exec_passed = 0
-    exec_attempted = 0
+    python_scores = []
+    non_python_scores = []
 
     for block in blocks:
-        syn = validate_syntax(block["code"])
-        if syn["valid"]:
-            syntax_valid += 1
-            # Actually execute the code (with tight timeout for eval speed)
-            result = execute_python(block["code"], timeout=10)
-            exec_attempted += 1
-            if result["success"]:
-                exec_passed += 1
+        lang = block.get("language", "").lower()
 
-    total = len(blocks)
+        if lang in ("python", "py", ""):
+            # Python: try syntax check + execution
+            syn = validate_syntax(block["code"])
+            if syn["valid"]:
+                result = execute_python(block["code"], timeout=10)
+                # Blend syntax (0.3) + execution (0.7)
+                python_scores.append(0.3 + 0.7 * (1.0 if result["success"] else 0.0))
+            else:
+                # If untagged block fails Python parse, try structural scoring
+                if lang == "":
+                    non_python_scores.append(_score_non_python_block(block["code"], "unknown"))
+                else:
+                    python_scores.append(0.0)
+        else:
+            # Non-Python: structural analysis
+            non_python_scores.append(_score_non_python_block(block["code"], lang))
 
-    if exec_attempted == 0:
-        # All blocks had syntax errors
-        return 0.2 * (syntax_valid / total) if total > 0 else 0.0
+    all_scores = python_scores + non_python_scores
+    if not all_scores:
+        return 0.0
 
-    # Blend syntax and execution scores:
-    # - Syntax validity is the floor (0.4 max)
-    # - Execution success raises it to 1.0
-    syntax_score = syntax_valid / total  # 0.0-1.0
-    exec_score = exec_passed / exec_attempted  # 0.0-1.0
-
-    # Weighted: 30% syntax + 70% execution (execution is what matters)
-    blended = 0.3 * syntax_score + 0.7 * exec_score
-    return round(blended, 3)
+    return round(sum(all_scores) / len(all_scores), 3)
 
 
 def score_test_passing(response: str, test_code: str | None) -> float | None:
