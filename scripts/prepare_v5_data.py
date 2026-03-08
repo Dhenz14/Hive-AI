@@ -169,15 +169,102 @@ def load_batch_pairs() -> list[dict]:
 # ---------------------------------------------------------------------------
 # Processing
 # ---------------------------------------------------------------------------
+def is_hive_domain(pair: dict) -> bool:
+    """Check if pair is Hive blockchain domain."""
+    text = (pair.get("instruction", "") + " " + pair.get("output", "")).lower()
+    return any(term in text for term in HIVE_STRONG_TERMS)
+
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for fingerprinting: collapse whitespace, lowercase, strip punctuation variance."""
+    text = text.strip().lower()
+    # Collapse all whitespace (spaces, tabs, newlines) into single space
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _fingerprint_pair(pair: dict) -> str:
+    """Compute a content fingerprint from normalized instruction + output.
+
+    This catches near-duplicates where only whitespace, casing, or minor
+    formatting differs between pairs.
+    """
+    norm_instr = _normalize_text(pair["instruction"])
+    # Use first 500 chars of output to catch pairs with identical starts
+    # but minor trailing differences (e.g., extra newline or sign-off)
+    norm_output = _normalize_text(pair["output"])[:500]
+    combined = f"{norm_instr}||{norm_output}"
+    return hashlib.md5(combined.encode()).hexdigest()
+
+
 def deduplicate(pairs: list[dict]) -> list[dict]:
-    """Remove duplicate instructions, keeping the longest response."""
-    by_key = {}
+    """Remove duplicate pairs in two passes, keeping the longest response.
+
+    Pass 1: Exact instruction dedup (original behavior — catches identical prompts).
+    Pass 2: Content fingerprint dedup (catches near-duplicates where instruction
+             AND output are essentially the same after normalization).
+
+    Logs per-category removal counts, with special attention to Hive pairs.
+    """
+    # --- Pass 1: exact instruction dedup ---
+    by_instr = {}
     for pair in pairs:
         key = hashlib.md5(pair["instruction"].strip().lower().encode()).hexdigest()
-        existing = by_key.get(key)
+        existing = by_instr.get(key)
         if existing is None or len(pair["output"]) > len(existing["output"]):
-            by_key[key] = pair
-    return list(by_key.values())
+            by_instr[key] = pair
+    pass1 = list(by_instr.values())
+    pass1_removed = len(pairs) - len(pass1)
+
+    # --- Pass 2: content fingerprint dedup (instruction + output normalized) ---
+    by_fingerprint = {}
+    pass2_removed_by_cat = defaultdict(int)  # category -> count
+    for pair in pass1:
+        fp = _fingerprint_pair(pair)
+        existing = by_fingerprint.get(fp)
+        if existing is None or len(pair["output"]) > len(existing["output"]):
+            if existing is not None:
+                # We're replacing an existing pair — count the removal
+                cat = "hive" if is_hive_domain(existing) else _guess_category(existing)
+                pass2_removed_by_cat[cat] += 1
+            by_fingerprint[fp] = pair
+        else:
+            # This pair is the duplicate being dropped
+            cat = "hive" if is_hive_domain(pair) else _guess_category(pair)
+            pass2_removed_by_cat[cat] += 1
+    pass2 = list(by_fingerprint.values())
+    pass2_removed = len(pass1) - len(pass2)
+
+    # --- Logging ---
+    if pass1_removed > 0:
+        logger.info(f"  Dedup pass 1 (exact instruction): removed {pass1_removed}")
+    if pass2_removed > 0:
+        logger.info(f"  Dedup pass 2 (content fingerprint): removed {pass2_removed}")
+        for cat, count in sorted(pass2_removed_by_cat.items(), key=lambda x: -x[1]):
+            logger.info(f"    {cat}: {count} duplicates removed")
+    if pass1_removed == 0 and pass2_removed == 0:
+        logger.info("  Dedup: no duplicates found")
+
+    return pass2
+
+
+def _guess_category(pair: dict) -> str:
+    """Best-effort category guess for logging purposes."""
+    tag = pair.get("metadata", {}).get("tag", "")
+    source = pair.get("metadata", {}).get("source", "")
+    text = (pair.get("instruction", "") + " " + tag + " " + source).lower()
+
+    if any(t in text for t in ("go ", "golang", "_go_", "go_")):
+        return "go"
+    if any(t in text for t in ("rust", "_rust_")):
+        return "rust"
+    if any(t in text for t in ("c++", "cpp", "c_plus")):
+        return "c++"
+    if any(t in text for t in ("javascript", "typescript", "js ", "ts ", "_js_", "_ts_")):
+        return "js/ts"
+    if any(t in text for t in ("python", "_py_")):
+        return "python"
+    return "other"
 
 
 def quality_filter(pairs: list[dict], min_response_len: int) -> list[dict]:
@@ -199,12 +286,6 @@ def quality_filter(pairs: list[dict], min_response_len: int) -> list[dict]:
     if too_long > 0:
         logger.info(f"  Quality filter: removed {too_short} too short, {too_long} too long (>{MAX_RESPONSE_LEN} chars)")
     return filtered
-
-
-def is_hive_domain(pair: dict) -> bool:
-    """Check if pair is Hive blockchain domain."""
-    text = (pair.get("instruction", "") + " " + pair.get("output", "")).lower()
-    return any(term in text for term in HIVE_STRONG_TERMS)
 
 
 def classify_phase(pair: dict) -> str | None:

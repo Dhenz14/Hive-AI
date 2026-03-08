@@ -993,8 +993,8 @@ superpowers/
 
 ### Remaining Actionable Items
 
-- [MED] Deduplicate Hive-oversampled pairs (the 12 zero-novelty pairs) in prepare_v5_data.py
-- [MED] Add ~500 more understanding-focused pairs to reach 50/50 ratio if desired — use `scripts/audit_training_data.py --output balanced.jsonl` to generate balanced subset
+- [DONE] Deduplicate Hive-oversampled pairs — `prepare_v5_data.py` now has two-pass dedup: exact instruction match + content fingerprint (MD5 of normalized instruction + first 500 chars output), logs removals by category (2026-03-08)
+- [DONE] Understanding pair generation — `audit_training_data.py --generate-understanding` transforms generation pairs into 8 understanding templates (explain, trace, review, what_does, why_design, func_explain, compare, struct_explain), targets 50/50 ratio (2026-03-08)
 - [DONE] Initialize `<think>`/`</think>` token embeddings semantically — `--init-think-tokens` flag in `train_v5.py` (same as section 32 item, 2026-03-08)
 - [LOW] Test r=32 if r=16 shows underfitting on v9 — tracking via `audit_training_data.py --test-rank 32`
 - [LOW] Run skill_lift.py once server is available to identify dead-weight skills
