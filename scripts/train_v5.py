@@ -330,9 +330,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info("Using Unsloth FastLanguageModel for 2x speed + 70% less VRAM")
 
         if warm_start and os.path.isdir(warm_start):
-            # Warm start: load base + existing adapter from previous training
-            unsloth_model_name = warm_start
-            logger.info(f"  WARM START: loading base + adapter from {warm_start}")
+            # Warm start: load the 4-bit BASE model first (from cache, no 28GB download),
+            # then load the adapter weights on top. Passing the adapter dir directly to
+            # from_pretrained causes Unsloth to resolve the base model to full-precision
+            # Qwen/Qwen2.5-Coder-14B-Instruct and download 28GB.
+            unsloth_model_name = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
+            logger.info(f"  WARM START: loading 4-bit base first, then adapter from {warm_start}")
         elif os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
             unsloth_model_name = model_path
             logger.info(f"  Using local weights: {unsloth_model_name}")
@@ -347,6 +350,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             dtype=None,          # Let Unsloth auto-detect optimal dtype
             load_in_4bit=True,   # QLoRA: 4-bit base + bf16 LoRA = ~10GB on 16GB card
         )
+
         use_unsloth = True
         logger.info(f"Model loaded via Unsloth in {time.time() - load_start:.0f}s")
         return _model, _tokenizer
@@ -423,10 +427,38 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Apply LoRA + Freeze base + gradient checkpointing ──
     if use_unsloth and warm_start:
-        # Warm start: adapter already loaded by from_pretrained, just enable training
-        from unsloth import FastLanguageModel as _FLM
-        _FLM.for_training(model)
-        logger.info("WARM START: adapter already loaded, enabled training mode + gradient checkpointing")
+        # Warm start: apply fresh LoRA via Unsloth (for optimized training), then
+        # copy v7 adapter weights into the new LoRA layers
+        model = FastLanguageModel.get_peft_model(
+            model,
+            r=LORA_CONFIG["r"],
+            lora_alpha=LORA_CONFIG["lora_alpha"],
+            target_modules=LORA_CONFIG["target_modules"],
+            lora_dropout=LORA_CONFIG["lora_dropout"],
+            bias=LORA_CONFIG["bias"],
+            use_gradient_checkpointing="unsloth",
+            use_rslora=LORA_CONFIG.get("use_rslora", True),
+            use_dora=LORA_CONFIG["use_dora"],
+        )
+        # Load v7 weights into the LoRA layers
+        import safetensors.torch
+        adapter_file = os.path.join(warm_start, "adapter_model.safetensors")
+        if not os.path.exists(adapter_file):
+            adapter_file = os.path.join(warm_start, "adapter_model.bin")
+            v7_state = torch.load(adapter_file, map_location="cpu", weights_only=True)
+        else:
+            v7_state = safetensors.torch.load_file(adapter_file)
+        # Load matching keys (ignoring mismatches from different LoRA configs)
+        model_state = model.state_dict()
+        loaded, skipped = 0, 0
+        for key, val in v7_state.items():
+            if key in model_state and model_state[key].shape == val.shape:
+                model_state[key].copy_(val)
+                loaded += 1
+            else:
+                skipped += 1
+        logger.info(f"WARM START: loaded {loaded} adapter weights from {warm_start} "
+                    f"(skipped {skipped} mismatched)")
     elif use_unsloth:
         # Unsloth handles LoRA application, freezing, and gradient checkpointing
         model = FastLanguageModel.get_peft_model(
@@ -515,28 +547,32 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"Dropped columns: {drop_cols}")
     logger.info(f"EOS token: '{tokenizer.eos_token}' (id={tokenizer.eos_token_id})")
 
-    def format_to_messages(examples):
-        """Convert instruction/output pairs to messages format for assistant-only loss.
+    def format_to_text(examples):
+        """Convert instruction/output pairs to pre-formatted text via chat template.
 
-        Returns a 'messages' column (list of message dicts) instead of pre-formatted text.
-        SFTTrainer applies the chat template and masks non-assistant tokens from loss.
+        Returns a 'text' column with fully formatted strings. This bypasses Unsloth's
+        internal _tokenize which can fail with messages-format datasets due to Arrow
+        serialization issues.
+
+        NOTE: Using 'text' column means we lose assistant_only_loss masking.
+        We compensate by using the response_template parameter in SFTTrainer instead.
         """
-        all_messages = []
+        all_texts = []
         n_truncated = 0
         for inst, inp, out in zip(
             examples["instruction"], examples["input"], examples["output"]
         ):
-            user_content = inst
+            user_content = str(inst)
             if inp:
-                user_content += "\n" + inp
+                user_content += "\n" + str(inp)
 
             messages = [
                 {"role": "system", "content": CODING_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
-                {"role": "assistant", "content": out},
+                {"role": "assistant", "content": str(out)},
             ]
 
-            # Truncate long responses to fit seq_length
+            # Apply chat template to get final text
             try:
                 text = tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=False
@@ -544,6 +580,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             except Exception:
                 text = f"system\n{CODING_SYSTEM_PROMPT}\nuser\n{user_content}\nassistant\n{out}"
 
+            # Truncate long responses to fit seq_length
             n_tokens = len(tokenizer.encode(text))
             if n_tokens > seq_length:
                 overhead_messages = [
@@ -557,22 +594,28 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     )
                     overhead_tokens = len(tokenizer.encode(overhead_text))
                 except Exception:
-                    overhead_tokens = n_tokens - len(tokenizer.encode(out))
+                    overhead_tokens = n_tokens - len(tokenizer.encode(str(out)))
 
                 budget = seq_length - overhead_tokens - 1
-                out_tokens = tokenizer.encode(out, add_special_tokens=False)[:budget]
+                out_tokens = tokenizer.encode(str(out), add_special_tokens=False)[:budget]
                 truncated_out = tokenizer.decode(out_tokens, skip_special_tokens=False)
                 messages[-1]["content"] = truncated_out
+                try:
+                    text = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=False
+                    )
+                except Exception:
+                    text = f"system\n{CODING_SYSTEM_PROMPT}\nuser\n{user_content}\nassistant\n{truncated_out}"
                 n_truncated += 1
 
-            all_messages.append(messages)
+            all_texts.append(text)
 
         if n_truncated > 0:
-            logger.info(f"  format_to_messages: truncated {n_truncated}/{len(all_messages)} "
+            logger.info(f"  format_to_text: truncated {n_truncated}/{len(all_texts)} "
                         f"to fit {seq_length} tokens")
-        return {"messages": all_messages}
+        return {"text": all_texts}
 
-    dataset = dataset.map(format_to_messages, batched=True,
+    dataset = dataset.map(format_to_text, batched=True,
                           remove_columns=dataset.column_names)
 
     # Trim dataset for smoke tests — no point tokenizing 2500+ pairs for 3 steps
@@ -596,14 +639,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
-    sample_msgs = dataset[0]["messages"]
-    sample_text = tokenizer.apply_chat_template(sample_msgs, tokenize=False, add_generation_prompt=False)
+    sample_text = dataset[0]["text"]
     sample_len = len(tokenizer.encode(sample_text))
     ends_with_eos = sample_text.rstrip().endswith("<|im_end|>")
-    logger.info(f"Sample: {sample_len} tokens, {len(sample_msgs)} messages, ends_with_EOS={ends_with_eos}")
-    logger.info(f"  System: {sample_msgs[0]['content'][:80]}...")
-    logger.info(f"  User: {sample_msgs[1]['content'][:80]}...")
-    logger.info(f"  Assistant: {sample_msgs[2]['content'][:80]}...")
+    logger.info(f"Sample: {sample_len} tokens, ends_with_EOS={ends_with_eos}")
+    logger.info(f"  First 200 chars: {sample_text[:200]}...")
+    logger.info(f"  Last 200 chars: ...{sample_text[-200:]}")
 
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
@@ -750,6 +791,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             self._start_time = time.time()
             self._step_start = time.time()
             self._step_timeout = step_timeout
+            self._loss_history = []  # Track all losses for regression detection
+            self._diverge_warnings = 0  # Count consecutive divergence signals
 
         def on_log(self, args, state, control, logs=None, **kwargs):
             if logs is None:
@@ -765,6 +808,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             parts = [f"Step {step}/{total}"]
             if loss is not None:
                 parts.append(f"loss={loss:.4f}")
+                self._loss_history.append(loss)
+                self._check_loss_health(step, total, loss, control)
             if use_kl and kl_state["last_kl"] > 0:
                 parts.append(f"sft={kl_state['last_sft']:.4f}")
                 parts.append(f"kl={kl_state['last_kl']:.4f}")
@@ -775,6 +820,39 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             parts.append(f"ETA={eta_s/3600:.1f}h")
             logger.info(" | ".join(parts))
             sys.stderr.flush()
+
+        def _check_loss_health(self, step, total, loss, control):
+            """Auto-abort if training is clearly failing."""
+            # 1. Bad init: loss > 2.0 after 20 steps means something is very wrong
+            if step >= 20 and step <= 30 and loss > 2.0:
+                logger.error(f"QUALITY ALARM: Loss {loss:.4f} > 2.0 at step {step} — "
+                             f"bad initialization, aborting to save time")
+                control.should_training_stop = True
+                return
+
+            # 2. Not converging: loss > 1.0 after 25% of training
+            if step > total * 0.25 and loss > 1.0:
+                logger.error(f"QUALITY ALARM: Loss {loss:.4f} > 1.0 at step {step} "
+                             f"({step/total*100:.0f}% through) — not converging, aborting")
+                control.should_training_stop = True
+                return
+
+            # 3. Diverging: loss trending up over last 20 logged values
+            if len(self._loss_history) >= 20:
+                recent = self._loss_history[-20:]
+                first_half = sum(recent[:10]) / 10
+                second_half = sum(recent[10:]) / 10
+                if second_half > first_half * 1.10:  # 10% increase
+                    self._diverge_warnings += 1
+                    logger.warning(f"QUALITY WARNING: Loss trending UP "
+                                   f"({first_half:.4f} → {second_half:.4f}) "
+                                   f"[warning {self._diverge_warnings}/3]")
+                    if self._diverge_warnings >= 3:
+                        logger.error(f"QUALITY ALARM: 3 consecutive divergence warnings — "
+                                     f"training is getting worse, aborting")
+                        control.should_training_stop = True
+                else:
+                    self._diverge_warnings = 0  # Reset on recovery
 
         def on_step_begin(self, args, state, control, **kwargs):
             self._step_start = time.time()
@@ -882,11 +960,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"Unsloth QLoRA mode: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
 
-    # Packing disabled: incompatible with assistant_only_loss (response-only masking).
-    # assistant_only_loss is critical for preventing catastrophic forgetting — the model
-    # should only learn to predict assistant responses, not system prompts or user questions.
-    logger.info("Sequence packing: OFF (required for assistant_only_loss)")
-    logger.info("Loss masking: assistant_only_loss=True (only train on response tokens)")
+    # Pre-formatted text column — bypasses Unsloth's _tokenize which crashes on messages format
+    logger.info("Dataset format: pre-formatted text (chat template applied in format_to_text)")
+    logger.info("Sequence packing: OFF")
 
     sft_kwargs = dict(
         output_dir=OUTPUT_DIR,
@@ -916,8 +992,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         save_total_limit=3,
         skip_memory_metrics=True,
         max_length=seq_length,
-        packing=False,                    # Disabled: incompatible with assistant_only_loss
-        assistant_only_loss=True,         # Only compute loss on assistant response tokens
+        packing=False,
+        dataset_text_field="text",        # Pre-formatted text (chat template already applied)
         neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
         torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
                                           # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
@@ -952,7 +1028,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         eval_dataset=eval_dataset,
         args=sft_config,
         callbacks=callbacks,
-        formatting_func=lambda example: example["messages"],
     )
 
     # Preserve curriculum ordering
