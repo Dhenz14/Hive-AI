@@ -740,3 +740,44 @@ All Apache 2.0, ready to download:
 - [MED] Adaptive tracking means we can set up persistent scrapers that survive site redesigns without manual selector updates
 
 **Meta-lesson #19**: The best training data pipelines aren't static exports — they're living scrapers that continuously harvest and refresh knowledge. Scrapling's adaptive + streaming + checkpoint architecture is exactly the pattern needed for an autonomous knowledge refinery.
+
+---
+
+## 28. DataClaw — Mining Real Coding Agent Sessions for Training Data
+
+**Source**: https://huggingface.co/datasets/peteromallet/dataclaw-peteromallet (9.6k downloads/month, 28+ downstream models)
+
+**What it is**: 549 real Claude Code sessions (Opus/Sonnet) exported via [DataClaw](https://github.com/banodoco/dataclaw). Complete multi-turn coding conversations with tool use, reasoning traces, and git context. 15.1B input tokens, 4.6M output tokens across 14 projects.
+
+**Schema** (session-level JSONL):
+```json
+{
+  "session_id": "uuid",
+  "project": "string",
+  "model": "claude-opus-4-6",
+  "messages": [
+    {
+      "role": "user|assistant",
+      "content": "string",
+      "tool_uses": [{"tool": "Read", "input": "..."}],
+      "thinking": "internal reasoning trace"
+    }
+  ],
+  "stats": {"input_tokens": 50000, "output_tokens": 8000}
+}
+```
+
+**Why this matters for HiveAI**:
+
+1. **Real agentic traces > synthetic pairs**: These are actual coding sessions solving real problems — file reads, edits, shell commands, multi-step debugging. 28+ models already fine-tuned on this data, proving its value
+2. **Thinking traces for reasoning distillation**: The `thinking` field captures internal reasoning chains. Combined with `train_on_responses_only` (section 1), we can teach our model to reason through multi-step problems
+3. **DataClaw for our own sessions**: `pip install dataclaw` exports our own Claude Code logs. Our sessions debugging HiveAI training crashes are the highest-quality data possible for our specific use case
+4. **Agentic schema pattern**: Session → messages → tool_uses is the right structure for training coding agents, beyond simple instruction/output pairs
+
+**Actionable for HiveAI**:
+- [HIGH] Install DataClaw, export our best HiveAI coding sessions, distill into v9 training pairs
+- [HIGH] Download this dataset and mine for high-quality multi-step coding patterns
+- [MED] Extract `thinking` traces to build `<think>` block training data for reasoning capability
+- [MED] Adopt session-level JSONL schema for future agentic training data (beyond instruction/output)
+
+**Meta-lesson #20**: The best training data is YOUR OWN work sessions. DataClaw proves that real coding agent conversations — with all their debugging, backtracking, and tool use — produce models that 28+ people want to fine-tune on. Our HiveAI sessions are a gold mine we haven't tapped yet.
