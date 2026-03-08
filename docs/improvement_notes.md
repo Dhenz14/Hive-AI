@@ -842,3 +842,45 @@ All Apache 2.0, ready to download:
 - [MED] Implement generate→reflect→curate cycle for SKILL.md files across domains
 
 **Meta-lesson #22**: Static prompts are the new hardcoded values. The best agent systems evolve their own context through systematic experimentation. ACE proves that prompt engineering should be automated — generate variants, measure outcomes, curate winners. Our eval harness is already the feedback signal; we just need to close the loop.
+
+---
+
+## 31. Superpowers — Disciplined Agent Workflow Framework
+
+**Source**: https://github.com/obra/superpowers (MIT, v4.1.1, 19+ contributors)
+
+**What it is**: A skills framework that enforces structured development methodology on AI coding agents. Skills are mandatory workflow gates, not optional suggestions. Supports Claude Code, Cursor, Codex, OpenCode. Pipeline: brainstorm → plan → TDD → execute (subagents) → review → merge.
+
+**Key patterns worth adopting**:
+
+1. **Mandatory workflow gates**: Skills aren't knowledge docs — they're process enforcement. The TDD skill literally deletes code written before failing tests exist. You can't skip planning. Contrast with our SKILL.md files which are informational, not enforceable
+2. **Subagent-per-task with fresh context**: Each task gets a fresh agent (prevents context saturation and accumulated bias). Two-stage review: spec compliance first, code quality second. Aligns with our CLAUDE.md context management rules
+3. **Plan decomposition into 2-5 minute tasks**: Forces breaking work into tiny, spec'd chunks with explicit sign-off before execution. Prevents "agent runs 30 minutes then delivers wrong thing"
+4. **Git worktree isolation**: Parallel development in isolated worktrees, not branch switching. Multiple features simultaneously without workspace conflicts
+5. **Meta-skill for writing skills**: `writing-skills` skill teaches the agent how to create new skills in the correct format. Self-bootstrapping framework
+6. **Structured 4-phase debugging**: Root-cause trace → hypothesize → verify → fix. Not "try random things until it works"
+
+**Architecture** (worth studying):
+```
+superpowers/
+├── agents/        # Subagent definitions (fresh agent per task)
+├── commands/      # CLI utilities
+├── hooks/         # Git hooks and triggers
+├── skills/        # Core skill implementations
+│   ├── brainstorming/
+│   ├── test-driven-development/
+│   ├── writing-plans/
+│   ├── requesting-code-review/
+│   └── writing-skills/    # Meta-skill: teaches creating new skills
+└── tests/
+```
+
+**Actionable for HiveAI**:
+- [HIGH] Evolve SKILL.md from knowledge docs to enforceable workflow gates — add pre/post conditions that must be satisfied
+- [HIGH] Adopt plan-then-execute gate: decompose tasks into 2-5 min chunks with sign-off before implementation
+- [MED] Build a `writing-skills` meta-skill so the agent can bootstrap new domain skills in correct format
+- [MED] Use git worktree isolation for parallel training experiments (v8 train + v9 data prep simultaneously)
+- [MED] Implement structured 4-phase debugging protocol in our CLAUDE.md
+- [LOW] Study their two-stage code review (spec compliance → code quality) for our eval harness
+
+**Meta-lesson #23**: The gap between "AI assistant" and "AI engineer" is process discipline. Superpowers proves that the same model produces dramatically better results when forced through brainstorm→plan→TDD→review gates. Knowledge (our LoRA) gives the model skills; process (their framework) ensures it uses them correctly.
