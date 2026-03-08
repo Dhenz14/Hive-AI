@@ -217,7 +217,7 @@ def optimize_system_post_load():
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
              seq_length_override: int = 0, warm_start: str = None,
-             epochs_override: int = 0):
+             epochs_override: int = 0, two_stage: bool = False):
     """Train LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
     import torch
     import torch.nn.functional as F
@@ -950,6 +950,29 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
     _hb_thread.start()
 
+    # ── Two-Stage Training Configuration ──
+    # Based on LLM4SVG paper: Stage 1 aligns output format (low LR, 1 epoch),
+    # Stage 2 trains knowledge (normal LR, 2 epochs). LoRA weights persist across stages.
+    TWO_STAGE_CONFIG = {
+        "stage1": {"learning_rate": 1e-5, "num_train_epochs": 1, "label": "Format Alignment"},
+        "stage2": {"learning_rate": 2e-5, "num_train_epochs": 2, "label": "Knowledge Training"},
+    }
+
+    if two_stage:
+        stages = [
+            ("stage1", TWO_STAGE_CONFIG["stage1"]),
+            ("stage2", TWO_STAGE_CONFIG["stage2"]),
+        ]
+        logger.info("Two-stage training ENABLED (LLM4SVG-inspired)")
+        logger.info(f"  Stage 1: {TWO_STAGE_CONFIG['stage1']['label']} — "
+                     f"lr={TWO_STAGE_CONFIG['stage1']['learning_rate']}, "
+                     f"epochs={TWO_STAGE_CONFIG['stage1']['num_train_epochs']}")
+        logger.info(f"  Stage 2: {TWO_STAGE_CONFIG['stage2']['label']} — "
+                     f"lr={TWO_STAGE_CONFIG['stage2']['learning_rate']}, "
+                     f"epochs={TWO_STAGE_CONFIG['stage2']['num_train_epochs']}")
+    else:
+        stages = [("single", None)]  # Single-stage: use existing config
+
     # ── Build SFTConfig ──
     # Adjust batch size: Unsloth saves ~4GB VRAM, so we can go bigger
     batch_size = TRAINING_CONFIG["per_device_train_batch_size"]
@@ -964,128 +987,164 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info("Dataset format: pre-formatted text (chat template applied in format_to_text)")
     logger.info("Sequence packing: OFF")
 
-    sft_kwargs = dict(
-        output_dir=OUTPUT_DIR,
-        per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=grad_accum,
-        num_train_epochs=epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"]),
-        learning_rate=TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"],
-        warmup_ratio=TRAINING_CONFIG["warmup_ratio"],
-        lr_scheduler_type=TRAINING_CONFIG["lr_scheduler_type"],
-        bf16=TRAINING_CONFIG["bf16"],
-        logging_steps=TRAINING_CONFIG["logging_steps"],
-        logging_strategy="steps",
-        save_steps=TRAINING_CONFIG["save_steps"],
-        weight_decay=TRAINING_CONFIG["weight_decay"],
-        max_grad_norm=TRAINING_CONFIG["max_grad_norm"],
-        seed=TRAINING_CONFIG["seed"],
-        report_to="none",
-        disable_tqdm=True,
-        gradient_checkpointing=True,
-        optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
-        dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
-        dataloader_pin_memory=True,
-        dataloader_persistent_workers=True,
-        dataloader_prefetch_factor=2,
-        dataloader_drop_last=True,
-        logging_first_step=True,
-        save_total_limit=3,
-        skip_memory_metrics=True,
-        max_length=seq_length,
-        packing=False,
-        dataset_text_field="text",        # Pre-formatted text (chat template already applied)
-        neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
-        torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
-                                          # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
-    )
-    # Early stopping: eval every 50 steps, stop if val_loss stagnates for 150 steps
-    if eval_dataset is not None:
-        sft_kwargs["eval_strategy"] = "steps"
-        sft_kwargs["eval_steps"] = 50
-        sft_kwargs["load_best_model_at_end"] = True
-        sft_kwargs["metric_for_best_model"] = "eval_loss"
-        sft_kwargs["greater_is_better"] = False
-        logger.info("Early stopping enabled: eval every 50 steps, patience ~150 steps")
-
-    if max_steps > 0:
-        sft_kwargs["max_steps"] = max_steps
-        sft_kwargs["save_steps"] = max_steps + 1
-        logger.info(f"Test mode: max_steps={max_steps}")
-
-    sft_config = SFTConfig(**sft_kwargs)
-
-    # Early stopping callback
-    callbacks = [V5LoggingCallback()]
-    if eval_dataset is not None:
-        from transformers import EarlyStoppingCallback
-        callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
-        logger.info("EarlyStoppingCallback added (patience=3 evals)")
-
-    trainer = SFTTrainer(
-        model=model,
-        processing_class=tokenizer,
-        train_dataset=dataset,
-        eval_dataset=eval_dataset,
-        args=sft_config,
-        callbacks=callbacks,
-    )
-
-    # Preserve curriculum ordering
-    from torch.utils.data import SequentialSampler
-    trainer._get_train_sampler = lambda ds: SequentialSampler(ds)
-
-    # Monkey-patch training_step to call empty_cache() after every micro-batch.
-    # Without this, PyTorch's caching allocator reserves 16-17GB on our 16GB card
-    # during the 16 gradient accumulation sub-steps, spilling to system RAM (300s+ steps).
-    # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
-    _orig_training_step = trainer.training_step
-    def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
-        result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
-        torch.cuda.empty_cache()
-        return result
-    trainer.training_step = _training_step_with_vram_cleanup
-
-    # Check for existing checkpoints
-    resume_checkpoint = None
-    if os.path.exists(OUTPUT_DIR):
-        checkpoints = sorted(
-            [d for d in os.listdir(OUTPUT_DIR) if d.startswith("checkpoint-")],
-            key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
-        )
-        if checkpoints:
-            resume_checkpoint = os.path.join(OUTPUT_DIR, checkpoints[-1])
-            logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
-
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    overall_start_time = time.time()
+    final_loss = "N/A"
 
-    # Final VRAM cleanup before training — free all cached allocations
-    gc.collect()
-    torch.cuda.empty_cache()
-    pre_train_alloc = torch.cuda.memory_allocated() / 1e9
-    pre_train_reserved = torch.cuda.memory_reserved() / 1e9
-    pre_train_total = torch.cuda.get_device_properties(0).total_memory / 1e9
-    logger.info(f"Pre-train VRAM: {pre_train_alloc:.2f}GB alloc, "
-                f"{pre_train_reserved:.2f}GB reserved, "
-                f"{pre_train_total - pre_train_reserved:.2f}GB truly free")
+    from torch.utils.data import SequentialSampler
 
-    logger.info("Starting training...")
-    sys.stderr.flush()
-    start_time = time.time()
+    for stage_name, stage_cfg in stages:
+        # Determine LR and epochs for this stage
+        if stage_cfg is not None:
+            stage_lr = stage_cfg["learning_rate"]
+            stage_epochs = stage_cfg["num_train_epochs"]
+            stage_label = stage_cfg["label"]
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info(f"  === Stage {stage_name[-1]}: {stage_label} ===")
+            logger.info(f"  lr={stage_lr}, epochs={stage_epochs}")
+            logger.info("=" * 60)
+        else:
+            # Single-stage: use original logic
+            stage_epochs = epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"])
+            stage_lr = TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"]
 
-    try:
-        stats = trainer.train(resume_from_checkpoint=resume_checkpoint)
-    except Exception as e:
-        logger.error(f"Training FAILED: {type(e).__name__}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        _heartbeat_stop.set()
-        raise
-    finally:
-        _heartbeat_stop.set()
+        sft_kwargs = dict(
+            output_dir=OUTPUT_DIR,
+            per_device_train_batch_size=batch_size,
+            gradient_accumulation_steps=grad_accum,
+            num_train_epochs=stage_epochs,
+            learning_rate=stage_lr,
+            warmup_ratio=TRAINING_CONFIG["warmup_ratio"],
+            lr_scheduler_type=TRAINING_CONFIG["lr_scheduler_type"],
+            bf16=TRAINING_CONFIG["bf16"],
+            logging_steps=TRAINING_CONFIG["logging_steps"],
+            logging_strategy="steps",
+            save_steps=TRAINING_CONFIG["save_steps"],
+            weight_decay=TRAINING_CONFIG["weight_decay"],
+            max_grad_norm=TRAINING_CONFIG["max_grad_norm"],
+            seed=TRAINING_CONFIG["seed"],
+            report_to="none",
+            disable_tqdm=True,
+            gradient_checkpointing=True,
+            optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
+            dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
+            dataloader_pin_memory=True,
+            dataloader_persistent_workers=True,
+            dataloader_prefetch_factor=2,
+            dataloader_drop_last=True,
+            logging_first_step=True,
+            save_total_limit=3,
+            skip_memory_metrics=True,
+            max_length=seq_length,
+            packing=False,
+            dataset_text_field="text",        # Pre-formatted text (chat template already applied)
+            neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
+            torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
+                                              # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
+        )
+        # Early stopping: eval every 50 steps, stop if val_loss stagnates for 150 steps
+        if eval_dataset is not None:
+            sft_kwargs["eval_strategy"] = "steps"
+            sft_kwargs["eval_steps"] = 50
+            sft_kwargs["load_best_model_at_end"] = True
+            sft_kwargs["metric_for_best_model"] = "eval_loss"
+            sft_kwargs["greater_is_better"] = False
+            if stage_cfg is None:
+                logger.info("Early stopping enabled: eval every 50 steps, patience ~150 steps")
 
-    elapsed = time.time() - start_time
-    loss = stats.metrics.get("train_loss", "N/A")
-    logger.info(f"Training complete: loss={loss}, time={elapsed:.0f}s ({elapsed/3600:.1f}h)")
+        if max_steps > 0:
+            sft_kwargs["max_steps"] = max_steps
+            sft_kwargs["save_steps"] = max_steps + 1
+            if stage_cfg is None:
+                logger.info(f"Test mode: max_steps={max_steps}")
+
+        sft_config = SFTConfig(**sft_kwargs)
+
+        # Early stopping callback
+        callbacks = [V5LoggingCallback()]
+        if eval_dataset is not None:
+            from transformers import EarlyStoppingCallback
+            callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
+            if stage_cfg is None:
+                logger.info("EarlyStoppingCallback added (patience=3 evals)")
+
+        trainer = SFTTrainer(
+            model=model,
+            processing_class=tokenizer,
+            train_dataset=dataset,
+            eval_dataset=eval_dataset,
+            args=sft_config,
+            callbacks=callbacks,
+        )
+
+        # Preserve curriculum ordering
+        trainer._get_train_sampler = lambda ds: SequentialSampler(ds)
+
+        # Monkey-patch training_step to call empty_cache() after every micro-batch.
+        # Without this, PyTorch's caching allocator reserves 16-17GB on our 16GB card
+        # during the 16 gradient accumulation sub-steps, spilling to system RAM (300s+ steps).
+        # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
+        _orig_training_step = trainer.training_step
+        def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
+            result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
+            torch.cuda.empty_cache()
+            return result
+        trainer.training_step = _training_step_with_vram_cleanup
+
+        # Check for existing checkpoints (only for first stage or single-stage)
+        resume_checkpoint = None
+        if stage_name in ("single", "stage1") and os.path.exists(OUTPUT_DIR):
+            checkpoints = sorted(
+                [d for d in os.listdir(OUTPUT_DIR) if d.startswith("checkpoint-")],
+                key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
+            )
+            if checkpoints:
+                resume_checkpoint = os.path.join(OUTPUT_DIR, checkpoints[-1])
+                logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
+
+        # Final VRAM cleanup before training — free all cached allocations
+        gc.collect()
+        torch.cuda.empty_cache()
+        pre_train_alloc = torch.cuda.memory_allocated() / 1e9
+        pre_train_reserved = torch.cuda.memory_reserved() / 1e9
+        pre_train_total = torch.cuda.get_device_properties(0).total_memory / 1e9
+        logger.info(f"Pre-train VRAM: {pre_train_alloc:.2f}GB alloc, "
+                    f"{pre_train_reserved:.2f}GB reserved, "
+                    f"{pre_train_total - pre_train_reserved:.2f}GB truly free")
+
+        if stage_cfg is not None:
+            logger.info(f"Starting {stage_label} (Stage {stage_name[-1]})...")
+        else:
+            logger.info("Starting training...")
+        sys.stderr.flush()
+        stage_start_time = time.time()
+
+        try:
+            stats = trainer.train(resume_from_checkpoint=resume_checkpoint)
+        except Exception as e:
+            logger.error(f"Training FAILED: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            _heartbeat_stop.set()
+            raise
+
+        stage_elapsed = time.time() - stage_start_time
+        stage_loss = stats.metrics.get("train_loss", "N/A")
+        if stage_cfg is not None:
+            logger.info(f"Stage {stage_name[-1]} ({stage_label}) complete: "
+                        f"loss={stage_loss}, time={stage_elapsed:.0f}s ({stage_elapsed/3600:.1f}h)")
+        else:
+            logger.info(f"Training complete: loss={stage_loss}, time={stage_elapsed:.0f}s ({stage_elapsed/3600:.1f}h)")
+        final_loss = stage_loss
+
+    _heartbeat_stop.set()
+
+    elapsed = time.time() - overall_start_time
+    loss = final_loss
+    if two_stage:
+        logger.info(f"Two-stage training complete: final_loss={loss}, "
+                    f"total_time={elapsed:.0f}s ({elapsed/3600:.1f}h)")
 
     # ── Save adapter ──
     model.save_pretrained(OUTPUT_DIR)
@@ -1112,6 +1171,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         "eos_token": tokenizer.eos_token,
         "eos_token_id": tokenizer.eos_token_id,
         "trained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "two_stage": two_stage,
+        "two_stage_config": TWO_STAGE_CONFIG if two_stage else None,
     }
     with open(os.path.join(OUTPUT_DIR, "training_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
@@ -1172,6 +1233,10 @@ if __name__ == "__main__":
                         help="Override training data JSONL path (default: v7.jsonl)")
     parser.add_argument("--output-dir", type=str, default=None,
                         help="Override output directory (default: loras/v7)")
+    parser.add_argument("--two-stage", action="store_true",
+                        help="Enable two-stage training (LLM4SVG-inspired): "
+                             "Stage 1 aligns output format (1 epoch, lr=1e-5), "
+                             "Stage 2 trains knowledge (2 epochs, lr=2e-5)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1207,4 +1272,4 @@ if __name__ == "__main__":
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
              skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
              seq_length_override=args.seq_length, warm_start=args.warm_start,
-             epochs_override=args.epochs)
+             epochs_override=args.epochs, two_stage=args.two_stage)
