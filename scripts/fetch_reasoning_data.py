@@ -35,23 +35,23 @@ RAW_DIR = PROJECT_ROOT / "loras" / "training_data" / "reasoning_raw"
 FILTERED_DIR = PROJECT_ROOT / "loras" / "training_data" / "reasoning_filtered"
 BATCH_DIR = PROJECT_ROOT / "scripts" / "distill_batches"
 
-# Dataset registry
+# Dataset registry — correct HF repo IDs from improvement_notes.md §25
 DATASETS = {
     "opus": {
-        "name": "jackrong/Opus-4.6-Reasoning-3000x-filtered",
-        "description": "3000 Claude Opus 4.6 reasoning pairs (filtered for quality)",
+        "name": "nohurry/Opus-4.6-Reasoning-3000x-filtered",
+        "description": "3000 Claude Opus 4.6 reasoning traces (heavily curated)",
         "expected_pairs": 3000,
         "priority": 1,
     },
     "claude45": {
-        "name": "jackrong/claude-4.5-high-reasoning-250x",
-        "description": "250 high-quality Claude 4.5 reasoning traces",
+        "name": "TeichAI/claude-4.5-opus-high-reasoning-250x",
+        "description": "250 high-intensity Claude 4.5 Opus reasoning instances",
         "expected_pairs": 250,
         "priority": 2,
     },
     "qwen35": {
-        "name": "jackrong/Qwen3.5-reasoning-700x",
-        "description": "700 Qwen 3.5 reasoning pairs",
+        "name": "Jackrong/Qwen3.5-reasoning-700x",
+        "description": "700 Qwen 3.5 step-by-step reasoning pairs",
         "expected_pairs": 700,
         "priority": 3,
     },
@@ -444,6 +444,7 @@ def main():
     parser.add_argument("--export", action="store_true", help="Export filtered data as batch files")
     parser.add_argument("--stats", action="store_true", help="Show dataset statistics")
     parser.add_argument("--max-per-batch", type=int, default=25, help="Max pairs per batch file")
+    parser.add_argument("--pipeline", action="store_true", help="Full pipeline: download → filter → export")
     args = parser.parse_args()
 
     if args.list:
@@ -469,6 +470,18 @@ def main():
 
     if args.stats:
         show_stats()
+
+    if args.pipeline:
+        logger.info("Running full pipeline: download → filter → export")
+        for key in DATASETS:
+            download_dataset(key)
+        for key in DATASETS:
+            raw_path = RAW_DIR / f"{key}.jsonl"
+            if raw_path.exists():
+                filter_dataset(key)
+        export_to_batches(max_per_batch=args.max_per_batch)
+        show_stats()
+        return
 
     if not any([args.list, args.download, args.filter, args.export, args.stats]):
         parser.print_help()

@@ -573,8 +573,8 @@ _llm_judge_stats = {"calls": 0, "successes": 0, "failures": 0, "fallbacks": 0}
 
 _JUDGE_SYSTEM_PROMPT = (
     "You are a senior software engineer evaluating AI coding assistant responses. "
-    "You score responses objectively on specific dimensions. You always respond "
-    "with valid JSON and nothing else."
+    "You score responses objectively on specific dimensions. You MUST explain your "
+    "reasoning before giving scores — analyze the response first, then commit to numbers."
 )
 
 _JUDGE_PROMPT_TEMPLATE = """Evaluate this AI coding assistant response.
@@ -608,34 +608,59 @@ Score on exactly TWO dimensions (0.0 to 1.0, one decimal place):
 - 0.2 = almost no explanation
 - 0.0 = pure code dump with zero explanation
 
-Reply with ONLY this JSON (no markdown, no explanation):
-{{"concept_coverage": X.X, "explanation_quality": X.X}}"""
+You MUST respond in this EXACT format (reasoning first, then scores):
+
+<reasoning>
+[2-4 sentences: What concepts are covered? What's missing? How good are the explanations?]
+</reasoning>
+<scores>
+{{"concept_coverage": X.X, "explanation_quality": X.X}}
+</scores>"""
 
 
 def _parse_judge_response(content: str) -> dict | None:
-    """Parse the judge's response, extracting JSON scores.
+    """Parse the judge's response, extracting JSON scores and optional reasoning.
 
-    Handles: raw JSON, JSON in markdown code blocks, JSON after thinking tags.
-    Returns validated scores dict or None.
+    Handles (in priority order):
+    1. <reasoning>...</reasoning><scores>{...}</scores> (preferred format)
+    2. Raw JSON, JSON in markdown code blocks, JSON after thinking tags (legacy)
+    Returns validated scores dict (with optional 'reasoning' key) or None.
     """
-    # Strip thinking tags (reasoning models like qwen3)
-    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    # Extract reasoning if present (for logging / diagnostics)
+    reasoning = None
+    reasoning_match = re.search(r"<reasoning>(.*?)</reasoning>", content, flags=re.DOTALL)
+    if reasoning_match:
+        reasoning = reasoning_match.group(1).strip()
 
-    # Strip markdown code fences
-    content = re.sub(r"```(?:json)?\s*", "", content).strip()
-    content = content.strip("`").strip()
+    # Try structured <scores> tag first
+    scores_match = re.search(r"<scores>\s*(\{.*?\})\s*</scores>", content, flags=re.DOTALL)
+    if scores_match:
+        try:
+            scores = json.loads(scores_match.group(1))
+        except json.JSONDecodeError:
+            scores = None
+    else:
+        scores = None
 
-    # Try to find JSON object
-    json_match = re.search(r'\{[^{}]*"concept_coverage"[^{}]*\}', content)
-    if not json_match:
-        # Broader fallback: any JSON object
-        json_match = re.search(r'\{[^{}]+\}', content)
-    if not json_match:
-        return None
+    # Fallback: strip thinking tags and find JSON anywhere
+    if scores is None:
+        stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+        stripped = re.sub(r"<reasoning>.*?</reasoning>", "", stripped, flags=re.DOTALL).strip()
+        stripped = re.sub(r"```(?:json)?\s*", "", stripped).strip()
+        stripped = stripped.strip("`").strip()
 
-    try:
-        scores = json.loads(json_match.group())
-    except json.JSONDecodeError:
+        json_match = re.search(r'\{[^{}]*"concept_coverage"[^{}]*\}', stripped)
+        if not json_match:
+            json_match = re.search(r'\{[^{}]+\}', stripped)
+        if not json_match:
+            return None
+
+        try:
+            scores = json.loads(json_match.group())
+        except json.JSONDecodeError:
+            return None
+
+    if scores is None:
         return None
 
     # Validate required keys and value ranges
@@ -651,15 +676,16 @@ def _parse_judge_response(content: str) -> dict | None:
         return None
 
     # Sanity check: scores must be in [0, 1]
-    if not (0.0 <= cc <= 1.0 and 0.0 <= eq <= 1.0):
-        # Clamp rather than reject (model might output 0.95 which is fine)
-        cc = max(0.0, min(1.0, cc))
-        eq = max(0.0, min(1.0, eq))
+    cc = max(0.0, min(1.0, cc))
+    eq = max(0.0, min(1.0, eq))
 
-    return {
+    result = {
         "concept_coverage": round(cc, 2),
         "explanation_quality": round(eq, 2),
     }
+    if reasoning:
+        result["reasoning"] = reasoning
+    return result
 
 
 def llm_judge_score(instruction: str, response: str,
@@ -710,7 +736,7 @@ def llm_judge_score(instruction: str, response: str,
                     "stream": False,
                     "options": {
                         "temperature": 0.05,  # Near-deterministic for consistent scoring
-                        "num_predict": 150,   # JSON response is short
+                        "num_predict": 400,   # Reasoning + JSON scores
                     },
                 },
                 timeout=_LLM_JUDGE_TIMEOUT,

@@ -140,7 +140,7 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 
 **Actionable for HiveAI**:
 - **Auto-curation agent**: Background job reviews past model responses, scores quality, identifies patterns where the model fails, auto-generates training pair candidates
-- **Importance scoring for training data**: Score each pair 0-1 for difficulty/novelty. Drop easy/redundant pairs. Keep hard/unique ones. This is automated `mine_failures.py`
+- **[DONE] Importance scoring for training data**: `scripts/score_training_data.py` (2026-03-08) — scores each pair on difficulty (concept density, nesting depth, reasoning traces), novelty (trigram fingerprint uniqueness), and quality (code presence, explanation depth, structure). Weighted importance = 35% difficulty + 35% novelty + 30% quality. Supports `--drop-below` for filtering and `--output` for exporting curated subsets. Tested on v9 data: avg importance 0.777, 63/65 pairs scored high.
 - **Consolidation for agent skills**: Periodically review conversation logs, extract recurring domain patterns, auto-update SKILL.md files
 - **Self-improving loop**: Model serves users → responses are scored → failures become training data → retrain → model improves → cycle repeats
 
@@ -164,7 +164,7 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 - Fully interpretable (every tool call is logged)
 
 **Actionable for HiveAI**:
-- **NOW**: Add query-focused context filtering to chat pipeline (lightweight RLM). Instead of dumping all 12 sections into the prompt, filter sections by query relevance and budget total context to prevent dilution.
+- **[DONE]**: Query-focused context filtering in `hiveai/chat.py:budget_context()` (2026-03-08). Upgraded from naive keyword matching to relevance-scored section ranking: term frequency + header match + bigram overlap scoring per section, sort by relevance before budgeting, drop sections below 0.1 threshold. Best sections get token priority. Prevents attention dilution from low-relevance sections.
 - **NOW**: Create agent skill teaching the model about RLM patterns for architecture queries.
 - **LATER**: Full RLM integration for Phase 5 consolidation (analyzing batches of stored responses recursively).
 - **LATER**: Benchmark RLM decomposition vs current RAG on our growing knowledge base.
@@ -235,7 +235,7 @@ The biggest win from Qwen-Agent is **knowledge positioning** — where you place
 
 **What it is**: LLM evaluation and monitoring platform. The gems are in their evaluator implementations, not the platform itself.
 
-### LLM-as-Judge with Forced Function Calling (FUTURE)
+### LLM-as-Judge with Reasoning-Before-Scoring (IMPLEMENTED 2026-03-08)
 
 The key pattern: instead of asking the LLM to output a score as text (unreliable parsing), use `tool_choice` to **force** structured output:
 
@@ -257,7 +257,7 @@ tool_choice={"type": "function", "function": {"name": "evaluation"}}
 
 **Why it matters**: The `reasoning` field forces chain-of-thought BEFORE the score. The model must explain its evaluation before committing to a number. This produces better-calibrated scores than "rate this 0-10" in plain text.
 
-**Applicable to HiveAI**: Could improve `run_eval.py` scorer reliability. However, llama-server's `tool_choice` support needs testing first. Fallback: use structured `<reasoning>...</reasoning><score>...</score>` XML tags in the prompt (no function calling needed).
+**Applied to HiveAI** (2026-03-08): Upgraded `run_eval.py` judge prompt to use `<reasoning>...</reasoning><scores>{JSON}</scores>` XML format. Forces the judge to explain its evaluation before committing to numbers. Parser handles new format with full backward compatibility. `num_predict` increased to 400 for reasoning text. Reasoning captured in results for diagnostics.
 
 ### Valid Format Evaluator (REFERENCE)
 
@@ -612,7 +612,7 @@ Conclusion: [claim is {valid|invalid} because {reasoning from trace}]
 ```
 
 **Actionable for HiveAI**:
-- [HIGH] v9 training: Generate 50-100 semi-formal reasoning pairs (code verification, patch analysis, bug detection)
+- [DONE] v9 training: Generated 20 semi-formal verification pairs (Python 7, Rust 3, Go 3, C++ 3, JS 2) — `scripts/gen_verification_pairs.py` → `v9_research_pairs.jsonl` (2026-03-08). Mix of ~10 buggy + ~10 correct. Each uses Claim→Premises→Code Trace→Conclusion format with `<think>` blocks.
 - [MED] Integrate certificate format into eval scorer for non-Python code
 - [MED] Use as quality gate for miner — model generates certificate for its own response
 - [LOW] GRPO reward function using semi-formal verification instead of code execution
@@ -687,7 +687,7 @@ All Apache 2.0, ready to download:
 3. `Jackrong/Qwen3.5-reasoning-700x` — 700 step-by-step problem solving
 
 **Actionable for HiveAI**:
-- [HIGH] Download and mix reasoning datasets into v9 training (free quality data)
+- [DONE] Download and mix reasoning datasets into v9 training — `scripts/fetch_reasoning_data.py` updated with correct HF repo IDs (nohurry/, TeichAI/, Jackrong/), added `--pipeline` flag for one-command download->filter->export (2026-03-08). Run `python scripts/fetch_reasoning_data.py --pipeline` to fetch all 3 datasets.
 - [MED] Consider Qwen 3.5 27B Q3_K_M as future base model upgrade (13.3GB fits)
 - [MED] Add `<think>` block format to training pairs for reasoning capability
 - [LOW] Update Unsloth to 2026.3.3 before v9 training
@@ -836,7 +836,7 @@ All Apache 2.0, ready to download:
 4. **Context collapse prevention** — We do conversation compaction (handoff prompts). ACE's diversity constraints are a direct fix for the information loss we've seen in long sessions
 
 **Actionable for HiveAI**:
-- [HIGH] Build a skill evolution loop: run eval challenges with K skill variants → keep top performers → merge → repeat
+- [DONE] Build a skill lift measurement tool: `scripts/skill_lift.py` measures eval scores WITH vs WITHOUT each skill, reports per-skill delta, improved/degraded/neutral counts, summary table with HELPS/HURTS/NEUTRAL verdicts (2026-03-08). This is the first step of the ACE feedback loop — measure before evolving.
 - [HIGH] Apply diversity constraints to our conversation compaction to prevent context collapse
 - [MED] Use eval harness results as "natural execution feedback" to auto-improve system prompts
 - [MED] Implement generate→reflect→curate cycle for SKILL.md files across domains

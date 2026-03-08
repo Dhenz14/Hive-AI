@@ -552,45 +552,115 @@ def get_compressed_knowledge(book_ids, db):
     return "\n\n".join(compressed_parts)
 
 
-def budget_context(sections, query, max_tokens=4000):
-    """RLM-inspired context budgeting: prioritize relevant content, drop low-value sections.
+def _score_section_relevance(section: dict, query_words: list[str],
+                              query_bigrams: set[str]) -> float:
+    """Score a section's relevance to the query (0.0-1.0).
 
-    Instead of dumping all sections at 3000 chars each (potentially 36K chars),
-    this budgets total context and uses query-focused filtering to maximize
-    signal-to-noise ratio in the prompt.
+    Uses term frequency + header match + bigram overlap for better relevance
+    than naive keyword presence. This is the RLM insight: score before including.
+    """
+    content = section.get("content", "").lower()
+    header = section.get("header", "").lower()
+    if not content:
+        return 0.0
+
+    content_words = set(content.split())
+    score = 0.0
+
+    # Term match in content (up to 0.4)
+    if query_words:
+        hits = sum(1 for w in query_words if w in content_words)
+        score += min(hits / len(query_words), 1.0) * 0.4
+
+    # Header match bonus (up to 0.3) — header relevance is a strong signal
+    if query_words:
+        header_hits = sum(1 for w in query_words if w in header)
+        score += min(header_hits / max(len(query_words), 1), 1.0) * 0.3
+
+    # Bigram overlap (up to 0.2) — catches multi-word concepts
+    if query_bigrams:
+        content_bigrams = set()
+        words = content.split()
+        for i in range(len(words) - 1):
+            content_bigrams.add(f"{words[i]} {words[i+1]}")
+        bigram_hits = len(query_bigrams & content_bigrams)
+        score += min(bigram_hits / max(len(query_bigrams), 1), 1.0) * 0.2
+
+    # Code block presence bonus (0.1) — code sections are usually high-value
+    if "```" in section.get("content", ""):
+        score += 0.1
+
+    return min(score, 1.0)
+
+
+def budget_context(sections, query, max_tokens=4000):
+    """RLM-inspired context budgeting: score, rank, filter, then budget.
+
+    Instead of dumping all sections in retrieval order, this:
+    1. Scores each section for query relevance (term + header + bigram)
+    2. Sorts by relevance (best first)
+    3. Drops sections below relevance threshold
+    4. Filters large sections to only query-relevant paragraphs
+    5. Budgets tokens with best sections getting priority
+
+    This is the lightweight RLM pattern from improvement_notes.md §8:
+    separate query from context, filter by relevance, prevent attention dilution.
     """
     log = logging.getLogger(__name__)
-    query_words = [w.lower() for w in query.split() if len(w) > 3 and w.lower() not in STOP_WORDS]
+    query_lower = query.lower()
+    query_words = [w for w in query_lower.split() if len(w) > 3 and w not in STOP_WORDS]
 
+    # Build query bigrams for multi-word concept matching
+    q_split = query_lower.split()
+    query_bigrams = set()
+    for i in range(len(q_split) - 1):
+        if len(q_split[i]) > 2 and len(q_split[i+1]) > 2:
+            query_bigrams.add(f"{q_split[i]} {q_split[i+1]}")
+
+    # Phase 1: Score and rank sections by relevance
+    scored = []
+    for section in sections:
+        rel = _score_section_relevance(section, query_words, query_bigrams)
+        scored.append((rel, section))
+
+    # Sort by relevance descending (best sections first)
+    scored.sort(key=lambda x: -x[0])
+
+    # Drop sections with very low relevance (below 0.1) unless we'd have nothing
+    min_relevance = 0.1
+    filtered = [(rel, s) for rel, s in scored if rel >= min_relevance]
+    if not filtered and scored:
+        # Keep at least the top 3 even if low-relevance
+        filtered = scored[:3]
+
+    # Phase 2: Budget tokens with query-focused paragraph filtering
     budgeted = []
     total_tokens = 0
 
-    for section in sections:
+    for rel, section in filtered:
         content = section.get("content", "")
         header = section.get("header", "")
         book = section.get("book_title", "")
 
-        # Query-focused filtering: if section is large, grep for relevant paragraphs
+        # Query-focused paragraph filtering for large sections
         if len(content) > 2000 and query_words:
             paragraphs = re.split(r'\n\s*\n', content)
-            relevant = []
+            relevant_paras = []
             for para in paragraphs:
                 para_lower = para.lower()
                 if any(w in para_lower for w in query_words):
-                    relevant.append(para)
-            # Keep at least the first paragraph for context + all relevant ones
-            if relevant:
-                filtered = paragraphs[:1] + [p for p in relevant if p != paragraphs[0]]
-                content = "\n\n".join(filtered)
-            # If no paragraphs matched query words, keep first 1500 chars as fallback
-            if not relevant:
+                    relevant_paras.append(para)
+            if relevant_paras:
+                # Keep first paragraph for context + all matching paragraphs
+                filtered_paras = paragraphs[:1] + [p for p in relevant_paras if p != paragraphs[0]]
+                content = "\n\n".join(filtered_paras)
+            elif not relevant_paras:
                 content = content[:1500]
 
-        # Estimate tokens (rough: words * 4/3)
+        # Estimate tokens
         section_tokens = len(content.split()) * 4 // 3
 
         if total_tokens + section_tokens > max_tokens:
-            # Truncate this section to fit remaining budget
             remaining = max_tokens - total_tokens
             if remaining < 100:
                 break
@@ -602,7 +672,10 @@ def budget_context(sections, query, max_tokens=4000):
         budgeted.append(block)
         total_tokens += section_tokens
 
-    log.info(f"Context budget: {len(budgeted)}/{len(sections)} sections, ~{total_tokens} tokens (max {max_tokens})")
+    dropped = len(sections) - len(budgeted)
+    log.info(f"Context budget: {len(budgeted)}/{len(sections)} sections, "
+             f"~{total_tokens} tokens (max {max_tokens}), "
+             f"{dropped} dropped by relevance filter")
     return "".join(budgeted)
 
 
