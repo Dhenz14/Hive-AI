@@ -1,0 +1,30 @@
+{
+  "name": "rlm_patterns",
+  "title": "Recursive Language Model Patterns for Architecture Queries",
+  "description": "RLM decomposition, multi-hop reasoning, context budgeting, query-focused retrieval, token allocation",
+  "test_cases": [
+    {
+      "input": "How should I decompose a complex architecture question for better answers?",
+      "expected_keywords": ["decompose", "sub-question", "retrieve", "synthesize", "multi-hop"]
+    },
+    {
+      "input": "How do I budget context tokens in a RAG pipeline with limited context window?",
+      "expected_keywords": ["budget", "relevance", "60%", "priority", "truncate", "threshold"]
+    },
+    {
+      "input": "When should I use recursive decomposition instead of a single retrieval?",
+      "expected_keywords": ["complexity", "multi-hop", "similarity", "decompose", "direct", "heuristic"]
+    },
+    {
+      "input": "Compare RLM recursive approach to standard RAG for multi-topic queries",
+      "expected_keywords": ["decomposition", "sub-query", "relevance", "dilution", "synthesize", "overhead"]
+    }
+  ],
+  "pre_conditions": {
+    "must_match_pattern": ["architect", "decompos", "context.*budget", "\\brlm\\b", "recursive.*reason", "multi.?hop", "token.*alloc"]
+  },
+  "post_conditions": {
+    "min_response_length": 200,
+    "must_mention": ["decomposition", "sub-question", "context", "relevance"]
+  }
+}

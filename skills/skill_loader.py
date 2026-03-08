@@ -8,6 +8,7 @@ checked programmatically to validate query suitability and response quality.
 Usage:
     from skills.skill_loader import load_skills_for_query, load_skill
     from skills.skill_loader import check_preconditions, validate_response
+    from skills.skill_loader import plan_task
 
     # Auto-detect relevant skills from query
     context = load_skills_for_query("How do I post on Hive using beem?")
@@ -403,6 +404,115 @@ def validate_response(
     }
 
 
+# ---------------------------------------------------------------------------
+# Plan-then-execute gate (§31): decompose complex queries into subtasks
+# ---------------------------------------------------------------------------
+
+# Action verbs that suggest implementation work (not just questions)
+_ACTION_VERBS = re.compile(
+    r"\b(implement|create|build|add|write|refactor|migrate|deploy|configure|"
+    r"set up|integrate|convert|redesign|optimize|fix|update|replace|remove|"
+    r"upgrade|install|train|evaluate|test|benchmark)\b",
+    re.IGNORECASE,
+)
+
+# Complexity signals: multiple actions, conditionals, cross-file references
+_COMPLEXITY_SIGNALS = re.compile(
+    r"\b(then|after that|also|additionally|and also|first.*then|both.*and|"
+    r"across|multiple|several|each|every|all files)\b",
+    re.IGNORECASE,
+)
+
+PLANNING_THRESHOLD_CHARS = 200
+
+
+def plan_task(query: str) -> dict:
+    """Decompose a complex query into subtasks with time estimates.
+
+    Uses heuristics (instruction length, keyword complexity, action verb count)
+    to decide if planning is needed. Returns a structured plan.
+
+    Returns:
+        {
+            "needs_planning": bool,
+            "subtasks": list[dict],  # each: {description, estimated_time, dependencies, validation_criteria}
+            "estimated_total": str,  # e.g. "10-15 min"
+        }
+    """
+    query_stripped = query.strip()
+
+    # Quick reject: short queries never need planning
+    if len(query_stripped) < PLANNING_THRESHOLD_CHARS:
+        return {"needs_planning": False, "subtasks": [], "estimated_total": "0 min"}
+
+    # Count action verbs
+    action_matches = _ACTION_VERBS.findall(query_stripped)
+    n_actions = len(action_matches)
+
+    # Count complexity signals
+    complexity_matches = _COMPLEXITY_SIGNALS.findall(query_stripped)
+    n_complexity = len(complexity_matches)
+
+    # Decision: need planning if (long + action verbs) or (multiple actions + complexity)
+    needs_planning = (n_actions >= 1 and len(query_stripped) >= PLANNING_THRESHOLD_CHARS) or (
+        n_actions >= 3
+    ) or (n_actions >= 2 and n_complexity >= 2)
+
+    if not needs_planning:
+        return {"needs_planning": False, "subtasks": [], "estimated_total": "0 min"}
+
+    # Decompose: split on sentence boundaries that contain action verbs
+    sentences = re.split(r'(?<=[.!?\n])\s+', query_stripped)
+    subtasks: list[dict] = []
+    task_idx = 0
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        # Check if this sentence contains an action verb
+        verbs_in_sentence = _ACTION_VERBS.findall(sentence)
+        if not verbs_in_sentence:
+            continue
+
+        task_idx += 1
+        # Estimate time based on sentence complexity
+        word_count = len(sentence.split())
+        if word_count > 40:
+            est_time = "4-5 min"
+        elif word_count > 20:
+            est_time = "2-3 min"
+        else:
+            est_time = "1-2 min"
+
+        subtasks.append({
+            "description": sentence[:200],
+            "estimated_time": est_time,
+            "dependencies": [f"task_{i}" for i in range(1, task_idx)] if task_idx > 1 else [],
+            "validation_criteria": f"Verify: {verbs_in_sentence[0]}d successfully",
+        })
+
+    # If we couldn't decompose meaningfully, treat as single task
+    if len(subtasks) <= 1:
+        subtasks = [{
+            "description": query_stripped[:200],
+            "estimated_time": "3-5 min",
+            "dependencies": [],
+            "validation_criteria": "Verify all requirements met",
+        }]
+
+    # Estimate total
+    total_min = sum(2 for _ in subtasks)  # ~2 min average per subtask
+    total_max = sum(5 for _ in subtasks)  # ~5 min max per subtask
+    estimated_total = f"{total_min}-{total_max} min"
+
+    return {
+        "needs_planning": True,
+        "subtasks": subtasks,
+        "estimated_total": estimated_total,
+    }
+
+
 if __name__ == "__main__":
     # Demo / test
     test_queries = [
@@ -442,4 +552,28 @@ if __name__ == "__main__":
     if result["violations"]:
         print(f"Violations: {result['violations']}")
         print(f"Suggestions: {result['suggestions']}")
+    print()
+
+    # Demo plan-then-execute gate
+    print("--- Plan-then-execute demo ---")
+    short_q = "Fix the bug in app.py"
+    plan = plan_task(short_q)
+    print(f"Q: {short_q!r} (len={len(short_q)})")
+    print(f"  needs_planning: {plan['needs_planning']}")
+
+    long_q = (
+        "Implement a new training pipeline that first preprocesses the JSONL data, "
+        "then splits it into category-specific subsets, trains a LoRA adapter for each "
+        "category using warm-start from v7, and finally merges all adapters using TIES "
+        "merge. Also add validation checks after each stage and write the results to a "
+        "JSON report file. Additionally, update the documentation to reflect the new "
+        "pipeline architecture and add unit tests for the preprocessing step."
+    )
+    plan = plan_task(long_q)
+    print(f"\nQ: {long_q[:80]}... (len={len(long_q)})")
+    print(f"  needs_planning: {plan['needs_planning']}")
+    print(f"  estimated_total: {plan['estimated_total']}")
+    for i, st in enumerate(plan["subtasks"], 1):
+        print(f"  [{i}] {st['description'][:80]}...")
+        print(f"      time={st['estimated_time']}, deps={st['dependencies']}")
     print()

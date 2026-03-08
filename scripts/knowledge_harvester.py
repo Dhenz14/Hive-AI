@@ -99,8 +99,9 @@ class TrainingPair:
 
 @dataclass
 class Checkpoint:
-    """Crawl progress for resume support."""
+    """Crawl progress for resume support with adaptive URL tracking."""
     visited: dict = field(default_factory=dict)  # url -> pair count
+    timestamps: dict = field(default_factory=dict)  # url -> ISO timestamp of last scrape
     total_pairs: int = 0
 
     def save(self, path: str):
@@ -112,7 +113,29 @@ class Checkpoint:
         if not p.exists():
             return cls()
         data = json.loads(p.read_text())
-        return cls(visited=data.get("visited", {}), total_pairs=data.get("total_pairs", 0))
+        return cls(
+            visited=data.get("visited", {}),
+            timestamps=data.get("timestamps", {}),
+            total_pairs=data.get("total_pairs", 0),
+        )
+
+    def is_stale(self, url: str, refresh_days: int) -> bool:
+        """Check if a URL needs re-scraping based on age."""
+        from datetime import datetime, timedelta, timezone
+        ts = self.timestamps.get(url)
+        if not ts:
+            return True
+        try:
+            scraped_at = datetime.fromisoformat(ts)
+            return datetime.now(timezone.utc) - scraped_at > timedelta(days=refresh_days)
+        except (ValueError, TypeError):
+            return True
+
+    def mark_visited(self, url: str, pair_count: int):
+        """Record a URL visit with timestamp."""
+        from datetime import datetime, timezone
+        self.visited[url] = pair_count
+        self.timestamps[url] = datetime.now(timezone.utc).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -414,19 +437,23 @@ def harvest_language(lang: str, source_cfg: dict, args) -> list[TrainingPair]:
     all_pairs: list[TrainingPair] = []
 
     for i, page_url in enumerate(pages):
+        refresh_days = getattr(args, "refresh_after", 0)
         if page_url in checkpoint.visited:
-            log.debug("Skipping already-visited %s", page_url)
-            continue
+            if refresh_days and checkpoint.is_stale(page_url, refresh_days):
+                log.info("Re-scraping stale URL (>%dd): %s", refresh_days, page_url)
+            else:
+                log.debug("Skipping already-visited %s", page_url)
+                continue
 
         if not rp.can_fetch(USER_AGENT, page_url):
             log.debug("robots.txt blocks %s, skipping", page_url)
-            checkpoint.visited[page_url] = 0
+            checkpoint.mark_visited(page_url, 0)
             continue
 
         log.info("[%d/%d] %s", i + 1, len(pages), page_url)
         page_soup = _fetch_page(page_url)
         if page_soup is None:
-            checkpoint.visited[page_url] = 0
+            checkpoint.mark_visited(page_url, 0)
             continue
 
         examples = _extract_examples(page_soup, page_url, source_cfg, lang)
@@ -438,7 +465,7 @@ def harvest_language(lang: str, source_cfg: dict, args) -> list[TrainingPair]:
         else:
             all_pairs.extend(pairs)
 
-        checkpoint.visited[page_url] = len(pairs)
+        checkpoint.mark_visited(page_url, len(pairs))
         checkpoint.total_pairs += len(pairs)
 
         # Save checkpoint periodically
@@ -456,6 +483,45 @@ def harvest_language(lang: str, source_cfg: dict, args) -> list[TrainingPair]:
     log.info("Extracted %d quality pairs for %s (visited %d pages)",
              len(all_pairs), lang_name, len(checkpoint.visited))
     return all_pairs
+
+
+def _run_watch_mode():
+    """Run harvester continuously, re-checking sources on interval."""
+    parser = argparse.ArgumentParser(description="Watch mode — continuous harvesting")
+    parser.add_argument("--language", default="all",
+                        choices=["rust", "go", "cpp", "hive", "all"])
+    parser.add_argument("--output", default=None)
+    parser.add_argument("--max-pages", type=int, default=100)
+    parser.add_argument("--min-quality", type=float, default=0.60)
+    parser.add_argument("--checkpoint", default="harvest_checkpoint.json")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--delay", type=float, default=1.0)
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--refresh-after", type=int, default=7,
+                        help="Re-scrape URLs older than N days (default: 7)")
+    parser.add_argument("--interval", type=int, default=3600,
+                        help="Seconds between watch cycles (default: 3600)")
+    args = parser.parse_args()
+
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    languages = list(DOC_SOURCES.keys()) if args.language == "all" else [args.language]
+    cycle = 0
+    while True:
+        cycle += 1
+        log.info("=== Watch cycle %d ===", cycle)
+        total = 0
+        for lang in languages:
+            if lang not in DOC_SOURCES:
+                continue
+            pairs = harvest_language(lang, DOC_SOURCES[lang], args)
+            if pairs and not args.dry_run:
+                out = args.output or f"loras/training_data/harvested_{lang}.jsonl"
+                _export_jsonl(pairs, out)
+                total += len(pairs)
+        log.info("Cycle %d complete — %d new pairs. Sleeping %ds...", cycle, total, args.interval)
+        time.sleep(args.interval)
 
 
 def main():
@@ -477,6 +543,8 @@ def main():
                         help="Show what would be extracted without saving")
     parser.add_argument("--delay", type=float, default=1.0,
                         help="Seconds between requests (default: 1.0)")
+    parser.add_argument("--refresh-after", type=int, default=0,
+                        help="Re-scrape URLs older than N days (0=never, default: 0)")
     parser.add_argument("--verbose", action="store_true",
                         help="Enable debug logging")
     args = parser.parse_args()
@@ -506,4 +574,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys as _sys
+    if "--mcp" in _sys.argv:
+        _sys.argv.remove("--mcp")
+        from knowledge_harvester_mcp import start_mcp_server
+        start_mcp_server()
+    elif "--watch" in _sys.argv:
+        _sys.argv.remove("--watch")
+        _run_watch_mode()
+    else:
+        main()

@@ -23,6 +23,13 @@ set -euo pipefail
 cd /opt/hiveai/project
 source /opt/hiveai-env/bin/activate
 
+# ── Pre-flight: ensure Unsloth is up to date ──
+echo "Checking Unsloth version..."
+UNSLOTH_VER=$(python -c "import unsloth; print(unsloth.__version__)" 2>/dev/null || echo "unknown")
+echo "  Current Unsloth: $UNSLOTH_VER"
+echo "  If outdated, run: pip install --upgrade unsloth"
+echo ""
+
 echo "========================================================"
 echo "  HiveAI Eternal Brain v8"
 echo "  Category LoRA + TIES Merge Pipeline"

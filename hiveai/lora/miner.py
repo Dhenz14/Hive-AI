@@ -448,22 +448,73 @@ EASY_KEYWORDS = {
 }
 
 
+def _estimate_difficulty(instruction: str) -> float:
+    """Estimate instruction difficulty as a float in [0.0, 1.0].
+
+    Scoring factors:
+    - Length: longer instructions tend to be more complex
+    - Hard keyword density: "implement", "design", "optimize", concurrency, etc.
+    - Easy keyword density: "hello world", "basic", "simple", etc.
+    - Domain specificity: multi-topic instructions are harder
+    - Word count: proxy for specification complexity
+
+    Returns:
+        float between 0.0 (trivial) and 1.0 (very hard).
+    """
+    text = instruction.lower()
+    score = 0.0
+
+    # --- Length signal (0-0.2) ---
+    char_len = len(text)
+    if char_len > 500:
+        score += 0.20
+    elif char_len > 200:
+        score += 0.10
+    elif char_len > 100:
+        score += 0.05
+
+    # --- Hard keyword hits (0-0.5) ---
+    hard_hits = sum(1 for k in HARD_KEYWORDS if k in text)
+    score += min(hard_hits * 0.10, 0.50)
+
+    # --- Easy keyword penalty (0 to -0.3) ---
+    easy_hits = sum(1 for k in EASY_KEYWORDS if k in text)
+    score -= min(easy_hits * 0.15, 0.30)
+
+    # --- Action verb complexity (0-0.15) ---
+    complex_verbs = {"implement", "design", "optimize", "architect", "refactor",
+                     "benchmark", "migrate", "integrate", "prove", "derive"}
+    verb_hits = sum(1 for v in complex_verbs if v in text)
+    score += min(verb_hits * 0.08, 0.15)
+
+    # --- Multi-concept bonus (0-0.15): multiple distinct technical domains ---
+    domains = {"database", "network", "crypto", "ml ", "machine learning",
+               "compiler", "kernel", "gpu", "simd", "blockchain", "protocol",
+               "parser", "ast ", "type system", "scheduler", "allocator"}
+    domain_hits = sum(1 for d in domains if d in text)
+    if domain_hits >= 2:
+        score += 0.15
+    elif domain_hits == 1:
+        score += 0.05
+
+    return max(0.0, min(1.0, score))
+
+
 def estimate_difficulty(topic: str, language: str) -> str:
     """Estimate prompt difficulty: 'easy', 'medium', or 'hard'.
 
-    Used to route prompts to appropriately-sized models.
+    Uses _estimate_difficulty() for numeric scoring, then buckets the result
+    and applies a language boost for non-Python languages.
     """
-    topic_lower = topic.lower()
-
-    hard_hits = sum(1 for k in HARD_KEYWORDS if k in topic_lower)
-    easy_hits = sum(1 for k in EASY_KEYWORDS if k in topic_lower)
+    score = _estimate_difficulty(topic)
 
     # Non-Python languages are inherently harder for most models
-    lang_boost = 1 if language in ("rust", "cpp", "go") else 0
+    if language in ("rust", "cpp", "go"):
+        score += 0.15
 
-    if hard_hits >= 2 or (hard_hits >= 1 and lang_boost):
+    if score >= 0.5:
         return "hard"
-    elif easy_hits >= 2 or (easy_hits >= 1 and hard_hits == 0 and not lang_boost):
+    elif score <= 0.2:
         return "easy"
     return "medium"
 

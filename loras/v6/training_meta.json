@@ -1,0 +1,49 @@
+{
+  "version": "v6.0",
+  "base_model": "/opt/hiveai/project/models/qwen2.5-coder-14b",
+  "base_model_name": "Qwen2.5-Coder-14B-Instruct",
+  "architecture": "dense 14B, QLoRA 4-bit",
+  "unsloth": true,
+  "pair_count": 5585,
+  "loss": 0.5100438781982459,
+  "training_time_s": 45814,
+  "lora_config": {
+    "r": 32,
+    "lora_alpha": 64,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "lora_dropout": 0.0,
+    "bias": "none",
+    "use_dora": false
+  },
+  "training_config": {
+    "per_device_train_batch_size": 1,
+    "gradient_accumulation_steps": 16,
+    "num_train_epochs": 3,
+    "learning_rate": 0.0002,
+    "warmup_ratio": 0.03,
+    "lr_scheduler_type": "cosine",
+    "bf16": true,
+    "logging_steps": 5,
+    "save_steps": 100,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0,
+    "seed": 42,
+    "neftune_noise_alpha": 5.0
+  },
+  "kl_config": null,
+  "kl_disabled_during_training": false,
+  "max_seq_length": 4096,
+  "system_prompt": "CODING_SYSTEM_PROMPT (hiveai.llm.prompts)",
+  "format": "ChatML via tokenizer.apply_chat_template",
+  "eos_token": "<|im_end|>",
+  "eos_token_id": 151645,
+  "trained_at": "2026-03-06T22:10:26Z"
+}

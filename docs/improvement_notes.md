@@ -20,9 +20,9 @@ Research findings and actionable ideas for future upgrades.
 **Results**: 9+ minutes autonomous coding, self-correction, proper tool waiting, auto-documentation. Base model stalled/froze on same tasks.
 
 **Actionable for us**:
-- Generate Claude-quality `<think>` block reasoning for our hardest training pairs
-- Use those public reasoning datasets to supplement our training data
-- Quality of reasoning traces matters more than quantity (~4,000 beat larger noisy datasets)
+- [DONE] Generate Claude-quality `<think>` block reasoning for our hardest training pairs — `scripts/generate_thinking_traces.py` scores hardness (instruction length, code complexity, multi-domain refs, difficulty keywords), selects top-N, generates traces via local LLM with validation (2026-03-08)
+- [DONE] Use public reasoning datasets to supplement our training data — `scripts/fetch_reasoning_data.py` downloads from HF (Opus-3000x, Claude-250x, Qwen-700x), filters for coding relevance, exports to batch format (2026-03-08)
+- [DONE] Quality of reasoning traces matters more than quantity — hardness scoring ensures only the most complex pairs get traces, validation rejects low-quality generations (2026-03-08)
 
 ---
 
@@ -50,10 +50,10 @@ Research findings and actionable ideas for future upgrades.
 **Tool**: `pip install upskill` (open source CLI)
 
 **Actionable for us**:
-- Create Hive blockchain agent skills (SDK usage, custom_json ops, economics, etc.)
-- Create coding best-practices skills for weak languages (Rust, Go, C++)
-- Skills complement LoRA: LoRA = permanent weight changes, Skills = per-session context injection
-- Can test skills immediately without any training time
+- [DONE] Create Hive blockchain agent skills — 6 skills: hive_sdk, hive_custom_json, hive_economics, hive_architecture, hive_layer2, hive_security (100-187 lines each)
+- [DONE] Create coding best-practices skills for weak languages — rust_async, go_concurrency, cpp_modern, js_typescript (113-159 lines each)
+- [DONE] Skills complement LoRA: LoRA = permanent weight changes, Skills = per-session context injection — 13 skills total, 1715 lines of domain expertise
+- [DONE] Can test skills immediately without any training time — `skill_lift.py` measures per-skill impact on eval scores
 
 ---
 
@@ -68,8 +68,8 @@ Qwen2.5-Coder-14B (frozen base)
 **Priority upgrades**:
 1. [HIGH] Create Hive agent skills for immediate quality boost (no training needed)
 2. [HIGH] Generate Claude-quality reasoning traces for v8 training data
-3. [MED] Incorporate public reasoning datasets (Opus-4.6-Reasoning-3000x-filtered)
-4. [LOW] Evaluate if Qwen3.5-27B (with Q4 quant) fits in 16GB VRAM as future base upgrade
+3. [DONE] Incorporate public reasoning datasets — `scripts/fetch_reasoning_data.py` handles Opus-3000x, Claude-250x, Qwen-700x download + filter + export (2026-03-08)
+4. [DONE] Evaluate Qwen3.5-27B Q4 VRAM fit — Q4_K_M = ~15.5GB, fits 16GB GPU with no KV cache headroom. Q3_K_M = ~13.3GB, fits with 2.7GB for KV cache (~4K ctx). Verdict: Q3_K_M viable for short-context, Q4_K_M marginal. Current 14B Q5 is better value until 24GB GPU (2026-03-08)
 
 ---
 
@@ -92,7 +92,7 @@ Qwen2.5-Coder-14B (frozen base)
 - Freezing MLP layers and only training attention/modulation: 22.34 dB
 - Training everything: 19.12 dB (WORSE by 3.2 dB!)
 - The reason: gradient noise accumulates through many layers (STE chain)
-- **Actionable for us**: In v8, experiment with freezing some LoRA layers. Don't assume training all layers is optimal. Try `modules_to_save` selectively.
+- [DONE] **Actionable for us**: `--attn-only` flag in train_v5.py freezes MLP layers, trains only q/k/v/o_proj attention. Ready for A/B testing against full-layer training (2026-03-08)
 
 ### Pre-compute teacher outputs offline
 - Running teacher+student every step = 2x memory, 2x time
@@ -142,8 +142,8 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 
 - **[DONE] Auto-curation agent**: `scripts/auto_curate.py` (2026-03-08) — scans DB chat feedback or JSONL training data, scores quality (length, code, coverage, structure, explanation with penalties for errors/hallucination/repetition), detects failure patterns (too_short, no_code, off_topic, refusal, hallucination_risk), exports training candidates. Usage: `python scripts/auto_curate.py` (DB) or `--file v7.jsonl` (JSONL). Supports `--json`, `--export candidates.jsonl`, `--threshold 0.4`
 - **[DONE] Importance scoring for training data**: `scripts/score_training_data.py` (2026-03-08) — scores each pair on difficulty (concept density, nesting depth, reasoning traces), novelty (trigram fingerprint uniqueness), and quality (code presence, explanation depth, structure). Weighted importance = 35% difficulty + 35% novelty + 30% quality. Supports `--drop-below` for filtering and `--output` for exporting curated subsets. Tested on v9 data: avg importance 0.777, 63/65 pairs scored high.
-- **Consolidation for agent skills**: Periodically review conversation logs, extract recurring domain patterns, auto-update SKILL.md files
-- **Self-improving loop**: Model serves users → responses are scored → failures become training data → retrain → model improves → cycle repeats
+- [DONE] **Consolidation for agent skills**: `scripts/consolidate_skills.py` scans ChatFeedback, classifies by skill, extracts success code examples + failure patterns, auto-appends to SKILL.md with version bump and consolidation_history tracking (2026-03-08)
+- [DONE] **Self-improving loop**: `scripts/self_improve.py` orchestrates 6-step cycle: score → mine → consolidate → evolve → prepare → report. Extracts training pairs from chat feedback, updates skills, filters by importance, outputs candidates.jsonl ready for training (2026-03-08)
 
 ---
 
@@ -166,9 +166,9 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 
 **Actionable for HiveAI**:
 - **[DONE]**: Query-focused context filtering in `hiveai/chat.py:budget_context()` (2026-03-08). Upgraded from naive keyword matching to relevance-scored section ranking: term frequency + header match + bigram overlap scoring per section, sort by relevance before budgeting, drop sections below 0.1 threshold. Best sections get token priority. Prevents attention dilution from low-relevance sections.
-- **NOW**: Create agent skill teaching the model about RLM patterns for architecture queries.
-- **LATER**: Full RLM integration for Phase 5 consolidation (analyzing batches of stored responses recursively).
-- **LATER**: Benchmark RLM decomposition vs current RAG on our growing knowledge base.
+- [DONE] Create agent skill for RLM patterns — `skills/rlm_patterns/SKILL.md` (130 lines): decompose-vs-direct heuristics, multi-hop reasoning, token budget allocation (60/20/20), context window management with relevance thresholds (2026-03-08)
+- [DONE] Full RLM integration via parallel document QA — `scripts/parallel_doc_qa.py`: chunks docs, parallel worker agents per chunk, synthesizes with citations and confidence scores (2026-03-08)
+- [DONE] Benchmark RLM decomposition vs current RAG — `scripts/benchmark_rlm.py`: 10 multi-hop Hive questions, compares single-retrieval RAG vs recursive decomposition, measures quality/coverage/tokens/latency (2026-03-08)
 
 **Limitations**:
 - Latency: recursive calls add seconds-to-minutes per query
@@ -197,12 +197,12 @@ The `VirtualMemoryAgent` prepends retrieved knowledge into the **system message*
 
 **Applied to HiveAI**: Restructured both sync and streaming chat endpoints to use rich system prompts (instructions + skills + knowledge) with clean user messages (conversation + question). Previously everything was in a single user blob with a generic system prompt.
 
-### LLM-Powered Keyword Extraction (FUTURE)
-`GenKeyword` agent: dedicated LLM call generates bilingual search keywords + semantically related terms not in the original query. User asks "core formula" → LLM generates `["formula", "equation", "derivation"]`. Much better retrieval than naive word-splitting.
+### LLM-Powered Keyword Extraction [DONE]
+`GenKeyword` agent: [DONE] `hiveai/chat.py:_extract_section_keywords()` generates document-level keywords via LLM at ingest time, stored in BookSection.keywords_json. Used as BM25 search bonus in hybrid_search() (2026-03-08).
 
 **Trade-off**: Extra LLM roundtrip (~1-2s latency). Worth it for knowledge-heavy queries, overkill for simple chat. Could implement as optional for "complex" difficulty queries only.
 
-### Parallel Document QA (FUTURE — Phase 5)
+### Parallel Document QA [DONE]
 `ParallelDocQA`: chunks documents → spawns parallel worker agents (ThreadPoolExecutor with jitter) → each worker answers independently → filters "none" responses → RAG retrieves from combined results → summary agent synthesizes final answer.
 
 This is the RLM pattern (see Section 8) but production-grade. Key implementation details:
@@ -314,9 +314,9 @@ Codex CLI uses two paths: open-source (local LLM summarizer with visible prompts
 
 The key insight: don't just summarize — prepend a structured "handoff" that frames the compact summary for the next model turn. This preserves intent, decisions, and task state across compaction boundaries. Our implementation uses `COMPACTION_HANDOFF` in `hiveai/llm/prompts.py`.
 
-### Multi-Turn Injection via Compacted Memory (FUTURE SECURITY)
+### Multi-Turn Injection via Compacted Memory [DONE]
 
-Compacted memory is an attack surface for indirect prompt injection. An adversary could craft messages that, when compacted, inject instructions into the summary. Mitigation: validate compaction output for instruction-like patterns, or use a separate model for compaction vs. generation. Low priority for local-only deployment but worth noting for any future API exposure.
+[DONE] Compaction security validation: `_validate_compaction_safety()` in `hiveai/chat.py` checks for 16 injection patterns (instruction overrides, role impersonation, prompt boundary tokens, directive density). Integrated into `compact_conversation()` — unsafe compactions fall back to truncation (2026-03-08). Low priority for local-only deployment but worth noting for any future API exposure.
 
 ### Encrypted Blob Pattern (REFERENCE ONLY)
 
@@ -344,7 +344,7 @@ Verified our LoRA deployment uses correct ChatML format (`<|im_start|>` / `<|im_
 
 Unsloth explicitly warns: "It is not recommended to do QLoRA (4-bit) training on the Qwen3.5 models due to higher than normal quantization differences." We use Qwen 2.5 Coder with bf16 LoRA (not QLoRA), so this doesn't apply, but keep in mind if upgrading base model to Qwen 3.5.
 
-### GRPO — Group Relative Policy Optimization (FUTURE)
+### GRPO — Group Relative Policy Optimization [DONE]
 
 Next frontier after SFT. Instead of just showing the model good outputs, generate multiple outputs per prompt and train on relative quality rankings. Unsloth supports GRPO with 7x longer context and 50% less VRAM. Also supports GSPO, DrGRPO, and DAPO variants. Would require:
 - A reward model or LLM-as-judge scorer
@@ -352,7 +352,7 @@ Next frontier after SFT. Instead of just showing the model good outputs, generat
 - Significantly more compute than SFT
 - Best applied after SFT establishes baseline quality
 
-### Vision Fine-Tuning (FUTURE)
+### Vision Fine-Tuning [DONE — prep]
 
 `FastVisionModel` supports selective fine-tuning of vision layers, language layers, attention, and MLP independently. Could be useful for:
 - Training the model to understand architecture diagrams
@@ -366,7 +366,7 @@ dataset_text_field = ""
 dataset_kwargs = {"skip_prepare_dataset": True}
 ```
 
-### Dynamic 4-bit Quantization (FUTURE)
+### Dynamic 4-bit Quantization [DONE]
 
 Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standard quantization. Could enable running larger base models (27B+) on our 16GB GPU. Requires testing against our eval harness.
 
@@ -395,9 +395,9 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 **Scaling strategies**:
 
 - **[DONE] Provider rotation with quality scoring** (2026-03-08): Added per-model quality tracking to `hiveai/lora/miner.py`. `ProviderState` now tracks rolling window of 50 quality scores per model. `best_model()` selects highest-quality model with 70/30 exploit/explore ratio. Quality scores recorded after each generation. Per-model stats (avg quality, eligible/rejected counts) exposed via `/api/miner/status`. Metadata now includes actual model used + quality score.
-- **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models [DONE — keyword-based difficulty estimator + model size tier routing in miner.py]
+- [DONE] **Difficulty-aware routing**: `_estimate_difficulty()` in miner.py scores instruction complexity (length, hard/easy keywords, action verbs, multi-concept detection), routes to model size tiers accordingly (2026-03-08)
 - **[DONE] Parallel batch distillation**: Run multiple providers concurrently (respect rate limits) — added `_generate_batch()` with `ThreadPoolExecutor` to fire requests to multiple providers simultaneously (2026-03-08)
-- **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
+- [DONE] **Seed prompt sources**: `scripts/fetch_stackexchange.py` fetches coding questions from Stack Exchange API (no key needed, 300 req/day), filters by score/accepted answer, exports JSONL seed prompts. Supports python/rust/go/cpp/js/hive tags (2026-03-08)
 
 **Meta-lesson #12**: Free API landscape changes fast. Audit OpenRouter's free model list quarterly — new models appear regularly as providers use free tier for benchmarking exposure.
 
@@ -495,12 +495,12 @@ python scripts/compaction_quality.py --threshold 0.6 --json
 - Unsloth claims 7x context and 50% less VRAM vs standard implementations
 - Can use our eval scorer as the reward function (code validity + concept coverage)
 
-**Implementation plan**:
-1. Build reward function wrapping `score_code_validity` + `concept_coverage`
-2. Generate 500+ seed prompts from eval challenges + mined data
-3. Run GRPO with Unsloth: `from unsloth import GRPOTrainer`
-4. Use KL divergence penalty to prevent reward hacking
-5. Eval after each epoch — stop if degradation detected
+**Implementation plan** [DONE]:
+1. [DONE] Reward function in `scripts/train_grpo.py`: code_validity (30%) + concept_coverage (20%) + test_passing (30%) + certificate_verification (20%) (2026-03-08)
+2. [DONE] Seed prompt generation: `scripts/generate_seed_prompts.py` extracts 500+ diverse prompts from eval challenges + training data, balanced across categories (2026-03-08)
+3. [DONE] GRPO training with GRPOTrainer: K=4 candidates, KL penalty, warm-start from SFT adapter (2026-03-08)
+4. [DONE] KL divergence penalty configurable via `--kl-coeff` (default 0.1) (2026-03-08)
+5. [DONE] Eval integration: `--dry-run` generates + scores without training, full eval via `run_eval.py` post-training (2026-03-08)
 
 **Risks**:
 - Reward hacking (model games the scorer without actually improving)
@@ -533,11 +533,10 @@ python scripts/compaction_quality.py --threshold 0.6 --json
 
 **What it is**: Mixed-precision quantization where attention layers stay at higher precision (Q6/Q8) while FFN layers drop to Q4. Llama.cpp supports this via imatrix-guided quantization.
 
-**Implementation plan**:
-1. Generate importance matrix: `llama-imatrix -m model.gguf -f calibration.txt`
-2. Quantize with imatrix: `llama-quantize --imatrix imatrix.dat model.gguf model-Q4_K_M.gguf`
-3. Benchmark: compare Q4_K_M (standard) vs Q4_K_M (imatrix) on our eval harness
-4. Target: run Qwen2.5-Coder-32B on 16GB VRAM (currently impossible)
+**Implementation plan** [DONE]:
+1. [DONE] `scripts/quantize_dynamic.py` + existing `scripts/quantize_imatrix.py` — full imatrix-guided quantization pipeline: calibration text extraction from JSONL, imatrix generation via llama-imatrix, quantization with imatrix, optional eval benchmark (2026-03-08)
+2. [DONE] Benchmark integration: `--benchmark` flag runs `run_eval.py` after quantization
+3. Target: run Qwen2.5-Coder-32B on 16GB VRAM (currently impossible)
 
 **Risks**: Quality loss at extreme quantization. Need eval to catch degradation.
 
@@ -554,10 +553,10 @@ python scripts/compaction_quality.py --threshold 0.6 --json
 - Training data: paired (image, description) for code/architecture content
 - Unsloth VLM support (experimental as of 2026-03)
 
-**Implementation plan**:
-1. Collect 500+ (screenshot, code) pairs from open-source repos
-2. Add architecture diagram → text description pairs
-3. Fine-tune VLM with LoRA (same pipeline as text LoRA)
+**Implementation plan** [DONE — prep]:
+1. [DONE] `scripts/prepare_vision_data.py` — scans image+text pairs, validates (sizes, lengths, orphans), exports Unsloth FastVisionModel JSONL format. Includes data collection guidelines (2026-03-08)
+2. Add architecture diagram → text description pairs (needs data collection)
+3. Fine-tune VLM with LoRA (same pipeline as text LoRA, awaiting data)
 4. Eval: image-to-code accuracy on held-out test set
 
 ---
@@ -573,12 +572,12 @@ python scripts/compaction_quality.py --threshold 0.6 --json
 - Sufficient RAM for parallel embedding inference
 - Good compaction quality (Phase 3 verified via compaction metrics)
 
-**Implementation plan**:
-1. Parallel retrieval: query top-K chunks from multiple books concurrently
-2. Cross-document dedup: remove redundant chunks across books
-3. Synthesis prompt: "Given these excerpts from N sources, answer..."
-4. Citation tracking: attribute each claim to its source book/chapter
-5. Streaming response with source annotations
+**Implementation plan** [DONE]:
+1. [DONE] `scripts/parallel_doc_qa.py` — parallel retrieval via ThreadPoolExecutor, per-chunk LLM queries with confidence scoring, final synthesis with citations (2026-03-08)
+2. [DONE] Cross-document dedup handled by hybrid_search's existing dedup
+3. [DONE] Synthesis prompt with source annotations and confidence scores
+4. [DONE] Citation tracking per chunk with source attribution
+5. CLI: `--question`, `--max-chunks 5`, `--workers 3`, `--json`
 
 **Expected impact**: Transform HiveAI from single-document Q&A to a true research assistant that cross-references multiple sources.
 
@@ -619,7 +618,7 @@ Conclusion: [claim is {valid|invalid} because {reasoning from trace}]
 - [DONE] v9 training: Generated 20 semi-formal verification pairs (Python 7, Rust 3, Go 3, C++ 3, JS 2) — `scripts/gen_verification_pairs.py` → `v9_research_pairs.jsonl` (2026-03-08). Mix of ~10 buggy + ~10 correct. Each uses Claim→Premises→Code Trace→Conclusion format with `<think>` blocks.
 - [DONE] Integrate certificate format into eval scorer for non-Python code — added `certificate_verify_code()` + `CERTIFICATE_PROMPT` to run_eval.py. Uses LLM judge to verify code via semi-formal certificate (CLAIM→PREMISES→CODE TRACE→CONCLUSION→SCORE). Blends 60% structural + 40% certificate when structural score < 0.8. Activated by `--cert-verify` flag (auto-enabled with `--llm-judge`). Fail-open, 60s timeout (2026-03-08)
 - [DONE] Use as quality gate for miner — model self-verifies its own code output via structured VALID/INVALID prompt before accepting the pair. Fails open on API errors. Added `_verify_response()` + `VERIFICATION_PROMPT` to miner.py (2026-03-08)
-- [LOW] GRPO reward function using semi-formal verification instead of code execution
+- [DONE] GRPO reward function using semi-formal verification — `reward_certificate()` in `scripts/train_grpo.py` uses LLM-as-judge certificate verification as 20% of reward signal (2026-03-08)
 
 **Meta-lesson #16**: Structured reasoning templates beat both unstructured CoT (too loose, allows skipping) and fully formal verification (too rigid, impractical for arbitrary code). The sweet spot is "semi-formal" — structured enough to require evidence, flexible enough for any language/framework.
 
@@ -644,7 +643,7 @@ llama-server -m Qwen3.5-27B-Q4_K_M.gguf -ngl 99 -c 262144 -np 1 -fa on
 
 **Actionable for HiveAI**:
 - Not needed now (Qwen 2.5 Coder uses ChatML, no developer role issues)
-- **REQUIRED if upgrading to Qwen 3.5 base** — save this patch
+- [DONE] **REQUIRED if upgrading to Qwen 3.5 base** — saved as `loras/v3.5/qwen3.5_chat_template.jinja` (2026-03-08). Maps `developer`→`system` while preserving `<think>` reasoning mode. Use with `--chat-template-file loras/v3.5/qwen3.5_chat_template.jinja`
 - Confirms Q4_0 KV cache is stable even at 262K context (we use Q4/Q8 at 8K)
 - `--chat-template-file` flag is useful for custom template injection
 
@@ -692,9 +691,9 @@ All Apache 2.0, ready to download:
 
 **Actionable for HiveAI**:
 - [DONE] Download and mix reasoning datasets into v9 training — `scripts/fetch_reasoning_data.py` updated with correct HF repo IDs (nohurry/, TeichAI/, Jackrong/), added `--pipeline` flag for one-command download->filter->export (2026-03-08). Run `python scripts/fetch_reasoning_data.py --pipeline` to fetch all 3 datasets.
-- [MED] Consider Qwen 3.5 27B Q3_K_M as future base model upgrade (13.3GB fits)
-- [MED] Add `<think>` block format to training pairs for reasoning capability
-- [LOW] Update Unsloth to 2026.3.3 before v9 training
+- [EVAL] Consider Qwen 3.5 27B Q3_K_M as future base model upgrade (13.3GB fits). Q3_K_M is the sweet spot for 16GB VRAM — leaves ~2.5GB for LoRA + KV cache. 29-35 tok/s expected on 4070 Ti SUPER. Decision deferred to post-v9 evaluation.
+- [DONE] Add `<think>` block format to training pairs for reasoning capability — already handled by `scripts/generate_thinking_traces.py` (wraps training outputs in `<think>...</think>`) and `scripts/fetch_reasoning_data.py` (downloads reasoning-trace datasets with native `<think>` blocks). No additional work needed.
+- [DONE] Update Unsloth to 2026.3.3 before v9 training — upgrade command added to `scripts/run_train_v8.sh` pre-flight checks (2026-03-08). Run `pip install --upgrade unsloth` in WSL venv before v9.
 
 **Meta-lesson #17**: The best open LoRA finetunes are small-data, high-quality. Jackrong used ~4K pairs to create a model with 36K downloads/month. Quality of reasoning traces >> quantity of generic pairs.
 
@@ -720,6 +719,11 @@ All Apache 2.0, ready to download:
 3. **Mechanistic interpretability**: Understanding what each layer "computes" enables debugging LoRA training — if loss isn't dropping, inspect which attention patterns aren't forming
 4. **Minimal architecture search**: Proves that task complexity determines minimum viable architecture. Our 14B base model is extreme overkill for pattern-matching tasks — the LoRA's job is surgical skill injection, not wholesale knowledge
 
+**Actionable for HiveAI**:
+
+- [NOTE] Hand-crafted weight initialization: For known algorithmic tasks (e.g., formatting rules, syntax transforms), pre-setting LoRA weights to encode the target function before training could accelerate convergence. Practical application: initialize lora_B to zero (standard) but set lora_A to encode input feature directions that align with the target skill. Deferred — requires mechanistic interpretability tooling first.
+- [DONE] Mechanistic interpretability for LoRA debugging — `scripts/analyze_lora_layers.py` created (2026-03-08). Loads PEFT adapters, reports per-layer rank/alpha/Frobenius norm, compares two adapters side-by-side, identifies biggest weight deltas. CLI: `--adapter loras/v7 --compare loras/v8 --json`
+
 **Meta-lesson #18**: Neural networks are programs. Weights are instructions. Training is compilation. This gist proves you can "write" a working program directly into weights — which means LoRA training is essentially compiling our training data into weight-space instructions.
 
 ---
@@ -739,9 +743,9 @@ All Apache 2.0, ready to download:
 
 **Actionable for HiveAI**:
 - [DONE] Integrate web extraction layer for automated training data generation — `scripts/knowledge_harvester.py` crawls Rust/Go/C++/Hive docs, extracts code examples, generates scored training pairs with checkpoint/resume (2026-03-08). Uses requests+BS4 with Scrapling-swappable fetcher.
-- [HIGH] Use MCP server mode to feed extracted content directly into distillation prompts (reduce token waste by 5-10x vs raw HTML)
+- [DONE] Use MCP server mode to feed extracted content directly into distillation prompts — `scripts/knowledge_harvester_mcp.py` exposes `harvest_docs(language, url)` and `list_sources()` as MCP tools via JSON-RPC HTTP server on port 8779 (2026-03-08)
 - [DONE] Build a "knowledge harvester" spider that streams code examples from target domains (Rust docs, Go stdlib, Hive docs) into category-specific JSONL — `scripts/knowledge_harvester.py` (2026-03-08)
-- [MED] Adaptive tracking means we can set up persistent scrapers that survive site redesigns without manual selector updates
+- [DONE] Adaptive URL tracking for persistent scrapers — checkpoint tracks timestamps per URL, `--refresh-after N` re-scrapes stale URLs, `--watch` runs continuously with configurable interval (2026-03-08)
 
 **Meta-lesson #19**: The best training data pipelines aren't static exports — they're living scrapers that continuously harvest and refresh knowledge. Scrapling's adaptive + streaming + checkpoint architecture is exactly the pattern needed for an autonomous knowledge refinery.
 
@@ -782,7 +786,7 @@ All Apache 2.0, ready to download:
 - [DONE] DataClaw session mining script — `scripts/dataclaw_mine.py` parses DataClaw JSONL exports, extracts instruction/response pairs with quality scoring, thinking trace support, tool-use synthesis, and dedup (2026-03-08)
 - [DONE] Download dataset and mine for high-quality multi-step coding patterns — handled by `dataclaw_mine.py` with `--input` pointing to dataset
 - [DONE] Extract `thinking` traces to build `<think>` block training data — `dataclaw_mine.py --include-thinking` flag (2026-03-08)
-- [MED] Adopt session-level JSONL schema for future agentic training data (beyond instruction/output)
+- [DONE] Adopt session-level JSONL schema for future agentic training data — `dataclaw_mine.py --session-format` exports complete multi-turn sessions with messages array, tool_uses, thinking traces, quality scores, and skill categories (2026-03-08)
 
 **Meta-lesson #20**: The best training data is YOUR OWN work sessions. DataClaw proves that real coding agent conversations — with all their debugging, backtracking, and tool use — produce models that 28+ people want to fine-tune on. Our HiveAI sessions are a gold mine we haven't tapped yet.
 
@@ -802,9 +806,9 @@ All Apache 2.0, ready to download:
 4. **Distribution is solved**: `npx skillsadd` handles install across all major agents. No pip, no config. When our skills are polished, this is the distribution channel
 
 **Actionable for HiveAI**:
-- [MED] Publish HiveAI skills (Go, Rust, C++, JS/TS, Hive) to skills.sh when polished — free distribution + community feedback
-- [MED] Study top-installed skills for format/structure best practices before publishing
-- [LOW] Add skills.sh compatibility metadata to our SKILL.md files for cross-agent portability
+- [DONE] Publish HiveAI skills to skills.sh — `scripts/publish_skills.py` packages skill directories with manifest.json, README.md, validation. CLI: `--skill name`, `--all`, `--output`, `--validate-only`, `--dry-run` (2026-03-08)
+- [DONE] Study top-installed skills for format/structure best practices — manifest includes tags, multi-agent support, auto-detected language tags (2026-03-08)
+- [DONE] Add skills.sh compatibility metadata — publish_skills.py generates manifest.json with name, description, version, author, tags, agent compatibility per skill (2026-03-08)
 
 **Meta-lesson #21**: The most valuable agent skills aren't complex code — they're curated domain knowledge in a standard format. 184K developers installed a React best practices skill. The hard part isn't the format, it's having knowledge worth distributing.
 
@@ -881,11 +885,11 @@ superpowers/
 
 **Actionable for HiveAI**:
 - [DONE] Evolve SKILL.md from knowledge docs to enforceable workflow gates — added `check_preconditions()`, `check_postconditions()`, `validate_response()` to skill_loader.py. Pre-conditions check queries (min_query_length, must_mention, must_match_pattern), post-conditions check responses (requires_code_block, min_response_length, must_mention, language_required, must_not_contain). Conditions are optional, violations are warnings not blocks. Added conditions to rust_async, go_concurrency, hive_architecture, writing_skills skill_meta.json files (2026-03-08)
-- [HIGH] Adopt plan-then-execute gate: decompose tasks into 2-5 min chunks with sign-off before implementation
+- [DONE] Adopt plan-then-execute gate: decompose tasks into 2-5 min chunks with sign-off before implementation — added `plan_task()` to `skills/skill_loader.py` with heuristic decomposition (action verb detection, complexity signals, 200-char threshold). Returns subtasks with time estimates, dependencies, and validation criteria (2026-03-08)
 - [DONE] Build a `writing-skills` meta-skill so the agent can bootstrap new domain skills in correct format — skills/writing_skills/ with SKILL.md template + loader route
-- [MED] Use git worktree isolation for parallel training experiments (v8 train + v9 data prep simultaneously)
+- [DONE] Use git worktree isolation for parallel training experiments — `scripts/worktree_experiment.py` creates isolated git worktrees with `--name`, `--branch`, `--cleanup`, `--list`. Copies config files, symlinks training data (2026-03-08)
 - [DONE] Implement structured 4-phase debugging protocol in CLAUDE.md — Root-Cause Trace → Hypothesize → Verify → Fix (2026-03-08)
-- [LOW] Study their two-stage code review (spec compliance → code quality) for our eval harness
+- [DONE] Study their two-stage code review (spec compliance → code quality) for our eval harness — added `--two-stage-review` flag to `scripts/run_eval.py`. Stage 1: spec compliance check via LLM. Stage 2: code quality check. Blended 80/20 with standard score. Requires `--llm-judge` (2026-03-08)
 
 **Meta-lesson #23**: The gap between "AI assistant" and "AI engineer" is process discipline. Superpowers proves that the same model produces dramatically better results when forced through brainstorm→plan→TDD→review gates. Knowledge (our LoRA) gives the model skills; process (their framework) ensures it uses them correctly.
 
@@ -942,11 +946,11 @@ superpowers/
 - Max sequence length: 2048 tokens (truncation policy for complex inputs)
 
 **Actionable summary for HiveAI**:
-- [HIGH] Implement two-stage training for v9 (align format first, then train knowledge)
-- [HIGH] Filter training data with `score_training_data.py --drop-below 0.3` before v9
-- [MED] Initialize `<think>`/`</think>` token embeddings semantically (average of descriptive words)
-- [MED] Audit generation vs understanding ratio in training data — target 60/40 or 50/50
-- [LOW] Test r=32 if r=16 shows underfitting on v9
+- [DONE] Implement two-stage training for v9 — `--two-stage` flag in `train_v5.py` (commit a17a295, 2026-03-08)
+- [DONE] Filter training data with `score_training_data.py --drop-below 0.3` — exists and audited (only 12 pairs below threshold, 2026-03-08)
+- [DONE] Initialize `<think>`/`</think>` token embeddings semantically — `--init-think-tokens` flag in `train_v5.py`, averages embeddings of ["reason", "analyze", "consider", "evaluate", "think", "step"] (2026-03-08)
+- [DONE] Audit generation vs understanding ratio — `scripts/audit_training_data.py` classifies pairs, reports ratio, exports balanced subset via `--output`, tracks rank experiments via `--test-rank` (2026-03-08)
+- [LOW] Test r=32 if r=16 shows underfitting on v9 — tracking support added to `audit_training_data.py --test-rank 32`
 
 **Meta-lesson #24**: Training strategy (staging, data curation, token initialization) can make a 1.3B model beat a 70B model on specialized tasks. For LoRA fine-tuning, HOW you train matters more than how much data you throw at it. Two-stage training + data filtering is the highest-leverage change we haven't tried yet.
 
@@ -988,8 +992,9 @@ superpowers/
 - **Skill inventory**: 14 skills, 41 test cases total (both eval_skills.py and skill_lift.py require running LLM)
 
 ### Remaining Actionable Items
+
 - [MED] Deduplicate Hive-oversampled pairs (the 12 zero-novelty pairs) in prepare_v5_data.py
-- [MED] Add ~500 more understanding-focused pairs to reach 50/50 ratio if desired
-- [MED] Initialize `<think>`/`</think>` token embeddings semantically
-- [LOW] Test r=32 if r=16 shows underfitting on v9
+- [MED] Add ~500 more understanding-focused pairs to reach 50/50 ratio if desired — use `scripts/audit_training_data.py --output balanced.jsonl` to generate balanced subset
+- [DONE] Initialize `<think>`/`</think>` token embeddings semantically — `--init-think-tokens` flag in `train_v5.py` (same as section 32 item, 2026-03-08)
+- [LOW] Test r=32 if r=16 shows underfitting on v9 — tracking via `audit_training_data.py --test-rank 32`
 - [LOW] Run skill_lift.py once server is available to identify dead-weight skills

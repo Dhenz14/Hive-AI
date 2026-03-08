@@ -625,6 +625,100 @@ def _check_compaction_diversity(original: str, summary: str) -> float:
     return retained / len(original_signals)
 
 
+# ---------------------------------------------------------------------------
+# §12 — Compaction security: multi-turn injection detection
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate prompt injection attempts in compacted text
+_INJECTION_PATTERNS = [
+    # Direct instruction override attempts
+    (r'\bignore\s+(all\s+)?previous\s+(instructions?|context|rules)\b', "instruction override"),
+    (r'\bforget\s+(everything|all|previous)\b', "memory wipe"),
+    (r'\bdisregard\s+(all\s+)?(previous|above|prior)\b', "instruction override"),
+    # Role impersonation
+    (r'^system\s*:', "role impersonation (system:)"),
+    (r'^\[system\]', "role impersonation ([system])"),
+    (r'\byou\s+are\s+now\b', "role reassignment"),
+    (r'\bact\s+as\s+(a\s+)?different\b', "role reassignment"),
+    (r'\bswitch\s+to\s+.*?mode\b', "mode switch attempt"),
+    (r'\bnew\s+instructions?\s*:', "instruction injection"),
+    # Prompt boundary manipulation
+    (r'<\|?(system|im_start|endoftext)\|?>', "prompt boundary token"),
+    (r'\[INST\]|\[/INST\]', "instruction boundary token"),
+    (r'###\s*(System|Human|Assistant)\s*:', "role marker injection"),
+    # Hidden instruction patterns
+    (r'\bdo\s+not\s+mention\s+this\s+(to|in)\b', "hidden instruction"),
+    (r'\bsecretly\b', "covert instruction"),
+    (r'\boverride\s+(safety|security|rules|policy)\b', "safety override"),
+    # Encoded/obfuscated payloads in code blocks
+    (r'```\s*(system|prompt|injection|override)', "suspicious code block label"),
+]
+
+# Pre-compile for performance
+_COMPILED_INJECTION_PATTERNS = [
+    (re.compile(pat, re.IGNORECASE | re.MULTILINE), desc)
+    for pat, desc in _INJECTION_PATTERNS
+]
+
+
+def _validate_compaction_safety(compacted_text: str) -> tuple[bool, list[str]]:
+    """Check compacted output for prompt injection patterns (§12).
+
+    LLM-generated compaction summaries could be manipulated by adversarial
+    conversation turns to inject instructions into the compacted context.
+    This validator catches common injection patterns before the compacted
+    text is used as context.
+
+    Args:
+        compacted_text: The LLM-generated compaction summary.
+
+    Returns:
+        Tuple of (is_safe, warnings). is_safe is False if any high-severity
+        patterns are detected. warnings lists all matched patterns.
+    """
+    if not compacted_text:
+        return True, []
+
+    warnings = []
+    text = compacted_text.strip()
+
+    # 1. Check regex patterns
+    for pattern, description in _COMPILED_INJECTION_PATTERNS:
+        if pattern.search(text):
+            warnings.append(f"injection pattern: {description}")
+
+    # 2. Check for suspicious density of directive language
+    directive_words = ["must", "always", "never", "override", "ignore",
+                       "forget", "instead", "actually", "really"]
+    text_lower = text.lower()
+    word_count = len(text_lower.split())
+    if word_count > 0:
+        directive_count = sum(1 for w in directive_words if w in text_lower)
+        directive_density = directive_count / max(word_count, 1) * 100
+        if directive_density > 5.0:  # >5% directive words is suspicious
+            warnings.append(f"high directive density ({directive_density:.1f}%)")
+
+    # 3. Check for role-play markers that shouldn't appear in a summary
+    role_markers = [
+        "assistant:", "human:", "user:", "ai:",
+        "<|im_start|>", "<|im_end|>",
+    ]
+    for marker in role_markers:
+        if marker in text_lower:
+            warnings.append(f"role marker in summary: {marker}")
+
+    # High-severity patterns make it unsafe
+    high_severity = ["instruction override", "memory wipe", "role impersonation",
+                     "role reassignment", "safety override", "prompt boundary token",
+                     "instruction boundary token"]
+    is_safe = not any(
+        any(hs in w for hs in high_severity)
+        for w in warnings
+    )
+
+    return is_safe, warnings
+
+
 def compact_conversation(history):
     """Compact older conversation turns into a structured summary via LLM.
 
@@ -687,6 +781,16 @@ def compact_conversation(history):
                        ["decided", "chose", "must", "need to", "plan to"]):
                     summary_extended += f"- {content[:200]}\n"
             summary = summary_extended
+
+        # §12: Validate compaction output for injection patterns
+        is_safe, safety_warnings = _validate_compaction_safety(summary)
+        if safety_warnings:
+            log.warning(f"Compaction safety warnings: {safety_warnings}")
+        if not is_safe:
+            log.error(f"Compaction REJECTED — injection detected: {safety_warnings}")
+            with _metrics_lock:
+                _compaction_metrics["failures"] += 1
+            return None  # Reject tainted compaction, fall back to truncation
 
         log.info(f"Compacted {len(older)} turns: {original_chars} → {compressed_chars} chars "
                  f"({ratio:.1f}x compression, diversity={retention:.2f})")

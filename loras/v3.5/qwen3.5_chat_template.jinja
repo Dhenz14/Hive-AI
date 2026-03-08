@@ -1,0 +1,107 @@
+{#- Qwen 3.5 Chat Template with Developer Role Mapping
+    Maps "developer" role (sent by Claude Code, OpenCode, Cursor, Aider)
+    to "system" role while preserving <think> reasoning mode.
+
+    Usage with llama-server:
+      --chat-template-file loras/v3.5/qwen3.5_chat_template.jinja
+
+    Reference: HiveAI improvement_notes.md §24
+-#}
+{%- if tools %}
+    {%- set ns = namespace(tools_prompt="", thinking=true) %}
+    {%- for tool in tools %}
+        {%- set ns.tools_prompt = ns.tools_prompt + "\n\n## " + tool.function.name + "\n\n" + tool.function.description|default("", true) + "\n" %}
+        {%- if tool.function.parameters %}
+            {%- set ns.tools_prompt = ns.tools_prompt + "Parameters: " + tool.function.parameters|tojson + "\n" %}
+        {%- endif %}
+    {%- endfor %}
+{%- else %}
+    {%- set ns = namespace(thinking=true) %}
+{%- endif %}
+
+{%- set reasoning_content_token = "<think>" %}
+{%- set end_reasoning_content_token = "</think>" %}
+
+{%- macro format_message(message) %}
+    {%- set role = message.role %}
+    {#- Map developer role to system for compatibility with modern coding agents -#}
+    {%- if role == "system" or role == "developer" %}
+        {%- set role = "system" %}
+    {%- endif %}
+
+    {%- if role == "assistant" and message.reasoning_content is defined and message.reasoning_content %}
+        {%- set content = reasoning_content_token + message.reasoning_content + end_reasoning_content_token + message.content|default("", true) %}
+    {%- elif role == "assistant" and message.content is defined %}
+        {%- if message.content is string %}
+            {%- set content = message.content %}
+        {%- else %}
+            {%- set content_parts = [] %}
+            {%- for part in message.content %}
+                {%- if part.type == "text" %}
+                    {%- set _ = content_parts.append(part.text) %}
+                {%- endif %}
+            {%- endfor %}
+            {%- set content = content_parts | join("") %}
+        {%- endif %}
+    {%- elif message.content is defined %}
+        {%- if message.content is string %}
+            {%- set content = message.content %}
+        {%- else %}
+            {%- set content_parts = [] %}
+            {%- for part in message.content %}
+                {%- if part.type == "text" %}
+                    {%- set _ = content_parts.append(part.text) %}
+                {%- elif part.type == "image_url" %}
+                    {%- set _ = content_parts.append("<image>") %}
+                {%- endif %}
+            {%- endfor %}
+            {%- set content = content_parts | join("") %}
+        {%- endif %}
+    {%- else %}
+        {%- set content = "" %}
+    {%- endif %}
+
+    {%- if role == "assistant" and message.tool_calls is defined and message.tool_calls %}
+        {%- set tool_call_parts = [] %}
+        {%- for tool_call in message.tool_calls %}
+            {%- set tool_call_part = '{"name": "' + tool_call.function.name + '", "arguments": ' + tool_call.function.arguments + '}' %}
+            {%- set _ = tool_call_parts.append(tool_call_part) %}
+        {%- endfor %}
+        {%- set tool_content = "\n\n" + tool_call_parts | join("\n") %}
+        {%- set content = content + tool_content %}
+    {%- endif %}
+
+<|im_start|>{{ role }}
+{{ content }}<|im_end|>
+{%- endmacro %}
+
+{%- for message in messages %}
+    {%- if loop.first and message.role != "system" and message.role != "developer" %}
+        {%- if tools %}
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>{{ ns.tools_prompt }}</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call><|im_end|>
+        {%- else %}
+<|im_start|>system
+You are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>
+        {%- endif %}
+    {%- endif %}
+    {{- format_message(message) }}
+{%- endfor %}
+
+{%- if add_generation_prompt %}
+<|im_start|>assistant
+{% if enable_thinking is defined and enable_thinking is true %}{{ reasoning_content_token }}
+{% endif %}
+{%- endif %}

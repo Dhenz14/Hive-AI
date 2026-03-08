@@ -894,6 +894,96 @@ def llm_judge_score(instruction: str, response: str,
     return None
 
 
+# ---------------------------------------------------------------------------
+# Two-stage code review (§31): spec compliance + code quality
+# ---------------------------------------------------------------------------
+_TWO_STAGE_REVIEW_ENABLED: bool = False
+
+_SPEC_COMPLIANCE_PROMPT = """Review this code response for SPEC COMPLIANCE only.
+Does the code match the challenge requirements?
+
+Challenge: {instruction}
+
+Response:
+{response}
+
+Score 0.0-1.0 on spec compliance:
+- 1.0: Fully addresses all requirements
+- 0.7: Addresses main requirements, minor gaps
+- 0.4: Partially addresses requirements
+- 0.0: Does not address the challenge
+
+Respond with JSON: {{"spec_score": 0.8, "gaps": ["list of missing requirements"]}}"""
+
+_CODE_QUALITY_PROMPT = """Review this code for CODE QUALITY only (not correctness).
+Check: style, efficiency, best practices, error handling, readability.
+
+Code:
+```
+{code}
+```
+
+Score 0.0-1.0 on code quality:
+- 1.0: Production-ready, excellent style
+- 0.7: Good quality, minor improvements possible
+- 0.4: Functional but poor style/practices
+- 0.0: Unmaintainable or dangerous patterns
+
+Respond with JSON: {{"quality_score": 0.7, "issues": ["list of quality issues"]}}"""
+
+
+def two_stage_review(instruction: str, response: str,
+                     llm_url: str, model: str) -> dict | None:
+    """Run two-stage code review: spec compliance then code quality.
+
+    Returns {"spec_score": float, "quality_score": float, "combined": float,
+             "gaps": list, "issues": list} or None on failure.
+    """
+    import requests
+
+    results = {}
+    for stage, prompt_tmpl, key in [
+        ("spec", _SPEC_COMPLIANCE_PROMPT, "spec_score"),
+        ("quality", _CODE_QUALITY_PROMPT, "quality_score"),
+    ]:
+        prompt = prompt_tmpl.format(
+            instruction=instruction[:1000],
+            response=response[:2000],
+            code=response[:2000],
+        )
+        try:
+            r = requests.post(
+                f"{llm_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "options": {"temperature": 0.05, "num_predict": 300},
+                },
+                timeout=120,
+            )
+            r.raise_for_status()
+            content = r.json().get("message", {}).get("content", "")
+            if "</think>" in content:
+                content = content.split("</think>", 1)[1]
+            json_match = re.search(r'\{[^{}]+\}', content)
+            if json_match:
+                data = json.loads(json_match.group())
+                results[key] = max(0.0, min(1.0, float(data.get(key, 0.5))))
+                results[f"{stage}_detail"] = data.get("gaps", data.get("issues", []))
+            else:
+                results[key] = 0.5
+                results[f"{stage}_detail"] = []
+        except Exception as e:
+            logger.debug(f"Two-stage review {stage} failed: {e}")
+            return None
+
+    results["combined"] = round(0.6 * results["spec_score"] + 0.4 * results["quality_score"], 3)
+    results["gaps"] = results.pop("spec_detail", [])
+    results["issues"] = results.pop("quality_detail", [])
+    return results
+
+
 def compute_weighted_score(code_validity: float, test_passing: float | None,
                            concept_coverage: float, explanation: float) -> float:
     """
@@ -979,6 +1069,16 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
 
     overall = compute_weighted_score(d1_code, d2_test, d3_concept, d4_explain)
 
+    # Two-stage code review (§31) — runs after standard scoring
+    review_result = None
+    if _TWO_STAGE_REVIEW_ENABLED and _LLM_JUDGE_URL:
+        review_result = two_stage_review(
+            challenge["instruction"], response, _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
+        )
+        if review_result:
+            # Blend: 80% standard score + 20% two-stage review
+            overall = round(0.8 * overall + 0.2 * review_result["combined"], 3)
+
     status = "PASS" if overall >= 0.6 else "MARGINAL" if overall >= 0.4 else "FAIL"
     test_str = f"{d2_test:.2f}" if d2_test is not None else "N/A"
     logger.info(
@@ -1001,6 +1101,7 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
         },
         "has_test_code": test_code is not None,
         "llm_judge_used": judge_result is not None,
+        "two_stage_review": review_result,
         "duration_ms": result["duration_ms"],
         "tokens_eval": result["tokens_eval"],
         "response_preview": response[:300],
@@ -1253,6 +1354,9 @@ def main():
                              "(default: enabled when --llm-judge is set)")
     parser.add_argument("--no-cert-verify", action="store_true",
                         help="Disable certificate verification even with --llm-judge")
+    parser.add_argument("--two-stage-review", action="store_true",
+                        help="Enable two-stage code review: Stage 1 checks spec compliance, "
+                             "Stage 2 checks code quality. Requires --llm-judge.")
     args = parser.parse_args()
 
     # --- Wire llama-server URL if given ---
@@ -1276,6 +1380,15 @@ def main():
             logger.info("Certificate verification enabled for non-Python code scoring")
     elif args.cert_verify:
         logger.warning("--cert-verify has no effect without --llm-judge")
+
+    # --- Wire two-stage review ---
+    global _TWO_STAGE_REVIEW_ENABLED
+    if args.two_stage_review:
+        if not args.llm_judge:
+            logger.warning("--two-stage-review requires --llm-judge; ignoring")
+        else:
+            _TWO_STAGE_REVIEW_ENABLED = True
+            logger.info("Two-stage code review enabled (spec compliance + code quality)")
 
     # --- Compare mode ---
     if args.compare:

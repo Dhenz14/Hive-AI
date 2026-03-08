@@ -258,6 +258,120 @@ def process_file(
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Session-level JSONL export (§28 — agentic training format)
+# ---------------------------------------------------------------------------
+
+def _export_session_format(
+    filepath: Path,
+    min_quality: float,
+    include_thinking: bool,
+) -> list[dict]:
+    """
+    Export sessions in session-level JSONL format for agentic training.
+
+    Each output line is a complete multi-turn session with:
+    - messages array (role, content, tool_uses, thinking)
+    - metadata (quality scores, skill categories)
+    - session-level stats
+    """
+    sessions_out = []
+
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line_num, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                session = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            messages = session.get("messages", [])
+            if len(messages) < 2:
+                continue
+
+            # Score the session — average quality of extractable pairs
+            pair_qualities = []
+            skill_categories = set()
+            formatted_messages = []
+
+            for msg in messages:
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "").strip()
+                tool_uses = msg.get("tool_uses", [])
+                thinking = msg.get("thinking", "")
+
+                out_msg = {"role": role, "content": content}
+
+                if tool_uses:
+                    out_msg["tool_uses"] = [
+                        {
+                            "tool": t.get("tool", ""),
+                            "input": t.get("input", {}),
+                            "output": t.get("output", ""),
+                        }
+                        for t in tool_uses
+                    ]
+                    skill_categories.add("tool_use")
+
+                if include_thinking and thinking:
+                    out_msg["thinking"] = thinking.strip()
+
+                formatted_messages.append(out_msg)
+
+                # Score user->assistant pairs inline
+                if role == "assistant" and content and len(content) >= MIN_RESPONSE_LEN:
+                    # Find preceding user message
+                    idx = len(formatted_messages) - 1
+                    for j in range(idx - 1, -1, -1):
+                        if formatted_messages[j]["role"] == "user":
+                            inst = formatted_messages[j]["content"]
+                            if len(inst) >= MIN_INSTRUCTION_LEN and not _is_trivial(inst):
+                                try:
+                                    q = _score_quality(inst, content)
+                                    pair_qualities.append(q)
+                                except Exception:
+                                    pass
+                            break
+
+            if not pair_qualities:
+                continue
+
+            avg_quality = sum(pair_qualities) / len(pair_qualities)
+            if avg_quality < min_quality:
+                continue
+
+            # Detect skill categories from content
+            all_text = " ".join(m.get("content", "") for m in messages).lower()
+            for lang_kw, cat in [("rust", "rust"), ("golang", "go"), ("go ", "go"),
+                                  ("c++", "cpp"), ("typescript", "typescript"),
+                                  ("javascript", "javascript"), ("hive", "hive"),
+                                  ("python", "python")]:
+                if lang_kw in all_text:
+                    skill_categories.add(cat)
+
+            session_out = {
+                "session_id": session.get("session_id", f"session_{line_num}"),
+                "project": session.get("project", ""),
+                "model": session.get("model", "unknown"),
+                "messages": formatted_messages,
+                "metadata": {
+                    "source": "dataclaw",
+                    "avg_quality": round(avg_quality, 3),
+                    "pair_count": len(pair_qualities),
+                    "skill_categories": sorted(skill_categories),
+                    "has_thinking": any(m.get("thinking") for m in formatted_messages),
+                    "has_tool_use": any(m.get("tool_uses") for m in formatted_messages),
+                    "turn_count": len(formatted_messages),
+                },
+                "stats": session.get("stats", {}),
+            }
+            sessions_out.append(session_out)
+
+    return sessions_out
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Mine training pairs from DataClaw session exports"
@@ -287,6 +401,11 @@ def main():
         "--stats", action="store_true",
         help="Print extraction statistics"
     )
+    parser.add_argument(
+        "--session-format", action="store_true",
+        help="Output session-level JSONL (multi-turn with tool_uses, thinking) "
+             "instead of flat instruction/output pairs"
+    )
     args = parser.parse_args()
 
     # Resolve input files
@@ -301,6 +420,35 @@ def main():
     else:
         print(f"ERROR: {input_path} does not exist", file=sys.stderr)
         sys.exit(1)
+
+    # --- Session-format export ---
+    if args.session_format:
+        all_sessions = []
+        for filepath in files:
+            print(f"Processing {filepath.name} (session format)...")
+            sessions = _export_session_format(filepath, args.min_quality, args.include_thinking)
+            all_sessions.extend(sessions)
+
+        output_path = Path(args.output).with_suffix(".sessions.jsonl") \
+            if not args.output.endswith(".sessions.jsonl") else Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            for sess in all_sessions:
+                f.write(json.dumps(sess, ensure_ascii=False) + "\n")
+        print(f"Wrote {len(all_sessions)} sessions to {output_path}")
+
+        if args.stats:
+            total_turns = sum(s["metadata"]["turn_count"] for s in all_sessions)
+            avg_q = (sum(s["metadata"]["avg_quality"] for s in all_sessions) / len(all_sessions)) if all_sessions else 0
+            cats = set()
+            for s in all_sessions:
+                cats.update(s["metadata"]["skill_categories"])
+            print(f"\n--- Session Export Statistics ---")
+            print(f"  Sessions:          {len(all_sessions)}")
+            print(f"  Total turns:       {total_turns}")
+            print(f"  Avg quality:       {avg_q:.3f}")
+            print(f"  Skill categories:  {sorted(cats)}")
+        return
 
     # Process all files
     all_pairs = []

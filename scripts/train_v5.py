@@ -230,6 +230,18 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     # Persist Triton compilation cache so Unsloth kernels don't recompile every run
     os.environ.setdefault("TRITON_CACHE_DIR", os.path.join(PROJECT_ROOT, ".triton_cache"))
 
+    # Fix Triton compilation deadlock on small datasets (<500 samples).
+    # Default 20 compile workers deadlock waiting for kernel cache writes.
+    os.environ.setdefault("TRITON_NUM_THREADS", "2")
+    os.environ.setdefault("TORCH_COMPILE_THREADS", "2")
+    # Python-level fix: env vars alone don't control compile_worker's --workers flag.
+    # This directly limits torch._inductor's thread pool, preventing deadlock.
+    try:
+        import torch._inductor.config as inductor_config
+        inductor_config.compile_threads = 2
+    except (ImportError, AttributeError):
+        pass  # older torch versions may not have this
+
     # CRITICAL: Import Unsloth BEFORE transformers/peft/trl!
     # Unsloth patches these libraries for 2x speed + 70% less VRAM.
     # Importing them first means patches don't apply → OOM on model loading.
@@ -419,6 +431,30 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.error(f"  meta: {n} shape={tuple(p.shape)}")
         sys.exit(1)
     logger.info("All parameters materialized (no meta-device params)")
+
+    # ── Semantic <think> token initialization (§32 LLM4SVG) ──
+    if args.init_think_tokens:
+        _THINK_SEEDS = ["reason", "analyze", "consider", "evaluate", "think", "step"]
+        think_tokens = ["<think>", "</think>"]
+        found_tokens = [t for t in think_tokens if t in tokenizer.get_vocab()]
+        if found_tokens:
+            embed_layer = model.get_input_embeddings()
+            seed_ids = []
+            for word in _THINK_SEEDS:
+                ids = tokenizer.encode(word, add_special_tokens=False)
+                seed_ids.extend(ids)
+            if seed_ids:
+                with torch.no_grad():
+                    seed_embeds = embed_layer.weight[seed_ids].mean(dim=0)
+                    for tok in found_tokens:
+                        tok_id = tokenizer.convert_tokens_to_ids(tok)
+                        if tok_id != tokenizer.unk_token_id:
+                            embed_layer.weight[tok_id] = seed_embeds
+                            logger.info(f"  Initialized '{tok}' (id={tok_id}) with semantic average of {_THINK_SEEDS}")
+            else:
+                logger.warning("Could not encode seed words for <think> token init")
+        else:
+            logger.info("No <think>/</think> tokens found in tokenizer -- skipping init")
 
     # Count quantized modules
     n_quantized = sum(1 for _, m in model.named_modules()
@@ -1237,6 +1273,13 @@ if __name__ == "__main__":
                         help="Enable two-stage training (LLM4SVG-inspired): "
                              "Stage 1 aligns output format (1 epoch, lr=1e-5), "
                              "Stage 2 trains knowledge (2 epochs, lr=2e-5)")
+    parser.add_argument("--attn-only", action="store_true",
+                        help="Train attention layers only (freeze MLP). "
+                             "QAD research shows 3.2dB improvement from reduced gradient noise.")
+    parser.add_argument("--init-think-tokens", action="store_true",
+                        help="Initialize <think>/</think> token embeddings semantically "
+                             "(LLM4SVG-inspired). Averages embeddings of related words "
+                             "for faster convergence.")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1247,6 +1290,11 @@ if __name__ == "__main__":
         logger.info("Test mode: auto-skipping Unsloth (use --force-unsloth to override)")
 
     model_path = args.model or BASE_MODEL
+
+    # QAD §4: attention-only training (freeze MLP layers)
+    if args.attn_only:
+        LORA_CONFIG["target_modules"] = ["q_proj", "k_proj", "v_proj", "o_proj"]
+        logger.info("Attention-only mode: training q/k/v/o_proj only (MLP frozen)")
 
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)
