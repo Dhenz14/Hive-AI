@@ -1,0 +1,19 @@
+{
+  "name": "long_context",
+  "title": "Long-Context & Recursive Decomposition",
+  "description": "RLM pattern, context budgeting, query-focused filtering, large document analysis",
+  "test_cases": [
+    {
+      "input": "How do I process a document that's too large for my LLM's context window?",
+      "expected_keywords": ["chunk", "partition", "recursive", "aggregate", "context", "filter"]
+    },
+    {
+      "input": "Explain the RLM pattern for handling large inputs with language models",
+      "expected_keywords": ["peek", "grep", "partition", "recursive", "decomposition", "context"]
+    },
+    {
+      "input": "How do I budget context tokens when building a RAG system?",
+      "expected_keywords": ["token", "budget", "relevance", "truncate", "selected", "limit"]
+    }
+  ]
+}

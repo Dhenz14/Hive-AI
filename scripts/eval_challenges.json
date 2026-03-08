@@ -3579,5 +3579,345 @@
       "unwrap"
     ],
     "test_code": null
+  },
+  {
+    "id": "hsec-004",
+    "category": "hive_security",
+    "topic": "phishing_detection",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `detect_phishing_link` that checks if a Hive-related URL is potentially a phishing attempt. It takes: url (str) and returns a dict with 'is_phishing' (bool), 'reason' (str), and 'risk_level' ('safe', 'suspicious', 'dangerous'). The function should check: 1) Whether the domain is a known legitimate Hive site (hive.blog, peakd.com, ecency.com, hivesigner.com, hive-engine.com), 2) Common typosquatting patterns (h1ve.blog, hive-blog.com, peakd.io, etc.), 3) Suspicious URL patterns like embedded '@' signs or IP addresses, 4) Whether the URL tries to mimic a legitimate signing endpoint. Also write `extract_domain(url)` helper that returns just the domain from any URL.",
+    "expected_concepts": [
+      "phishing",
+      "domain",
+      "typosquat",
+      "URL",
+      "safe",
+      "suspicious",
+      "hive.blog"
+    ],
+    "test_code": "r = detect_phishing_link('https://hive.blog/@alice/my-post')\nassert r['is_phishing'] == False, f'hive.blog should be safe'\nassert r['risk_level'] == 'safe'\nr = detect_phishing_link('https://h1ve.blog/@alice/my-post')\nassert r['is_phishing'] == True, f'h1ve.blog should be detected as phishing'\nassert r['risk_level'] in ('suspicious', 'dangerous')\nr = detect_phishing_link('https://peakd.com/hive/@bob/test')\nassert r['is_phishing'] == False\nr = detect_phishing_link('http://192.168.1.1/hive-login')\nassert r['is_phishing'] == True\nd = extract_domain('https://hive.blog/@alice/post')\nassert d == 'hive.blog', f'Expected hive.blog but got {d}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-005",
+    "category": "hive_security",
+    "topic": "memo_encryption",
+    "difficulty": 3,
+    "instruction": "Write Python functions for Hive memo encryption and decryption: (1) `is_encrypted_memo(memo)` that returns True if a memo starts with '#' (indicating it's encrypted), (2) `validate_memo_safety(memo, private_keys)` that checks if a memo accidentally contains a private key (WIF format starting with '5') and returns a dict with 'safe' (bool) and 'warning' (str), (3) `mask_memo_for_logging(memo)` that returns a safe version for logging - if encrypted, returns '#encrypted', if it contains a WIF-like string, redacts it. Explain in comments why leaking private keys in memos is a common Hive security issue.",
+    "expected_concepts": [
+      "memo",
+      "encrypted",
+      "private key",
+      "WIF",
+      "mask",
+      "redact",
+      "security"
+    ],
+    "test_code": "assert is_encrypted_memo('#encrypteddata123') == True\nassert is_encrypted_memo('hello world') == False\nassert is_encrypted_memo('') == False\nr = validate_memo_safety('sent you tokens', [])\nassert r['safe'] == True\nr = validate_memo_safety('my key is 5JhNRag2k4MYfU', [])\nassert r['safe'] == False\nassert 'warning' in r and len(r['warning']) > 0\nm = mask_memo_for_logging('#secret_encrypted_memo')\nassert 'secret' not in m.lower() or m == '#encrypted'\nm = mask_memo_for_logging('normal memo')\nassert m == 'normal memo'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-006",
+    "category": "hive_security",
+    "topic": "authority_validation",
+    "difficulty": 3,
+    "instruction": "Write a Python function called `validate_authority` that checks if a Hive account's authority structure is secure. It takes: authority (dict with 'weight_threshold' (int), 'account_auths' (list of [account, weight] pairs), and 'key_auths' (list of [pubkey, weight] pairs)). Return a dict with 'secure' (bool), 'warnings' (list of str). The function should flag: 1) weight_threshold of 0 (anyone can sign), 2) account_auths giving control to unknown accounts (any account_auth is a warning), 3) key_auths where total weight < weight_threshold (locked out), 4) Single key with all weight (no multisig backup). Also write `check_multisig(authority)` that returns True if the authority requires multiple signatures.",
+    "expected_concepts": [
+      "authority",
+      "weight_threshold",
+      "account_auths",
+      "key_auths",
+      "multisig",
+      "security",
+      "weight"
+    ],
+    "test_code": "auth_good = {'weight_threshold': 1, 'account_auths': [], 'key_auths': [['STM7abc', 1]]}\nr = validate_authority(auth_good)\nassert r['secure'] == True, f'Simple valid auth should be secure'\nassert len(r['warnings']) == 0 or all('single key' in w.lower() or 'multisig' in w.lower() for w in r['warnings'])\n\nauth_bad = {'weight_threshold': 0, 'account_auths': [], 'key_auths': [['STM7abc', 1]]}\nr = validate_authority(auth_bad)\nassert r['secure'] == False, f'Zero threshold should be insecure'\n\nauth_acct = {'weight_threshold': 1, 'account_auths': [['hacker', 1]], 'key_auths': [['STM7abc', 1]]}\nr = validate_authority(auth_acct)\nassert len(r['warnings']) > 0, f'Account auths should produce warnings'\n\nassert check_multisig({'weight_threshold': 2, 'account_auths': [], 'key_auths': [['STM7a', 1], ['STM7b', 1]]}) == True\nassert check_multisig({'weight_threshold': 1, 'account_auths': [], 'key_auths': [['STM7a', 1]]}) == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-007",
+    "category": "hive_security",
+    "topic": "transaction_validation",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `validate_transfer_op` that validates a Hive transfer operation before broadcasting. It takes: sender (str), receiver (str), amount (str like '1.000 HIVE'), and memo (str). Return a dict with 'valid' (bool) and 'errors' (list of str). Validation rules: 1) Account names must be 3-16 chars, lowercase alphanumeric with dots/dashes (no consecutive or leading/trailing), 2) Amount must match format 'X.XXX HIVE' or 'X.XXX HBD' with exactly 3 decimal places, 3) Amount must be positive, 4) Memo must not contain WIF private keys (strings starting with '5' and 51 chars long), 5) Sender and receiver must be different. Also write `parse_amount(amount_str)` that returns a tuple (float, str) of (value, asset).",
+    "expected_concepts": [
+      "validate",
+      "transfer",
+      "amount",
+      "HIVE",
+      "HBD",
+      "account name",
+      "memo"
+    ],
+    "test_code": "r = validate_transfer_op('alice', 'bob', '1.000 HIVE', 'thanks')\nassert r['valid'] == True, f'Valid transfer rejected: {r[\"errors\"]}'\n\nr = validate_transfer_op('alice', 'alice', '1.000 HIVE', '')\nassert r['valid'] == False, 'Self-transfer should be invalid'\n\nr = validate_transfer_op('alice', 'bob', '1.00 HIVE', '')\nassert r['valid'] == False, 'Wrong decimal places should be invalid'\n\nr = validate_transfer_op('alice', 'bob', '-1.000 HIVE', '')\nassert r['valid'] == False, 'Negative amount should be invalid'\n\nr = validate_transfer_op('alice', 'bob', '1.000 HIVE', '5KJhNRag2k4MYfU7xbC1jA878JcLtrvg5ZjnHE3Gask5cYWidjF')\nassert r['valid'] == False, 'Memo with WIF should be invalid'\n\nval, asset = parse_amount('10.500 HBD')\nassert val == 10.5 and asset == 'HBD'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-008",
+    "category": "hive_security",
+    "topic": "key_generation_safety",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `assess_key_strength` that evaluates the security of a Hive master password. It takes: password (str) and returns a dict with 'strong' (bool), 'score' (int 0-100), and 'suggestions' (list of str). Rules: 1) Minimum 32 chars for Hive (score penalty if shorter), 2) Must contain uppercase, lowercase, digits, and special chars, 3) Must not contain the account name if provided, 4) Penalize common patterns ('password', '123456', 'qwerty'), 5) Penalize repeated characters. Also write `generate_master_password()` that generates a secure random password of 52 chars suitable for Hive account creation using the secrets module.",
+    "expected_concepts": [
+      "password",
+      "strength",
+      "entropy",
+      "secrets",
+      "master password",
+      "generate",
+      "security"
+    ],
+    "test_code": "r = assess_key_strength('short')\nassert r['strong'] == False and r['score'] < 30\n\nr = assess_key_strength('P5Kx9mVz8qR2nW4jL7hT0cY3bA6fE1dG8iU5oN2pS4vX7wJ0mK3')\nassert r['strong'] == True and r['score'] >= 70, f'Strong password scored {r[\"score\"]}'\n\nr = assess_key_strength('password123456password123456password')\nassert r['strong'] == False, 'Common pattern should be weak'\n\np = generate_master_password()\nassert len(p) >= 52, f'Password too short: {len(p)}'\np2 = generate_master_password()\nassert p != p2, 'Passwords should be unique'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-009",
+    "category": "hive_security",
+    "topic": "witness_vote_safety",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `validate_witness_votes` that analyzes an account's witness votes for security concerns. It takes: votes (list of str - witness account names) and returns a dict with 'issues' (list of str) and 'risk_level' ('low', 'medium', 'high'). Check: 1) Max 30 witness votes allowed on Hive, 2) Warn if fewer than 10 votes (not using full voting power), 3) Flag if any voted witnesses haven't produced a block recently (takes disabled_witnesses list as optional param), 4) Flag duplicate votes. Also write `proxy_implications(proxy_account)` that returns a dict explaining what setting a proxy means: 'delegates_witness_votes' (True), 'delegates_proposal_votes' (True), 'can_override' explaining you can remove proxy anytime.",
+    "expected_concepts": [
+      "witness",
+      "vote",
+      "proxy",
+      "delegate",
+      "security",
+      "governance",
+      "validate"
+    ],
+    "test_code": "r = validate_witness_votes(['witness1', 'witness2', 'witness3'])\nassert r['risk_level'] in ('low', 'medium', 'high')\nassert any('fewer' in i.lower() or 'less' in i.lower() or 'few' in i.lower() or 'not using' in i.lower() for i in r['issues']), f'Should warn about few votes: {r[\"issues\"]}'\n\nover = [f'w{i}' for i in range(35)]\nr = validate_witness_votes(over)\nassert any('30' in i or 'max' in i.lower() or 'exceed' in i.lower() for i in r['issues']), f'Should flag >30 votes: {r[\"issues\"]}'\n\nr = validate_witness_votes(['w1', 'w1', 'w2'])\nassert any('duplicate' in i.lower() or 'dup' in i.lower() for i in r['issues'])\n\np = proxy_implications('blocktrades')\nassert p['delegates_witness_votes'] == True\nassert p['delegates_proposal_votes'] == True\nassert 'can_override' in p\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hsec-010",
+    "category": "hive_security",
+    "topic": "operation_whitelisting",
+    "difficulty": 3,
+    "instruction": "Write a Python class called `OperationFirewall` that acts as a security layer for Hive operations before broadcasting. It should: 1) `__init__(self, rules)` where rules is a dict with 'max_transfer_amount' (float), 'allowed_recipients' (list of str or None for any), 'blocked_recipients' (list of str), 'require_memo' (bool), and 'allowed_operations' (list of str like ['vote', 'comment', 'transfer']). 2) `check(self, operation)` takes an operation dict with 'type' and relevant fields, returns a dict with 'allowed' (bool) and 'reason' (str). 3) `add_rule(self, rule_name, value)` to add/update rules at runtime. The firewall should block transfers exceeding max amount, transfers to blocked recipients, transfers without memo if required, and operation types not in the allowed list.",
+    "expected_concepts": [
+      "firewall",
+      "whitelist",
+      "operation",
+      "transfer",
+      "block",
+      "rule",
+      "security"
+    ],
+    "test_code": "rules = {\n    'max_transfer_amount': 100.0,\n    'allowed_recipients': None,\n    'blocked_recipients': ['scammer1', 'phisher2'],\n    'require_memo': False,\n    'allowed_operations': ['vote', 'comment', 'transfer']\n}\nfw = OperationFirewall(rules)\n\nr = fw.check({'type': 'transfer', 'to': 'bob', 'amount': 50.0, 'memo': 'payment'})\nassert r['allowed'] == True, f'Valid transfer blocked: {r[\"reason\"]}'\n\nr = fw.check({'type': 'transfer', 'to': 'bob', 'amount': 200.0, 'memo': ''})\nassert r['allowed'] == False, 'Over-limit transfer should be blocked'\n\nr = fw.check({'type': 'transfer', 'to': 'scammer1', 'amount': 1.0, 'memo': ''})\nassert r['allowed'] == False, 'Blocked recipient should be rejected'\n\nr = fw.check({'type': 'delegate_vesting_shares', 'to': 'bob'})\nassert r['allowed'] == False, 'Unlisted operation should be blocked'\n\nfw.add_rule('max_transfer_amount', 500.0)\nr = fw.check({'type': 'transfer', 'to': 'bob', 'amount': 200.0, 'memo': ''})\nassert r['allowed'] == True, 'Updated rule should allow 200'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hl2-006",
+    "category": "hive_layer2",
+    "topic": "diesel_pool",
+    "difficulty": 3,
+    "instruction": "Write Python functions for interacting with Hive Engine Diesel Pools (AMM/liquidity pools): (1) `build_add_liquidity(account, token_pair, base_quantity, quote_quantity)` that constructs the custom_json payload for adding liquidity to a diesel pool. The payload should have contractName='marketpools', contractAction='addLiquidity', and contractPayload with 'tokenPair' (str like 'SWAP.HIVE:BEE'), 'baseQuantity' and 'quoteQuantity'. (2) `build_swap(account, token_pair, token_symbol, amount, min_out)` for swapping tokens via a pool with contractAction='swapTokens'. (3) `calculate_price_impact(pool_base_reserve, pool_quote_reserve, swap_amount)` that estimates price impact using constant product formula (x*y=k). Explain how AMM pools work on Hive Engine.",
+    "expected_concepts": [
+      "diesel",
+      "pool",
+      "liquidity",
+      "swap",
+      "AMM",
+      "tokenPair",
+      "marketpools"
+    ],
+    "test_code": "liq = build_add_liquidity('alice', 'SWAP.HIVE:BEE', '100.000', '5000.000')\nassert liq['contractName'] == 'marketpools'\nassert liq['contractAction'] == 'addLiquidity'\nassert liq['contractPayload']['tokenPair'] == 'SWAP.HIVE:BEE'\nassert liq['contractPayload']['baseQuantity'] == '100.000'\n\nswap = build_swap('alice', 'SWAP.HIVE:BEE', 'SWAP.HIVE', '10.000', '450.000')\nassert swap['contractAction'] == 'swapTokens'\nassert swap['contractPayload']['tokenSymbol'] == 'SWAP.HIVE'\n\nimpact = calculate_price_impact(10000, 500000, 1000)\nassert isinstance(impact, float)\nassert 0 < impact < 100, f'Price impact should be percentage, got {impact}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hl2-007",
+    "category": "hive_layer2",
+    "topic": "token_creation",
+    "difficulty": 2,
+    "instruction": "Write Python functions for creating and managing tokens on Hive Engine: (1) `build_create_token(symbol, name, precision, max_supply, url)` that returns the custom_json payload for creating a new token (contractName='tokens', contractAction='create', contractPayload with symbol, name, precision, maxSupply, url). (2) `build_issue_tokens(symbol, to, quantity)` for issuing tokens to an account (contractAction='issue'). (3) `validate_token_symbol(symbol)` that checks Hive Engine symbol rules: 3-10 uppercase letters, no numbers or special chars. (4) `build_update_metadata(symbol, metadata)` for updating token metadata (contractAction='updateMetadata'). Explain the BEE cost of creating tokens on Hive Engine.",
+    "expected_concepts": [
+      "token",
+      "create",
+      "issue",
+      "symbol",
+      "maxSupply",
+      "precision",
+      "contractName"
+    ],
+    "test_code": "tok = build_create_token('MYTOKEN', 'My Token', 8, '1000000', 'https://example.com')\nassert tok['contractName'] == 'tokens'\nassert tok['contractAction'] == 'create'\nassert tok['contractPayload']['symbol'] == 'MYTOKEN'\nassert tok['contractPayload']['maxSupply'] == '1000000'\nassert tok['contractPayload']['precision'] == 8\n\niss = build_issue_tokens('MYTOKEN', 'alice', '1000.00000000')\nassert iss['contractAction'] == 'issue'\nassert iss['contractPayload']['to'] == 'alice'\n\nassert validate_token_symbol('BEE') == True\nassert validate_token_symbol('SWAP.HIVE') == True or validate_token_symbol('SWAP.HIVE') == False\nassert validate_token_symbol('be') == False\nassert validate_token_symbol('TOO_LONG_SYMBOL_NAME') == False\nassert validate_token_symbol('123') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hl2-008",
+    "category": "hive_layer2",
+    "topic": "smart_contract_interaction",
+    "difficulty": 3,
+    "instruction": "Write Python functions for interacting with Hive Engine smart contracts: (1) `query_contract(contract, table, query, offset=0, limit=1000)` that constructs a proper JSON-RPC request body for the Hive Engine API (method='find', params with contract, table, query, offset, limit). (2) `build_custom_json_tx(account, contract_name, action, payload)` that builds the complete custom_json operation structure for Hive Engine, including the 'id' field set to 'ssc-mainnet-hive', 'required_auths' with the account, and 'json' containing the contract call. (3) `parse_contract_result(result)` that extracts success/error from a Hive Engine transaction result. Explain the difference between Layer 1 custom_json and how Hive Engine nodes process them.",
+    "expected_concepts": [
+      "smart contract",
+      "custom_json",
+      "ssc-mainnet-hive",
+      "required_auths",
+      "JSON-RPC",
+      "find",
+      "contract"
+    ],
+    "test_code": "q = query_contract('tokens', 'balances', {'account': 'alice', 'symbol': 'BEE'})\nassert q['method'] == 'find'\nassert q['params']['contract'] == 'tokens'\nassert q['params']['table'] == 'balances'\nassert q['params']['query']['account'] == 'alice'\nassert q['params']['limit'] == 1000\n\ntx = build_custom_json_tx('alice', 'tokens', 'transfer', {'to': 'bob', 'symbol': 'BEE', 'quantity': '10'})\nassert tx['id'] == 'ssc-mainnet-hive'\nassert 'alice' in tx['required_auths']\nimport json\nparsed = json.loads(tx['json']) if isinstance(tx['json'], str) else tx['json']\nassert parsed['contractName'] == 'tokens'\nassert parsed['contractAction'] == 'transfer'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hl2-009",
+    "category": "hive_layer2",
+    "topic": "token_staking_delegation",
+    "difficulty": 2,
+    "instruction": "Write Python functions for Hive Engine token staking and delegation: (1) `build_stake(account, symbol, quantity)` that creates the custom_json payload for staking tokens (contractName='tokens', contractAction='stake', payload has 'to' set to account, 'symbol', 'quantity'). (2) `build_delegate(from_account, to_account, symbol, quantity)` for delegating staked tokens (contractAction='delegate'). (3) `build_unstake(account, symbol, quantity)` for unstaking (contractAction='unstake'). (4) `build_undelegate(from_account, to_account, symbol, quantity)` for undelegating (contractAction='undelegate'). Explain the unstaking cooldown period and why delegation is useful for Hive Engine dApps.",
+    "expected_concepts": [
+      "stake",
+      "delegate",
+      "unstake",
+      "undelegate",
+      "tokens",
+      "contractAction",
+      "cooldown"
+    ],
+    "test_code": "s = build_stake('alice', 'BEE', '100.000')\nassert s['contractName'] == 'tokens'\nassert s['contractAction'] == 'stake'\nassert s['contractPayload']['to'] == 'alice'\nassert s['contractPayload']['symbol'] == 'BEE'\nassert s['contractPayload']['quantity'] == '100.000'\n\nd = build_delegate('alice', 'bob', 'BEE', '50.000')\nassert d['contractAction'] == 'delegate'\nassert d['contractPayload']['to'] == 'bob'\n\nu = build_unstake('alice', 'BEE', '25.000')\nassert u['contractAction'] == 'unstake'\n\nud = build_undelegate('alice', 'bob', 'BEE', '10.000')\nassert ud['contractAction'] == 'undelegate'\nassert ud['contractPayload']['from'] == 'bob' or ud['contractPayload']['to'] == 'bob'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "hl2-010",
+    "category": "hive_layer2",
+    "topic": "defi_yield_calculator",
+    "difficulty": 3,
+    "instruction": "Write Python functions for calculating DeFi yields on Hive Engine: (1) `calculate_lp_apr(pool_volume_24h, pool_liquidity, fee_rate=0.0025)` that estimates the APR for a liquidity pool based on 24h trading volume, total liquidity, and fee rate (default 0.25%). Formula: apr = (volume * fee_rate * 365 / liquidity) * 100. (2) `calculate_impermanent_loss(initial_price_ratio, current_price_ratio)` that calculates IL as a percentage. Formula: il = 2 * sqrt(price_change) / (1 + price_change) - 1, where price_change = current_ratio / initial_ratio. (3) `net_yield(apr, il_pct, days)` that calculates net yield after impermanent loss over a given period. Explain impermanent loss in comments and why it matters for LPs.",
+    "expected_concepts": [
+      "APR",
+      "liquidity",
+      "impermanent loss",
+      "yield",
+      "fee",
+      "DeFi",
+      "pool"
+    ],
+    "test_code": "import math\napr = calculate_lp_apr(50000, 1000000)\nassert abs(apr - 4.5625) < 0.01, f'Expected ~4.56% APR, got {apr}'\n\napr_high = calculate_lp_apr(200000, 500000)\nassert apr_high > apr, 'Higher volume/liquidity ratio should give higher APR'\n\nil = calculate_impermanent_loss(1.0, 2.0)\nassert -10 < il < 0, f'IL for 2x price change should be ~-5.7%, got {il}'\n\nil_none = calculate_impermanent_loss(1.0, 1.0)\nassert abs(il_none) < 0.01, f'No price change should give ~0% IL, got {il_none}'\n\nny = net_yield(20.0, -5.0, 365)\nassert ny > 0, f'20% APR minus 5% IL should be positive, got {ny}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-cicd-007",
+    "category": "devops",
+    "topic": "ci_cd_pipeline",
+    "difficulty": 2,
+    "instruction": "Write a Python function called `generate_github_actions_yaml` that generates a GitHub Actions workflow YAML string for a Python project. It takes: python_versions (list of str, e.g. ['3.10', '3.11', '3.12']), run_tests (bool), run_lint (bool), deploy_on_tag (bool). The generated YAML should include: 1) Trigger on push to main and pull requests, 2) A test matrix across the specified Python versions, 3) Steps to checkout, setup Python, install dependencies from requirements.txt, 4) Optionally run pytest and flake8, 5) Optionally deploy step triggered only on tags. Also write `parse_workflow_status(workflow_dict)` that takes a workflow run dict and returns 'passing', 'failing', or 'pending'.",
+    "expected_concepts": [
+      "GitHub Actions",
+      "workflow",
+      "matrix",
+      "pytest",
+      "checkout",
+      "deploy",
+      "YAML"
+    ],
+    "test_code": "import yaml\nyml = generate_github_actions_yaml(['3.10', '3.11'], run_tests=True, run_lint=True, deploy_on_tag=False)\nassert isinstance(yml, str) and len(yml) > 50\nparsed = yaml.safe_load(yml)\nassert 'on' in parsed or True in parsed, 'Should have trigger config'\nassert 'jobs' in parsed, 'Should have jobs section'\n\nyml2 = generate_github_actions_yaml(['3.12'], run_tests=True, run_lint=False, deploy_on_tag=True)\nparsed2 = yaml.safe_load(yml2)\nassert 'jobs' in parsed2\n\nassert parse_workflow_status({'conclusion': 'success'}) == 'passing'\nassert parse_workflow_status({'conclusion': 'failure'}) == 'failing'\nassert parse_workflow_status({'conclusion': None, 'status': 'in_progress'}) == 'pending'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-monitoring-008",
+    "category": "devops",
+    "topic": "health_check_endpoint",
+    "difficulty": 2,
+    "instruction": "Write a Python class called `HealthChecker` that implements a health check system for a web service. It should: 1) `__init__(self)` initializes with an empty dict of checks. 2) `add_check(self, name, check_fn)` registers a health check function (callable that returns True/False or raises). 3) `run_checks(self)` runs all registered checks and returns a dict with 'status' ('healthy' or 'unhealthy'), 'checks' (dict mapping name to {'status': 'pass'/'fail', 'message': str}), and 'timestamp' (ISO format string). 4) `check_database(connection_string)` static method simulating a DB ping (return True if string is non-empty). 5) `check_disk_space(min_free_gb)` static method that checks if disk has enough free space using shutil.disk_usage. If any check fails, overall status is 'unhealthy'.",
+    "expected_concepts": [
+      "health check",
+      "monitoring",
+      "status",
+      "endpoint",
+      "database",
+      "disk",
+      "timestamp"
+    ],
+    "test_code": "hc = HealthChecker()\nhc.add_check('always_pass', lambda: True)\nhc.add_check('always_fail', lambda: False)\nresult = hc.run_checks()\nassert result['status'] == 'unhealthy', f'Should be unhealthy when a check fails'\nassert result['checks']['always_pass']['status'] == 'pass'\nassert result['checks']['always_fail']['status'] == 'fail'\nassert 'timestamp' in result\n\nhc2 = HealthChecker()\nhc2.add_check('ok', lambda: True)\nresult2 = hc2.run_checks()\nassert result2['status'] == 'healthy'\n\nassert HealthChecker.check_database('postgresql://localhost/db') == True\nassert HealthChecker.check_database('') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-infra-009",
+    "category": "devops",
+    "topic": "retry_with_backoff",
+    "difficulty": 2,
+    "instruction": "Write a Python decorator called `retry_with_backoff` that retries a function on failure with exponential backoff. Parameters: max_retries (int, default 3), base_delay (float, default 1.0), max_delay (float, default 60.0), exceptions (tuple of exception types to catch, default (Exception,)). The decorator should: 1) Retry the function up to max_retries times, 2) Wait base_delay * 2^attempt seconds between retries (capped at max_delay), 3) Add jitter (random factor 0-0.1 of delay) to prevent thundering herd, 4) Raise the last exception if all retries fail, 5) Log each retry attempt. Also write `circuit_breaker(failure_threshold=5, reset_timeout=60)` decorator that stops calling the function after too many failures.",
+    "expected_concepts": [
+      "retry",
+      "backoff",
+      "exponential",
+      "jitter",
+      "decorator",
+      "circuit breaker",
+      "exception"
+    ],
+    "test_code": "call_count = 0\n@retry_with_backoff(max_retries=3, base_delay=0.01, max_delay=0.1)\ndef flaky_fn():\n    global call_count\n    call_count += 1\n    if call_count < 3:\n        raise ValueError('not yet')\n    return 'success'\n\ncall_count = 0\nresult = flaky_fn()\nassert result == 'success', f'Expected success, got {result}'\nassert call_count == 3, f'Expected 3 calls, got {call_count}'\n\nfail_count = 0\n@retry_with_backoff(max_retries=2, base_delay=0.01)\ndef always_fail():\n    global fail_count\n    fail_count += 1\n    raise RuntimeError('fail')\n\nfail_count = 0\ntry:\n    always_fail()\n    assert False, 'Should have raised'\nexcept RuntimeError:\n    pass\nassert fail_count == 3, f'Expected 3 attempts (1 + 2 retries), got {fail_count}'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "ops-config-010",
+    "category": "devops",
+    "topic": "config_management",
+    "difficulty": 2,
+    "instruction": "Write a Python class called `AppConfig` that provides hierarchical configuration management. It should: 1) Load config from multiple sources in priority order: environment variables > config file (JSON) > defaults. 2) `__init__(self, defaults=None)` sets default values. 3) `load_file(self, path)` loads a JSON config file and merges with existing config. 4) `load_env(self, prefix='APP')` loads environment variables with the given prefix (e.g., APP_DATABASE_URL -> database_url). 5) `get(self, key, default=None)` retrieves a value using dot notation (e.g., 'database.url'). 6) `validate(self, required_keys)` checks that all required keys are set, returns list of missing keys. 7) `to_dict()` returns the full config as a nested dict. Support nested keys using double underscore in env vars (APP_DB__HOST -> db.host).",
+    "expected_concepts": [
+      "config",
+      "environment",
+      "hierarchical",
+      "merge",
+      "dot notation",
+      "validate",
+      "prefix"
+    ],
+    "test_code": "import os, json, tempfile\ncfg = AppConfig(defaults={'db': {'host': 'localhost', 'port': 5432}, 'debug': False})\nassert cfg.get('db.host') == 'localhost'\nassert cfg.get('db.port') == 5432\nassert cfg.get('debug') == False\nassert cfg.get('missing', 'fallback') == 'fallback'\n\n# Test file loading\nwith tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:\n    json.dump({'db': {'host': 'prod-server', 'name': 'mydb'}, 'debug': True}, f)\n    f.flush()\n    cfg.load_file(f.name)\nassert cfg.get('db.host') == 'prod-server', 'File should override default'\nassert cfg.get('db.port') == 5432, 'Non-overridden default should remain'\nassert cfg.get('db.name') == 'mydb'\n\nmissing = cfg.validate(['db.host', 'db.port', 'api_key'])\nassert 'api_key' in missing, f'api_key should be missing: {missing}'\nassert 'db.host' not in missing\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-sqli-007",
+    "category": "security",
+    "topic": "sql_injection_prevention",
+    "difficulty": 2,
+    "instruction": "Write Python functions demonstrating SQL injection prevention: (1) `unsafe_query(username)` that shows a VULNERABLE query using string formatting (for educational purposes), (2) `safe_query(username)` that uses parameterized queries with placeholders, (3) `build_safe_filter(filters_dict)` that takes a dict of column:value pairs and builds a safe WHERE clause with parameter list, returning a tuple of (query_fragment, params). (4) `validate_column_name(name)` that validates a column name against a whitelist to prevent injection through ORDER BY clauses. Explain why parameterized queries prevent SQL injection and why ORM usage adds another layer of safety.",
+    "expected_concepts": [
+      "SQL injection",
+      "parameterized",
+      "placeholder",
+      "sanitize",
+      "prepared statement",
+      "whitelist",
+      "ORM"
+    ],
+    "test_code": "unsafe = unsafe_query(\"admin' OR '1'='1\")\nassert \"OR\" in unsafe, 'Unsafe query should be vulnerable to injection'\n\nsafe = safe_query(\"admin' OR '1'='1\")\nassert isinstance(safe, tuple) and len(safe) == 2\nquery, params = safe\nassert '?' in query or '%s' in query, 'Safe query should use placeholders'\nassert \"admin' OR '1'='1\" in params or params[0] == \"admin' OR '1'='1\"\n\nfrag, p = build_safe_filter({'name': 'alice', 'age': 30})\nassert '?' in frag or '%s' in frag\nassert len(p) == 2\n\nassert validate_column_name('username') == True\nassert validate_column_name('DROP TABLE users--') == False\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-jwt-008",
+    "category": "security",
+    "topic": "jwt_authentication",
+    "difficulty": 3,
+    "instruction": "Write Python functions for secure JWT (JSON Web Token) handling: (1) `create_jwt(payload, secret, expiry_minutes=30)` that creates a JWT with the given payload, adds 'iat' (issued at) and 'exp' (expiration) claims, and signs with HMAC-SHA256. (2) `verify_jwt(token, secret)` that verifies the signature, checks expiration, and returns the payload dict or raises an exception. (3) `decode_jwt_unsafe(token)` that decodes without verification (for debugging) and returns the header and payload. (4) `refresh_token(token, secret, extend_minutes=30)` that verifies an existing token and issues a new one with extended expiry. Implement using base64 and hmac (no PyJWT dependency).",
+    "expected_concepts": [
+      "JWT",
+      "HMAC",
+      "base64",
+      "expiration",
+      "signature",
+      "payload",
+      "claims"
+    ],
+    "test_code": "import time\ntok = create_jwt({'user': 'alice', 'role': 'admin'}, 'secret123', expiry_minutes=5)\nassert isinstance(tok, str) and tok.count('.') == 2, 'JWT should have 3 parts separated by dots'\n\npayload = verify_jwt(tok, 'secret123')\nassert payload['user'] == 'alice'\nassert payload['role'] == 'admin'\nassert 'exp' in payload and 'iat' in payload\n\ntry:\n    verify_jwt(tok, 'wrong_secret')\n    assert False, 'Should reject wrong secret'\nexcept Exception:\n    pass\n\nheader, pay = decode_jwt_unsafe(tok)\nassert header.get('alg') in ('HS256', 'HMAC-SHA256', 'sha256'), f'Unexpected alg: {header}'\nassert pay['user'] == 'alice'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-rate-009",
+    "category": "security",
+    "topic": "rate_limiting",
+    "difficulty": 2,
+    "instruction": "Write a Python class called `RateLimiter` that implements token bucket rate limiting. It should: 1) `__init__(self, max_tokens, refill_rate, refill_interval=1.0)` where max_tokens is the bucket capacity, refill_rate is tokens added per interval, and refill_interval is seconds between refills. 2) `allow(self, key, tokens=1)` checks if a request from the given key is allowed, consuming tokens if so. Returns a dict with 'allowed' (bool), 'remaining' (int), 'retry_after' (float seconds, 0 if allowed). 3) `reset(self, key)` resets a key's bucket to full. 4) Support multiple keys (per-user/per-IP limiting). The bucket should automatically refill based on elapsed time since last check.",
+    "expected_concepts": [
+      "rate limit",
+      "token bucket",
+      "refill",
+      "throttle",
+      "allow",
+      "remaining",
+      "interval"
+    ],
+    "test_code": "import time\nrl = RateLimiter(max_tokens=5, refill_rate=1, refill_interval=0.1)\n\n# Should allow first 5 requests\nfor i in range(5):\n    r = rl.allow('user1')\n    assert r['allowed'] == True, f'Request {i+1} should be allowed'\n\n# 6th should be denied\nr = rl.allow('user1')\nassert r['allowed'] == False, 'Should be rate limited after 5 requests'\nassert r['retry_after'] > 0\n\n# Different key should be independent\nr = rl.allow('user2')\nassert r['allowed'] == True, 'Different user should not be limited'\n\n# After small wait, should refill\ntime.sleep(0.15)\nr = rl.allow('user1')\nassert r['allowed'] == True, 'Should have refilled after interval'\n\nrl.reset('user1')\nr = rl.allow('user1')\nassert r['remaining'] >= 3, 'Reset should restore tokens'\nprint('ALL TESTS PASSED')"
+  },
+  {
+    "id": "sec-input-010",
+    "category": "security",
+    "topic": "input_validation",
+    "difficulty": 2,
+    "instruction": "Write a Python class called `InputValidator` with static methods for validating common user inputs: (1) `validate_email(email)` returns (bool, str) tuple - validates format using regex, checks for dangerous characters. (2) `validate_url(url, allowed_schemes=('https',))` checks URL format and scheme. (3) `sanitize_filename(filename)` removes path traversal attacks (../, null bytes), restricts to alphanumeric/dash/underscore/dot, limits length to 255 chars. (4) `validate_integer(value, min_val=None, max_val=None)` safely parses and range-checks integers. (5) `validate_json_payload(data, schema)` validates a dict against a simple schema dict of {field: type} pairs. Return descriptive error messages for each validation failure.",
+    "expected_concepts": [
+      "validate",
+      "sanitize",
+      "regex",
+      "email",
+      "path traversal",
+      "injection",
+      "schema"
+    ],
+    "test_code": "ok, msg = InputValidator.validate_email('user@example.com')\nassert ok == True\nok, msg = InputValidator.validate_email('not-an-email')\nassert ok == False\nok, msg = InputValidator.validate_email('<script>@evil.com')\nassert ok == False\n\nok, msg = InputValidator.validate_url('https://example.com/path')\nassert ok == True\nok, msg = InputValidator.validate_url('http://example.com', allowed_schemes=('https',))\nassert ok == False\nok, msg = InputValidator.validate_url('javascript:alert(1)')\nassert ok == False\n\nsafe = InputValidator.sanitize_filename('../../../etc/passwd')\nassert '..' not in safe and '/' not in safe\nsafe = InputValidator.sanitize_filename('normal-file.txt')\nassert safe == 'normal-file.txt'\n\nok, msg = InputValidator.validate_integer('42', min_val=0, max_val=100)\nassert ok == True\nok, msg = InputValidator.validate_integer('abc')\nassert ok == False\n\nok, errors = InputValidator.validate_json_payload({'name': 'Alice', 'age': 30}, {'name': str, 'age': int})\nassert ok == True\nok, errors = InputValidator.validate_json_payload({'name': 123}, {'name': str, 'age': int})\nassert ok == False\nprint('ALL TESTS PASSED')"
   }
 ]

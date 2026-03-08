@@ -1,0 +1,19 @@
+{
+  "name": "debugging_patterns",
+  "title": "Systematic Debugging Patterns",
+  "description": "Bug classification, binary search debugging, race conditions, common anti-patterns",
+  "test_cases": [
+    {
+      "input": "How do I systematically debug an intermittent race condition?",
+      "expected_keywords": ["race", "lock", "mutex", "reproduce", "shared", "atomic"]
+    },
+    {
+      "input": "What's the best approach to debug a Python mutable default argument bug?",
+      "expected_keywords": ["mutable", "default", "None", "sentinel", "append", "shared"]
+    },
+    {
+      "input": "How do I use git bisect to find which commit introduced a bug?",
+      "expected_keywords": ["bisect", "start", "bad", "good", "binary", "commit"]
+    }
+  ]
+}

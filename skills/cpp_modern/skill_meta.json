@@ -1,0 +1,19 @@
+{
+  "name": "cpp_modern",
+  "title": "Modern C++ Patterns (C++17/20/23)",
+  "description": "Smart pointers, move semantics, RAII, concepts, ranges, std::expected",
+  "test_cases": [
+    {
+      "input": "How do I use smart pointers in C++ to manage memory safely?",
+      "expected_keywords": ["unique_ptr", "shared_ptr", "make_unique", "make_shared", "ownership", "move"]
+    },
+    {
+      "input": "Explain C++20 concepts and how they replace SFINAE for template constraints",
+      "expected_keywords": ["concept", "requires", "template", "constraint", "integral", "floating_point"]
+    },
+    {
+      "input": "How do I use std::variant and std::optional in modern C++?",
+      "expected_keywords": ["variant", "optional", "visit", "get_if", "nullopt", "value_or"]
+    }
+  ]
+}

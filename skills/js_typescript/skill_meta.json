@@ -1,0 +1,19 @@
+{
+  "name": "js_typescript",
+  "title": "JavaScript & TypeScript Patterns",
+  "description": "Async/await, generics, closures, promises, error handling, proxy/reflect",
+  "test_cases": [
+    {
+      "input": "How do I handle errors properly in async JavaScript code?",
+      "expected_keywords": ["try", "catch", "async", "await", "Promise", "Error"]
+    },
+    {
+      "input": "Explain TypeScript generics with constraints and mapped types",
+      "expected_keywords": ["generic", "extends", "keyof", "Partial", "mapped", "constraint"]
+    },
+    {
+      "input": "What are closures in JavaScript and how do they enable the module pattern?",
+      "expected_keywords": ["closure", "scope", "lexical", "encapsulate", "state", "function"]
+    }
+  ]
+}

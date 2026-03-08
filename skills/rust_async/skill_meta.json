@@ -1,0 +1,19 @@
+{
+  "name": "rust_async",
+  "title": "Rust Async Patterns (Tokio)",
+  "description": "Tokio runtime, task spawning, channels, select, cancellation, error handling",
+  "test_cases": [
+    {
+      "input": "How do I run multiple async tasks concurrently in Rust with Tokio?",
+      "expected_keywords": ["tokio", "spawn", "join_all", "Semaphore", "await"]
+    },
+    {
+      "input": "Explain Rust async error handling with thiserror and anyhow",
+      "expected_keywords": ["thiserror", "anyhow", "Error", "from", "Result"]
+    },
+    {
+      "input": "How do I implement graceful shutdown in a Tokio application?",
+      "expected_keywords": ["CancellationToken", "select", "cancel", "shutdown", "signal"]
+    }
+  ]
+}

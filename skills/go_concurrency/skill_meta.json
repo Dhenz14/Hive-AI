@@ -1,0 +1,19 @@
+{
+  "name": "go_concurrency",
+  "title": "Go Concurrency Patterns",
+  "description": "Goroutines, channels, WaitGroup, context, errgroup, worker pools",
+  "test_cases": [
+    {
+      "input": "How do I implement a worker pool in Go with bounded concurrency?",
+      "expected_keywords": ["goroutine", "channel", "WaitGroup", "worker", "semaphore"]
+    },
+    {
+      "input": "Explain Go's context package for cancellation and timeouts",
+      "expected_keywords": ["context", "WithTimeout", "WithCancel", "cancel", "Done", "Err"]
+    },
+    {
+      "input": "When should I use a mutex vs a channel in Go?",
+      "expected_keywords": ["Mutex", "channel", "shared state", "RWMutex", "ownership"]
+    }
+  ]
+}
