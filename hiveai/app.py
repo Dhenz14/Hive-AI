@@ -65,25 +65,29 @@ except Exception as _check_err:
 
 from hiveai.pipeline.queue_worker import start_worker
 
-# --- Warm embedding + dedup caches on startup ---
-# Loads the SentenceTransformer model and pre-populates the dedup
-# embedding cache from the training_pairs table. This eliminates
-# cold-start latency on the first /api/lora/distill call.
-try:
-    _warmup_logger = logging.getLogger(__name__)
-    # Warm embedding model (loads SentenceTransformer into RAM)
-    from hiveai.llm.client import embed_text as _warm_embed
-    _warm_embed("warmup")  # triggers lazy model load
-    _warmup_logger.info("Embedding model warmed up")
+# --- Warm embedding + dedup caches on startup (NON-BLOCKING) ---
+# bge-m3 takes 5+ minutes to load on CPU — run in background thread
+# so the Flask app starts serving immediately.
+def _background_warmup():
+    _log = logging.getLogger(__name__)
+    try:
+        import time as _t
+        _start = _t.time()
+        from hiveai.llm.client import embed_text as _warm_embed
+        _warm_embed("warmup")
+        _log.info(f"Embedding model warmed up ({_t.time() - _start:.0f}s)")
 
-    # Warm dedup cache (loads all training_pair embeddings into memory)
-    from hiveai.lora.dedup import _get_cached_embeddings
-    _warm_db = SessionLocal()
-    _embs, _quals = _get_cached_embeddings(_warm_db)
-    _warm_db.close()
-    _warmup_logger.info(f"Dedup cache warmed: {len(_embs)} embeddings preloaded")
-except Exception as _warmup_err:
-    logging.getLogger(__name__).warning(f"Cache warmup skipped: {_warmup_err}")
+        from hiveai.lora.dedup import _get_cached_embeddings
+        _warm_db = SessionLocal()
+        _embs, _quals = _get_cached_embeddings(_warm_db)
+        _warm_db.close()
+        _log.info(f"Dedup cache warmed: {len(_embs)} embeddings preloaded")
+    except Exception as e:
+        _log.warning(f"Cache warmup failed: {e}")
+
+import threading
+_warmup_thread = threading.Thread(target=_background_warmup, daemon=True)
+_warmup_thread.start()
 
 start_worker()
 
