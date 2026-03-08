@@ -1,0 +1,27 @@
+{
+  "name": "python_idioms",
+  "title": "Python Idioms & Best Practices",
+  "description": "Dataclasses, type hints, asyncio, context managers, pitfalls, modern syntax, itertools/functools",
+  "test_cases": [
+    {
+      "input": "When should I use dataclass vs attrs in Python?",
+      "expected_keywords": ["dataclass", "attrs", "frozen", "slots", "Factory"]
+    },
+    {
+      "input": "How do I use asyncio TaskGroup for structured concurrency?",
+      "expected_keywords": ["TaskGroup", "create_task", "Semaphore", "async"]
+    },
+    {
+      "input": "What are common Python pitfalls with mutable default arguments?",
+      "expected_keywords": ["mutable", "default", "lambda", "late binding", "is"]
+    },
+    {
+      "input": "Explain Python type hints with Protocol and TypeVar",
+      "expected_keywords": ["Protocol", "TypeVar", "Generic", "TypeGuard", "typing"]
+    },
+    {
+      "input": "Show me useful itertools and functools patterns in Python",
+      "expected_keywords": ["chain", "groupby", "lru_cache", "partial", "reduce"]
+    }
+  ]
+}
