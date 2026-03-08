@@ -351,7 +351,8 @@ def main():
     if training_dir.exists():
         priority_files = ["v4.jsonl", "dbc_pairs.jsonl",
                           "moe_advanced_pairs.jsonl", "moe_kernel_optimization_pairs.jsonl",
-                          "moe_pruning_pairs.jsonl", "v8_research_pairs.jsonl"]
+                          "moe_pruning_pairs.jsonl", "v8_research_pairs.jsonl",
+                          "v8_go_cpp_pairs.jsonl"]
         if args.include_old:
             priority_files.extend(["v1.jsonl", "v1_6.jsonl", "v2.jsonl",
                                    "v2_expanded.jsonl", "v3.jsonl"])

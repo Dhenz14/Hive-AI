@@ -722,6 +722,63 @@ def score_books_api():
         db.close()
 
 
+@app.route("/api/admin/compaction-quality")
+def compaction_quality_api():
+    """Measure information retention quality of compressed books.
+
+    Query params:
+        ?book_id=5          — single book analysis
+        ?threshold=0.5      — flag books below this quality
+        ?with_embeddings=1  — include semantic similarity (slower)
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from scripts.compaction_quality import measure_quality
+    db = SessionLocal()
+    try:
+        from hiveai.models import GoldenBook
+        book_id = request.args.get("book_id", type=int)
+        threshold = request.args.get("threshold", type=float, default=0.0)
+        use_embed = request.args.get("with_embeddings", "").lower() in ("1", "true")
+
+        query = db.query(GoldenBook).filter(
+            GoldenBook.compressed_content.isnot(None),
+            GoldenBook.compressed_content != "",
+        )
+        if book_id:
+            query = query.filter(GoldenBook.id == book_id)
+
+        books = query.all()
+        if not books:
+            return jsonify({"status": "ok", "total_books": 0, "books": []})
+
+        results = []
+        for book in books:
+            q = measure_quality(
+                book.content or "", book.compressed_content or "",
+                with_embeddings=use_embed,
+            )
+            q["book_id"] = book.id
+            q["title"] = (book.title or "Untitled")[:60]
+            results.append(q)
+
+        results.sort(key=lambda r: r["overall_quality"])
+        avg_quality = sum(r["overall_quality"] for r in results) / len(results)
+        flagged = [r for r in results if r["overall_quality"] < threshold] if threshold > 0 else []
+
+        return jsonify({
+            "status": "ok",
+            "total_books": len(results),
+            "avg_quality": round(avg_quality, 3),
+            "threshold": threshold if threshold > 0 else None,
+            "flagged_count": len(flagged),
+            "books": results,
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/reembed", methods=["POST"])
 def reembed_api():
     from hiveai.pipeline.reembed import check_embedding_model_match, reembed_all_sections

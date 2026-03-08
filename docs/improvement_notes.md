@@ -398,3 +398,182 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 - **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
 
 **Meta-lesson #12**: Free API landscape changes fast. Audit OpenRouter's free model list quarterly — new models appear regularly as providers use free tier for benchmarking exposure.
+
+---
+
+## 15. LLM-as-Judge Eval Scorer (COMPLETED 2026-03-07)
+
+**Problem**: Keyword-based concept_coverage and explanation_quality scorers miss semantic understanding. A response can cover a concept perfectly without using the exact keyword, scoring 0. Conversely, keyword stuffing inflates scores.
+
+**Solution**: Optional LLM judge that replaces keyword scoring for concept_coverage and explanation_quality. Uses a separate reasoning model (e.g., qwen3:32b via Ollama on :11434) to evaluate response quality on a 6-level rubric (0.0-1.0).
+
+**Implementation** (`scripts/run_eval.py`):
+- `--llm-judge URL` and `--judge-model MODEL` CLI flags
+- `_JUDGE_SYSTEM_PROMPT` — strict, consistent judge persona
+- `_JUDGE_PROMPT_TEMPLATE` — 6-level rubric for both dimensions
+- `_parse_judge_response()` — robust JSON extraction handling `<think>` tags, markdown fences, key validation
+- `llm_judge_score()` — retry logic (up to 3 attempts), connection error short-circuit, 180s timeout
+- Falls back to keyword-v4 scorer on any failure (network, parse, timeout)
+- Stats tracking: calls/successes/failures/fallbacks reported in summary
+
+**Usage**:
+```bash
+# Full eval with LLM judge (requires Ollama running on :11434)
+python scripts/run_eval.py --llm-judge http://localhost:11434 --judge-model qwen3:32b
+
+# Without judge (keyword-v4 scorer, default)
+python scripts/run_eval.py
+```
+
+**Meta-lesson #13**: LLM-as-judge is only as good as the judge model. Use a model at least as capable as the one being evaluated. Temperature near 0 (0.05) for consistency. Always keep a deterministic fallback.
+
+---
+
+## 16. Compaction Quality Metrics (COMPLETED 2026-03-07)
+
+**Problem**: Knowledge compaction (Phase 3) compresses books but had no way to measure information loss. Bad compactions could silently discard critical entities, numbers, or URLs.
+
+**Solution**: Multi-dimension quality analyzer that compares original vs compressed text across 5 axes.
+
+**Implementation** (`scripts/compaction_quality.py`):
+- **Entity retention** (40% weight): Capitalized phrases, quoted terms, camelCase, snake_case, SCREAMING_CASE, dense format brackets
+- **Number retention** (25% weight): Dates, versions, measurements with units
+- **URL retention** (15% weight): Full URL matching with normalization
+- **Key phrase retention** (20% weight): Important multi-word phrases
+- **Embedding similarity** (optional, reweights to 30/20/15/15/20): Cosine similarity via bge-m3
+- Letter grades A-F, visual bar charts, JSON output, threshold flagging, exit codes
+
+**API endpoint**: `GET /api/admin/compaction-quality?book_id=5&threshold=0.5&with_embeddings=1`
+
+**CLI usage**:
+```bash
+# Check all books
+python scripts/compaction_quality.py
+
+# Single book with embeddings
+python scripts/compaction_quality.py --book-id 5 --with-embeddings --verbose
+
+# CI mode: fail if any book below 0.6
+python scripts/compaction_quality.py --threshold 0.6 --json
+```
+
+**Meta-lesson #14**: Compression quality is multi-dimensional. A single "similarity score" hides whether you're losing entities vs numbers vs structure. Break it down by dimension.
+
+---
+
+## 17. Targeted Go/C++ Training Pairs (COMPLETED 2026-03-07)
+
+**Problem**: v8 training data was 1.2% Go (74 pairs) and 3.5% C++ (211 pairs) out of 6,004 total. These are the weakest eval categories.
+
+**Solution**: 22 handcrafted training pairs (11 Go, 11 C++) covering every eval challenge topic exactly.
+
+**Implementation** (`scripts/gen_go_cpp_pairs.py`):
+- Explicit `PAIR_META` mapping (no brittle string matching for categorization)
+- Each pair has metadata: source, category, eval_topic, difficulty, version
+- Go topics: goroutines/waitgroup, channels, select, error handling, interfaces, context, generics, HTTP server, table-driven tests, race conditions, embedding
+- C++ topics: smart pointers, move semantics, templates, STL containers, algorithms, thread pool, async/future, cache optimization, concepts/ranges, SFINAE, RAII
+- Output: `loras/training_data/v8_go_cpp_pairs.jsonl`
+
+**Meta-lesson #15**: Targeted pairs beat bulk generation. 22 pairs covering all eval topics will move scores more than 200 generic pairs. Align training data to eval challenges 1:1.
+
+---
+
+## 18. GRPO Training (PLANNED — next after v8)
+
+**Priority**: HIGH — the big quality jump
+
+**Prerequisites**:
+- Stable SFT baseline (v7/v8 LoRA verified non-degrading)
+- Unsloth 2026.2.1+ (already installed in WSL)
+
+**What it is**: Group Relative Policy Optimization — reinforcement learning from AI feedback. Instead of just imitating training pairs (SFT), the model generates multiple responses, scores them with a reward function, and optimizes toward higher-scoring outputs.
+
+**Why it matters**:
+- SFT teaches "what to say" but GRPO teaches "how to think"
+- Unsloth claims 7x context and 50% less VRAM vs standard implementations
+- Can use our eval scorer as the reward function (code validity + concept coverage)
+
+**Implementation plan**:
+1. Build reward function wrapping `score_code_validity` + `concept_coverage`
+2. Generate 500+ seed prompts from eval challenges + mined data
+3. Run GRPO with Unsloth: `from unsloth import GRPOTrainer`
+4. Use KL divergence penalty to prevent reward hacking
+5. Eval after each epoch — stop if degradation detected
+
+**Risks**:
+- Reward hacking (model games the scorer without actually improving)
+- Mode collapse (model converges to a narrow response style)
+- VRAM ceiling on RTX 4070 Ti — may need aggressive quantization
+
+---
+
+## 19. LLM-Powered Keyword Extraction (PLANNED)
+
+**Priority**: MEDIUM — better knowledge pipeline ingestion
+
+**What it is**: Replace regex/heuristic keyword extraction in the knowledge pipeline with an LLM that understands context. Current extraction misses domain-specific terms and over-extracts common words.
+
+**Implementation plan**:
+1. Use local Qwen model (already running on :11435) for extraction
+2. Prompt: "Extract the 10-20 most important technical terms from this text"
+3. Cache results to avoid re-extraction on each query
+4. Compare extraction quality: regex F1 vs LLM F1 on a manually labeled set
+
+**Expected impact**: Better search relevance in knowledge pipeline, fewer false positives in book retrieval.
+
+---
+
+## 20. Dynamic 4-bit Quantization (PLANNED)
+
+**Priority**: MEDIUM — enables running 27B+ models on 16GB VRAM
+
+**What it is**: Mixed-precision quantization where attention layers stay at higher precision (Q6/Q8) while FFN layers drop to Q4. Llama.cpp supports this via imatrix-guided quantization.
+
+**Implementation plan**:
+1. Generate importance matrix: `llama-imatrix -m model.gguf -f calibration.txt`
+2. Quantize with imatrix: `llama-quantize --imatrix imatrix.dat model.gguf model-Q4_K_M.gguf`
+3. Benchmark: compare Q4_K_M (standard) vs Q4_K_M (imatrix) on our eval harness
+4. Target: run Qwen2.5-Coder-32B on 16GB VRAM (currently impossible)
+
+**Risks**: Quality loss at extreme quantization. Need eval to catch degradation.
+
+---
+
+## 21. Vision Fine-Tuning (PLANNED — long-term)
+
+**Priority**: LOW — cool but not urgent
+
+**What it is**: Fine-tune on code screenshots, architecture diagrams, UML, and whiteboard photos. Would let HiveAI understand visual technical content.
+
+**Prerequisites**:
+- VLM base model (Qwen-VL or similar)
+- Training data: paired (image, description) for code/architecture content
+- Unsloth VLM support (experimental as of 2026-03)
+
+**Implementation plan**:
+1. Collect 500+ (screenshot, code) pairs from open-source repos
+2. Add architecture diagram → text description pairs
+3. Fine-tune VLM with LoRA (same pipeline as text LoRA)
+4. Eval: image-to-code accuracy on held-out test set
+
+---
+
+## 22. Parallel Document QA (PLANNED — long-term)
+
+**Priority**: LOW — Phase 5 of knowledge pipeline
+
+**What it is**: Query multiple books/documents simultaneously and synthesize answers. Currently the knowledge pipeline processes one book at a time.
+
+**Prerequisites**:
+- Stable knowledge pipeline (Phases 1-4 complete)
+- Sufficient RAM for parallel embedding inference
+- Good compaction quality (Phase 3 verified via compaction metrics)
+
+**Implementation plan**:
+1. Parallel retrieval: query top-K chunks from multiple books concurrently
+2. Cross-document dedup: remove redundant chunks across books
+3. Synthesis prompt: "Given these excerpts from N sources, answer..."
+4. Citation tracking: attribute each claim to its source book/chapter
+5. Streaming response with source annotations
+
+**Expected impact**: Transform HiveAI from single-document Q&A to a true research assistant that cross-references multiple sources.

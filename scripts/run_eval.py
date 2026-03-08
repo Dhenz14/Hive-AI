@@ -501,6 +501,207 @@ def score_explanation_quality(response: str) -> float:
     return round(min(final, 1.0), 3)
 
 
+# ---------------------------------------------------------------------------
+# LLM-as-Judge scorer (optional, --llm-judge flag)
+# ---------------------------------------------------------------------------
+# Uses a separate LLM (typically a reasoning model like qwen3:32b via Ollama)
+# to score concept_coverage and explanation_quality instead of keyword matching.
+#
+# This produces more meaningful scores because:
+#   1. It understands whether code ACTUALLY implements the asked concept
+#   2. It can evaluate explanation quality semantically, not just by word count
+#   3. It handles non-Python languages equally well (no Python-specific bias)
+#
+# Usage:
+#   python scripts/run_eval.py --model hiveai-v7 --base-url http://localhost:11435 \
+#       --llm-judge http://localhost:11434 --judge-model qwen3:32b
+#
+# The judge model MUST be different from the model being evaluated to avoid
+# circular scoring bias. Ollama on :11434 for judge, llama-server on :11435
+# for the model under test is the recommended setup.
+# ---------------------------------------------------------------------------
+
+_LLM_JUDGE_URL: str | None = None
+_LLM_JUDGE_MODEL: str = "qwen3:32b"
+_LLM_JUDGE_RETRIES: int = 2
+_LLM_JUDGE_TIMEOUT: int = 180  # seconds — reasoning models can be slow
+_llm_judge_stats = {"calls": 0, "successes": 0, "failures": 0, "fallbacks": 0}
+
+_JUDGE_SYSTEM_PROMPT = (
+    "You are a senior software engineer evaluating AI coding assistant responses. "
+    "You score responses objectively on specific dimensions. You always respond "
+    "with valid JSON and nothing else."
+)
+
+_JUDGE_PROMPT_TEMPLATE = """Evaluate this AI coding assistant response.
+
+## Task given to the assistant
+{instruction}
+
+## Expected concepts
+{concepts}
+
+## Assistant's response (may be truncated)
+{response}
+
+---
+
+Score on exactly TWO dimensions (0.0 to 1.0, one decimal place):
+
+**concept_coverage** — Does the response actually cover the expected concepts?
+- 1.0 = all concepts present, code correctly implements the topic
+- 0.8 = most concepts covered, minor omissions
+- 0.6 = core concept present but missing important details
+- 0.4 = partial coverage, significant gaps
+- 0.2 = barely touches the topic
+- 0.0 = wrong topic or empty response
+
+**explanation_quality** — Does it explain WHY, not just WHAT?
+- 1.0 = excellent: explains reasoning, trade-offs, alternatives, edge cases
+- 0.8 = good: clear explanations with some depth
+- 0.6 = adequate: explains the basics but lacks depth
+- 0.4 = minimal: mostly code with brief comments
+- 0.2 = almost no explanation
+- 0.0 = pure code dump with zero explanation
+
+Reply with ONLY this JSON (no markdown, no explanation):
+{{"concept_coverage": X.X, "explanation_quality": X.X}}"""
+
+
+def _parse_judge_response(content: str) -> dict | None:
+    """Parse the judge's response, extracting JSON scores.
+
+    Handles: raw JSON, JSON in markdown code blocks, JSON after thinking tags.
+    Returns validated scores dict or None.
+    """
+    # Strip thinking tags (reasoning models like qwen3)
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+
+    # Strip markdown code fences
+    content = re.sub(r"```(?:json)?\s*", "", content).strip()
+    content = content.strip("`").strip()
+
+    # Try to find JSON object
+    json_match = re.search(r'\{[^{}]*"concept_coverage"[^{}]*\}', content)
+    if not json_match:
+        # Broader fallback: any JSON object
+        json_match = re.search(r'\{[^{}]+\}', content)
+    if not json_match:
+        return None
+
+    try:
+        scores = json.loads(json_match.group())
+    except json.JSONDecodeError:
+        return None
+
+    # Validate required keys and value ranges
+    cc = scores.get("concept_coverage")
+    eq = scores.get("explanation_quality")
+    if cc is None or eq is None:
+        return None
+
+    try:
+        cc = float(cc)
+        eq = float(eq)
+    except (ValueError, TypeError):
+        return None
+
+    # Sanity check: scores must be in [0, 1]
+    if not (0.0 <= cc <= 1.0 and 0.0 <= eq <= 1.0):
+        # Clamp rather than reject (model might output 0.95 which is fine)
+        cc = max(0.0, min(1.0, cc))
+        eq = max(0.0, min(1.0, eq))
+
+    return {
+        "concept_coverage": round(cc, 2),
+        "explanation_quality": round(eq, 2),
+    }
+
+
+def llm_judge_score(instruction: str, response: str,
+                    expected_concepts: list[str]) -> dict | None:
+    """Score concept coverage and explanation quality using an LLM judge.
+
+    Makes up to _LLM_JUDGE_RETRIES+1 attempts. Returns None on failure,
+    allowing the caller to fall back to keyword-based scoring.
+
+    Args:
+        instruction: The original coding challenge prompt.
+        response: The model's response to score.
+        expected_concepts: List of concept keywords expected in the response.
+
+    Returns:
+        {"concept_coverage": float, "explanation_quality": float} or None.
+    """
+    if not _LLM_JUDGE_URL:
+        return None
+
+    import requests
+
+    _llm_judge_stats["calls"] += 1
+
+    concepts_str = ", ".join(expected_concepts) if expected_concepts else "(none specified — judge by topic relevance)"
+    # Truncate response to fit in judge's context window
+    resp_truncated = response[:3500]
+    if len(response) > 3500:
+        resp_truncated += f"\n\n[... truncated, {len(response)} chars total]"
+
+    prompt = _JUDGE_PROMPT_TEMPLATE.format(
+        instruction=instruction[:600],
+        concepts=concepts_str,
+        response=resp_truncated,
+    )
+
+    last_error = None
+    for attempt in range(_LLM_JUDGE_RETRIES + 1):
+        try:
+            r = requests.post(
+                f"{_LLM_JUDGE_URL}/api/chat",
+                json={
+                    "model": _LLM_JUDGE_MODEL,
+                    "messages": [
+                        {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.05,  # Near-deterministic for consistent scoring
+                        "num_predict": 150,   # JSON response is short
+                    },
+                },
+                timeout=_LLM_JUDGE_TIMEOUT,
+            )
+            r.raise_for_status()
+            content = r.json()["message"]["content"]
+            result = _parse_judge_response(content)
+
+            if result is not None:
+                _llm_judge_stats["successes"] += 1
+                return result
+
+            # Parse failed — retry with a cleaner request
+            last_error = f"Could not parse judge response: {content[:100]}"
+            logger.debug(f"LLM judge parse failure (attempt {attempt + 1}): {last_error}")
+
+        except requests.exceptions.Timeout:
+            last_error = "timeout"
+            logger.debug(f"LLM judge timeout (attempt {attempt + 1})")
+        except requests.exceptions.ConnectionError:
+            last_error = "connection refused"
+            logger.warning(f"LLM judge connection failed — is Ollama running at {_LLM_JUDGE_URL}?")
+            _llm_judge_stats["failures"] += 1
+            return None  # Don't retry connection errors
+        except Exception as e:
+            last_error = str(e)
+            logger.debug(f"LLM judge error (attempt {attempt + 1}): {e}")
+
+    # All retries exhausted
+    _llm_judge_stats["failures"] += 1
+    _llm_judge_stats["fallbacks"] += 1
+    logger.debug(f"LLM judge gave up after {_LLM_JUDGE_RETRIES + 1} attempts: {last_error}")
+    return None
+
+
 def compute_weighted_score(code_validity: float, test_passing: float | None,
                            concept_coverage: float, explanation: float) -> float:
     """
@@ -572,8 +773,18 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
     # Score all 4 dimensions
     d1_code = score_code_validity(response)
     d2_test = score_test_passing(response, test_code)
-    d3_concept = score_concept_coverage(response, challenge.get("expected_concepts", []))
-    d4_explain = score_explanation_quality(response_for_explain)
+
+    # LLM-as-Judge for concept + explanation (if enabled), fallback to keyword scorers
+    judge_result = llm_judge_score(
+        challenge["instruction"], response, challenge.get("expected_concepts", [])
+    )
+    if judge_result:
+        d3_concept = judge_result["concept_coverage"]
+        d4_explain = judge_result["explanation_quality"]
+    else:
+        d3_concept = score_concept_coverage(response, challenge.get("expected_concepts", []))
+        d4_explain = score_explanation_quality(response_for_explain)
+
     overall = compute_weighted_score(d1_code, d2_test, d3_concept, d4_explain)
 
     status = "PASS" if overall >= 0.6 else "MARGINAL" if overall >= 0.4 else "FAIL"
@@ -597,6 +808,7 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
             "overall": overall,
         },
         "has_test_code": test_code is not None,
+        "llm_judge_used": judge_result is not None,
         "duration_ms": result["duration_ms"],
         "tokens_eval": result["tokens_eval"],
         "response_preview": response[:300],
@@ -665,9 +877,23 @@ def generate_report(results: list[dict], model: str, elapsed_total_s: float) -> 
     total_ms = sum(r["duration_ms"] for r in scored)
     avg_ms = total_ms // max(len(scored), 1)
 
+    # Judge stats (if LLM-as-Judge was used)
+    judge_stats = None
+    if _LLM_JUDGE_URL:
+        judge_used = sum(1 for r in scored if r.get("llm_judge_used"))
+        judge_stats = {
+            "model": _LLM_JUDGE_MODEL,
+            "url": _LLM_JUDGE_URL,
+            "challenges_judged": judge_used,
+            "challenges_fell_back": len(scored) - judge_used,
+            **_llm_judge_stats,
+        }
+
     return {
         "model": model,
         "timestamp": datetime.now().isoformat(),
+        "scorer": "llm-judge" if _LLM_JUDGE_URL else "keyword-v4",
+        "judge": judge_stats,
         "total_challenges": total,
         "errors": errors,
         "scored": len(scored),
@@ -765,6 +991,11 @@ def print_summary(report: dict):
     print(f"  Overall Score: {report['overall_score']:.3f}")
     print(f"  Time: {report['timing']['total_seconds']:.0f}s ({report['timing']['avg_ms_per_challenge']}ms avg)")
     print(f"  Tokens: {report['timing']['total_tokens']:,}")
+    print(f"  Scorer: {report.get('scorer', 'keyword-v4')}")
+    if report.get("judge"):
+        j = report["judge"]
+        print(f"  Judge:  {j['model']} via {j['url']}  "
+              f"({j['challenges_judged']} judged, {j['challenges_fell_back']} fell back)")
 
     print(f"\n  Dimension Scores:")
     for dim, val in report["dimension_scores"].items():
@@ -814,6 +1045,11 @@ def main():
                         help="Use llama-server instead of Ollama (e.g. http://localhost:11435)")
     parser.add_argument("--workers", type=int, default=1,
                         help="Parallel eval workers (default 1, try 3 for 3x speed)")
+    parser.add_argument("--llm-judge", type=str, default=None,
+                        help="Use LLM-as-Judge for concept/explain scoring via Ollama "
+                             "(e.g. http://localhost:11434). Uses qwen3:32b by default.")
+    parser.add_argument("--judge-model", type=str, default="qwen3:32b",
+                        help="Model for LLM-as-Judge (default: qwen3:32b)")
     args = parser.parse_args()
 
     # --- Wire llama-server URL if given ---
@@ -821,6 +1057,13 @@ def main():
     if args.base_url:
         _LLAMA_SERVER_URL = args.base_url
         logger.info(f"Using llama-server at {_LLAMA_SERVER_URL}")
+
+    # --- Wire LLM-as-Judge if given ---
+    global _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
+    if args.llm_judge:
+        _LLM_JUDGE_URL = args.llm_judge
+        _LLM_JUDGE_MODEL = args.judge_model
+        logger.info(f"LLM-as-Judge enabled: {_LLM_JUDGE_URL} ({_LLM_JUDGE_MODEL})")
 
     # --- Compare mode ---
     if args.compare:
