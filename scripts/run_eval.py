@@ -366,8 +366,11 @@ def score_concept_coverage(response: str, expected_concepts: list[str]) -> float
 def score_explanation_quality(response: str) -> float:
     """
     Dimension 4: Explanation quality (0.0-1.0).
-    Measures reasoning depth, structure, and teaching signals.
-    Adapted from distiller._score_quality markers.
+    v4 scorer — calibrated against real Qwen2.5-Coder-14B output patterns.
+
+    The model explains via structured prose (headers, numbered lists, bold
+    definitions, inline comments) more than via academic connector phrases.
+    This scorer weights structure heavily and uses relaxed word thresholds.
     """
     if not response:
         return 0.0
@@ -376,72 +379,115 @@ def score_explanation_quality(response: str) -> float:
     word_count = len(response.split())
     score = 0.0
 
-    # --- Content depth (0.25 max) ---
-    if word_count >= 800:
-        score += 0.25
-    elif word_count >= 500:
+    # --- Content depth (0.20 max, relaxed thresholds) ---
+    if word_count >= 500:
         score += 0.20
     elif word_count >= 300:
-        score += 0.15
-    elif word_count >= 150:
-        score += 0.10
+        score += 0.16
+    elif word_count >= 200:
+        score += 0.12
+    elif word_count >= 100:
+        score += 0.08
     elif word_count >= 50:
-        score += 0.05
+        score += 0.04
 
-    # --- Reasoning markers (0.30 max) ---
+    # --- Prose ratio bonus (0.10 max) ---
+    # Reward responses that balance code with explanation, not just dump code.
+    code_text = "".join(re.findall(r"```.*?```", response, re.DOTALL))
+    code_words = len(code_text.split())
+    prose_words = max(word_count - code_words, 0)
+    if word_count > 0:
+        prose_ratio = prose_words / word_count
+        if prose_ratio >= 0.40:
+            score += 0.10
+        elif prose_ratio >= 0.25:
+            score += 0.06
+        elif prose_ratio >= 0.10:
+            score += 0.03
+
+    # --- Reasoning markers (0.25 max) ---
+    # Broad list matching how coding LLMs actually explain.
     causal = ["because", "therefore", "consequently", "as a result",
-              "this means", "which leads to", "the reason", "due to", "hence"]
+              "this means", "which leads to", "the reason", "due to", "hence",
+              "which means", "in other words", "so that", "this ensures",
+              "this allows", "this way", "this makes", "this is why",
+              "the idea is", "the key insight"]
     nuance = ["however", "although", "on the other hand", "trade-off",
-              "alternatively", "edge case", "caveat", "unless"]
+              "alternatively", "edge case", "caveat", "unless",
+              "keep in mind", "be aware", "be careful", "downside",
+              "limitation", "pitfall", "gotcha", "the catch",
+              "in contrast", "compared to", "unlike", "whereas"]
     teaching = ["for example", "common mistake", "best practice",
-                "note that", "important", "consider", "step 1", "first,"]
+                "note that", "important", "consider", "step 1", "first,",
+                "let's", "here's how", "here is", "notice that",
+                "the syntax", "this pattern", "in practice", "typically",
+                "the approach", "works by", "step by step", "to summarize",
+                "in summary", "the key", "remember that", "make sure"]
 
     causal_hits = sum(1 for m in causal if m in response_lower)
     nuance_hits = sum(1 for m in nuance if m in response_lower)
     teaching_hits = sum(1 for m in teaching if m in response_lower)
 
     reasoning = 0.0
-    reasoning += min(causal_hits * 0.03, 0.12)
-    reasoning += min(nuance_hits * 0.025, 0.08)
-    reasoning += min(teaching_hits * 0.025, 0.10)
-    score += min(reasoning, 0.30)
+    reasoning += min(causal_hits * 0.04, 0.10)
+    reasoning += min(nuance_hits * 0.035, 0.08)
+    reasoning += min(teaching_hits * 0.035, 0.07)
+    score += min(reasoning, 0.25)
 
-    # --- Structure (0.20 max) ---
+    # --- Structure (0.30 max — primary signal for coding LLMs) ---
     headers = re.findall(r"^#{1,3}\s+\w", response, re.MULTILINE)
     list_items = re.findall(r"^[\s]*(?:[-*]|\d+\.)\s+", response, re.MULTILINE)
     code_blocks = len(re.findall(r"```", response)) // 2
-    # Inline comments and docstrings — the coding AI's native explanation form
     inline_comments = re.findall(r"#\s+\w{3,}", response)
     docstrings = re.findall(r'""".*?"""', response, re.DOTALL)
 
     structure = 0.0
+    # Headers (max 0.08)
     if len(headers) >= 3:
+        structure += 0.08
+    elif len(headers) >= 2:
         structure += 0.06
     elif len(headers) >= 1:
         structure += 0.03
-    if len(list_items) >= 3:
+    # List items (max 0.06)
+    if len(list_items) >= 5:
+        structure += 0.06
+    elif len(list_items) >= 3:
         structure += 0.05
     elif len(list_items) >= 1:
         structure += 0.02
+    # Code blocks (max 0.05)
     if code_blocks >= 2:
         structure += 0.05
     elif code_blocks >= 1:
         structure += 0.03
-    # Inline comments reward (up to 0.04)
+    # Inline comments (max 0.04)
     structure += min(len(inline_comments) * 0.01, 0.04)
-    # Docstrings reward (up to 0.03)
+    # Docstrings (max 0.03)
     structure += min(len(docstrings) * 0.015, 0.03)
-    # Bold terms
+    # Bold terms (max 0.05)
     bold = re.findall(r"\*\*[^*]{2,30}\*\*", response)
-    if len(bold) >= 2:
+    if len(bold) >= 4:
+        structure += 0.05
+    elif len(bold) >= 2:
         structure += 0.04
-    score += min(structure, 0.20)
+    # Bold-definition patterns: **Term**: description (max 0.04)
+    bold_defs = re.findall(r"\*\*[^*]{2,30}\*\*\s*[:—–-]", response)
+    if len(bold_defs) >= 3:
+        structure += 0.04
+    elif len(bold_defs) >= 1:
+        structure += 0.02
+    # Numbered step patterns (max 0.03)
+    numbered_steps = re.findall(r"(?:^|\n)\s*(?:\d+[\.\)]\s|step\s*\d)", response, re.IGNORECASE)
+    if len(numbered_steps) >= 3:
+        structure += 0.03
+    score += min(structure, 0.30)
 
-    # --- Penalties (up to -0.25) ---
+    # --- Penalties (up to -0.20) ---
     penalties = 0.0
-    if word_count < 50:
+    if word_count < 30:
         penalties += 0.20
-    elif word_count < 100:
+    elif word_count < 50:
         penalties += 0.10
 
     # Repetitive content
