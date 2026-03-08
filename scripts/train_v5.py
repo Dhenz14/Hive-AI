@@ -1071,6 +1071,8 @@ if __name__ == "__main__":
                              "(e.g., loras/v6). Loads base+adapter, skips new LoRA init.")
     parser.add_argument("--data", type=str, default=None,
                         help="Override training data JSONL path (default: v7.jsonl)")
+    parser.add_argument("--output-dir", type=str, default=None,
+                        help="Override output directory (default: loras/v7)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1084,6 +1086,9 @@ if __name__ == "__main__":
 
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)
+
+    if args.output_dir:
+        OUTPUT_DIR = os.path.abspath(args.output_dir)
 
     if not os.path.exists(TRAINING_JSONL):
         logger.error(f"Training data not found: {TRAINING_JSONL}")
