@@ -49,7 +49,7 @@ logger = logging.getLogger("prepare_v5_data")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-TARGET_THINKING_RATIO = 0.28   # 28% thinking-trace pairs
+TARGET_THINKING_RATIO = 0.50   # 50% thinking-trace pairs (v8: include all deep Go/C++ pairs)
 MIN_RESPONSE_LEN = 100         # Minimum response length (chars)
 MAX_RESPONSE_LEN = 15000       # Maximum response length (chars) — caps verbose v4 pairs
 MIN_INSTRUCTION_LEN = 10       # Minimum instruction length (chars)
