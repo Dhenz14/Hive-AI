@@ -408,6 +408,68 @@ _compaction_cache_lock = threading.Lock()
 COMPACTION_THRESHOLD = 10  # compact when history exceeds this many messages
 RECENT_KEEP = 4  # keep this many recent messages verbatim
 
+# ---------------------------------------------------------------------------
+# Compaction & Context Quality Metrics (§12 improvement_notes.md)
+# ---------------------------------------------------------------------------
+_compaction_metrics = {
+    "compactions": 0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "total_original_chars": 0,
+    "total_compressed_chars": 0,
+    "total_turns_compacted": 0,
+    "failures": 0,
+    # budget_context metrics
+    "budget_calls": 0,
+    "total_sections_in": 0,
+    "total_sections_out": 0,
+    "total_tokens_budgeted": 0,
+    "total_tokens_dropped": 0,
+    "relevance_scores": [],  # last 200 scores for distribution
+}
+_metrics_lock = threading.Lock()
+
+
+def get_compaction_metrics() -> dict:
+    """Return compaction quality metrics for the status API."""
+    with _metrics_lock:
+        m = _compaction_metrics.copy()
+        # Compute derived stats
+        if m["compactions"] > 0:
+            m["avg_compression_ratio"] = round(
+                m["total_original_chars"] / max(m["total_compressed_chars"], 1), 2)
+            m["avg_turns_per_compaction"] = round(
+                m["total_turns_compacted"] / m["compactions"], 1)
+        else:
+            m["avg_compression_ratio"] = 0.0
+            m["avg_turns_per_compaction"] = 0.0
+
+        total_cache = m["cache_hits"] + m["cache_misses"]
+        m["cache_hit_rate"] = round(m["cache_hits"] / max(total_cache, 1), 3)
+
+        if m["budget_calls"] > 0:
+            m["avg_sections_kept"] = round(m["total_sections_out"] / m["budget_calls"], 1)
+            m["avg_sections_dropped"] = round(
+                (m["total_sections_in"] - m["total_sections_out"]) / m["budget_calls"], 1)
+            m["avg_tokens_per_call"] = round(m["total_tokens_budgeted"] / m["budget_calls"])
+        else:
+            m["avg_sections_kept"] = 0.0
+            m["avg_sections_dropped"] = 0.0
+            m["avg_tokens_per_call"] = 0
+
+        # Relevance score distribution (bucket into low/med/high)
+        scores = m.pop("relevance_scores", [])
+        if scores:
+            m["relevance_distribution"] = {
+                "low_lt_0.2": sum(1 for s in scores if s < 0.2),
+                "med_0.2_0.5": sum(1 for s in scores if 0.2 <= s < 0.5),
+                "high_gte_0.5": sum(1 for s in scores if s >= 0.5),
+            }
+        else:
+            m["relevance_distribution"] = {"low_lt_0.2": 0, "med_0.2_0.5": 0, "high_gte_0.5": 0}
+
+        return m
+
 
 def _format_turns_for_compaction(messages):
     """Format message list into readable text for the compactor LLM."""
@@ -460,6 +522,8 @@ def compact_conversation(history):
     with _compaction_cache_lock:
         if cache_key in _compaction_cache:
             cached_summary = _compaction_cache[cache_key]
+            with _metrics_lock:
+                _compaction_metrics["cache_hits"] += 1
             log.info(f"Compaction cache hit ({len(older)} older turns)")
             recent_text = _format_recent_turns(recent)
             return COMPACTION_HANDOFF.format(summary=cached_summary) + "\n" + recent_text
@@ -470,8 +534,22 @@ def compact_conversation(history):
         summary = fast(prompt, max_tokens=1024)
         if not summary or len(summary.strip()) < 20:
             log.warning("Compaction returned empty/too-short summary, falling back")
+            with _metrics_lock:
+                _compaction_metrics["failures"] += 1
             return None
-        log.info(f"Compacted {len(older)} older turns into {len(summary)} chars")
+
+        original_chars = len(older_text)
+        compressed_chars = len(summary.strip())
+        ratio = original_chars / max(compressed_chars, 1)
+        log.info(f"Compacted {len(older)} turns: {original_chars} → {compressed_chars} chars "
+                 f"({ratio:.1f}x compression)")
+
+        with _metrics_lock:
+            _compaction_metrics["compactions"] += 1
+            _compaction_metrics["cache_misses"] += 1
+            _compaction_metrics["total_original_chars"] += original_chars
+            _compaction_metrics["total_compressed_chars"] += compressed_chars
+            _compaction_metrics["total_turns_compacted"] += len(older)
 
         with _compaction_cache_lock:
             # Evict if cache gets too large
@@ -484,6 +562,8 @@ def compact_conversation(history):
 
     except Exception as e:
         log.error(f"Compaction failed: {e}, falling back to truncation")
+        with _metrics_lock:
+            _compaction_metrics["failures"] += 1
         return None
 
 
@@ -673,9 +753,27 @@ def budget_context(sections, query, max_tokens=4000):
         total_tokens += section_tokens
 
     dropped = len(sections) - len(budgeted)
+
+    # Track metrics
+    dropped_tokens = sum(
+        len(s.get("content", "").split()) * 4 // 3
+        for _, s in scored[len(budgeted):]
+    ) if len(scored) > len(budgeted) else 0
+    with _metrics_lock:
+        _compaction_metrics["budget_calls"] += 1
+        _compaction_metrics["total_sections_in"] += len(sections)
+        _compaction_metrics["total_sections_out"] += len(budgeted)
+        _compaction_metrics["total_tokens_budgeted"] += total_tokens
+        _compaction_metrics["total_tokens_dropped"] += dropped_tokens
+        # Track relevance score distribution (keep last 200)
+        rel_scores = _compaction_metrics["relevance_scores"]
+        rel_scores.extend(rel for rel, _ in scored)
+        if len(rel_scores) > 200:
+            _compaction_metrics["relevance_scores"] = rel_scores[-200:]
+
     log.info(f"Context budget: {len(budgeted)}/{len(sections)} sections, "
              f"~{total_tokens} tokens (max {max_tokens}), "
-             f"{dropped} dropped by relevance filter")
+             f"{dropped} dropped (~{dropped_tokens} tokens saved)")
     return "".join(budgeted)
 
 

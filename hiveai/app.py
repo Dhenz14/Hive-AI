@@ -414,6 +414,16 @@ def api_stats():
                 stats["mined_today"] = ms.get("stats", {}).get("mined_today", 0)
         except Exception:
             pass
+        try:
+            from hiveai.chat import get_compaction_metrics
+            cm = get_compaction_metrics()
+            stats["compaction"] = {
+                "compression_ratio": cm.get("avg_compression_ratio", 0),
+                "cache_hit_rate": cm.get("cache_hit_rate", 0),
+                "total_compactions": cm.get("compactions", 0),
+            }
+        except Exception:
+            pass
         return jsonify(stats)
     finally:
         db.close()
@@ -1444,6 +1454,16 @@ def miner_status():
     try:
         from hiveai.lora.miner import get_miner_status
         return jsonify(get_miner_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/compaction/metrics", methods=["GET"])
+def compaction_metrics_api():
+    """Conversation compaction & context budgeting quality metrics."""
+    try:
+        from hiveai.chat import get_compaction_metrics
+        return jsonify(get_compaction_metrics())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

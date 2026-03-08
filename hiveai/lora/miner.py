@@ -133,7 +133,7 @@ PROVIDER_REGISTRY = {
 # ---------------------------------------------------------------------------
 
 class ProviderState:
-    """Tracks rate limits, health, and usage for a single provider."""
+    """Tracks rate limits, health, usage, and quality scores for a single provider."""
 
     def __init__(self, provider: Provider):
         self.provider = provider
@@ -147,6 +147,10 @@ class ProviderState:
         self.total_calls = 0
         self.last_error: str = ""
         self._lock = threading.Lock()
+        # Quality tracking: rolling window of last 50 quality scores per model
+        self.model_quality: dict[str, deque] = {}  # model_name -> deque of scores
+        self.model_eligible: dict[str, int] = {}   # model_name -> eligible count
+        self.model_rejected: dict[str, int] = {}   # model_name -> rejected count
 
     def _load_key(self):
         """Load API key from environment."""
@@ -219,6 +223,54 @@ class ProviderState:
             logger.warning(f"Miner: {self.provider.name} circuit breaker opened "
                            f"({self.consecutive_failures} failures, cooldown {CIRCUIT_BREAKER_COOLDOWN}s)")
 
+    def record_quality(self, model: str, quality: float, eligible: bool):
+        """Track quality score for a model (rolling window of 50)."""
+        with self._lock:
+            if model not in self.model_quality:
+                self.model_quality[model] = deque(maxlen=50)
+                self.model_eligible[model] = 0
+                self.model_rejected[model] = 0
+            self.model_quality[model].append(quality)
+            if eligible:
+                self.model_eligible[model] += 1
+            else:
+                self.model_rejected[model] += 1
+
+    def get_model_avg_quality(self, model: str) -> float:
+        """Return rolling average quality for a model (0.5 default for unknown)."""
+        with self._lock:
+            scores = self.model_quality.get(model)
+            if not scores or len(scores) < 3:
+                return 0.5  # neutral prior until we have enough data
+            return sum(scores) / len(scores)
+
+    def best_model(self) -> str:
+        """Return the model with highest average quality, or random if no data."""
+        with self._lock:
+            if not self.model_quality:
+                return random.choice(self.provider.models) if self.provider.models else "default"
+            # Score each model: avg quality * (1 + log(eligible+1))
+            import math
+            scored = []
+            for model in self.provider.models:
+                scores = self.model_quality.get(model)
+                if not scores or len(scores) < 3:
+                    # Give unknown models exploration bonus
+                    scored.append((model, 0.6))
+                else:
+                    avg = sum(scores) / len(scores)
+                    eligible = self.model_eligible.get(model, 0)
+                    boost = 1 + 0.1 * math.log1p(eligible)
+                    scored.append((model, avg * boost))
+            # Weighted random selection (softmax-style with temperature)
+            if not scored:
+                return random.choice(self.provider.models) if self.provider.models else "default"
+            scored.sort(key=lambda x: -x[1])
+            # 70% chance pick best, 30% chance explore
+            if random.random() < 0.7:
+                return scored[0][0]
+            return random.choice([m for m, _ in scored])
+
     def _maybe_reset_daily(self, now: float):
         """Reset daily counter at midnight UTC."""
         if now >= self.daily_reset_at:
@@ -233,6 +285,17 @@ class ProviderState:
 
     def to_dict(self) -> dict:
         """Serialize state for the status API."""
+        # Per-model quality breakdown
+        model_stats = {}
+        with self._lock:
+            for model in self.provider.models:
+                scores = self.model_quality.get(model)
+                model_stats[model] = {
+                    "avg_quality": round(sum(scores) / len(scores), 3) if scores else None,
+                    "samples": len(scores) if scores else 0,
+                    "eligible": self.model_eligible.get(model, 0),
+                    "rejected": self.model_rejected.get(model, 0),
+                }
         return {
             "name": self.provider.name,
             "available": self.is_available(),
@@ -246,6 +309,7 @@ class ProviderState:
             "circuit_open": time.time() < self.circuit_open_until,
             "last_error": self.last_error[:100] if self.last_error else "",
             "priority": self.provider.priority,
+            "model_quality": model_stats,
         }
 
 
@@ -599,8 +663,12 @@ class MinerWorker:
         )
         boosted_instruction = instruction + depth_suffix
 
+        # Select best model for this provider based on quality history
+        selected_model = provider_state.best_model()
+
         # Call provider with boosted instruction
-        response = self._provider_call(boosted_instruction, provider_state, system_prompt)
+        response = self._provider_call(boosted_instruction, provider_state, system_prompt,
+                                       model_override=selected_model)
         if not response:
             return None
 
@@ -623,8 +691,12 @@ class MinerWorker:
         # shorter responses that can't hit the distiller's 0.80 bar. The export
         # pipeline (prepare_v5_data.py) applies its own quality filter before training.
         MINER_MIN_QUALITY = 0.45
+
+        # Record quality score for model selection feedback loop
+        provider_state.record_quality(selected_model, quality, quality >= MINER_MIN_QUALITY)
+
         if quality < MINER_MIN_QUALITY:
-            logger.debug(f"Miner: {provider_state.provider.name} pair quality "
+            logger.debug(f"Miner: {provider_state.provider.name}/{selected_model} pair quality "
                          f"{quality:.3f} < {MINER_MIN_QUALITY} (topic: {topic[:50]})")
             return {"eligible": False}
 
@@ -643,9 +715,10 @@ class MinerWorker:
                     "is_eligible": True,
                     "metadata": {
                         "provider": provider_state.provider.name,
-                        "model": random.choice(provider_state.provider.models),
+                        "model": selected_model,
                         "template_key": template_key,
                         "language": language,
+                        "quality_score": round(quality, 3),
                     },
                 }
                 _persist_pair(db, pair_dict)
@@ -666,7 +739,8 @@ class MinerWorker:
             return {"eligible": False}
 
     def _provider_call(self, prompt: str, provider_state: ProviderState,
-                       system_prompt: str, max_tokens: int = 4096) -> str | None:
+                       system_prompt: str, max_tokens: int = 4096,
+                       model_override: str | None = None) -> str | None:
         """Make an LLM call to a specific external provider."""
         provider = provider_state.provider
 
@@ -678,7 +752,7 @@ class MinerWorker:
                 base_url=provider.base_url,
             )
 
-            model = random.choice(provider.models) if provider.models else "default"
+            model = model_override or (random.choice(provider.models) if provider.models else "default")
 
             response = client.chat.completions.create(
                 model=model,

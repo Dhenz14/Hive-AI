@@ -139,7 +139,8 @@ Use expensive frontier models (Claude) to generate high-quality reasoning traces
 **Architecture**: No vector DB, no RAG. Just SQLite with structured metadata (entities, topics, importance scores 0-1). Simple beats complex.
 
 **Actionable for HiveAI**:
-- **Auto-curation agent**: Background job reviews past model responses, scores quality, identifies patterns where the model fails, auto-generates training pair candidates
+
+- **[DONE] Auto-curation agent**: `scripts/auto_curate.py` (2026-03-08) — scans DB chat feedback or JSONL training data, scores quality (length, code, coverage, structure, explanation with penalties for errors/hallucination/repetition), detects failure patterns (too_short, no_code, off_topic, refusal, hallucination_risk), exports training candidates. Usage: `python scripts/auto_curate.py` (DB) or `--file v7.jsonl` (JSONL). Supports `--json`, `--export candidates.jsonl`, `--threshold 0.4`
 - **[DONE] Importance scoring for training data**: `scripts/score_training_data.py` (2026-03-08) — scores each pair on difficulty (concept density, nesting depth, reasoning traces), novelty (trigram fingerprint uniqueness), and quality (code presence, explanation depth, structure). Weighted importance = 35% difficulty + 35% novelty + 30% quality. Supports `--drop-below` for filtering and `--output` for exporting curated subsets. Tested on v9 data: avg importance 0.777, 63/65 pairs scored high.
 - **Consolidation for agent skills**: Periodically review conversation logs, extract recurring domain patterns, auto-update SKILL.md files
 - **Self-improving loop**: Model serves users → responses are scored → failures become training data → retrain → model improves → cycle repeats
@@ -321,9 +322,9 @@ Compacted memory is an attack surface for indirect prompt injection. An adversar
 
 Server-side compaction returns AES-encrypted blobs — keys stay on server. Client never sees the summary. Useful for multi-tenant SaaS where you don't want clients to see internal reasoning. Not applicable to our local-only architecture.
 
-### Compaction Quality Metrics (FUTURE)
+### Compaction Quality Metrics (DONE)
 
-Track compaction effectiveness: token savings ratio, continuity score (does the model maintain context after compaction?), information loss (are key decisions preserved?). Could be integrated into our eval harness as a long-conversation test suite.
+- [DONE] Instrumented `compact_conversation()` and `budget_context()` in `hiveai/chat.py` with runtime quality metrics (2026-03-08). Tracks: compression ratio, cache hit rate, turns compacted, tokens budgeted vs dropped, relevance score distribution. Exposed via `get_compaction_metrics()` function + `/api/compaction/metrics` endpoint + `/api/stats` summary. All metrics thread-safe with rolling windows.
 
 ---
 
@@ -391,8 +392,9 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 3. Long context windows (128K+) for complex training pair generation
 4. Active model (not deprecated/rate-limited to uselessness)
 
-**Scaling strategies** (FUTURE):
-- **Provider rotation with quality scoring**: Track per-model quality scores from eval, weight sampling toward better models
+**Scaling strategies**:
+
+- **[DONE] Provider rotation with quality scoring** (2026-03-08): Added per-model quality tracking to `hiveai/lora/miner.py`. `ProviderState` now tracks rolling window of 50 quality scores per model. `best_model()` selects highest-quality model with 70/30 exploit/explore ratio. Quality scores recorded after each generation. Per-model stats (avg quality, eligible/rejected counts) exposed via `/api/miner/status`. Metadata now includes actual model used + quality score.
 - **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models
 - **Parallel batch distillation**: Run multiple providers concurrently (respect rate limits)
 - **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
