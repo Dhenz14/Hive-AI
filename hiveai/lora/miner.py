@@ -74,7 +74,7 @@ PROVIDER_REGISTRY = {
         name="groq",
         base_url="https://api.groq.com/openai/v1",
         api_key_env="GROQ_API_KEY",
-        models=["llama-3.3-70b-versatile", "mixtral-8x7b-32768"],
+        models=["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
         rpm_limit=30,
         daily_limit=0,
         priority=3,
@@ -590,11 +590,17 @@ class MinerWorker:
         }
         system_prompt = system_prompts.get(language, CODING_SYSTEM_PROMPT)
 
-        # Build instruction from template
+        # Build instruction from template, with depth prompt to get quality output
         instruction = template_text.format(concept=topic)
+        depth_suffix = (
+            "\n\nProvide a thorough response with: multiple code examples "
+            "(at least 2 code blocks), explanations of trade-offs, edge cases, "
+            "and production considerations. Use markdown headers to organize sections."
+        )
+        boosted_instruction = instruction + depth_suffix
 
-        # Call provider
-        response = self._provider_call(instruction, provider_state, system_prompt)
+        # Call provider with boosted instruction
+        response = self._provider_call(boosted_instruction, provider_state, system_prompt)
         if not response:
             return None
 
@@ -613,9 +619,13 @@ class MinerWorker:
             logger.debug(f"Miner: scoring failed: {e}")
             return {"eligible": False}
 
-        if quality < MIN_TRAINING_QUALITY:
+        # Miner uses a lower threshold than distiller — free API models produce
+        # shorter responses that can't hit the distiller's 0.80 bar. The export
+        # pipeline (prepare_v5_data.py) applies its own quality filter before training.
+        MINER_MIN_QUALITY = 0.45
+        if quality < MINER_MIN_QUALITY:
             logger.debug(f"Miner: {provider_state.provider.name} pair quality "
-                         f"{quality:.3f} < {MIN_TRAINING_QUALITY} (topic: {topic[:50]})")
+                         f"{quality:.3f} < {MINER_MIN_QUALITY} (topic: {topic[:50]})")
             return {"eligible": False}
 
         # Persist via the distiller's persist function

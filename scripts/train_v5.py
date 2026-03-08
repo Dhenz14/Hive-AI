@@ -216,7 +216,8 @@ def optimize_system_post_load():
 # ---------------------------------------------------------------------------
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
-             seq_length_override: int = 0, warm_start: str = None):
+             seq_length_override: int = 0, warm_start: str = None,
+             epochs_override: int = 0):
     """Train LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
     import torch
     import torch.nn.functional as F
@@ -272,22 +273,32 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     from hiveai.llm.prompts import CODING_SYSTEM_PROMPT
 
+    # Compute actual training params with overrides
+    actual_epochs = epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"])
+    actual_lr = TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"]
+    eff_batch = (TRAINING_CONFIG["per_device_train_batch_size"]
+                 * TRAINING_CONFIG["gradient_accumulation_steps"])
+
     logger.info("=" * 60)
-    logger.info("  HiveAI LoRA v7 Training — Qwen2.5-Coder-14B QLoRA")
+    if warm_start:
+        logger.info("  HiveAI WARM-START Training — Building on Previous Adapter")
+    else:
+        logger.info("  HiveAI LoRA Training — Qwen2.5-Coder-14B QLoRA")
     logger.info("=" * 60)
     logger.info(f"  Base model:  {model_path}")
+    if warm_start:
+        logger.info(f"  Warm-start:  {warm_start} (preserving learned weights)")
+        logger.info(f"  Strategy:    half LR ({actual_lr}) + {actual_epochs} epoch(s) — gentle integration")
     logger.info(f"  Data:        {TRAINING_JSONL}")
     logger.info(f"  Output:      {OUTPUT_DIR}")
     logger.info(f"  LoRA:        r={LORA_CONFIG['r']}, alpha={LORA_CONFIG['lora_alpha']}, "
                 f"DoRA={LORA_CONFIG.get('use_dora')}, "
                 f"modules={LORA_CONFIG['target_modules']}")
-    eff_batch = (TRAINING_CONFIG["per_device_train_batch_size"]
-                 * TRAINING_CONFIG["gradient_accumulation_steps"])
     logger.info(f"  Training:    batch={TRAINING_CONFIG['per_device_train_batch_size']}x"
                 f"{TRAINING_CONFIG['gradient_accumulation_steps']}="
                 f"{eff_batch} effective, "
-                f"epochs={TRAINING_CONFIG['num_train_epochs']}, "
-                f"lr={TRAINING_CONFIG['learning_rate']}")
+                f"epochs={actual_epochs}, "
+                f"lr={actual_lr}")
     logger.info(f"  Context:     {seq_length} tokens")
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
@@ -302,8 +313,13 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         pair_count = sum(1 for line in f if line.strip())
     logger.info(f"Training pairs: {pair_count}")
 
-    total_steps = (pair_count * TRAINING_CONFIG["num_train_epochs"]) // eff_batch
+    total_steps = (pair_count * actual_epochs) // eff_batch
     logger.info(f"Expected steps: ~{total_steps}")
+    if warm_start:
+        # Estimate time based on v7 throughput (~1.38 steps/min for 14B on 4070Ti)
+        est_minutes = total_steps / 1.38
+        logger.info(f"Estimated time: ~{est_minutes:.0f} min ({est_minutes/60:.1f}h) "
+                    f"[warm-start: {actual_epochs} epoch × {pair_count} pairs]")
 
     # ── Load model — try Unsloth first (2x faster), fallback to standard ──
     use_unsloth = False
@@ -870,7 +886,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         output_dir=OUTPUT_DIR,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
-        num_train_epochs=TRAINING_CONFIG["num_train_epochs"],
+        num_train_epochs=epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"]),
         learning_rate=TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"],
         warmup_ratio=TRAINING_CONFIG["warmup_ratio"],
         lr_scheduler_type=TRAINING_CONFIG["lr_scheduler_type"],
@@ -1069,6 +1085,8 @@ if __name__ == "__main__":
     parser.add_argument("--warm-start", type=str, default=None,
                         help="Continue training from an existing adapter directory "
                              "(e.g., loras/v6). Loads base+adapter, skips new LoRA init.")
+    parser.add_argument("--epochs", type=int, default=0,
+                        help="Override number of training epochs (default: 2, or 1 for warm-start)")
     parser.add_argument("--data", type=str, default=None,
                         help="Override training data JSONL path (default: v7.jsonl)")
     parser.add_argument("--output-dir", type=str, default=None,
@@ -1107,4 +1125,5 @@ if __name__ == "__main__":
     optimize_system_pre_load()
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
              skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
-             seq_length_override=args.seq_length, warm_start=args.warm_start)
+             seq_length_override=args.seq_length, warm_start=args.warm_start,
+             epochs_override=args.epochs)
