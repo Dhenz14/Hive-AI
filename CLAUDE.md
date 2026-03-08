@@ -42,23 +42,60 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
 
+## Continual Learning Pipeline v1.0 (Merge-then-Freeze)
+
+**Architecture**: Train small LoRA → merge permanently into base → consolidate → eval → promote.
+Knowledge stacks like legos — once merged, it can never be lost.
+
+**One-command cycle**:
+```bash
+bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version> [prev_version]
+# Example: bash scripts/run_full_cycle.sh hive datasets/hive_data.jsonl v1-hive v1.0
+```
+
+**Pipeline steps** (each script can also run independently):
+1. `replay_sampler.py` — SuRe NLL-scored surprise replay (fallback: diversity sampling)
+2. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, attn-only)
+3. `safe_merge.py` — Alpha grid search [0.75-1.0], pick lowest perplexity (dual GGUF+HF path)
+4. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay)
+5. `regression_eval.py` — 18 domain probes, fail if any drops >0.03
+
+**Key flags added to train_v5.py**:
+- `--rank N` — LoRA rank override (4-8 for continual learning)
+- `--lr FLOAT` — Direct LR override
+- `--lora-plus` — B matrix gets 16x higher LR (LoRA+, arXiv 2602.04998)
+- `--replay-dir PATH` — Mix replay data from per-domain JSONL files
+- `--replay-ratio FLOAT` — Fraction of replay in training mix (default 0.25)
+- `--consolidation-only` — Consolidation mode (1 epoch, LR/10)
+- `--base-model-hf PATH` — Train on merged HF checkpoint (for cycle 2+)
+- `--attn-only` — Train q/k/v/o_proj only (freeze MLP)
+
+**Folder layout**:
+- `models/deploy/current_base.gguf` — Active inference GGUF
+- `replay/*.jsonl` — Per-domain replay buffers (hive, cpp, rust, go, js, general_coding)
+- `datasets/*.jsonl` — Training data for new domains
+- `score_ledger.json` — Historical scores across all versions
+- `logs/` — Per-cycle training logs
+
+**Pre-flight for training** (CRITICAL):
+1. Kill llama-server before training — it eats ~10GB VRAM
+2. Strip metadata from training JSONL (mixed types break pyarrow)
+3. For cycle 1: use default Unsloth base. For cycle 2+: use `--base-model-hf`
+
+**Training data format**: Standard instruction/input/output JSONL (NO metadata field).
+
 ## Eval Protocol — Work Smart Not Hard
 
-**Base model (v1) evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
+**Base model evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
 
-**How we test new LoRA versions:**
-1. Start llama-server with the new LoRA
-2. Run `quick_eval.py` (20 prompts, ~5 min) — this is the primary gate
-3. Compare v(new) quick_eval score against v7 baseline (0.971) and base (0.978)
-4. If quick_eval passes: DONE. Ship it.
-5. If quick_eval shows regression: investigate which categories dropped, fix, retrain
+**For continual learning cycles**: Use `regression_eval.py` (18 domain probes, automated).
+
+**For quick LoRA checks**: Use `quick_eval.py` (20 prompts, ~5 min).
 
 **Do NOT:**
-- Run full 227-challenge eval for routine version checks (that's for release milestones only)
-- Re-eval the base model (scores are hardcoded: quick_eval=0.978, full_eval=0.766)
-- Spend hours on eval infrastructure when a simple A/B answers the question
-
-**Quick sanity check (even faster):** Pick 3-5 prompts by hand, ask base and LoRA, compare answers visually. If LoRA is clearly better, that's signal enough for iteration.
+- Run full 227-challenge eval for routine version checks (release milestones only)
+- Re-eval the base model (scores: quick_eval=0.978, full_eval=0.766)
+- Spend hours on eval when a simple A/B answers the question
 
 ## Debugging Protocol (4-Phase)
 
