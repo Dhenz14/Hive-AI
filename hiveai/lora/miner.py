@@ -971,8 +971,16 @@ class MinerWorker:
 
         except Exception as e:
             provider_state.record_request()
-            provider_state.record_failure(str(e))
-            logger.warning(f"Miner: {provider.name} call failed: {e}")
+            error_str = str(e)
+            provider_state.record_failure(error_str)
+
+            # Auto-pause on rate limit (429) — back off until limit lifts
+            if "429" in error_str or "rate" in error_str.lower():
+                cooldown = min(300, 60 * (2 ** min(provider_state.consecutive_failures - 1, 3)))
+                provider_state.circuit_open_until = time.time() + cooldown
+                logger.warning(f"Miner: {provider.name} rate-limited, pausing {cooldown}s")
+            else:
+                logger.warning(f"Miner: {provider.name} call failed: {e}")
             return None
 
     def _verify_response(self, provider_state: ProviderState,
