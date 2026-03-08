@@ -886,3 +886,64 @@ superpowers/
 - [LOW] Study their two-stage code review (spec compliance → code quality) for our eval harness
 
 **Meta-lesson #23**: The gap between "AI assistant" and "AI engineer" is process discipline. Superpowers proves that the same model produces dramatically better results when forced through brainstorm→plan→TDD→review gates. Knowledge (our LoRA) gives the model skills; process (their framework) ensures it uses them correctly.
+
+---
+
+## 32. LLM4SVG — Two-Stage Training & Semantic Token Initialization (2024)
+
+**Source**: https://arxiv.org/html/2412.11102v2 (Beihang University / University of Hong Kong)
+
+**What it is**: Fine-tuning LLMs to generate and understand SVG vector graphics. A 1.3B GPT-2 XL outperforms 70B Llama 3.1 on SVG tasks due to training strategy and tokenizer design — proving model size isn't everything.
+
+**Key findings directly applicable to our LoRA training:**
+
+### Two-Stage Training Strategy (HIGH — try for v9)
+- **Stage 1 (Feature Alignment)**: Freeze LLM weights, only train embeddings/new tokens. Single-turn data. Goal: align new vocabulary with existing knowledge.
+- **Stage 2 (Full Fine-tune)**: Unfreeze all trainable params (or LoRA). Multi-turn instruction data. Full learning.
+- **Why it works**: Premature full training introduces noise before the model understands the format. Staging stabilizes early, then deepens.
+- **Actionable for us**: Split v9 training into two phases:
+  1. Phase 1: 1 epoch, low LR (1e-5), response-only loss — learn format and `<think>` pattern
+  2. Phase 2: 2 epochs, normal LR (2e-5), full LoRA — learn actual domain knowledge
+  - This mirrors QAD Section 4's finding that freezing layers beats training everything
+
+### Semantic Token Initialization (MEDIUM)
+- New tokens initialized as **average embedding of their descriptive text**, not random
+- T-SNE visualization shows compact clustering with semantic init vs scattered with random
+- **Result**: ~2x faster convergence for new token learning
+- **Actionable for us**: Our `<think>` and `</think>` tokens could be initialized as the average embedding of ["reasoning", "step by step", "let me think", "analysis"] instead of random. Would help the model learn thinking format faster.
+
+### Instruction Template Diversity (VALIDATES OUR APPROACH)
+- They use 5 template types: 2 generation + 3 understanding
+- 50/50 split between generation and understanding tasks
+- **Our current mix**: code generation, multi-turn conversations, explanations, verification certificates, Hive domain. We're actually more diverse — good validation.
+- **Gap**: Our data skews toward generation. More "explain this code" and "verify this function" pairs would help rebalance.
+
+### Data Preprocessing = 50% Size Reduction (HIGH)
+- Removed boilerplate, normalized formats, rounded decimals
+- Result: same quality at half the data size
+- **Actionable for us**: Run `score_training_data.py --drop-below 0.3` on the full dataset before v9. Our 1348 batches guaranteed contain low-quality pairs from early bulk generation that are training noise. Filtering improves signal-to-noise without losing coverage.
+
+### LoRA r=32 Sufficient (REFERENCE)
+- They used r=32, α=32 and matched full fine-tune quality
+- We use r=16, α=32 — if we see underfitting on v9, bumping to r=32 is validated safe
+
+### Tokenizer Design > Model Size (REFERENCE)
+- GPT-2 XL (1.3B) beat Llama 3.1 (70B) because of how each tokenizer handles numeric values
+- GPT-2 enumerates 1-10000 as individual tokens; Qwen collapses all numerics into single tokens
+- **Lesson**: Tokenizer determines the ceiling for numerical precision tasks. Our Qwen 2.5 Coder has good BPE numeric handling, but worth verifying for coordinate/version-heavy domains.
+
+### Key Numbers
+- 250K manually curated training pairs (quality over quantity)
+- 580K instruction pairs total (with template augmentation)
+- LoRA config: r=32, α=32 (comparable performance to full fine-tune)
+- Canvas normalized to 128×128 (standardize training data dimensions)
+- Max sequence length: 2048 tokens (truncation policy for complex inputs)
+
+**Actionable summary for HiveAI**:
+- [HIGH] Implement two-stage training for v9 (align format first, then train knowledge)
+- [HIGH] Filter training data with `score_training_data.py --drop-below 0.3` before v9
+- [MED] Initialize `<think>`/`</think>` token embeddings semantically (average of descriptive words)
+- [MED] Audit generation vs understanding ratio in training data — target 60/40 or 50/50
+- [LOW] Test r=32 if r=16 shows underfitting on v9
+
+**Meta-lesson #24**: Training strategy (staging, data curation, token initialization) can make a 1.3B model beat a 70B model on specialized tasks. For LoRA fine-tuning, HOW you train matters more than how much data you throw at it. Two-stage training + data filtering is the highest-leverage change we haven't tried yet.
