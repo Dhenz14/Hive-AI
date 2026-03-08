@@ -41,3 +41,35 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/.cache/huggingface/hub/` — re-downloadable model cache
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
+
+## Debugging Protocol (4-Phase)
+
+When debugging, follow this structured protocol instead of random trial-and-error:
+
+### Phase 1: Root-Cause Trace
+
+- Read the FULL error message/traceback — don't skip lines
+- Identify the exact file, line, and variable where it fails
+- Trace backwards: what called that function? What inputs did it receive?
+- Check recent changes: `git diff` or `git log --oneline -5` to find what changed
+
+### Phase 2: Hypothesize
+
+- Form exactly 1-3 specific hypotheses about the cause
+- Each hypothesis must be testable and falsifiable
+- Rank by likelihood — test the most probable first
+- Do NOT start fixing until you have a hypothesis
+
+### Phase 3: Verify
+
+- Test each hypothesis with the MINIMUM possible change
+- Use targeted reads/greps, not shotgun searches
+- If the hypothesis is wrong, cross it off and try the next one
+- If all hypotheses are wrong, go back to Phase 1 with new data
+
+### Phase 4: Fix
+
+- Make the smallest fix that addresses the verified root cause
+- Verify the fix doesn't break related functionality
+- If the bug was in training/data: check if similar bugs exist elsewhere
+- Document the lesson if it's a recurring pattern (add to memory)

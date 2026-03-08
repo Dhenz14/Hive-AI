@@ -396,7 +396,7 @@ Uses <10% more VRAM than BnB 4-bit but recovers ~70% of accuracy lost in standar
 
 - **[DONE] Provider rotation with quality scoring** (2026-03-08): Added per-model quality tracking to `hiveai/lora/miner.py`. `ProviderState` now tracks rolling window of 50 quality scores per model. `best_model()` selects highest-quality model with 70/30 exploit/explore ratio. Quality scores recorded after each generation. Per-model stats (avg quality, eligible/rejected counts) exposed via `/api/miner/status`. Metadata now includes actual model used + quality score.
 - **Difficulty-aware routing**: Route easy prompts to smaller models, hard prompts to 405B+ models [DONE — keyword-based difficulty estimator + model size tier routing in miner.py]
-- **Parallel batch distillation**: Run multiple providers concurrently (respect rate limits)
+- **[DONE] Parallel batch distillation**: Run multiple providers concurrently (respect rate limits) — added `_generate_batch()` with `ThreadPoolExecutor` to fire requests to multiple providers simultaneously (2026-03-08)
 - **Seed prompt sources**: Stack Exchange API (free, no key needed for 300 req/day) for real-world coding questions as distillation seeds
 
 **Meta-lesson #12**: Free API landscape changes fast. Audit OpenRouter's free model list quarterly — new models appear regularly as providers use free tier for benchmarking exposure.
@@ -616,7 +616,7 @@ Conclusion: [claim is {valid|invalid} because {reasoning from trace}]
 **Actionable for HiveAI**:
 - [DONE] v9 training: Generated 20 semi-formal verification pairs (Python 7, Rust 3, Go 3, C++ 3, JS 2) — `scripts/gen_verification_pairs.py` → `v9_research_pairs.jsonl` (2026-03-08). Mix of ~10 buggy + ~10 correct. Each uses Claim→Premises→Code Trace→Conclusion format with `<think>` blocks.
 - [MED] Integrate certificate format into eval scorer for non-Python code
-- [MED] Use as quality gate for miner — model generates certificate for its own response
+- [DONE] Use as quality gate for miner — model self-verifies its own code output via structured VALID/INVALID prompt before accepting the pair. Fails open on API errors. Added `_verify_response()` + `VERIFICATION_PROMPT` to miner.py (2026-03-08)
 - [LOW] GRPO reward function using semi-formal verification instead of code execution
 
 **Meta-lesson #16**: Structured reasoning templates beat both unstructured CoT (too loose, allows skipping) and fully formal verification (too rigid, impractical for arbitrary code). The sweet spot is "semi-formal" — structured enough to require evidence, flexible enough for any language/framework.
@@ -882,7 +882,7 @@ superpowers/
 - [HIGH] Adopt plan-then-execute gate: decompose tasks into 2-5 min chunks with sign-off before implementation
 - [DONE] Build a `writing-skills` meta-skill so the agent can bootstrap new domain skills in correct format — skills/writing_skills/ with SKILL.md template + loader route
 - [MED] Use git worktree isolation for parallel training experiments (v8 train + v9 data prep simultaneously)
-- [MED] Implement structured 4-phase debugging protocol in our CLAUDE.md
+- [DONE] Implement structured 4-phase debugging protocol in CLAUDE.md — Root-Cause Trace → Hypothesize → Verify → Fix (2026-03-08)
 - [LOW] Study their two-stage code review (spec compliance → code quality) for our eval harness
 
 **Meta-lesson #23**: The gap between "AI assistant" and "AI engineer" is process discipline. Superpowers proves that the same model produces dramatically better results when forced through brainstorm→plan→TDD→review gates. Knowledge (our LoRA) gives the model skills; process (their framework) ensures it uses them correctly.

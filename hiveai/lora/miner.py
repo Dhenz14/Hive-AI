@@ -11,6 +11,7 @@ and stages eligible pairs as training data.
 Enable: MULTI_MINER_ENABLED=true + set one or more API keys.
 """
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -495,6 +496,24 @@ MODEL_SIZE_TIER = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Self-Verification Prompt (lightweight quality gate)
+# ---------------------------------------------------------------------------
+
+VERIFICATION_PROMPT = (
+    "Verify the following code response. Check for:\n"
+    "1. Does the code compile/run without errors?\n"
+    "2. Does it actually solve the stated problem?\n"
+    "3. Are there logical bugs or off-by-one errors?\n\n"
+    "Respond with EXACTLY one line:\n"
+    "VALID: <one-sentence reason>\n"
+    "or\n"
+    "INVALID: <one-sentence reason>\n\n"
+    "Problem: {instruction}\n\n"
+    "Response:\n{response}"
+)
+
+
 class TopicTracker:
     """Tracks which topics have been used today to maximize diversity."""
 
@@ -616,6 +635,7 @@ class MinerStats:
     total_eligible: int = 0
     total_rejected_quality: int = 0
     total_rejected_dedup: int = 0
+    total_rejected_verification: int = 0
     errors: int = 0
     per_provider: dict = field(default_factory=dict)
     per_language: dict = field(default_factory=dict)
@@ -662,7 +682,7 @@ class MinerWorker:
         return self._paused.is_set()
 
     def _worker_loop(self):
-        """Main loop: pick provider -> topic -> template -> generate -> score -> persist."""
+        """Main loop: fire parallel batch when multiple providers ready, else single."""
         from hiveai.config import MINER_STARTUP_DELAY, MINER_INTERVAL_SECONDS, MINER_DAILY_TARGET
 
         time.sleep(MINER_STARTUP_DELAY)
@@ -682,7 +702,14 @@ class MinerWorker:
                     time.sleep(60)
                     continue
 
-                # Get next provider
+                # Try parallel batch first (multiple providers ready)
+                batch_count = self._generate_batch()
+                if batch_count > 0:
+                    # Batch handled everything; sleep and loop
+                    time.sleep(MINER_INTERVAL_SECONDS)
+                    continue
+
+                # Fallback: single-provider sequential flow
                 provider_state = self.router.next_provider()
                 if not provider_state:
                     logger.debug("Miner: no providers available, sleeping 60s")
@@ -704,29 +731,7 @@ class MinerWorker:
                     provider_state, topic, template_key, template_text, language
                 )
 
-                if result:
-                    self.stats.total_generated += 1
-                    pname = provider_state.provider.name
-                    self.stats.per_provider[pname] = self.stats.per_provider.get(pname, 0) + 1
-                    self.stats.per_language[language] = self.stats.per_language.get(language, 0) + 1
-
-                    if result.get("eligible"):
-                        self.stats.total_eligible += 1
-                        provider_state.total_pairs += 1
-                    elif result.get("dedup"):
-                        self.stats.total_rejected_dedup += 1
-                    else:
-                        self.stats.total_rejected_quality += 1
-
-                    # Log progress every 25 pairs
-                    if self.stats.total_generated % 25 == 0:
-                        elapsed_h = max((time.time() - self.stats.started_at) / 3600, 0.01)
-                        rate = self.stats.total_generated / elapsed_h
-                        logger.info(
-                            f"Miner progress: {self.stats.total_generated} generated, "
-                            f"{self.stats.total_eligible} eligible, "
-                            f"{rate:.0f}/hr, errors={self.stats.errors}"
-                        )
+                self._record_result(result, provider_state, language)
 
             except Exception as e:
                 self.stats.errors += 1
@@ -734,6 +739,85 @@ class MinerWorker:
                 time.sleep(10)
 
             time.sleep(MINER_INTERVAL_SECONDS)
+
+    def _generate_batch(self) -> int:
+        """Fire requests to all ready providers concurrently.
+
+        Returns the number of results collected (0 means no batch was possible).
+        """
+        from hiveai.config import MINER_PARALLEL_BATCH
+
+        # Gather providers that can accept a request right now
+        ready = [s for s in self.router.get_available() if s.can_make_request()]
+        if len(ready) < 2:
+            # Not enough for a batch — let the caller fall back to single mode
+            return 0
+
+        # Cap to configured max concurrency
+        ready = ready[:MINER_PARALLEL_BATCH]
+
+        # Prepare work items: (provider_state, topic, language, template_key, template_text)
+        work = []
+        for ps in ready:
+            topic, language = self.topics.next_topic()
+            template_key, template_text = self.templates.next_template(language)
+            work.append((ps, topic, language, template_key, template_text))
+
+        logger.debug(f"Miner: parallel batch of {len(work)} across "
+                     f"{[w[0].provider.name for w in work]}")
+
+        results: list[tuple[dict | None, ProviderState, str]] = []
+
+        def _do_one(item):
+            ps, topic, lang, tkey, ttext = item
+            result = self._generate_one_pair(ps, topic, tkey, ttext, lang)
+            return result, ps, lang
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(work)) as pool:
+            futures = [pool.submit(_do_one, w) for w in work]
+            for fut in concurrent.futures.as_completed(futures):
+                try:
+                    result, ps, lang = fut.result()
+                    results.append((result, ps, lang))
+                except Exception as e:
+                    self.stats.errors += 1
+                    logger.error(f"Miner: batch thread error: {e}")
+
+        # Collect stats from all results
+        for result, ps, lang in results:
+            self._record_result(result, ps, lang)
+
+        return len(results)
+
+    def _record_result(self, result: dict | None, provider_state: ProviderState, language: str):
+        """Update stats from a single generation result."""
+        if not result:
+            return
+
+        self.stats.total_generated += 1
+        pname = provider_state.provider.name
+        self.stats.per_provider[pname] = self.stats.per_provider.get(pname, 0) + 1
+        self.stats.per_language[language] = self.stats.per_language.get(language, 0) + 1
+
+        if result.get("eligible"):
+            self.stats.total_eligible += 1
+            provider_state.total_pairs += 1
+        elif result.get("dedup"):
+            self.stats.total_rejected_dedup += 1
+        elif result.get("verification_failed"):
+            self.stats.total_rejected_verification += 1
+        else:
+            self.stats.total_rejected_quality += 1
+
+        # Log progress every 25 pairs
+        if self.stats.total_generated % 25 == 0:
+            elapsed_h = max((time.time() - self.stats.started_at) / 3600, 0.01)
+            rate = self.stats.total_generated / elapsed_h
+            logger.info(
+                f"Miner progress: {self.stats.total_generated} generated, "
+                f"{self.stats.total_eligible} eligible, "
+                f"{rate:.0f}/hr, errors={self.stats.errors}"
+            )
 
     def _generate_one_pair(self, provider_state: ProviderState,
                            topic: str, template_key: str,
@@ -801,6 +885,13 @@ class MinerWorker:
             logger.debug(f"Miner: {provider_state.provider.name}/{selected_model} pair quality "
                          f"{quality:.3f} < {MINER_MIN_QUALITY} (topic: {topic[:50]})")
             return {"eligible": False}
+
+        # Self-verification gate: ask the same provider to verify the code
+        valid, reason = self._verify_response(provider_state, instruction, response, selected_model)
+        if not valid:
+            logger.debug(f"Miner: {provider_state.provider.name} pair REJECTED by verification: {reason}")
+            self.stats.total_rejected_verification += 1
+            return {"eligible": False, "verification_failed": True}
 
         # Persist via the distiller's persist function
         try:
@@ -884,6 +975,28 @@ class MinerWorker:
             logger.warning(f"Miner: {provider.name} call failed: {e}")
             return None
 
+    def _verify_response(self, provider_state: ProviderState,
+                         instruction: str, response: str,
+                         model: str) -> tuple[bool, str]:
+        """Ask the model to self-verify its code output. Returns (valid, reason)."""
+        prompt = VERIFICATION_PROMPT.format(
+            instruction=instruction[:500],
+            response=response[:2000],
+        )
+        result = self._provider_call(
+            prompt, provider_state,
+            "You are a code reviewer. Be strict.",
+            max_tokens=100, model_override=model,
+        )
+        if not result:
+            return True, "verification_skipped"  # fail-open on error
+
+        result_lower = result.strip().lower()
+        if result_lower.startswith("invalid"):
+            reason = result.strip().split(":", 1)[1].strip() if ":" in result.strip() else "unspecified"
+            return False, reason[:100]
+        return True, "verified"
+
     def get_status(self) -> dict:
         """Return current miner status for the API."""
         elapsed_h = max((time.time() - self.stats.started_at) / 3600, 0.01) if self.stats.started_at else 0
@@ -896,6 +1009,7 @@ class MinerWorker:
                 "total_eligible": self.stats.total_eligible,
                 "rejected_quality": self.stats.total_rejected_quality,
                 "rejected_dedup": self.stats.total_rejected_dedup,
+                "rejected_verification": self.stats.total_rejected_verification,
                 "errors": self.stats.errors,
                 "pairs_per_hour": round(self.stats.total_generated / elapsed_h, 1) if elapsed_h else 0,
                 "per_provider": self.stats.per_provider,
