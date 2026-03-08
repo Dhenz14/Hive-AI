@@ -94,6 +94,14 @@ SKILL_ROUTES = [
         r"\.go\b",
     ], 4),
 
+    # C++ Modern
+    ("cpp_modern", [
+        r"\bc\+\+\b", r"\bcpp\b", r"template.*c\+\+", r"smart\s*pointer",
+        r"unique_ptr", r"shared_ptr", r"move\s*semantic", r"RAII",
+        r"\braii\b", r"concepts?\s*c\+\+", r"constexpr",
+        r"std::variant", r"std::optional", r"ranges?\s*view",
+    ], 4),
+
     # Debugging Patterns
     ("debugging_patterns", [
         r"\bdebug\b", r"\bbug\b", r"troubleshoot",

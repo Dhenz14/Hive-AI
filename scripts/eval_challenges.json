@@ -2828,5 +2828,540 @@
       "collection"
     ],
     "test_code": null
+  },
+  {
+    "id": "go-011",
+    "category": "go",
+    "topic": "generics",
+    "difficulty": 2,
+    "instruction": "Write a generic Stack[T] type in Go using type parameters. Implement methods: Push(item T), Pop() (T, bool), Peek() (T, bool), and Len() int. Pop and Peek should return the zero value and false if the stack is empty. Use a slice as the underlying storage. Include a main function demonstrating usage with both int and string stacks.",
+    "expected_concepts": [
+      "type",
+      "func",
+      "any",
+      "Push",
+      "Pop",
+      "Peek",
+      "append",
+      "len"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-012",
+    "category": "go",
+    "topic": "error_wrapping",
+    "difficulty": 3,
+    "instruction": "Implement custom error types in Go with proper wrapping and unwrapping. Create: (1) A NotFoundError struct with a Resource and ID field, implementing the error interface. (2) A ValidationError struct with a Field and Message field. (3) A function WrapError(err error, msg string) that wraps errors using fmt.Errorf with %w. (4) Demonstrate using errors.Is() to check for specific sentinel errors and errors.As() to extract typed errors from a wrapped chain. Include a ProcessRequest function that returns wrapped errors and a caller that inspects them.",
+    "expected_concepts": [
+      "error",
+      "errors.Is",
+      "errors.As",
+      "fmt.Errorf",
+      "Unwrap",
+      "struct",
+      "interface"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-013",
+    "category": "go",
+    "topic": "context_cancellation",
+    "difficulty": 3,
+    "instruction": "Write a Go HTTP handler that uses context for timeout and cancellation. Implement: (1) A handler that calls a slow upstream service (simulated with time.Sleep) and respects context cancellation. (2) Use context.WithTimeout to enforce a 2-second deadline on the request. (3) A middleware function that wraps handlers with a configurable timeout using context.WithTimeout. (4) Demonstrate checking ctx.Done() in a select statement alongside work channels. (5) Show proper cleanup when context is cancelled (e.g., cancelling in-progress database queries).",
+    "expected_concepts": [
+      "context",
+      "WithTimeout",
+      "WithCancel",
+      "Done",
+      "select",
+      "http.Handler",
+      "deadline"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-014",
+    "category": "go",
+    "topic": "channels_fan_out_fan_in",
+    "difficulty": 3,
+    "instruction": "Implement a fan-out/fan-in worker pool pattern in Go. Create: (1) A generator function that sends jobs (integers) into a channel. (2) A worker function that reads from the jobs channel, processes each job (compute its square), and sends results to a results channel. (3) A fanOut function that spawns N workers reading from the same jobs channel. (4) A fanIn function that merges multiple result channels into a single output channel. (5) Use sync.WaitGroup to coordinate worker completion. Process 100 jobs with 5 workers and collect all results.",
+    "expected_concepts": [
+      "chan",
+      "go",
+      "sync.WaitGroup",
+      "close",
+      "range",
+      "select",
+      "func",
+      "make"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-015",
+    "category": "go",
+    "topic": "interfaces_composition",
+    "difficulty": 2,
+    "instruction": "Demonstrate io.Reader and io.Writer interface composition in Go. Implement: (1) A CountingReader struct that wraps an io.Reader and counts total bytes read. (2) A PrefixWriter struct that wraps an io.Writer and prepends a configurable prefix to each line. (3) A TeeReader-like function that reads from a source and writes to a destination simultaneously. (4) A MultiWriter setup that writes to both stdout and a file. (5) Show how to chain these together: read from a string, count bytes, add prefixes, and write to multiple outputs.",
+    "expected_concepts": [
+      "io.Reader",
+      "io.Writer",
+      "Read",
+      "Write",
+      "struct",
+      "interface",
+      "io.MultiWriter"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-016",
+    "category": "go",
+    "topic": "table_driven_tests",
+    "difficulty": 2,
+    "instruction": "Write a complete Go testing file demonstrating table-driven tests with subtests. Create: (1) A function Add(a, b int) int and a function Divide(a, b float64) (float64, error) to test. (2) Table-driven tests for Add using a slice of test case structs with name, inputs, and expected output. (3) Table-driven tests for Divide including error cases (division by zero). (4) Use t.Run() for named subtests. (5) Use t.Parallel() to run subtests concurrently. (6) Include a test helper function that uses t.Helper() for better error reporting.",
+    "expected_concepts": [
+      "testing",
+      "t.Run",
+      "t.Parallel",
+      "t.Helper",
+      "t.Errorf",
+      "struct",
+      "range",
+      "func"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-017",
+    "category": "go",
+    "topic": "struct_embedding",
+    "difficulty": 2,
+    "instruction": "Demonstrate Go struct embedding for type composition. Implement: (1) A Base struct with fields ID int and CreatedAt time.Time, plus a method String() string. (2) A User struct embedding Base, adding Name and Email fields, and overriding String(). (3) An Admin struct embedding User, adding Permissions []string. (4) Show how embedded methods are promoted and can be called on the outer struct. (5) Demonstrate method overriding and accessing the embedded struct's original method. (6) Show embedding an interface type in a struct for partial implementation.",
+    "expected_concepts": [
+      "struct",
+      "embed",
+      "type",
+      "func",
+      "method",
+      "interface",
+      "String"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-018",
+    "category": "go",
+    "topic": "sync_map_cache",
+    "difficulty": 3,
+    "instruction": "Implement a concurrent cache in Go using sync.Map with TTL-based expiry. Create: (1) A Cache struct wrapping sync.Map where each entry stores the value and an expiration timestamp. (2) Methods Set(key string, value interface{}, ttl time.Duration), Get(key string) (interface{}, bool), and Delete(key string). (3) Get should return false for expired entries and lazily delete them. (4) A background cleanup goroutine that periodically removes expired entries. (5) A method Close() that stops the cleanup goroutine using a done channel. Demonstrate concurrent reads and writes from multiple goroutines.",
+    "expected_concepts": [
+      "sync.Map",
+      "Store",
+      "Load",
+      "Delete",
+      "time.Duration",
+      "goroutine",
+      "chan",
+      "ticker"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-019",
+    "category": "go",
+    "topic": "http_middleware",
+    "difficulty": 3,
+    "instruction": "Build an HTTP middleware chain in Go. Implement: (1) A Logger middleware that logs the method, path, status code, and duration of each request. (2) An Auth middleware that checks for a valid Bearer token in the Authorization header and returns 401 if missing/invalid. (3) A RateLimit middleware that limits requests per IP using a simple token bucket (sync.Map + time-based tokens). (4) A Chain function that composes multiple middlewares: Chain(handler, Logger, Auth, RateLimit). (5) A ResponseWriter wrapper that captures the status code for logging. Set up a simple server with two routes demonstrating the middleware chain.",
+    "expected_concepts": [
+      "http.Handler",
+      "http.HandlerFunc",
+      "ServeHTTP",
+      "ResponseWriter",
+      "Request",
+      "middleware",
+      "func",
+      "Header"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "go-020",
+    "category": "go",
+    "topic": "json_streaming",
+    "difficulty": 3,
+    "instruction": "Implement streaming JSON decoding in Go for processing large datasets without loading everything into memory. Create: (1) A function StreamDecodeArray(r io.Reader) that uses json.NewDecoder with decoder.Token() to parse a JSON array one element at a time. (2) A Record struct with fields ID int, Name string, and Value float64. (3) Process each decoded Record through a filter function and write matching records to an output file using json.NewEncoder. (4) Add error handling for malformed JSON with line/offset reporting. (5) Demonstrate processing a stream of 1000 records, keeping only those where Value > 50.",
+    "expected_concepts": [
+      "json.NewDecoder",
+      "json.NewEncoder",
+      "Decode",
+      "Token",
+      "io.Reader",
+      "struct",
+      "Encode",
+      "func"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-011",
+    "category": "cpp",
+    "topic": "smart_pointers",
+    "difficulty": 2,
+    "instruction": "Demonstrate unique_ptr ownership transfer in C++. Implement: (1) A Resource class with a constructor, destructor, and a use() method that prints to stdout. (2) A function createResource() that returns a unique_ptr<Resource>. (3) A function consumeResource(unique_ptr<Resource> res) that takes ownership via move. (4) Show transferring ownership with std::move between variables. (5) Demonstrate unique_ptr in a container (vector<unique_ptr<Resource>>). (6) Show why copying a unique_ptr fails (deleted copy constructor) and how to use std::move instead.",
+    "expected_concepts": [
+      "unique_ptr",
+      "std::move",
+      "make_unique",
+      "ownership",
+      "destructor",
+      "class",
+      "std::vector"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-012",
+    "category": "cpp",
+    "topic": "variadic_templates",
+    "difficulty": 3,
+    "instruction": "Write a variadic template print function in C++. Implement: (1) A print() function using parameter pack expansion that prints all arguments separated by spaces followed by a newline. (2) A base case for the recursion (empty parameter pack). (3) A variant using fold expressions (C++17) for cleaner syntax. (4) A typesafe printf-like function format(const string& fmt, Args&&... args) that replaces {} placeholders with arguments. (5) A tuple_print function that prints all elements of a std::tuple using std::apply or index_sequence.",
+    "expected_concepts": [
+      "template",
+      "typename",
+      "Args",
+      "parameter pack",
+      "fold",
+      "sizeof...",
+      "forward",
+      "constexpr"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-013",
+    "category": "cpp",
+    "topic": "raii",
+    "difficulty": 2,
+    "instruction": "Implement a RAII file handle wrapper class in C++. Create: (1) A FileHandle class that opens a file in the constructor (using fopen or std::ofstream) and closes it in the destructor. (2) Delete the copy constructor and copy assignment operator to prevent double-close. (3) Implement move constructor and move assignment operator for ownership transfer. (4) Add write(const string&) and read() methods. (5) Implement a ScopeGuard class template that executes a callable on destruction (for generic RAII cleanup). (6) Demonstrate exception safety — show that the file is always closed even if an exception is thrown during processing.",
+    "expected_concepts": [
+      "class",
+      "constructor",
+      "destructor",
+      "delete",
+      "noexcept",
+      "std::move",
+      "RAII",
+      "scope"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-014",
+    "category": "cpp",
+    "topic": "move_semantics",
+    "difficulty": 3,
+    "instruction": "Demonstrate move semantics in C++ with a custom Buffer class. Implement: (1) A Buffer class that manages a dynamically allocated array (raw pointer + size). (2) Copy constructor that performs a deep copy. (3) Move constructor that steals the pointer and nulls the source. (4) Copy assignment operator with copy-and-swap idiom. (5) Move assignment operator. (6) A swap() friend function. (7) Show the difference in performance between copying and moving a large buffer. (8) Demonstrate std::move with the Buffer in function arguments and return values.",
+    "expected_concepts": [
+      "move",
+      "noexcept",
+      "rvalue",
+      "std::move",
+      "swap",
+      "operator=",
+      "delete[]",
+      "nullptr"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-015",
+    "category": "cpp",
+    "topic": "ranges_pipeline",
+    "difficulty": 3,
+    "instruction": "Build a data processing pipeline using C++20 ranges. Implement: (1) Use std::views::filter to select elements matching a predicate. (2) Chain std::views::transform to apply a transformation. (3) Use std::views::take to limit results. (4) Combine these with the pipe operator (|) into a single pipeline. (5) Process a vector of Person structs (name, age, salary): filter by age > 30, transform to extract salaries, take top 5, and compute the sum. (6) Show lazy evaluation — demonstrate that elements are processed on-demand, not all at once.",
+    "expected_concepts": [
+      "ranges",
+      "views::filter",
+      "views::transform",
+      "views::take",
+      "pipe",
+      "auto",
+      "lambda",
+      "struct"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-016",
+    "category": "cpp",
+    "topic": "variant_visitor",
+    "difficulty": 3,
+    "instruction": "Demonstrate std::variant as a type-safe union in C++17. Implement: (1) A Shape variant that can hold Circle (radius), Rectangle (width, height), or Triangle (base, height). (2) An area() function using std::visit with a lambda visitor to compute the area of any shape. (3) A perimeter() function using an overloaded visitor struct (with multiple operator() overloads). (4) An overloaded helper template for creating visitors from lambdas. (5) Show std::holds_alternative and std::get_if for type checking. (6) Handle the std::monostate case for a default-constructible variant.",
+    "expected_concepts": [
+      "variant",
+      "visit",
+      "holds_alternative",
+      "get_if",
+      "overloaded",
+      "monostate",
+      "struct",
+      "auto"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-017",
+    "category": "cpp",
+    "topic": "concepts",
+    "difficulty": 3,
+    "instruction": "Write C++20 concepts to constrain template parameters. Implement: (1) A concept Numeric that requires arithmetic operations (+, -, *, /) and comparison operators. (2) A concept Hashable that requires std::hash specialization. (3) A concept Serializable that requires to_string() and from_string() methods. (4) A constrained function template average(Container auto& c) that requires the container's value_type to satisfy Numeric. (5) Use requires clauses (both trailing and inline) to add constraints. (6) Show concept conjunction (&&) and disjunction (||). Demonstrate compile-time error messages when constraints are not met.",
+    "expected_concepts": [
+      "concept",
+      "requires",
+      "template",
+      "typename",
+      "auto",
+      "constexpr",
+      "decltype",
+      "constraint"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-018",
+    "category": "cpp",
+    "topic": "structured_bindings",
+    "difficulty": 2,
+    "instruction": "Demonstrate C++17 structured bindings for decomposing composite types. Show: (1) Decomposing a std::pair returned from std::map::insert into [iterator, success]. (2) Decomposing std::tuple from a function returning multiple values. (3) Iterating a std::map with auto& [key, value] in a range-for loop. (4) Binding to struct members. (5) Using structured bindings with std::array. (6) Show const and reference bindings (auto& vs auto vs const auto&). Write a function that returns a tuple of (status_code, message, data) and decompose it at the call site.",
+    "expected_concepts": [
+      "auto",
+      "structured",
+      "pair",
+      "tuple",
+      "map",
+      "const",
+      "get",
+      "binding"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-019",
+    "category": "cpp",
+    "topic": "coroutines",
+    "difficulty": 4,
+    "instruction": "Implement a simple generator using C++20 coroutines. Create: (1) A Generator<T> class with a promise_type that supports co_yield. (2) The promise_type should implement get_return_object(), initial_suspend() (lazy start), final_suspend(), yield_value(), return_void(), and unhandled_exception(). (3) An iterator interface (begin/end) so the generator works in range-for loops. (4) A fibonacci() coroutine that yields infinite Fibonacci numbers. (5) A range(start, stop, step) coroutine that yields integers in the range. (6) Show composing generators — a filter coroutine that takes a generator and a predicate.",
+    "expected_concepts": [
+      "co_yield",
+      "promise_type",
+      "coroutine_handle",
+      "suspend_always",
+      "Generator",
+      "iterator",
+      "co_return",
+      "resume"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "cpp-020",
+    "category": "cpp",
+    "topic": "constexpr",
+    "difficulty": 3,
+    "instruction": "Demonstrate compile-time computation using constexpr in C++. Implement: (1) A constexpr factorial function. (2) A constexpr fibonacci function using recursion and a constexpr iterative version. (3) A constexpr sqrt function using Newton's method. (4) A constexpr string hashing function (FNV-1a hash). (5) A compile-time lookup table using constexpr std::array. (6) Use static_assert to verify constexpr results at compile time. (7) Show if consteval (C++23) or if constexpr (C++17) for compile-time branching. Demonstrate that these computations produce no runtime overhead.",
+    "expected_concepts": [
+      "constexpr",
+      "static_assert",
+      "consteval",
+      "if constexpr",
+      "compile-time",
+      "template",
+      "array",
+      "noexcept"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-011",
+    "category": "rust",
+    "topic": "ownership_borrow_checker",
+    "difficulty": 2,
+    "instruction": "Demonstrate Rust ownership and borrow checker patterns. Implement: (1) A function that takes ownership of a String and returns it (move semantics). (2) A function that borrows a String immutably (&String) and returns its length. (3) A function that borrows a Vec<i32> mutably (&mut Vec<i32>) and pushes a value. (4) Show the error when trying to use a moved value and how to fix it with clone() or borrowing. (5) Demonstrate the rule: either one mutable reference OR any number of immutable references. (6) Show how lifetimes prevent dangling references with a function returning a reference to local data (and the fix).",
+    "expected_concepts": [
+      "fn",
+      "let",
+      "mut",
+      "String",
+      "clone",
+      "borrow",
+      "move",
+      "ref"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-012",
+    "category": "rust",
+    "topic": "display_fromstr_traits",
+    "difficulty": 2,
+    "instruction": "Implement Display and FromStr traits for a custom type in Rust. Create: (1) A Color enum with variants Red, Green, Blue, and Custom(u8, u8, u8). (2) Implement fmt::Display to format colors as strings (e.g., 'red', 'green', '#FF00AA'). (3) Implement FromStr to parse strings back into Color values, returning a ParseColorError for invalid input. (4) A custom error type ParseColorError that implements Display and Error. (5) Demonstrate using .to_string() and .parse::<Color>() for round-trip conversion. (6) Show usage with format!, println!, and write! macros.",
+    "expected_concepts": [
+      "impl",
+      "Display",
+      "FromStr",
+      "fmt",
+      "Err",
+      "Ok",
+      "enum",
+      "write!"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-013",
+    "category": "rust",
+    "topic": "custom_error_handling",
+    "difficulty": 3,
+    "instruction": "Implement custom error handling in Rust following the thiserror pattern but using manual implementations. Create: (1) An AppError enum with variants IoError(std::io::Error), ParseError(String), NotFound { resource: String, id: u64 }, and Validation(Vec<String>). (2) Implement std::fmt::Display for AppError with descriptive messages for each variant. (3) Implement std::error::Error with source() returning the wrapped error for IoError. (4) Implement From<std::io::Error> for AppError to enable the ? operator. (5) Write functions that return Result<T, AppError> and chain errors using ?. (6) Demonstrate matching on error variants to handle each case differently.",
+    "expected_concepts": [
+      "enum",
+      "impl",
+      "Error",
+      "Display",
+      "From",
+      "Result",
+      "source",
+      "match"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-014",
+    "category": "rust",
+    "topic": "custom_iterator",
+    "difficulty": 3,
+    "instruction": "Implement a custom iterator over a data structure in Rust. Create: (1) A Matrix<T> struct storing a 2D grid as a flat Vec<T> with rows and cols. (2) Implement Iterator for a RowIter struct that iterates over rows, yielding &[T] slices. (3) Implement Iterator for an ElementIter that iterates over all elements in row-major order. (4) Implement IntoIterator for &Matrix<T>. (5) Add methods .rows(), .cols_iter(), and .diagonal() that return iterators. (6) Demonstrate using iterator adapters: .map(), .filter(), .enumerate(), .zip(), and .collect() with the custom iterator.",
+    "expected_concepts": [
+      "Iterator",
+      "next",
+      "Item",
+      "impl",
+      "Option",
+      "Some",
+      "None",
+      "IntoIterator"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-015",
+    "category": "rust",
+    "topic": "algebraic_data_types",
+    "difficulty": 2,
+    "instruction": "Demonstrate algebraic data types with enums and pattern matching in Rust. Implement: (1) An Expr enum representing a simple expression language with variants: Num(f64), Add(Box<Expr>, Box<Expr>), Mul(Box<Expr>, Box<Expr>), Neg(Box<Expr>), and Var(String). (2) An eval function that recursively evaluates an Expr given a HashMap<String, f64> of variable bindings. (3) A simplify function that applies algebraic rules (e.g., x + 0 = x, x * 1 = x, x * 0 = 0). (4) Implement Display for pretty-printing expressions. (5) Use pattern matching with guards, nested patterns, and @ bindings.",
+    "expected_concepts": [
+      "enum",
+      "match",
+      "Box",
+      "impl",
+      "HashMap",
+      "pattern",
+      "Display",
+      "fn"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-016",
+    "category": "rust",
+    "topic": "lifetimes_in_structs",
+    "difficulty": 3,
+    "instruction": "Demonstrate lifetime annotations for structs holding references in Rust. Implement: (1) A TextParser<'a> struct that holds a &'a str reference to the source text. (2) Methods on TextParser that return &'a str slices (words, lines, substrings) without copying. (3) A Highlight<'a> struct with fields text: &'a str, start: usize, end: usize, and a method span() -> &'a str. (4) A function longest<'a>(x: &'a str, y: &'a str) -> &'a str demonstrating lifetime elision rules. (5) Show the 'static lifetime for string literals. (6) Demonstrate a case where the compiler requires explicit lifetime annotations and explain why.",
+    "expected_concepts": [
+      "lifetime",
+      "struct",
+      "impl",
+      "fn",
+      "static",
+      "str",
+      "ref",
+      "where"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-017",
+    "category": "rust",
+    "topic": "closures_higher_order",
+    "difficulty": 2,
+    "instruction": "Demonstrate closures and higher-order functions in Rust. Implement: (1) A function apply_twice that takes a closure Fn(i32) -> i32 and a value, applying the closure twice. (2) A function make_adder(n: i32) that returns a closure (impl Fn(i32) -> i32) which adds n to its argument. (3) A compose function that takes two closures and returns their composition. (4) Show the difference between Fn, FnMut, and FnOnce with examples of each. (5) Demonstrate capturing variables by reference, by mutable reference, and by value (move). (6) Use closures with iterator methods: filter, map, fold, and for_each.",
+    "expected_concepts": [
+      "Fn",
+      "FnMut",
+      "FnOnce",
+      "impl",
+      "move",
+      "closure",
+      "where",
+      "fn"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-018",
+    "category": "rust",
+    "topic": "option_result_chaining",
+    "difficulty": 2,
+    "instruction": "Demonstrate Option and Result chaining methods in Rust. Implement: (1) A config parser that reads nested optional fields using .and_then() chains: get_config().and_then(|c| c.database).and_then(|d| d.port). (2) Show .map() to transform the inner value without unwrapping. (3) Use .unwrap_or_else(|| default) for providing fallback values with lazy evaluation. (4) Chain Results with the ? operator in a function that reads a file, parses it as JSON, and extracts a field. (5) Convert between Option and Result using .ok_or() and .ok(). (6) Demonstrate .filter(), .zip(), .flatten(), and .transpose() on Option and Result types.",
+    "expected_concepts": [
+      "Option",
+      "Result",
+      "map",
+      "and_then",
+      "unwrap_or_else",
+      "ok_or",
+      "Some",
+      "None"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-019",
+    "category": "rust",
+    "topic": "hashmap_entry_api",
+    "difficulty": 2,
+    "instruction": "Demonstrate the HashMap entry API in Rust for efficient insert-or-update patterns. Implement: (1) A word frequency counter using entry().or_insert(0) and incrementing the count. (2) A grouping function that groups items by a key using entry().or_insert_with(Vec::new). (3) A cache/memoization pattern using entry().or_insert_with(|| expensive_compute(key)). (4) Show the difference between or_insert, or_insert_with, or_default, and and_modify. (5) Use and_modify(|v| *v += 1).or_insert(1) for the count-or-init pattern. (6) Build a simple in-memory key-value store with get, set, delete, and get_or_compute methods using the entry API.",
+    "expected_concepts": [
+      "HashMap",
+      "entry",
+      "or_insert",
+      "or_insert_with",
+      "and_modify",
+      "Entry",
+      "Occupied",
+      "Vacant"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "rust-020",
+    "category": "rust",
+    "topic": "arc_mutex_concurrency",
+    "difficulty": 3,
+    "instruction": "Demonstrate shared state concurrency in Rust using Arc and Mutex. Implement: (1) A SharedCounter struct wrapping Arc<Mutex<i32>> with methods increment(), decrement(), and get(). (2) Spawn 10 threads that each increment the counter 1000 times, then verify the final count is 10000. (3) A thread-safe cache using Arc<RwLock<HashMap<String, String>>> where multiple readers can access simultaneously. (4) Show the difference between Mutex (exclusive access) and RwLock (multiple readers OR one writer). (5) Demonstrate Arc::clone() for sharing ownership across threads. (6) Handle mutex poisoning with .lock().unwrap() and show recovery with .lock().unwrap_or_else(|e| e.into_inner()).",
+    "expected_concepts": [
+      "Arc",
+      "Mutex",
+      "RwLock",
+      "thread::spawn",
+      "lock",
+      "clone",
+      "move",
+      "unwrap"
+    ],
+    "test_code": null
   }
 ]

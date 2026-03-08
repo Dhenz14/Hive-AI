@@ -512,6 +512,124 @@ def execute_rust(code: str, timeout: int = 30) -> dict:
                     pass
 
 
+def execute_go(code: str, timeout: int = 30) -> dict:
+    """
+    Compile and execute Go code in a subprocess with timeout.
+
+    Requires go to be installed. Creates a temp directory with go.mod
+    for module support.
+
+    Args:
+        code: Go source code to compile and execute
+        timeout: Maximum execution time in seconds (default 30, max 60)
+
+    Returns:
+        {success, stdout, stderr, return_code, timed_out, execution_time_ms,
+         error_type, compile_stderr}
+    """
+    timeout = min(max(timeout, 1), 60)
+
+    go_cmd = shutil.which("go")
+    if not go_cmd:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": "Go not found (install Go to enable Go execution)",
+            "return_code": -1,
+            "timed_out": False,
+            "execution_time_ms": 0,
+            "error_type": "EnvironmentError",
+            "compile_stderr": "",
+        }
+
+    tmp_dir = None
+    try:
+        # Go needs a module context — create temp dir with go.mod
+        tmp_dir = tempfile.mkdtemp(prefix="hiveai_go_")
+        src_path = os.path.join(tmp_dir, "main.go")
+        mod_path = os.path.join(tmp_dir, "go.mod")
+
+        with open(src_path, "w", encoding="utf-8") as f:
+            f.write(code)
+        with open(mod_path, "w", encoding="utf-8") as f:
+            f.write("module hiveai_eval\n\ngo 1.21\n")
+
+        run_base = {
+            "capture_output": True,
+            "text": True,
+            "cwd": tmp_dir,
+        }
+        if sys.platform == "win32":
+            run_base["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        # Compile
+        compile_result = subprocess.run(
+            [go_cmd, "build", "-o", "main.exe" if sys.platform == "win32" else "main", "."],
+            timeout=30, **run_base,
+        )
+        if compile_result.returncode != 0:
+            return {
+                "success": False,
+                "stdout": "",
+                "stderr": compile_result.stderr[:MAX_OUTPUT_BYTES],
+                "return_code": compile_result.returncode,
+                "timed_out": False,
+                "execution_time_ms": 0,
+                "error_type": "CompileError",
+                "compile_stderr": compile_result.stderr[:MAX_OUTPUT_BYTES],
+            }
+
+        # Execute
+        exe_path = os.path.join(tmp_dir, "main.exe" if sys.platform == "win32" else "main")
+        t0 = time.time()
+        result = subprocess.run(
+            [exe_path], timeout=timeout,
+            capture_output=True, text=True,
+            **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {}),
+        )
+        elapsed_ms = int((time.time() - t0) * 1000)
+
+        return {
+            "success": result.returncode == 0,
+            "stdout": result.stdout[:MAX_OUTPUT_BYTES],
+            "stderr": result.stderr[:MAX_OUTPUT_BYTES],
+            "return_code": result.returncode,
+            "timed_out": False,
+            "execution_time_ms": elapsed_ms,
+            "error_type": "RuntimeError" if result.returncode != 0 else None,
+            "compile_stderr": "",
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": f"Execution timed out after {timeout}s",
+            "return_code": -1,
+            "timed_out": True,
+            "execution_time_ms": timeout * 1000,
+            "error_type": "TimeoutError",
+            "compile_stderr": "",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "return_code": -1,
+            "timed_out": False,
+            "execution_time_ms": 0,
+            "error_type": type(e).__name__,
+            "compile_stderr": "",
+        }
+    finally:
+        if tmp_dir and os.path.exists(tmp_dir):
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except OSError:
+                pass
+
+
 def verify_response_code(response: str, timeout: int = 30) -> dict:
     """
     Extract and verify all code blocks (Python, JavaScript, C++, Rust) in an LLM response.
@@ -531,6 +649,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
     js_blocks = 0
     cpp_blocks = 0
     rust_blocks = 0
+    go_blocks = 0
 
     # Execution functions by language
     executors = {
@@ -538,6 +657,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "javascript": execute_javascript,
         "cpp": execute_cpp,
         "rust": execute_rust,
+        "go": execute_go,
     }
 
     for block in blocks:
@@ -571,6 +691,8 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
                 cpp_blocks += 1
             elif lang == "rust":
                 rust_blocks += 1
+            elif lang == "go":
+                go_blocks += 1
             entry["syntax_valid"] = True  # Compilation validates syntax
             valid_syntax += 1
             result = executors[lang](block["code"], timeout)
@@ -591,6 +713,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "js_blocks": js_blocks,
         "cpp_blocks": cpp_blocks,
         "rust_blocks": rust_blocks,
+        "go_blocks": go_blocks,
         "valid_syntax": valid_syntax,
         "executed": executed,
         "passed": passed,

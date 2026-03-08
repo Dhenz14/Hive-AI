@@ -260,7 +260,10 @@ def score_code_validity(response: str) -> float:
     Non-Python blocks (Rust/Go/C++/JS): structural analysis (0.0-1.0)
     Mixed responses: weighted average across all blocks.
     """
-    from hiveai.sandbox import extract_code_blocks, validate_syntax, execute_python
+    from hiveai.sandbox import (
+        extract_code_blocks, validate_syntax, execute_python,
+        execute_cpp, execute_rust, execute_go,
+    )
 
     blocks = extract_code_blocks(response)
     if not blocks:
@@ -268,6 +271,17 @@ def score_code_validity(response: str) -> float:
                            "fn ", "func ", "#include", "function "]
         hits = sum(1 for k in code_indicators if k in response)
         return min(hits * 0.1, 0.3)
+
+    # Language → executor mapping for compiled languages
+    _compiled_executors = {
+        "go": execute_go,
+        "golang": execute_go,
+        "cpp": execute_cpp,
+        "c++": execute_cpp,
+        "c": execute_cpp,
+        "rust": execute_rust,
+        "rs": execute_rust,
+    }
 
     python_scores = []
     non_python_scores = []
@@ -288,8 +302,29 @@ def score_code_validity(response: str) -> float:
                     non_python_scores.append(_score_non_python_block(block["code"], "unknown"))
                 else:
                     python_scores.append(0.0)
+        elif lang in _compiled_executors:
+            # Compiled languages: try actual compilation, fall back to structural
+            executor = _compiled_executors[lang]
+            try:
+                result = executor(block["code"], timeout=15)
+                if result["error_type"] == "EnvironmentError":
+                    # Compiler not installed — fall back to structural analysis
+                    non_python_scores.append(_score_non_python_block(block["code"], lang))
+                elif result["success"]:
+                    # Compiles and runs: full score
+                    non_python_scores.append(1.0)
+                elif result.get("compile_stderr"):
+                    # Compile error: partial credit based on structural analysis
+                    structural = _score_non_python_block(block["code"], lang)
+                    non_python_scores.append(min(structural, 0.3))
+                else:
+                    # Compiled but runtime error: good code, bad logic
+                    non_python_scores.append(0.7)
+            except Exception:
+                # Executor failed — fall back to structural
+                non_python_scores.append(_score_non_python_block(block["code"], lang))
         else:
-            # Non-Python: structural analysis
+            # Other languages (JS, etc.): structural analysis
             non_python_scores.append(_score_non_python_block(block["code"], lang))
 
     all_scores = python_scores + non_python_scores
