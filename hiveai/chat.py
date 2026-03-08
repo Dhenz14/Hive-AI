@@ -67,23 +67,99 @@ def score_section(section, query_words):
     return score
 
 
+def _llm_extract_keywords(question, history=None):
+    """Extract keywords using the local LLM for better search recall.
+
+    Falls back to naive word splitting on failure (timeout, no model, etc.).
+    Results are cached to avoid repeated LLM calls for the same query.
+    """
+    cache_key = hashlib.md5(question.encode()).hexdigest()
+    with _rag_cache_lock:
+        cached = _rag_cache.get(f"kw_{cache_key}")
+        if cached and (_time.time() - cached[0]) < _RAG_CACHE_TTL:
+            return cached[1]
+
+    try:
+        import urllib.request
+        import json as _json
+
+        prompt = (
+            "Extract the 5-15 most important search keywords from this question. "
+            "Include technical terms, proper nouns, and domain-specific concepts. "
+            "Return ONLY a JSON array of lowercase strings, nothing else.\n\n"
+            f"Question: {question}"
+        )
+        if history:
+            context = " ".join(h.get("content", "") for h in history[-2:])
+            if context.strip():
+                prompt += f"\n\nRecent context: {context[:500]}"
+
+        payload = _json.dumps({
+            "model": "hiveai-v7",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 200,
+            "stream": False,
+        }).encode()
+
+        # Try llama-server first (port 11435), then Ollama (11434)
+        for base_url in ["http://localhost:11435", "http://localhost:11434"]:
+            try:
+                req = urllib.request.Request(
+                    f"{base_url}/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                resp = urllib.request.urlopen(req, timeout=5)
+                data = _json.loads(resp.read().decode())
+                content = data["choices"][0]["message"]["content"].strip()
+
+                # Parse JSON array from response
+                # Handle markdown fences
+                if "```" in content:
+                    content = re.search(r"```(?:json)?\s*(.*?)```", content, re.DOTALL)
+                    content = content.group(1).strip() if content else "[]"
+
+                keywords = _json.loads(content)
+                if isinstance(keywords, list) and all(isinstance(k, str) for k in keywords):
+                    keywords = [k.lower().strip() for k in keywords if len(k) > 1]
+                    # Cache the result
+                    with _rag_cache_lock:
+                        _rag_cache[f"kw_{cache_key}"] = (_time.time(), keywords)
+                    logging.getLogger(__name__).debug(f"LLM keywords: {keywords}")
+                    return keywords
+            except Exception:
+                continue
+
+    except Exception:
+        pass
+
+    return None  # Signal to fall back to naive extraction
+
+
 def keyword_search_sections(question, db, history=None):
     books = db.query(GoldenBook).all()
     if not books:
         return [], [], []
 
-    query_words = [
-        w for w in question.lower().split()
-        if len(w) > 2 and w not in STOP_WORDS
-    ]
+    # Try LLM-powered keyword extraction first
+    llm_keywords = _llm_extract_keywords(question, history)
+    if llm_keywords:
+        query_words = llm_keywords
+    else:
+        # Fallback: naive word splitting
+        query_words = [
+            w for w in question.lower().split()
+            if len(w) > 2 and w not in STOP_WORDS
+        ]
 
-    if history:
-        for h in history[-4:]:
-            content = h.get("content", "").lower()
-            for w in content.split():
-                if len(w) > 3 and w not in STOP_WORDS and w not in query_words:
-                    query_words.append(w)
-        query_words = list(dict.fromkeys(query_words))
+        if history:
+            for h in history[-4:]:
+                content = h.get("content", "").lower()
+                for w in content.split():
+                    if len(w) > 3 and w not in STOP_WORDS and w not in query_words:
+                        query_words.append(w)
+            query_words = list(dict.fromkeys(query_words))
 
     if not query_words:
         query_words = [w for w in question.lower().split() if len(w) > 1]
