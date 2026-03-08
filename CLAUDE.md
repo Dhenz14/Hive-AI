@@ -42,6 +42,24 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
 
+## Eval Protocol — Work Smart Not Hard
+
+**Base model (v1) evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
+
+**How we test new LoRA versions:**
+1. Start llama-server with the new LoRA
+2. Run `quick_eval.py` (20 prompts, ~5 min) — this is the primary gate
+3. Compare v(new) quick_eval score against v7 baseline (0.971) and base (0.978)
+4. If quick_eval passes: DONE. Ship it.
+5. If quick_eval shows regression: investigate which categories dropped, fix, retrain
+
+**Do NOT:**
+- Run full 227-challenge eval for routine version checks (that's for release milestones only)
+- Re-eval the base model (scores are hardcoded: quick_eval=0.978, full_eval=0.766)
+- Spend hours on eval infrastructure when a simple A/B answers the question
+
+**Quick sanity check (even faster):** Pick 3-5 prompts by hand, ask base and LoRA, compare answers visually. If LoRA is clearly better, that's signal enough for iteration.
+
 ## Debugging Protocol (4-Phase)
 
 When debugging, follow this structured protocol instead of random trial-and-error:

@@ -125,3 +125,11 @@ unsloth_compiled_cache/
 
 # Large binary assets in scripts
 scripts/design_patterns.pdf
+
+# Continual Learning Pipeline — runtime artifacts
+replay/*.jsonl
+datasets/*.jsonl
+logs/
+loras/*_consolidation/
+loras/training_data/_mixed_replay_*.jsonl
+loras/training_data/_consolidation_*.jsonl

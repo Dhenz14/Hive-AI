@@ -217,7 +217,8 @@ def optimize_system_post_load():
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
              seq_length_override: int = 0, warm_start: str = None,
-             epochs_override: int = 0, two_stage: bool = False):
+             epochs_override: int = 0, two_stage: bool = False,
+             lora_plus: bool = False):
     """Train LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
     import torch
     import torch.nn.functional as F
@@ -349,6 +350,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             unsloth_model_name = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
             logger.info(f"  WARM START: loading 4-bit base first, then adapter from {warm_start}")
         elif os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
+            # Continual learning: load merged HF checkpoint as base (quantized on-the-fly)
+            # This path is used when --base-model-hf points to a merged checkpoint
             unsloth_model_name = model_path
             logger.info(f"  Using local weights: {unsloth_model_name}")
         else:
@@ -1105,6 +1108,25 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             if stage_cfg is None:
                 logger.info("EarlyStoppingCallback added (patience=3 evals)")
 
+        # LoRA+ optimizer: B matrix gets 16x higher LR (arXiv 2602.04998)
+        lora_plus_optimizers = None
+        if lora_plus:
+            import torch
+            a_params = [p for n, p in model.named_parameters() if "lora_A" in n and p.requires_grad]
+            b_params = [p for n, p in model.named_parameters() if "lora_B" in n and p.requires_grad]
+            other_params = [p for n, p in model.named_parameters()
+                           if "lora_A" not in n and "lora_B" not in n and p.requires_grad]
+            lora_plus_lr = stage_lr
+            param_groups = [
+                {"params": a_params, "lr": lora_plus_lr},
+                {"params": b_params, "lr": lora_plus_lr * 16},
+            ]
+            if other_params:
+                param_groups.append({"params": other_params, "lr": lora_plus_lr})
+            lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
+            lora_plus_optimizers = (lora_plus_optimizer, None)  # (optimizer, scheduler=None → default)
+            logger.info(f"LoRA+ enabled: A_lr={lora_plus_lr:.2e}, B_lr={lora_plus_lr * 16:.2e} (16x)")
+
         trainer = SFTTrainer(
             model=model,
             processing_class=tokenizer,
@@ -1112,6 +1134,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             eval_dataset=eval_dataset,
             args=sft_config,
             callbacks=callbacks,
+            optimizers=lora_plus_optimizers if lora_plus else (None, None),
         )
 
         # Preserve curriculum ordering
@@ -1280,6 +1303,22 @@ if __name__ == "__main__":
                         help="Initialize <think>/</think> token embeddings semantically "
                              "(LLM4SVG-inspired). Averages embeddings of related words "
                              "for faster convergence.")
+    # === Continual Learning Pipeline v1.0 flags ===
+    parser.add_argument("--rank", type=int, default=0,
+                        help="Override LoRA rank (default: 16, use 4-8 for continual learning)")
+    parser.add_argument("--lr", type=float, default=0.0,
+                        help="Override learning rate directly (default: 2e-4, or 1e-4 for warm-start)")
+    parser.add_argument("--lora-plus", action="store_true",
+                        help="LoRA+: B matrix gets 16x higher LR than A matrix "
+                             "(40-60%% faster convergence, arXiv 2602.04998)")
+    parser.add_argument("--replay-dir", type=str, default=None,
+                        help="Path to replay/ directory with per-domain JSONL files")
+    parser.add_argument("--replay-ratio", type=float, default=0.25,
+                        help="Fraction of replay data in training mix (default: 0.25)")
+    parser.add_argument("--consolidation-only", action="store_true",
+                        help="Consolidation mode: 1 epoch, LR/10, 100%% replay data")
+    parser.add_argument("--base-model-hf", type=str, default=None,
+                        help="Path to full-precision HF base model (for training on merged checkpoint)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1295,6 +1334,19 @@ if __name__ == "__main__":
     if args.attn_only:
         LORA_CONFIG["target_modules"] = ["q_proj", "k_proj", "v_proj", "o_proj"]
         logger.info("Attention-only mode: training q/k/v/o_proj only (MLP frozen)")
+
+    # Continual Learning: rank override
+    if args.rank > 0:
+        LORA_CONFIG["r"] = args.rank
+        LORA_CONFIG["lora_alpha"] = args.rank * 2  # maintain 2x ratio
+        logger.info(f"LoRA rank override: r={args.rank}, alpha={args.rank * 2}")
+
+    # Consolidation mode: override LR and epochs
+    if args.consolidation_only:
+        base_lr = args.lr if args.lr > 0 else TRAINING_CONFIG["learning_rate"]
+        args.lr = base_lr / 10  # LR/10 for consolidation
+        args.epochs = args.epochs if args.epochs > 0 else 1  # 1 epoch
+        logger.info(f"Consolidation mode: lr={args.lr}, epochs={args.epochs}, 100% replay")
 
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)
@@ -1316,8 +1368,61 @@ if __name__ == "__main__":
         else:
             logger.info(f"Local model not found at {model_path} — Unsloth will download from HuggingFace")
 
+    # LR override (applied after consolidation_only adjustments)
+    if args.lr > 0:
+        TRAINING_CONFIG["learning_rate"] = args.lr
+        logger.info(f"Learning rate override: {args.lr}")
+
+    # Base model HF override for continual learning (train on merged checkpoint)
+    if args.base_model_hf:
+        model_path = args.base_model_hf
+        logger.info(f"Base model HF override: {model_path}")
+
+    # Replay data mixing
+    if args.replay_dir and os.path.isdir(args.replay_dir):
+        from pathlib import Path
+        replay_files = list(Path(args.replay_dir).glob("*.jsonl"))
+        if replay_files:
+            import random
+            random.seed(42)
+            replay_samples = []
+            for rf in replay_files:
+                with open(rf, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            replay_samples.append(json.loads(line))
+            if replay_samples and args.data:
+                # Mix replay into training data at the specified ratio
+                with open(args.data, "r", encoding="utf-8") as f:
+                    domain_samples = [json.loads(l) for l in f if l.strip()]
+                # Calculate mix: domain_count / (1 - replay_ratio) = total
+                # replay_count = total * replay_ratio
+                target_replay = int(len(domain_samples) * args.replay_ratio / (1 - args.replay_ratio))
+                target_replay = min(target_replay, len(replay_samples))
+                selected_replay = random.sample(replay_samples, target_replay)
+                mixed = domain_samples + selected_replay
+                random.shuffle(mixed)
+                # Write mixed data to temp file
+                mixed_path = os.path.join(os.path.dirname(args.data), f"_mixed_replay_{os.getpid()}.jsonl")
+                with open(mixed_path, "w", encoding="utf-8") as f:
+                    for sample in mixed:
+                        f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                TRAINING_JSONL = mixed_path
+                logger.info(f"Replay mix: {len(domain_samples)} domain + {target_replay} replay "
+                            f"= {len(mixed)} total ({args.replay_ratio:.0%} replay)")
+            elif args.consolidation_only and replay_samples:
+                # Consolidation mode: 100% replay
+                mixed_path = os.path.join(os.path.dirname(TRAINING_JSONL), f"_consolidation_{os.getpid()}.jsonl")
+                with open(mixed_path, "w", encoding="utf-8") as f:
+                    for sample in replay_samples:
+                        f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                TRAINING_JSONL = mixed_path
+                logger.info(f"Consolidation: using {len(replay_samples)} replay samples (100%)")
+
     optimize_system_pre_load()
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
              skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
              seq_length_override=args.seq_length, warm_start=args.warm_start,
-             epochs_override=args.epochs, two_stage=args.two_stage)
+             epochs_override=args.epochs, two_stage=args.two_stage,
+             lora_plus=args.lora_plus)
