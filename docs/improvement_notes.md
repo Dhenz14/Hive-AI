@@ -693,3 +693,27 @@ All Apache 2.0, ready to download:
 - [LOW] Update Unsloth to 2026.3.3 before v9 training
 
 **Meta-lesson #17**: The best open LoRA finetunes are small-data, high-quality. Jackrong used ~4K pairs to create a model with 36K downloads/month. Quality of reasoning traces >> quantity of generic pairs.
+
+---
+
+## 26. Hand-Crafted Transformers — Mechanistic Weight Engineering
+
+**Source**: https://gist.github.com/N8python/02e41d156ec615328cde2e1e5c0e9d53
+
+**What they did**: Built a 1,170-parameter Qwen3 transformer that performs integer addition (up to 10 billion) with **zero training** — every weight is hand-set to encode carry-propagation logic directly.
+
+**Architecture**: 2 layers, 5-dim hidden state, 2 attention heads (KV head count 1), 3-unit MLP, 10-token vocabulary.
+
+**Key techniques**:
+- **Reversed digit encoding**: Input `a + b` encoded as `[0] + reversed(a_digits) + [0,0] + reversed(b_digits) + [0]` — reversal aligns carry propagation with left-to-right autoregressive generation
+- **MLP as boolean gates**: Gate projections use ~6e4 magnitude weights for sharp activation switching — effectively implementing carry logic as floating-point boolean gates
+- **Embeddings as feature vectors**: Each digit maps to a hand-crafted 5-dim vector starting at 100, encoding positional and value information simultaneously
+- **Validation**: 8,192 random test cases in batches confirm 100% accuracy
+
+**Why this matters**:
+1. **LoRA capacity insight**: If 1,170 params can encode addition, our rank-16 LoRAs (millions of params) have massive headroom. For simple skills, lower rank might suffice — worth testing r=8 or r=4 for targeted categories
+2. **Weight initialization**: For known algorithmic tasks, hand-crafted weight initialization could beat random init and accelerate convergence
+3. **Mechanistic interpretability**: Understanding what each layer "computes" enables debugging LoRA training — if loss isn't dropping, inspect which attention patterns aren't forming
+4. **Minimal architecture search**: Proves that task complexity determines minimum viable architecture. Our 14B base model is extreme overkill for pattern-matching tasks — the LoRA's job is surgical skill injection, not wholesale knowledge
+
+**Meta-lesson #18**: Neural networks are programs. Weights are instructions. Training is compilation. This gist proves you can "write" a working program directly into weights — which means LoRA training is essentially compiling our training data into weight-space instructions.
