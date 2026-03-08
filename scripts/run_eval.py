@@ -262,7 +262,8 @@ def score_code_validity(response: str) -> float:
     """
     from hiveai.sandbox import (
         extract_code_blocks, validate_syntax, execute_python,
-        execute_cpp, execute_rust, execute_go,
+        execute_cpp, execute_rust, execute_go, execute_javascript,
+        strip_typescript_annotations,
     )
 
     blocks = extract_code_blocks(response)
@@ -272,7 +273,7 @@ def score_code_validity(response: str) -> float:
         hits = sum(1 for k in code_indicators if k in response)
         return min(hits * 0.1, 0.3)
 
-    # Language → executor mapping for compiled languages
+    # Language → executor mapping for compiled/interpreted languages
     _compiled_executors = {
         "go": execute_go,
         "golang": execute_go,
@@ -281,6 +282,10 @@ def score_code_validity(response: str) -> float:
         "c": execute_cpp,
         "rust": execute_rust,
         "rs": execute_rust,
+        "javascript": execute_javascript,
+        "js": execute_javascript,
+        "typescript": execute_javascript,
+        "ts": execute_javascript,
     }
 
     python_scores = []
@@ -303,10 +308,14 @@ def score_code_validity(response: str) -> float:
                 else:
                     python_scores.append(0.0)
         elif lang in _compiled_executors:
-            # Compiled languages: try actual compilation, fall back to structural
+            # Compiled/interpreted languages: try execution, fall back to structural
             executor = _compiled_executors[lang]
+            exec_code = block["code"]
+            # Strip TypeScript annotations before running through Node.js
+            if lang in ("typescript", "ts"):
+                exec_code = strip_typescript_annotations(exec_code)
             try:
-                result = executor(block["code"], timeout=15)
+                result = executor(exec_code, timeout=15)
                 if result["error_type"] == "EnvironmentError":
                     # Compiler not installed — fall back to structural analysis
                     non_python_scores.append(_score_non_python_block(block["code"], lang))
@@ -324,7 +333,7 @@ def score_code_validity(response: str) -> float:
                 # Executor failed — fall back to structural
                 non_python_scores.append(_score_non_python_block(block["code"], lang))
         else:
-            # Other languages (JS, etc.): structural analysis
+            # Other/unknown languages: structural analysis
             non_python_scores.append(_score_non_python_block(block["code"], lang))
 
     all_scores = python_scores + non_python_scores

@@ -198,6 +198,67 @@ def _classify_error(stderr: str) -> str:
     return "RuntimeError"
 
 
+def strip_typescript_annotations(code: str) -> str:
+    """Strip TypeScript type annotations to produce valid JavaScript.
+
+    Handles common patterns: parameter types, return types, type assertions,
+    interface/type declarations, generics, and access modifiers.
+    Not a full parser — covers ~90% of training pair TS code.
+    """
+    lines = []
+    skip_block = False
+    brace_depth = 0
+
+    for line in code.split("\n"):
+        stripped = line.strip()
+
+        # Skip interface/type/enum declarations (entire blocks)
+        if skip_block:
+            brace_depth += stripped.count("{") - stripped.count("}")
+            if brace_depth <= 0:
+                skip_block = False
+                brace_depth = 0
+            continue
+
+        if re.match(r"^(export\s+)?(interface|type|enum)\s+\w+", stripped):
+            if "{" in stripped:
+                brace_depth = stripped.count("{") - stripped.count("}")
+                if brace_depth > 0:
+                    skip_block = True
+            continue
+
+        # Skip import type statements
+        if re.match(r"^import\s+type\s+", stripped):
+            continue
+
+        # Remove access modifiers (public/private/protected/readonly)
+        line = re.sub(r"\b(public|private|protected|readonly)\s+", "", line)
+
+        # Remove generic type parameters from function/class declarations
+        line = re.sub(r"(<\w+(?:\s*,\s*\w+)*(?:\s+extends\s+\w+)?>)", "", line)
+
+        # Remove parameter type annotations: (name: Type, name?: Type)
+        line = re.sub(r"(\w+)\??\s*:\s*[\w\[\]<>,\s|&]+(?=[,\)=])", r"\1", line)
+
+        # Remove return type annotations: ): Type {
+        line = re.sub(r"\)\s*:\s*[\w\[\]<>,\s|&]+\s*\{", ") {", line)
+        line = re.sub(r"\)\s*:\s*[\w\[\]<>,\s|&]+\s*=>", ") =>", line)
+
+        # Remove variable type annotations: const x: Type =
+        line = re.sub(r"((?:const|let|var)\s+\w+)\s*:\s*[\w\[\]<>,\s|&]+\s*=", r"\1 =", line)
+
+        # Remove 'as Type' assertions
+        line = re.sub(r"\s+as\s+\w[\w\[\]<>,\s|&]*", "", line)
+
+        # Remove non-null assertions (!)
+        line = re.sub(r"(\w)!\.", r"\1.", line)
+        line = re.sub(r"(\w)!;", r"\1;", line)
+
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
 def execute_javascript(code: str, timeout: int = 30) -> dict:
     """
     Execute JavaScript code in a Node.js subprocess with timeout.

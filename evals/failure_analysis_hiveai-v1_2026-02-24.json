@@ -1,0 +1,724 @@
+{
+  "model": "hiveai-v1",
+  "overall_score": 0.766,
+  "total_scored": 90,
+  "total_failures": 25,
+  "threshold": 0.7,
+  "by_category": {
+    "algorithms": {
+      "avg_score": 0.825,
+      "fail_rate": 0.133,
+      "total": 15,
+      "failures": 2,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "test_passing": 0.88,
+        "concept_coverage": 0.905,
+        "explanation": 0.398
+      },
+      "failed_ids": [
+        "algo-uf-007",
+        "algo-bloom-015"
+      ]
+    },
+    "database": {
+      "avg_score": 0.665,
+      "fail_rate": 0.429,
+      "total": 7,
+      "failures": 3,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 0.614,
+        "concept_coverage": 0.88,
+        "explanation": 0.441,
+        "test_passing": 1.0
+      },
+      "failed_ids": [
+        "db-window-001",
+        "db-normal-002",
+        "db-index-004"
+      ]
+    },
+    "design_patterns": {
+      "avg_score": 0.766,
+      "fail_rate": 0.3,
+      "total": 10,
+      "failures": 3,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "test_passing": 0.711,
+        "concept_coverage": 0.886,
+        "explanation": 0.345
+      },
+      "failed_ids": [
+        "pat-di-006",
+        "pat-state-007",
+        "pat-adapter-009"
+      ]
+    },
+    "javascript": {
+      "avg_score": 0.532,
+      "fail_rate": 0.875,
+      "total": 8,
+      "failures": 7,
+      "weakest_dimension": "code_validity",
+      "dimension_avgs": {
+        "code_validity": 0.325,
+        "concept_coverage": 0.928,
+        "explanation": 0.396
+      },
+      "failed_ids": [
+        "js-closure-001",
+        "js-promise-002",
+        "js-proto-004",
+        "ts-generics-005",
+        "ts-utility-006",
+        "js-proxy-007",
+        "js-streams-008"
+      ]
+    },
+    "python": {
+      "avg_score": 0.824,
+      "fail_rate": 0.1,
+      "total": 20,
+      "failures": 2,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "test_passing": 0.887,
+        "concept_coverage": 0.931,
+        "explanation": 0.331
+      },
+      "failed_ids": [
+        "py-dataclass-014",
+        "py-mp-017"
+      ]
+    },
+    "security": {
+      "avg_score": 0.865,
+      "fail_rate": 0.0,
+      "total": 2,
+      "failures": 0,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "concept_coverage": 0.928,
+        "explanation": 0.443,
+        "test_passing": 1.0
+      },
+      "failed_ids": []
+    },
+    "systems": {
+      "avg_score": 0.735,
+      "fail_rate": 0.5,
+      "total": 10,
+      "failures": 5,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "test_passing": 0.386,
+        "concept_coverage": 0.958,
+        "explanation": 0.364
+      },
+      "failed_ids": [
+        "sys-pool-001",
+        "sys-lru-003",
+        "sys-circuit-004",
+        "sys-pubsub-006",
+        "sys-scheduler-007"
+      ]
+    },
+    "testing": {
+      "avg_score": 0.816,
+      "fail_rate": 0.0,
+      "total": 8,
+      "failures": 0,
+      "weakest_dimension": "explanation",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "concept_coverage": 0.8,
+        "explanation": 0.387,
+        "test_passing": 1.0
+      },
+      "failed_ids": []
+    },
+    "web": {
+      "avg_score": 0.792,
+      "fail_rate": 0.3,
+      "total": 10,
+      "failures": 3,
+      "weakest_dimension": "test_passing",
+      "dimension_avgs": {
+        "code_validity": 1.0,
+        "concept_coverage": 0.959,
+        "explanation": 0.414,
+        "test_passing": 0.133
+      },
+      "failed_ids": [
+        "web-jwt-002",
+        "web-pagination-004",
+        "web-cache-006"
+      ]
+    }
+  },
+  "by_dimension": {
+    "code_validity": {
+      "avg": 0.91,
+      "min": 0.1,
+      "failures_below_50": 10,
+      "worst_3": [
+        {
+          "id": "db-window-001",
+          "category": "database",
+          "topic": "window_functions",
+          "score": 0.1
+        },
+        {
+          "id": "db-normal-002",
+          "category": "database",
+          "topic": "normalization",
+          "score": 0.1
+        },
+        {
+          "id": "db-index-004",
+          "category": "database",
+          "topic": "index_optimization",
+          "score": 0.1
+        }
+      ]
+    },
+    "test_passing": {
+      "avg": 0.757,
+      "min": 0.1,
+      "failures_below_50": 15,
+      "worst_3": [
+        {
+          "id": "py-dataclass-014",
+          "category": "python",
+          "topic": "dataclasses",
+          "score": 0.1
+        },
+        {
+          "id": "py-mp-017",
+          "category": "python",
+          "topic": "multiprocessing",
+          "score": 0.1
+        },
+        {
+          "id": "algo-uf-007",
+          "category": "algorithms",
+          "topic": "union_find",
+          "score": 0.1
+        }
+      ]
+    },
+    "concept_coverage": {
+      "avg": 0.912,
+      "min": 0.5,
+      "failures_below_50": 0,
+      "worst_3": []
+    },
+    "explanation": {
+      "avg": 0.378,
+      "min": 0.225,
+      "failures_below_50": 89,
+      "worst_3": [
+        {
+          "id": "py-comp-001",
+          "category": "python",
+          "topic": "list_comprehensions",
+          "score": 0.225
+        },
+        {
+          "id": "pat-factory-002",
+          "category": "design_patterns",
+          "topic": "factory",
+          "score": 0.26
+        },
+        {
+          "id": "py-enum-013",
+          "category": "python",
+          "topic": "enums",
+          "score": 0.27
+        }
+      ]
+    }
+  },
+  "by_topic": {
+    "window_functions": {
+      "avg_score": 0.347,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "db-window-001"
+      ]
+    },
+    "normalization": {
+      "avg_score": 0.418,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "db-normal-002"
+      ]
+    },
+    "promises": {
+      "avg_score": 0.432,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "js-promise-002"
+      ]
+    },
+    "typescript_generics": {
+      "avg_score": 0.437,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "ts-generics-005"
+      ]
+    },
+    "index_optimization": {
+      "avg_score": 0.459,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "db-index-004"
+      ]
+    },
+    "proxy": {
+      "avg_score": 0.459,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "js-proxy-007"
+      ]
+    },
+    "typescript_utility_types": {
+      "avg_score": 0.502,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "ts-utility-006"
+      ]
+    },
+    "node_streams": {
+      "avg_score": 0.502,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "js-streams-008"
+      ]
+    },
+    "prototype_chain": {
+      "avg_score": 0.507,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "js-proto-004"
+      ]
+    },
+    "state_machine": {
+      "avg_score": 0.534,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "pat-state-007"
+      ]
+    },
+    "closures": {
+      "avg_score": 0.55,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "js-closure-001"
+      ]
+    },
+    "adapter": {
+      "avg_score": 0.557,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "pat-adapter-009"
+      ]
+    },
+    "pub_sub": {
+      "avg_score": 0.571,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "sys-pubsub-006"
+      ]
+    },
+    "multiprocessing": {
+      "avg_score": 0.585,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "py-mp-017"
+      ]
+    },
+    "task_scheduler": {
+      "avg_score": 0.587,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "sys-scheduler-007"
+      ]
+    },
+    "dataclasses": {
+      "avg_score": 0.59,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "py-dataclass-014"
+      ]
+    },
+    "connection_pool": {
+      "avg_score": 0.598,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "sys-pool-001"
+      ]
+    },
+    "circuit_breaker": {
+      "avg_score": 0.604,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "sys-circuit-004"
+      ]
+    },
+    "union_find": {
+      "avg_score": 0.61,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "algo-uf-007"
+      ]
+    },
+    "dependency_injection": {
+      "avg_score": 0.61,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "pat-di-006"
+      ]
+    },
+    "lru_cache": {
+      "avg_score": 0.614,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "sys-lru-003"
+      ]
+    },
+    "jwt": {
+      "avg_score": 0.615,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "web-jwt-002"
+      ]
+    },
+    "caching_strategies": {
+      "avg_score": 0.621,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "web-cache-006"
+      ]
+    },
+    "bloom_filter": {
+      "avg_score": 0.625,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "algo-bloom-015"
+      ]
+    },
+    "pagination": {
+      "avg_score": 0.636,
+      "fail_count": 1,
+      "total": 1,
+      "failed_ids": [
+        "web-pagination-004"
+      ]
+    }
+  },
+  "by_difficulty": {
+    "D1": {
+      "avg_score": 0.806,
+      "fail_rate": 0.125,
+      "total": 8,
+      "failures": 1
+    },
+    "D2": {
+      "avg_score": 0.747,
+      "fail_rate": 0.286,
+      "total": 21,
+      "failures": 6
+    },
+    "D3": {
+      "avg_score": 0.758,
+      "fail_rate": 0.294,
+      "total": 34,
+      "failures": 10
+    },
+    "D4": {
+      "avg_score": 0.733,
+      "fail_rate": 0.438,
+      "total": 16,
+      "failures": 7
+    },
+    "D5": {
+      "avg_score": 0.849,
+      "fail_rate": 0.091,
+      "total": 11,
+      "failures": 1
+    }
+  },
+  "worst_challenges": [
+    {
+      "id": "db-window-001",
+      "category": "database",
+      "topic": "window_functions",
+      "difficulty": 2,
+      "overall": 0.347,
+      "code_validity": 0.1,
+      "test_passing": null,
+      "concept_coverage": 0.714,
+      "explanation": 0.35
+    },
+    {
+      "id": "db-normal-002",
+      "category": "database",
+      "topic": "normalization",
+      "difficulty": 2,
+      "overall": 0.418,
+      "code_validity": 0.1,
+      "test_passing": null,
+      "concept_coverage": 0.875,
+      "explanation": 0.45
+    },
+    {
+      "id": "js-promise-002",
+      "category": "javascript",
+      "topic": "promises",
+      "difficulty": 2,
+      "overall": 0.432,
+      "code_validity": 0.1,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.32
+    },
+    {
+      "id": "ts-generics-005",
+      "category": "javascript",
+      "topic": "typescript_generics",
+      "difficulty": 3,
+      "overall": 0.437,
+      "code_validity": 0.3,
+      "test_passing": null,
+      "concept_coverage": 0.714,
+      "explanation": 0.32
+    },
+    {
+      "id": "db-index-004",
+      "category": "database",
+      "topic": "index_optimization",
+      "difficulty": 3,
+      "overall": 0.459,
+      "code_validity": 0.1,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.455
+    },
+    {
+      "id": "js-proxy-007",
+      "category": "javascript",
+      "topic": "proxy",
+      "difficulty": 4,
+      "overall": 0.459,
+      "code_validity": 0.3,
+      "test_passing": null,
+      "concept_coverage": 0.714,
+      "explanation": 0.43
+    },
+    {
+      "id": "ts-utility-006",
+      "category": "javascript",
+      "topic": "typescript_utility_types",
+      "difficulty": 2,
+      "overall": 0.502,
+      "code_validity": 0.2,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.43
+    },
+    {
+      "id": "js-streams-008",
+      "category": "javascript",
+      "topic": "node_streams",
+      "difficulty": 4,
+      "overall": 0.502,
+      "code_validity": 0.2,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.43
+    },
+    {
+      "id": "js-proto-004",
+      "category": "javascript",
+      "topic": "prototype_chain",
+      "difficulty": 3,
+      "overall": 0.507,
+      "code_validity": 0.2,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.455
+    },
+    {
+      "id": "pat-state-007",
+      "category": "design_patterns",
+      "topic": "state_machine",
+      "difficulty": 4,
+      "overall": 0.534,
+      "code_validity": 1.0,
+      "test_passing": 0.2,
+      "concept_coverage": 0.6,
+      "explanation": 0.27
+    },
+    {
+      "id": "js-closure-001",
+      "category": "javascript",
+      "topic": "closures",
+      "difficulty": 1,
+      "overall": 0.55,
+      "code_validity": 0.3,
+      "test_passing": null,
+      "concept_coverage": 1.0,
+      "explanation": 0.43
+    },
+    {
+      "id": "pat-adapter-009",
+      "category": "design_patterns",
+      "topic": "adapter",
+      "difficulty": 3,
+      "overall": 0.557,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 0.833,
+      "explanation": 0.3
+    },
+    {
+      "id": "sys-pubsub-006",
+      "category": "systems",
+      "topic": "pub_sub",
+      "difficulty": 3,
+      "overall": 0.571,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 0.857,
+      "explanation": 0.35
+    },
+    {
+      "id": "py-mp-017",
+      "category": "python",
+      "topic": "multiprocessing",
+      "difficulty": 3,
+      "overall": 0.585,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.275
+    },
+    {
+      "id": "sys-scheduler-007",
+      "category": "systems",
+      "topic": "task_scheduler",
+      "difficulty": 4,
+      "overall": 0.587,
+      "code_validity": 1.0,
+      "test_passing": 0.2,
+      "concept_coverage": 0.833,
+      "explanation": 0.3
+    },
+    {
+      "id": "py-dataclass-014",
+      "category": "python",
+      "topic": "dataclasses",
+      "difficulty": 2,
+      "overall": 0.59,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.3
+    },
+    {
+      "id": "sys-pool-001",
+      "category": "systems",
+      "topic": "connection_pool",
+      "difficulty": 3,
+      "overall": 0.598,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.34
+    },
+    {
+      "id": "sys-circuit-004",
+      "category": "systems",
+      "topic": "circuit_breaker",
+      "difficulty": 4,
+      "overall": 0.604,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.37
+    },
+    {
+      "id": "algo-uf-007",
+      "category": "algorithms",
+      "topic": "union_find",
+      "difficulty": 3,
+      "overall": 0.61,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.4
+    },
+    {
+      "id": "pat-di-006",
+      "category": "design_patterns",
+      "topic": "dependency_injection",
+      "difficulty": 4,
+      "overall": 0.61,
+      "code_validity": 1.0,
+      "test_passing": 0.1,
+      "concept_coverage": 1.0,
+      "explanation": 0.4
+    }
+  ],
+  "systematic_gaps": [
+    {
+      "type": "category_weak",
+      "category": "javascript",
+      "fail_rate": 0.875,
+      "recommendation": "Generate 20+ deep javascript training pairs with <think> traces"
+    },
+    {
+      "type": "dimension_weak",
+      "dimension": "explanation",
+      "avg_score": 0.378,
+      "recommendation": "Focus training pairs on improving explanation"
+    },
+    {
+      "type": "explanation_weak",
+      "avg_score": 0.378,
+      "recommendation": "Train with pairs that have detailed prose explanations, not just code"
+    }
+  ]
+}
