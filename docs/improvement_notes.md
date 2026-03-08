@@ -947,3 +947,47 @@ superpowers/
 - [LOW] Test r=32 if r=16 shows underfitting on v9
 
 **Meta-lesson #24**: Training strategy (staging, data curation, token initialization) can make a 1.3B model beat a 70B model on specialized tasks. For LoRA fine-tuning, HOW you train matters more than how much data you throw at it. Two-stage training + data filtering is the highest-leverage change we haven't tried yet.
+
+---
+
+## 33. V9 Optimization Execution Results (2026-03-08)
+
+### Data Audit Findings
+- **8,254 total pairs** scored with `score_training_data.py`
+- **Score distribution**: avg difficulty 0.572, novelty 0.750, quality 0.855, importance 0.719
+- **Only 12 pairs below 0.3 threshold** (0.15%) — all zero-novelty duplicates from Hive 2x oversampling
+- **1,918 medium-tier (0.3-0.6)**, **6,324 high-tier (>=0.6)** — dataset is remarkably clean
+- **Conclusion**: Aggressive filtering (0.3) not needed; the oversampling dedup is the only real issue
+
+### Generation vs Understanding Ratio
+- **Current**: 64% generation / 36% understanding (1,206 ambiguous defaulted to gen)
+- **Target was 60/40 or 50/50** — we're already within acceptable range
+- To reach 50/50 would need ~1,150 more understanding pairs
+- The explanation-focused batches (p1343, p1344) directly address this
+
+### Two-Stage Training Implemented
+- Added `--two-stage` flag to `train_v5.py` (commit a17a295)
+- **Stage 1 (Format Alignment)**: 1 epoch, LR 1e-5 — gently aligns output format
+- **Stage 2 (Knowledge Training)**: 2 epochs, LR 2e-5 — trains domain knowledge
+- LoRA weights persist across stages (same model object)
+- Fully backward compatible — without flag, training works exactly as before
+- Logged in `training_meta.json` for reproducibility
+
+### New Training Data Written
+| Batch | Pairs | Focus |
+|-------|-------|-------|
+| batch_p1349_concise1 | 25 | Intentionally short responses (2-5 lines) to combat verbosity |
+| batch_p1350_ml_training1 | 20 | ML/training optimization knowledge distilled from v9 research |
+
+### Infrastructure Improvements
+- **Python skill added** (14th skill): dataclasses, typing, asyncio, pitfalls, modern syntax — 5 test cases
+- **v9_research_pairs.jsonl wired** into `prepare_v5_data.py` pipeline (65 pairs)
+- **train_subject.py portability**: 6 hardcoded `C:/Users/theyc/` paths replaced with env vars (`LLAMA_CPP_DIR`, `HIVEAI_WSL_PROJECT`, `HIVEAI_WSL_VENV`, `HIVEAI_WSL_DISTRO`, `HIVEAI_BASE_MODEL`)
+- **Skill inventory**: 14 skills, 41 test cases total (both eval_skills.py and skill_lift.py require running LLM)
+
+### Remaining Actionable Items
+- [MED] Deduplicate Hive-oversampled pairs (the 12 zero-novelty pairs) in prepare_v5_data.py
+- [MED] Add ~500 more understanding-focused pairs to reach 50/50 ratio if desired
+- [MED] Initialize `<think>`/`</think>` token embeddings semantically
+- [LOW] Test r=32 if r=16 shows underfitting on v9
+- [LOW] Run skill_lift.py once server is available to identify dead-weight skills
