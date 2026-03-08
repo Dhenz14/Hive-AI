@@ -15,5 +15,12 @@
       "input": "How do I run my own Hive node?",
       "expected_keywords": ["docker", "hived", "config", "plugin"]
     }
-  ]
+  ],
+  "pre_conditions": {
+    "must_match_pattern": ["hive", "\\bdpos\\b", "witness", "hivemind"]
+  },
+  "post_conditions": {
+    "min_response_length": 150,
+    "must_mention": ["DPoS", "witness"]
+  }
 }

@@ -2,21 +2,33 @@
 Skill loader — matches user queries to relevant SKILL.md files
 and returns their content for injection into the system prompt.
 
+Also provides workflow gates: optional pre/post conditions that can be
+checked programmatically to validate query suitability and response quality.
+
 Usage:
     from skills.skill_loader import load_skills_for_query, load_skill
+    from skills.skill_loader import check_preconditions, validate_response
 
     # Auto-detect relevant skills from query
     context = load_skills_for_query("How do I post on Hive using beem?")
 
     # Load a specific skill
     context = load_skill("hive_sdk")
+
+    # Validate a response against matched skill conditions
+    result = validate_response(response_text, ["rust_async", "go_concurrency"])
+    # result = {"valid": True/False, "violations": [...], "suggestions": [...]}
 """
 
+import json
 import re
 from pathlib import Path
 from typing import Optional
 
 SKILLS_DIR = Path(__file__).parent
+
+# Cache for loaded skill metadata (populated lazily)
+_meta_cache: dict[str, dict] = {}
 
 # Each route: (skill_name, keywords, priority)
 # Higher priority = checked first. If multiple match, all are included.
@@ -214,6 +226,175 @@ def list_available_skills() -> list[dict]:
     return skills
 
 
+# ---------------------------------------------------------------------------
+# Workflow gates: pre/post condition checking
+# ---------------------------------------------------------------------------
+
+def _load_skill_meta(skill_name: str) -> dict:
+    """Load and cache skill_meta.json for a given skill."""
+    if skill_name in _meta_cache:
+        return _meta_cache[skill_name]
+
+    meta_path = SKILLS_DIR / skill_name / "skill_meta.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            meta = {}
+    else:
+        meta = {}
+
+    _meta_cache[skill_name] = meta
+    return meta
+
+
+def check_preconditions(query: str, skill_name: str) -> dict:
+    """Check whether a query satisfies the pre-conditions for a skill.
+
+    Returns:
+        {"passed": bool, "violations": list[str]}
+    """
+    meta = _load_skill_meta(skill_name)
+    pre = meta.get("pre_conditions", {})
+    if not pre:
+        return {"passed": True, "violations": []}
+
+    violations: list[str] = []
+    query_lower = query.lower()
+
+    # min_query_length — query must be at least N characters
+    min_len = pre.get("min_query_length")
+    if min_len is not None and len(query.strip()) < min_len:
+        violations.append(
+            f"Query too short ({len(query.strip())} chars, need {min_len}+)"
+        )
+
+    # must_mention — query must contain at least one of these terms
+    must_mention = pre.get("must_mention")
+    if must_mention:
+        found = any(term.lower() in query_lower for term in must_mention)
+        if not found:
+            violations.append(
+                f"Query should mention at least one of: {must_mention}"
+            )
+
+    # must_match_pattern — query must match at least one regex
+    patterns = pre.get("must_match_pattern")
+    if patterns:
+        matched = any(re.search(p, query_lower) for p in patterns)
+        if not matched:
+            violations.append(
+                f"Query did not match expected patterns for skill '{skill_name}'"
+            )
+
+    return {"passed": len(violations) == 0, "violations": violations}
+
+
+def check_postconditions(response: str, skill_name: str) -> dict:
+    """Check whether a response satisfies the post-conditions for a skill.
+
+    Returns:
+        {"passed": bool, "violations": list[str], "suggestions": list[str]}
+    """
+    meta = _load_skill_meta(skill_name)
+    post = meta.get("post_conditions", {})
+    if not post:
+        return {"passed": True, "violations": [], "suggestions": []}
+
+    violations: list[str] = []
+    suggestions: list[str] = []
+
+    # requires_code_block — response must contain a fenced code block
+    if post.get("requires_code_block"):
+        if "```" not in response:
+            violations.append("Response should include a code block")
+            suggestions.append("Add a concrete code example to the response")
+
+    # min_response_length — response must be at least N characters
+    min_len = post.get("min_response_length")
+    if min_len is not None and len(response.strip()) < min_len:
+        violations.append(
+            f"Response too short ({len(response.strip())} chars, need {min_len}+)"
+        )
+        suggestions.append("Provide a more detailed explanation")
+
+    # must_mention — response must address these concepts
+    must_mention = post.get("must_mention")
+    if must_mention:
+        resp_lower = response.lower()
+        missing = [
+            term for term in must_mention if term.lower() not in resp_lower
+        ]
+        if missing:
+            violations.append(f"Response missing key concepts: {missing}")
+            suggestions.append(
+                f"Address these topics in the response: {missing}"
+            )
+
+    # language_required — response must contain a code block in the specified language
+    lang = post.get("language_required")
+    if lang:
+        # Match ```lang or ```Lang etc.
+        pattern = rf"```\s*{re.escape(lang)}\b"
+        if not re.search(pattern, response, re.IGNORECASE):
+            violations.append(
+                f"Response should include a {lang} code example"
+            )
+            suggestions.append(f"Add a ```{lang} code block to the response")
+
+    # must_not_contain — response must NOT contain these (anti-patterns)
+    must_not = post.get("must_not_contain")
+    if must_not:
+        resp_lower = response.lower()
+        found = [term for term in must_not if term.lower() in resp_lower]
+        if found:
+            violations.append(f"Response contains discouraged terms: {found}")
+            suggestions.append(
+                f"Remove or replace these terms: {found}"
+            )
+
+    return {
+        "passed": len(violations) == 0,
+        "violations": violations,
+        "suggestions": suggestions,
+    }
+
+
+def validate_response(
+    response: str, matched_skills: list[str]
+) -> dict:
+    """Main entry point: validate a response against all post-conditions
+    for the matched skills.
+
+    Returns:
+        {
+            "valid": bool,
+            "violations": list[str],     # all violations across skills
+            "suggestions": list[str],    # actionable fix suggestions
+            "per_skill": dict[str, dict] # individual skill results
+        }
+    """
+    all_violations: list[str] = []
+    all_suggestions: list[str] = []
+    per_skill: dict[str, dict] = {}
+
+    for skill_name in matched_skills:
+        result = check_postconditions(response, skill_name)
+        per_skill[skill_name] = result
+        if not result["passed"]:
+            # Prefix violations with skill name for clarity
+            for v in result["violations"]:
+                all_violations.append(f"[{skill_name}] {v}")
+            all_suggestions.extend(result["suggestions"])
+
+    return {
+        "valid": len(all_violations) == 0,
+        "violations": all_violations,
+        "suggestions": all_suggestions,
+        "per_skill": per_skill,
+    }
+
+
 if __name__ == "__main__":
     # Demo / test
     test_queries = [
@@ -235,4 +416,22 @@ if __name__ == "__main__":
         matches = match_skills(q)
         print(f"Q: {q}")
         print(f"  -> {matches if matches else '(no skill match)'}")
+        # Demo pre-condition check
+        for m in matches:
+            pre = check_preconditions(q, m)
+            if not pre["passed"]:
+                print(f"     PRE-CONDITION FAIL ({m}): {pre['violations']}")
         print()
+
+    # Demo post-condition validation
+    print("--- Post-condition demo ---")
+    demo_response = "Use tokio::spawn to run tasks concurrently."
+    demo_skills = ["rust_async"]
+    result = validate_response(demo_response, demo_skills)
+    print(f"Response: {demo_response!r}")
+    print(f"Skills: {demo_skills}")
+    print(f"Valid: {result['valid']}")
+    if result["violations"]:
+        print(f"Violations: {result['violations']}")
+        print(f"Suggestions: {result['suggestions']}")
+    print()

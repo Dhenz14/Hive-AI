@@ -4,6 +4,7 @@ import json
 from hiveai.models import SessionLocal, GraphTriple, CrawledPage, GoldenBook, Job, BookSection
 from hiveai.llm.client import reason, fast, embed_texts
 from hiveai.llm.prompts import GOLDEN_BOOK_PROMPT, REWRITE_BOOK_PROMPT, GOLDEN_BOOK_OUTLINE_PROMPT, GOLDEN_BOOK_REVIEW_PROMPT
+from hiveai.chat import _extract_section_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,17 @@ def embed_book_sections(book, db):
     logger.info(f"Embedding {len(texts)} sections for book {book.id}")
     embeddings = embed_texts(texts)
 
+    # Extract keywords for each section (non-blocking — failures are OK)
+    logger.info(f"Extracting keywords for {len(sections)} sections of book {book.id}")
+    section_keywords = []
+    for section in sections:
+        try:
+            kw = _extract_section_keywords(section["header"], section["content"])
+            section_keywords.append(json.dumps(kw) if kw else None)
+        except Exception as e:
+            logger.debug(f"Keyword extraction failed for '{section['header']}': {e}")
+            section_keywords.append(None)
+
     for i, section in enumerate(sections):
         bs = BookSection(
             book_id=book.id,
@@ -59,11 +71,13 @@ def embed_book_sections(book, db):
             content=section["content"],
             token_count=len(section["content"].split()),
             embedding=embeddings[i] if i < len(embeddings) else None,
+            keywords_json=section_keywords[i] if i < len(section_keywords) else None,
         )
         db.add(bs)
 
     db.commit()
-    logger.info(f"Saved {len(sections)} embedded sections for book {book.id}")
+    kw_count = sum(1 for k in section_keywords if k is not None)
+    logger.info(f"Saved {len(sections)} embedded sections for book {book.id} ({kw_count} with keywords)")
     return len(sections)
 
 

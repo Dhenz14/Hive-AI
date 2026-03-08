@@ -15,5 +15,14 @@
       "input": "How do I implement graceful shutdown in a Tokio application?",
       "expected_keywords": ["CancellationToken", "select", "cancel", "shutdown", "signal"]
     }
-  ]
+  ],
+  "pre_conditions": {
+    "must_match_pattern": ["\\brust\\b", "\\btokio\\b", "\\basync\\b.*\\brust\\b"]
+  },
+  "post_conditions": {
+    "requires_code_block": true,
+    "language_required": "rust",
+    "min_response_length": 200,
+    "must_mention": ["error handling", "async"]
+  }
 }

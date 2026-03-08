@@ -201,6 +201,25 @@ def _bm25_score_section(query_terms: list[str], content: str, header: str = "") 
     return score
 
 
+def _load_section_keywords(db, section_ids: list[int]) -> dict[int, list[str]]:
+    """Load stored keywords for a batch of section IDs. Returns {id: [keywords]}."""
+    if not section_ids:
+        return {}
+    from hiveai.models import BookSection
+    import json
+    rows = db.query(BookSection.id, BookSection.keywords_json).filter(
+        BookSection.id.in_(section_ids),
+        BookSection.keywords_json.isnot(None),
+    ).all()
+    result = {}
+    for sid, kw_json in rows:
+        try:
+            result[sid] = json.loads(kw_json) if kw_json else []
+        except (json.JSONDecodeError, TypeError):
+            result[sid] = []
+    return result
+
+
 def hybrid_search(db, query: str, query_embedding, limit: int = 12,
                   max_distance: float = 0.8, alpha: float = 0.6,
                   book_id_filter=None) -> list[dict]:
@@ -243,10 +262,23 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     else:
         return []
 
-    # BM25 scores
+    # Load stored section keywords for keyword-overlap bonus
+    section_ids = [r["id"] for r in vec_results]
+    stored_keywords = _load_section_keywords(db, section_ids)
+    query_terms_set = set(query_terms)
+
+    # BM25 scores + stored keyword bonus
     bm25_scores = []
     for r in vec_results:
         bm25 = _bm25_score_section(query_terms, r.get("content", ""), r.get("header", ""))
+
+        # Bonus from stored keywords: overlap between query terms and section keywords
+        sec_kw = stored_keywords.get(r["id"], [])
+        if sec_kw and query_terms_set:
+            overlap = len(query_terms_set & set(sec_kw))
+            keyword_bonus = overlap / max(len(query_terms_set), 1) * 0.3
+            bm25 += keyword_bonus
+
         bm25_scores.append(bm25)
 
     # Normalize BM25 scores to 0-1

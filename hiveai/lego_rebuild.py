@@ -17,6 +17,7 @@ from hiveai.models import SessionLocal, GoldenBook, BookSection, BookReference
 from hiveai.llm.client import reason, fast, embed_texts
 from hiveai.pipeline.compressor import compress_golden_book, encode_triples_dense
 from hiveai.pipeline.writer import split_book_content
+from hiveai.chat import _extract_section_keywords
 from hiveai.pipeline.graph_merger import build_knowledge_audit, filter_novel_triples, save_book_references, find_overlapping_books
 from hiveai.llm.prompts import GOLDEN_BOOK_LEGO_PROMPT, GOLDEN_BOOK_OUTLINE_PROMPT, GOLDEN_BOOK_REVIEW_PROMPT, REWRITE_BOOK_PROMPT
 
@@ -81,6 +82,15 @@ def embed_book(book, db):
     logger.info(f"  Embedding {len(texts)} sections")
     embeddings = embed_texts(texts)
 
+    # Extract keywords for each section (non-blocking — failures are OK)
+    section_keywords = []
+    for section in sections:
+        try:
+            kw = _extract_section_keywords(section["header"], section["content"])
+            section_keywords.append(json.dumps(kw) if kw else None)
+        except Exception:
+            section_keywords.append(None)
+
     for i, section in enumerate(sections):
         bs = BookSection(
             book_id=book.id,
@@ -88,6 +98,7 @@ def embed_book(book, db):
             content=section["content"],
             token_count=len(section["content"].split()),
             embedding=embeddings[i] if i < len(embeddings) else None,
+            keywords_json=section_keywords[i] if i < len(section_keywords) else None,
         )
         db.add(bs)
 

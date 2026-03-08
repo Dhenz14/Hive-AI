@@ -137,6 +137,79 @@ def _llm_extract_keywords(question, history=None):
     return None  # Signal to fall back to naive extraction
 
 
+def _extract_section_keywords(header, content):
+    """Extract keywords from a book section at ingest time.
+
+    Uses the local LLM with a document-focused prompt (not query-intent).
+    Falls back to naive word extraction if the LLM is unavailable.
+    Returns a list of lowercase keyword strings.
+    """
+    try:
+        import urllib.request
+        import json as _json
+
+        # Truncate very long sections to avoid overwhelming the LLM
+        text_sample = content[:2000] if len(content) > 2000 else content
+
+        prompt = (
+            f"Extract the 10-15 most important technical keywords from this text section "
+            f"titled '{header}'. Include domain-specific terms, proper nouns, technologies, "
+            f"and key concepts. Return ONLY a JSON array of lowercase strings, nothing else.\n\n"
+            f"Text:\n{text_sample}"
+        )
+
+        payload = _json.dumps({
+            "model": "hiveai-v7",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 200,
+            "stream": False,
+        }).encode()
+
+        for base_url in ["http://localhost:11435", "http://localhost:11434"]:
+            try:
+                req = urllib.request.Request(
+                    f"{base_url}/v1/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                resp = urllib.request.urlopen(req, timeout=10)
+                data = _json.loads(resp.read().decode())
+                raw = data["choices"][0]["message"]["content"].strip()
+
+                # Handle markdown fences
+                if "```" in raw:
+                    match = re.search(r"```(?:json)?\s*(.*?)```", raw, re.DOTALL)
+                    raw = match.group(1).strip() if match else "[]"
+
+                keywords = _json.loads(raw)
+                if isinstance(keywords, list) and all(isinstance(k, str) for k in keywords):
+                    keywords = [k.lower().strip() for k in keywords if len(k) > 1]
+                    logging.getLogger(__name__).debug(
+                        f"Section keywords for '{header}': {keywords}"
+                    )
+                    return keywords
+            except Exception:
+                continue
+
+    except Exception:
+        pass
+
+    # Fallback: naive word extraction from header + content
+    text = (header + " " + content).lower()
+    words = re.split(r'\W+', text)
+    # Keep words that are likely meaningful (>3 chars, not stop words)
+    seen = set()
+    fallback = []
+    for w in words:
+        if len(w) > 3 and w not in STOP_WORDS and w not in seen:
+            seen.add(w)
+            fallback.append(w)
+        if len(fallback) >= 15:
+            break
+    return fallback
+
+
 def keyword_search_sections(question, db, history=None):
     books = db.query(GoldenBook).all()
     if not books:

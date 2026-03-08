@@ -234,6 +234,7 @@ if DB_BACKEND == "postgresql":
         content = Column(Text, nullable=False)
         token_count = Column(Integer, default=0)
         embedding = Column(Vector(1024), nullable=True)
+        keywords_json = Column(Text, nullable=True)  # JSON array of extracted keywords
         created_at = Column(DateTime, default=utcnow)
 
         book = relationship("GoldenBook", back_populates="sections")
@@ -245,6 +246,12 @@ if DB_BACKEND == "postgresql":
                   postgresql_with={"m": 16, "ef_construction": 64},
                   postgresql_ops={"embedding": "vector_cosine_ops"}),
         )
+
+        @property
+        def keywords(self):
+            if self.keywords_json:
+                return json.loads(self.keywords_json)
+            return []
 else:
     class BookSection(Base):
         __tablename__ = "book_sections"
@@ -255,6 +262,7 @@ else:
         content = Column(Text, nullable=False)
         token_count = Column(Integer, default=0)
         embedding_json = Column(Text, nullable=True)
+        keywords_json = Column(Text, nullable=True)  # JSON array of extracted keywords
         created_at = Column(DateTime, default=utcnow)
 
         book = relationship("GoldenBook", back_populates="sections")
@@ -282,6 +290,12 @@ else:
                 self.embedding_json = json.dumps(value.tolist())
             else:
                 self.embedding_json = json.dumps(value)
+
+        @property
+        def keywords(self):
+            if self.keywords_json:
+                return json.loads(self.keywords_json)
+            return []
 
 
 class TrainingPair(Base):
@@ -403,6 +417,7 @@ def _migrate_add_columns(engine):
         ("lora_versions", "parent_version_id", "INTEGER"),
         ("chat_feedback", "verification_json", "TEXT"),
         ("chat_feedback", "auto_staged", "BOOLEAN DEFAULT 0"),
+        ("book_sections", "keywords_json", "TEXT"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

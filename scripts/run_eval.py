@@ -45,6 +45,26 @@ MAX_RETRIES = 3
 DEFAULT_TIMEOUT = 600  # 10 min per challenge (generous for slow models)
 SANDBOX_TIMEOUT = 30   # 30s for code execution
 
+# Certificate verification for non-Python code (§23)
+_CERT_VERIFY_ENABLED: bool = False  # Set True when --llm-judge + --cert-verify
+_CERT_VERIFY_TIMEOUT: int = 60     # Shorter than judge's 180s
+_cert_verify_stats = {"calls": 0, "successes": 0, "failures": 0}
+
+CERTIFICATE_PROMPT = """Analyze this {language} code for correctness:
+
+```{language}
+{code}
+```
+
+Provide a verification certificate:
+1. CLAIM: What this code is supposed to do
+2. PREMISES: Key facts from the code (P1, P2, P3...)
+3. CODE TRACE: Step through execution, referencing premises
+4. CONCLUSION: VALID or INVALID with specific reasoning
+5. SCORE: 0.0-1.0 confidence in correctness
+
+Respond with JSON: {{"valid": true, "score": 0.8, "reasoning": "..."}}"""
+
 # Scoring weights
 W_CODE_VALIDITY = 0.30
 W_TEST_PASSING = 0.30
@@ -251,6 +271,77 @@ def _score_non_python_block(code: str, language: str) -> float:
     return round(min(score, 1.0), 3)
 
 
+def certificate_verify_code(code: str, language: str,
+                            llm_url: str, model: str) -> tuple[float | None, str | None]:
+    """Verify non-Python code correctness via LLM certificate analysis.
+
+    Calls the LLM judge with a structured certificate prompt that asks it to
+    trace execution paths and verify correctness semi-formally.
+
+    Args:
+        code: The code to verify.
+        language: Programming language (e.g. "rust", "go", "cpp").
+        llm_url: Ollama base URL for the judge (e.g. http://localhost:11434).
+        model: Judge model name (e.g. "qwen3:32b").
+
+    Returns:
+        (score, reasoning) where score is 0.0-1.0, or (None, None) on failure.
+        Fail-open: any error returns (None, None) so code isn't penalized.
+    """
+    import requests
+
+    _cert_verify_stats["calls"] += 1
+
+    prompt = CERTIFICATE_PROMPT.format(language=language, code=code[:3000])
+
+    try:
+        r = requests.post(
+            f"{llm_url}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are a code correctness verifier. "
+                     "Analyze code using semi-formal reasoning and respond with JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+                "options": {
+                    "temperature": 0.05,
+                    "num_predict": 500,
+                },
+            },
+            timeout=_CERT_VERIFY_TIMEOUT,
+        )
+        r.raise_for_status()
+        content = r.json().get("message", {}).get("content", "")
+
+        # Strip thinking tags if present
+        if "</think>" in content:
+            content = content.split("</think>", 1)[1]
+
+        # Extract JSON from response
+        json_match = re.search(r'\{[^{}]*"valid"[^{}]*\}', content)
+        if not json_match:
+            json_match = re.search(r'\{[^{}]+\}', content)
+        if not json_match:
+            logger.debug("Certificate verify: no JSON found in response")
+            _cert_verify_stats["failures"] += 1
+            return (None, None)
+
+        data = json.loads(json_match.group())
+        cert_score = float(data.get("score", 0.5))
+        cert_score = max(0.0, min(1.0, cert_score))
+        reasoning = data.get("reasoning", "")
+
+        _cert_verify_stats["successes"] += 1
+        return (round(cert_score, 3), reasoning)
+
+    except Exception as e:
+        logger.debug(f"Certificate verify failed: {e}")
+        _cert_verify_stats["failures"] += 1
+        return (None, None)
+
+
 def score_code_validity(response: str) -> float:
     """
     Dimension 1: Code validity (0.0-1.0).
@@ -290,6 +381,14 @@ def score_code_validity(response: str) -> float:
 
     python_scores = []
     non_python_scores = []
+    # Track (index, code, lang) for structural-only scores eligible for cert verify
+    _structural_entries: list[tuple[int, str, str]] = []
+
+    def _append_structural(code: str, lang: str, score: float):
+        """Append a structural score and track it for potential cert verification."""
+        idx = len(non_python_scores)
+        non_python_scores.append(score)
+        _structural_entries.append((idx, code, lang))
 
     for block in blocks:
         lang = block.get("language", "").lower()
@@ -304,7 +403,8 @@ def score_code_validity(response: str) -> float:
             else:
                 # If untagged block fails Python parse, try structural scoring
                 if lang == "":
-                    non_python_scores.append(_score_non_python_block(block["code"], "unknown"))
+                    _append_structural(block["code"], "unknown",
+                                       _score_non_python_block(block["code"], "unknown"))
                 else:
                     python_scores.append(0.0)
         elif lang in _compiled_executors:
@@ -318,7 +418,8 @@ def score_code_validity(response: str) -> float:
                 result = executor(exec_code, timeout=15)
                 if result["error_type"] == "EnvironmentError":
                     # Compiler not installed — fall back to structural analysis
-                    non_python_scores.append(_score_non_python_block(block["code"], lang))
+                    _append_structural(block["code"], lang,
+                                       _score_non_python_block(block["code"], lang))
                 elif result["success"]:
                     # Compiles and runs: full score
                     non_python_scores.append(1.0)
@@ -331,10 +432,31 @@ def score_code_validity(response: str) -> float:
                     non_python_scores.append(0.7)
             except Exception:
                 # Executor failed — fall back to structural
-                non_python_scores.append(_score_non_python_block(block["code"], lang))
+                _append_structural(block["code"], lang,
+                                   _score_non_python_block(block["code"], lang))
         else:
             # Other/unknown languages: structural analysis
-            non_python_scores.append(_score_non_python_block(block["code"], lang))
+            _append_structural(block["code"], lang,
+                               _score_non_python_block(block["code"], lang))
+
+    # --- Certificate verification for structural-only non-Python scores (§23) ---
+    # Only runs when --llm-judge is configured AND --cert-verify is enabled.
+    # Blends certificate score with structural score for blocks scoring < 0.8.
+    if _CERT_VERIFY_ENABLED and _LLM_JUDGE_URL and _structural_entries:
+        for idx, code, lang in _structural_entries:
+            structural_score = non_python_scores[idx]
+            if structural_score < 0.8:
+                cert_score, cert_reasoning = certificate_verify_code(
+                    code, lang, _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
+                )
+                if cert_score is not None:
+                    # Blend: structural stays primary (60%), certificate supplements (40%)
+                    blended = 0.6 * structural_score + 0.4 * cert_score
+                    non_python_scores[idx] = round(blended, 3)
+                    logger.debug(
+                        f"Certificate verify [{lang}]: structural={structural_score:.3f} "
+                        f"cert={cert_score:.3f} blended={blended:.3f} — {cert_reasoning}"
+                    )
 
     all_scores = python_scores + non_python_scores
     if not all_scores:
@@ -959,11 +1081,17 @@ def generate_report(results: list[dict], model: str, elapsed_total_s: float) -> 
             **_llm_judge_stats,
         }
 
+    # Certificate verification stats (§23)
+    cert_stats = None
+    if _CERT_VERIFY_ENABLED and _cert_verify_stats["calls"] > 0:
+        cert_stats = {**_cert_verify_stats}
+
     return {
         "model": model,
         "timestamp": datetime.now().isoformat(),
         "scorer": "llm-judge" if _LLM_JUDGE_URL else "keyword-v4",
         "judge": judge_stats,
+        "certificate_verify": cert_stats,
         "total_challenges": total,
         "errors": errors,
         "scored": len(scored),
@@ -1120,6 +1248,11 @@ def main():
                              "(e.g. http://localhost:11434). Uses qwen3:32b by default.")
     parser.add_argument("--judge-model", type=str, default="qwen3:32b",
                         help="Model for LLM-as-Judge (default: qwen3:32b)")
+    parser.add_argument("--cert-verify", action="store_true", default=None,
+                        help="Enable certificate verification for non-Python code "
+                             "(default: enabled when --llm-judge is set)")
+    parser.add_argument("--no-cert-verify", action="store_true",
+                        help="Disable certificate verification even with --llm-judge")
     args = parser.parse_args()
 
     # --- Wire llama-server URL if given ---
@@ -1129,11 +1262,20 @@ def main():
         logger.info(f"Using llama-server at {_LLAMA_SERVER_URL}")
 
     # --- Wire LLM-as-Judge if given ---
-    global _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
+    global _LLM_JUDGE_URL, _LLM_JUDGE_MODEL, _CERT_VERIFY_ENABLED
     if args.llm_judge:
         _LLM_JUDGE_URL = args.llm_judge
         _LLM_JUDGE_MODEL = args.judge_model
         logger.info(f"LLM-as-Judge enabled: {_LLM_JUDGE_URL} ({_LLM_JUDGE_MODEL})")
+
+        # Certificate verification: default ON with --llm-judge, unless --no-cert-verify
+        if args.no_cert_verify:
+            _CERT_VERIFY_ENABLED = False
+        else:
+            _CERT_VERIFY_ENABLED = True
+            logger.info("Certificate verification enabled for non-Python code scoring")
+    elif args.cert_verify:
+        logger.warning("--cert-verify has no effect without --llm-judge")
 
     # --- Compare mode ---
     if args.compare:

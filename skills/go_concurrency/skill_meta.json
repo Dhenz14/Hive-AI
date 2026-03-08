@@ -15,5 +15,14 @@
       "input": "When should I use a mutex vs a channel in Go?",
       "expected_keywords": ["Mutex", "channel", "shared state", "RWMutex", "ownership"]
     }
-  ]
+  ],
+  "pre_conditions": {
+    "must_match_pattern": ["\\bgo\\b", "\\bgolang\\b", "goroutine", "channel"]
+  },
+  "post_conditions": {
+    "requires_code_block": true,
+    "language_required": "go",
+    "min_response_length": 200,
+    "must_mention": ["goroutine", "channel"]
+  }
 }

@@ -13,5 +13,14 @@
     "How do I implement a binary search tree?",
     "Explain Rust ownership",
     "What is Hive blockchain?"
-  ]
+  ],
+  "pre_conditions": {
+    "must_mention": ["skill", "SKILL.md", "meta", "create skill", "new skill", "skill_meta"]
+  },
+  "post_conditions": {
+    "requires_code_block": true,
+    "min_response_length": 300,
+    "must_mention": ["SKILL.md", "skill_meta.json", "test_cases"],
+    "must_not_contain": ["TODO: fill in later"]
+  }
 }
