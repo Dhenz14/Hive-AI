@@ -14,10 +14,17 @@ Workflow:
     4. Runs eval on that category only
     5. Reports score vs base
 
+Environment variables (all optional — sensible defaults are derived from script location):
+    HIVEAI_WSL_PROJECT   WSL project root          (default: /opt/hiveai/project)
+    HIVEAI_WSL_VENV      WSL virtualenv root       (default: /opt/hiveai-env)
+    HIVEAI_WSL_DISTRO    WSL distro name            (default: Ubuntu-24.04)
+    LLAMA_CPP_DIR        llama.cpp install dir (Win) (default: C:/llama.cpp)
+    HIVEAI_BASE_MODEL    WSL path to HF base model  (default: {WSL_PROJECT}/models/qwen2.5-coder-14b)
+
 Requires:
-    - WSL with training env at /opt/hiveai-env/
-    - llama.cpp converter at C:/Users/theyc/llama.cpp/convert_lora_to_gguf.py
-    - llama-server at C:/Users/theyc/llama.cpp/bin/llama-server.exe
+    - WSL with training env
+    - llama.cpp converter at {LLAMA_CPP_DIR}/convert_lora_to_gguf.py
+    - llama-server at {LLAMA_CPP_DIR}/bin/llama-server.exe
 """
 import argparse
 import json
@@ -32,14 +39,26 @@ CATEGORY_DIR = PROJECT_ROOT / "loras" / "training_data" / "by_category"
 LORA_OUTPUT_BASE = PROJECT_ROOT / "loras" / "subjects"
 MODELS_DIR = PROJECT_ROOT / "models"
 BASE_GGUF = MODELS_DIR / "Qwen2.5-Coder-14B-Instruct-Q5_K_M.gguf"
-CONVERTER = Path("C:/Users/theyc/llama.cpp/convert_lora_to_gguf.py")
-LLAMA_SERVER = Path("C:/Users/theyc/llama.cpp/bin/llama-server.exe")
+LLAMA_CPP_DIR = Path(os.environ.get("LLAMA_CPP_DIR", "C:/llama.cpp"))
+CONVERTER = LLAMA_CPP_DIR / "convert_lora_to_gguf.py"
+LLAMA_SERVER = LLAMA_CPP_DIR / "bin" / "llama-server.exe"
 EVAL_SCRIPT = PROJECT_ROOT / "scripts" / "run_eval.py"
 TRAIN_SCRIPT = PROJECT_ROOT / "scripts" / "train_v5.py"
 
 # WSL paths
-WSL_PROJECT = "/opt/hiveai/project"
-WSL_VENV = "/opt/hiveai-env"
+WSL_PROJECT = os.environ.get("HIVEAI_WSL_PROJECT", "/opt/hiveai/project")
+WSL_VENV = os.environ.get("HIVEAI_WSL_VENV", "/opt/hiveai-env")
+WSL_DISTRO = os.environ.get("HIVEAI_WSL_DISTRO", "Ubuntu-24.04")
+WSL_BASE_MODEL = os.environ.get("HIVEAI_BASE_MODEL", f"{WSL_PROJECT}/models/qwen2.5-coder-14b")
+
+def _win_to_wsl_mnt(win_path: Path) -> str:
+    """Convert a Windows path to WSL /mnt/... path.
+    e.g. C:\\Users\\dan\\hiveai -> /mnt/c/Users/dan/hiveai"""
+    p = str(win_path.resolve())
+    return "/mnt/" + p[0].lower() + p[2:].replace("\\", "/")
+
+WSL_MNT_PROJECT = _win_to_wsl_mnt(PROJECT_ROOT)
+WSL_MNT_LLAMA_CPP = _win_to_wsl_mnt(LLAMA_CPP_DIR)
 
 
 def list_categories():
@@ -64,13 +83,13 @@ def sync_to_wsl():
     """Sync training script and category data to WSL."""
     print("Syncing files to WSL...")
     cmds = [
-        f"cp /mnt/c/Users/theyc/HiveAi/Hive-AI/scripts/train_v5.py {WSL_PROJECT}/scripts/",
+        f"cp {WSL_MNT_PROJECT}/scripts/train_v5.py {WSL_PROJECT}/scripts/",
         f"mkdir -p {WSL_PROJECT}/loras/training_data/by_category",
-        f"cp -r /mnt/c/Users/theyc/HiveAi/Hive-AI/loras/training_data/by_category/ {WSL_PROJECT}/loras/training_data/by_category/",
+        f"cp -r {WSL_MNT_PROJECT}/loras/training_data/by_category/ {WSL_PROJECT}/loras/training_data/by_category/",
         f"mkdir -p {WSL_PROJECT}/loras/subjects",
     ]
     for cmd in cmds:
-        subprocess.run(["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", cmd],
+        subprocess.run(["wsl", "-d", WSL_DISTRO, "--", "bash", "-c", cmd],
                        check=True, capture_output=True)
     print("  Synced.")
 
@@ -82,7 +101,7 @@ def train_category(category: str, smoke_steps: int = 0, no_kl: bool = False):
     log_file = f"{WSL_PROJECT}/logs/train_{category}.log"
 
     # Clean previous output
-    subprocess.run(["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+    subprocess.run(["wsl", "-d", WSL_DISTRO, "--", "bash", "-c",
                     f"rm -rf {output_dir}/*"], capture_output=True)
 
     cmd_parts = [
@@ -107,7 +126,7 @@ def train_category(category: str, smoke_steps: int = 0, no_kl: bool = False):
         print(f"  Smoke test: {smoke_steps} steps")
 
     result = subprocess.run(
-        ["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c", full_cmd],
+        ["wsl", "-d", WSL_DISTRO, "--", "bash", "-c", full_cmd],
         timeout=72000,  # 20h max
     )
 
@@ -127,7 +146,7 @@ def convert_to_gguf(category: str):
     # Check if adapter exists in WSL
     wsl_adapter = f"{WSL_PROJECT}/loras/subjects/{category}"
     result = subprocess.run(
-        ["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+        ["wsl", "-d", WSL_DISTRO, "--", "bash", "-c",
          f"ls {wsl_adapter}/adapter_model.safetensors 2>/dev/null"],
         capture_output=True, text=True
     )
@@ -138,19 +157,19 @@ def convert_to_gguf(category: str):
     # Copy adapter from WSL to Windows
     adapter_dir.mkdir(parents=True, exist_ok=True)
     subprocess.run(
-        ["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-         f"cp -r {wsl_adapter}/* /mnt/c/Users/theyc/HiveAi/Hive-AI/loras/subjects/{category}/"],
+        ["wsl", "-d", WSL_DISTRO, "--", "bash", "-c",
+         f"cp -r {wsl_adapter}/* {WSL_MNT_PROJECT}/loras/subjects/{category}/"],
         check=True, capture_output=True
     )
 
     print(f"\nConverting {category} adapter to GGUF...")
     result = subprocess.run(
-        ["wsl", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+        ["wsl", "-d", WSL_DISTRO, "--", "bash", "-c",
          f"source {WSL_VENV}/bin/activate && "
-         f"python /mnt/c/Users/theyc/llama.cpp/convert_lora_to_gguf.py "
+         f"python {WSL_MNT_LLAMA_CPP}/convert_lora_to_gguf.py "
          f"{wsl_adapter} "
-         f"--base /opt/hiveai/project/models/qwen2.5-coder-14b "
-         f"--outfile /mnt/c/Users/theyc/HiveAi/Hive-AI/models/hiveai-{category}-lora-f16.gguf "
+         f"--base {WSL_BASE_MODEL} "
+         f"--outfile {WSL_MNT_PROJECT}/models/hiveai-{category}-lora-f16.gguf "
          f"--outtype f16"],
         capture_output=True, text=True
     )

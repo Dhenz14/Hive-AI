@@ -89,6 +89,14 @@ SKILL_ROUTES = [
         r"hive.*python", r"hive.*javascript",
     ], 5),
 
+    # Python Idioms
+    ("python_idioms", [
+        r"\bpython\b", r"\bpythonic\b", r"dataclass", r"type\s*hint",
+        r"asyncio", r"\btyping\b", r"context\s*manager", r"f.string",
+        r"walrus", r"pattern\s*match", r"\bitertools\b", r"\bfunctools\b",
+        r"decorator", r"\bpep\b",
+    ], 4),
+
     # Rust Async
     ("rust_async", [
         r"\brust\b.*async", r"\btokio\b", r"\basync\s*fn\b",
