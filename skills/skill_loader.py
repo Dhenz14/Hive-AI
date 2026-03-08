@@ -102,6 +102,15 @@ SKILL_ROUTES = [
         r"std::variant", r"std::optional", r"ranges?\s*view",
     ], 4),
 
+    # JavaScript / TypeScript
+    ("js_typescript", [
+        r"\bjavascript\b", r"\btypescript\b", r"\bjs\b(?!on)", r"\bts\b",
+        r"\bnode\.?js\b", r"\bdeno\b", r"\bbun\b",
+        r"async\s*await", r"\bpromise\b", r"\bclosure\b",
+        r"event\s*loop", r"\bproxy\b.*handler", r"generic.*type",
+        r"\breact\b", r"\bnext\.?js\b", r"\bexpress\b",
+    ], 4),
+
     # Debugging Patterns
     ("debugging_patterns", [
         r"\bdebug\b", r"\bbug\b", r"troubleshoot",

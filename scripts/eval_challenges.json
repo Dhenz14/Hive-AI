@@ -1480,6 +1480,222 @@
     "test_code": null
   },
   {
+    "id": "js-009",
+    "category": "javascript",
+    "topic": "promises",
+    "difficulty": 3,
+    "instruction": "Implement a function `promiseAll(promises)` that behaves identically to `Promise.all`. It should accept an iterable of promises (or values), return a single Promise that resolves with an array of results in order when all promises resolve, and reject immediately with the reason of the first promise that rejects. Handle non-promise values by treating them as already-resolved. Handle the empty iterable case. Do not use Promise.all internally.",
+    "expected_concepts": [
+      "Promise",
+      "resolve",
+      "reject",
+      "iterable",
+      "then",
+      "catch",
+      "array",
+      "concurrent"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-010",
+    "category": "javascript",
+    "topic": "closures",
+    "difficulty": 2,
+    "instruction": "Implement a `memoize(fn)` function that caches results of expensive function calls. The memoized function should support multiple arguments using a cache key strategy. Include a `cache` property on the returned function to inspect cached entries, and a `clear()` method to reset the cache. Demonstrate with a recursive Fibonacci function to show the performance improvement.",
+    "expected_concepts": [
+      "closure",
+      "cache",
+      "Map",
+      "arguments",
+      "key",
+      "recursion",
+      "performance",
+      "memoize"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-011",
+    "category": "javascript",
+    "topic": "async_iterators",
+    "difficulty": 3,
+    "instruction": "Implement an async generator function `paginatedFetch(url, getNextPage)` that yields items from a paginated API. It should accept a base URL and a function that extracts the next page URL from a response. Use `Symbol.asyncIterator` to make it work with `for await...of` loops. Include proper error handling and a way to signal when there are no more pages. Demonstrate with a mock paginated API.",
+    "expected_concepts": [
+      "async",
+      "generator",
+      "yield",
+      "Symbol.asyncIterator",
+      "for await",
+      "fetch",
+      "pagination",
+      "next"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-012",
+    "category": "javascript",
+    "topic": "proxy_reflect",
+    "difficulty": 3,
+    "instruction": "Implement an `observable(target)` function using Proxy and Reflect that creates an observable object with change tracking. It should support `onChange(callback)` to register listeners notified with `{property, oldValue, newValue}`, nested property tracking for objects, and a `getChangeHistory()` method that returns all changes. Handle edge cases like deleting properties and setting the same value.",
+    "expected_concepts": [
+      "Proxy",
+      "Reflect",
+      "handler",
+      "set",
+      "get",
+      "observable",
+      "callback",
+      "history"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-013",
+    "category": "javascript",
+    "topic": "typescript_generics",
+    "difficulty": 3,
+    "instruction": "Implement a type-safe `EventEmitter<EventMap>` class in TypeScript where `EventMap` is a generic type mapping event names to their payload types. The `on(event, handler)` method should enforce that the handler parameter type matches the event's payload type. Include `off(event, handler)`, `emit(event, payload)`, and `once(event, handler)` methods, all fully type-safe. Demonstrate with a concrete event map interface.",
+    "expected_concepts": [
+      "generic",
+      "EventEmitter",
+      "keyof",
+      "extends",
+      "callback",
+      "type safety",
+      "emit",
+      "on"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-014",
+    "category": "javascript",
+    "topic": "error_handling",
+    "difficulty": 2,
+    "instruction": "Implement a custom error hierarchy for an application: a base `AppError` class extending `Error` with a `code` property and `toJSON()` method, then subclasses `ValidationError`, `NotFoundError`, and `NetworkError`. Support error cause chaining using the `cause` option. Include a helper `wrapError(error, message)` that wraps unknown caught values into an `AppError` preserving the original as the cause. Ensure `instanceof` checks work correctly.",
+    "expected_concepts": [
+      "Error",
+      "extends",
+      "cause",
+      "instanceof",
+      "stack",
+      "class",
+      "hierarchy",
+      "toJSON"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-015",
+    "category": "javascript",
+    "topic": "weakmap",
+    "difficulty": 2,
+    "instruction": "Implement the private class fields pattern using `WeakMap`. Create a `PrivateFields` utility that stores private data per instance without preventing garbage collection. Demonstrate by building a `BankAccount` class with truly private `balance` and `pin` fields that cannot be accessed from outside the class. Compare with the `#private` syntax and explain when the WeakMap pattern is preferable.",
+    "expected_concepts": [
+      "WeakMap",
+      "private",
+      "encapsulation",
+      "garbage collection",
+      "class",
+      "get",
+      "set",
+      "instance"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-016",
+    "category": "javascript",
+    "topic": "array_methods",
+    "difficulty": 2,
+    "instruction": "Implement three array utility functions: `groupBy(array, keyFn)` that groups elements into an object keyed by the result of `keyFn`, `partition(array, predicateFn)` that splits an array into two arrays based on a predicate, and `chunk(array, size)` that splits an array into sub-arrays of the given size. All should be pure functions that do not mutate the input. Include TypeScript type signatures with proper generics.",
+    "expected_concepts": [
+      "Array",
+      "reduce",
+      "generic",
+      "predicate",
+      "pure function",
+      "groupBy",
+      "partition",
+      "chunk"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-017",
+    "category": "javascript",
+    "topic": "module_pattern",
+    "difficulty": 3,
+    "instruction": "Implement a dependency injection container in TypeScript. The `Container` class should support `register(token, factory)` to register a dependency with a factory function, `registerSingleton(token, factory)` for lazy singleton instances, `resolve(token)` to get an instance, and automatic dependency resolution via constructor parameter tokens. Handle circular dependency detection by throwing a clear error.",
+    "expected_concepts": [
+      "dependency injection",
+      "container",
+      "factory",
+      "singleton",
+      "resolve",
+      "register",
+      "circular",
+      "token"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-018",
+    "category": "javascript",
+    "topic": "streams_api",
+    "difficulty": 3,
+    "instruction": "Implement a `TransformStream` that reads CSV text input and outputs parsed JSON objects. The transform stream should handle the CSV header row to determine field names, properly parse quoted fields containing commas, handle newlines within quoted fields, and emit one JSON object per CSV data row. Use the Web Streams API (`TransformStream`, `ReadableStream`, `WritableStream`). Include a `pipeThrough` usage example.",
+    "expected_concepts": [
+      "TransformStream",
+      "ReadableStream",
+      "WritableStream",
+      "transform",
+      "CSV",
+      "parse",
+      "pipe",
+      "chunk"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-019",
+    "category": "javascript",
+    "topic": "worker_threads",
+    "difficulty": 4,
+    "instruction": "Implement a parallel processing system using Node.js `worker_threads`. Create a `WorkerPool` class that manages a fixed pool of workers, distributes tasks across them, and collects results. Use `SharedArrayBuffer` and `Atomics` for a shared counter that tracks completed tasks across workers. Demonstrate by parallelizing a CPU-intensive computation (e.g., prime number sieve) across multiple workers and comparing performance to single-threaded execution.",
+    "expected_concepts": [
+      "Worker",
+      "worker_threads",
+      "SharedArrayBuffer",
+      "Atomics",
+      "postMessage",
+      "parallel",
+      "pool",
+      "performance"
+    ],
+    "test_code": null
+  },
+  {
+    "id": "js-020",
+    "category": "javascript",
+    "topic": "typescript_decorators",
+    "difficulty": 3,
+    "instruction": "Implement a TypeScript method decorator `@retry(maxAttempts, backoffMs)` that automatically retries a method on failure with exponential backoff. The decorator should work with both sync and async methods, log each retry attempt with the delay, respect the maximum attempts limit, and preserve the original method's return type. Also implement a `@timeout(ms)` decorator that rejects if a method takes too long. Show both decorators composed on the same method.",
+    "expected_concepts": [
+      "decorator",
+      "retry",
+      "exponential backoff",
+      "async",
+      "Promise",
+      "setTimeout",
+      "descriptor",
+      "compose"
+    ],
+    "test_code": null
+  },
+  {
     "id": "sec-hash-001",
     "category": "security",
     "topic": "password_hashing",
