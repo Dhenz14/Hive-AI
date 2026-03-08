@@ -781,3 +781,25 @@ All Apache 2.0, ready to download:
 - [MED] Adopt session-level JSONL schema for future agentic training data (beyond instruction/output)
 
 **Meta-lesson #20**: The best training data is YOUR OWN work sessions. DataClaw proves that real coding agent conversations — with all their debugging, backtracking, and tool use — produce models that 28+ people want to fine-tune on. Our HiveAI sessions are a gold mine we haven't tapped yet.
+
+---
+
+## 29. skills.sh — Agent Skills Registry & Distribution
+
+**Source**: https://skills.sh (86,700+ installs, 20+ supported agents)
+
+**What it is**: An open-source directory for distributing reusable AI agent skills. One-command install (`npx skillsadd <owner/repo>`) works across Claude Code, Cursor, Copilot, Gemini, Codex, and 20+ other agents. Skills are composable capability modules that give agents procedural knowledge.
+
+**Key findings**:
+
+1. **Top skills are knowledge docs, not code**: Most-installed skills are "React best practices" (184K), "web design guidelines" (144K), "frontend design" (132K by Anthropic). This validates our approach — encoding domain knowledge into skill files works better than monolithic prompts
+2. **Anthropic publishes skills**: Their `frontend-design` skill has 132K installs. Microsoft has 17+ Azure management skills (58K-119K each). The industry is converging on composable agent skills
+3. **Our skills/ directory is this pattern already**: `skills/js_typescript/SKILL.md` + `skill_loader.py` is the same architecture. We're already building skills — we just haven't published them
+4. **Distribution is solved**: `npx skillsadd` handles install across all major agents. No pip, no config. When our skills are polished, this is the distribution channel
+
+**Actionable for HiveAI**:
+- [MED] Publish HiveAI skills (Go, Rust, C++, JS/TS, Hive) to skills.sh when polished — free distribution + community feedback
+- [MED] Study top-installed skills for format/structure best practices before publishing
+- [LOW] Add skills.sh compatibility metadata to our SKILL.md files for cross-agent portability
+
+**Meta-lesson #21**: The most valuable agent skills aren't complex code — they're curated domain knowledge in a standard format. 184K developers installed a React best practices skill. The hard part isn't the format, it's having knowledge worth distributing.
