@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from collections import defaultdict
@@ -386,9 +387,63 @@ def main():
         print("  FAILED — Regression detected!")
         print(f"  DO NOT promote {args.model_version}")
         print("  Consider: increase --replay-ratio or decrease LoRA rank")
+
+        # Auto-trigger failure mining for regressed domains
+        _auto_mine_failures(scores, issues, args.model_version)
+
     print("=" * 60)
 
     sys.exit(0 if passed else 1)
+
+
+def _auto_mine_failures(scores: dict, issues: list, version: str):
+    """Auto-generate targeted training pairs for regressed domains."""
+    regressed = []
+    for issue in issues:
+        # Parse "FAIL: <domain> dropped ..." format
+        if issue.startswith("FAIL:"):
+            parts = issue.split()
+            if len(parts) >= 2:
+                regressed.append(parts[1])
+
+    if not regressed:
+        return
+
+    print(f"\n  Auto-mining failures for: {', '.join(regressed)}")
+
+    # Try weakness_hunter.py first (generates pairs directly)
+    weakness_script = PROJECT_ROOT / "scripts" / "weakness_hunter.py"
+    if weakness_script.exists():
+        try:
+            # Build a minimal eval dict for weakness_hunter
+            eval_data = {"by_category": {}}
+            for domain, score in scores.items():
+                if isinstance(score, (int, float)):
+                    eval_data["by_category"][domain] = {"score": score}
+
+            # Write temp eval file
+            tmp_eval = PROJECT_ROOT / f"_tmp_eval_{version}.json"
+            with open(tmp_eval, "w") as f:
+                json.dump(eval_data, f)
+
+            result = subprocess.run(
+                [sys.executable, str(weakness_script),
+                 "--eval", str(tmp_eval),
+                 "--generate", "--pairs", "15"],
+                capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+                timeout=300
+            )
+
+            tmp_eval.unlink(missing_ok=True)
+
+            if result.returncode == 0:
+                print(f"  Weakness patches generated — check loras/training_data/weakness_patches/")
+            else:
+                print(f"  WARN: weakness_hunter failed: {result.stderr[:150]}")
+        except Exception as e:
+            print(f"  WARN: Auto-mining failed: {e}")
+    else:
+        print(f"  WARN: weakness_hunter.py not found — manual intervention needed")
 
 
 if __name__ == "__main__":
