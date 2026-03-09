@@ -4,7 +4,7 @@
 #
 # Runs the complete merge-then-freeze cycle for one domain:
 #   1. Build surprise replay buffer
-#   2. Train domain LoRA (rank 8, LoRA+, attn-only)
+#   2. Train domain LoRA (rank 8, LoRA+, all 7 modules)
 #   3. Convert LoRA to GGUF
 #   4. Safe merge (alpha grid search)
 #   5. Consolidation epoch (LR/20, 100% replay)
@@ -238,10 +238,15 @@ if [ "$LAST_STEP" -lt 1 ]; then
 fi
 
 # =============================================================================
-# Step 2: Train domain LoRA (rank 8, LoRA+, attn-only)
+# Step 2: Train domain LoRA (rank 8, LoRA+, all 7 modules)
 # =============================================================================
 if [ "$LAST_STEP" -lt 2 ]; then
     log_step "2/7" "Training ${DOMAIN} LoRA"
+
+    # Training guard: create lock file so WSL shutdown is blocked
+    source "$PROJECT_ROOT/scripts/training_guard.sh" 2>/dev/null || true
+    create_lock "$VERSION" "step 2: training LoRA" 2>/dev/null || true
+
     python "$PROJECT_ROOT/scripts/train_v5.py" \
         --base-model-hf "$PREV_HF" \
         --data "$DATA_PATH" \
@@ -250,10 +255,13 @@ if [ "$LAST_STEP" -lt 2 ]; then
         --output-dir "$LORA_OUTPUT" \
         --rank 8 \
         --lora-plus \
-        --attn-only \
         --no-kl \
         --epochs 2 \
         2>&1 | tee "$LOG_DIR/${VERSION}_02_train.log"
+
+    # Remove training lock
+    remove_lock 2>/dev/null || true
+
     echo "  LoRA adapter saved to: $LORA_OUTPUT"
     save_checkpoint 2
 fi

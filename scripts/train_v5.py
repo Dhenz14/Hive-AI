@@ -417,7 +417,44 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             model, tokenizer = _load_standard()
 
     # Import TRL — AFTER Unsloth loads (if used) to get patched classes
-    from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM  # noqa: E402
+    from trl import SFTTrainer, SFTConfig  # noqa: E402
+    try:
+        from trl import DataCollatorForCompletionOnlyLM  # TRL <0.24
+    except ImportError:
+        # TRL 0.24+ removed DataCollatorForCompletionOnlyLM — use inline implementation
+        from dataclasses import dataclass
+        from transformers import DataCollatorForLanguageModeling
+
+        @dataclass
+        class DataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
+            """Masks loss on everything before the response_template tokens."""
+            response_template: str = "<|im_start|>assistant\n"
+            mlm: bool = False
+
+            def __init__(self, response_template, tokenizer, **kwargs):
+                super().__init__(tokenizer=tokenizer, mlm=False, **kwargs)
+                self.response_template_ids = tokenizer.encode(
+                    response_template, add_special_tokens=False
+                )
+
+            def torch_call(self, examples):
+                import torch
+                batch = super().torch_call(examples)
+                for i, labels in enumerate(batch["labels"]):
+                    # Find response template position
+                    template_len = len(self.response_template_ids)
+                    found = False
+                    for idx in range(len(labels) - template_len + 1):
+                        if labels[idx:idx + template_len].tolist() == self.response_template_ids:
+                            # Mask everything before the response (set to -100)
+                            batch["labels"][i, :idx + template_len] = -100
+                            found = True
+                            break
+                    if not found:
+                        # If template not found, mask nothing (train on full sequence)
+                        pass
+                return batch
+        logger.info("Using inline DataCollatorForCompletionOnlyLM (TRL 0.24+ compat)")
 
     # Now safe to init CUDA context (model already loaded + quantized)
     optimize_system_post_load()
