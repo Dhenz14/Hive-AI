@@ -170,9 +170,9 @@ def load_batch_pairs() -> list[dict]:
 # Processing
 # ---------------------------------------------------------------------------
 def is_hive_domain(pair: dict) -> bool:
-    """Check if pair is Hive blockchain domain."""
+    """Check if pair is Hive blockchain domain (word-boundary matching)."""
     text = (pair.get("instruction", "") + " " + pair.get("output", "")).lower()
-    return any(term in text for term in HIVE_STRONG_TERMS)
+    return any(re.search(r'\b' + re.escape(term) + r'\b', text) for term in HIVE_STRONG_TERMS)
 
 
 def _normalize_text(text: str) -> str:
@@ -249,20 +249,20 @@ def deduplicate(pairs: list[dict]) -> list[dict]:
 
 
 def _guess_category(pair: dict) -> str:
-    """Best-effort category guess for logging purposes."""
+    """Best-effort category guess for logging purposes (word-boundary matching)."""
     tag = pair.get("metadata", {}).get("tag", "")
     source = pair.get("metadata", {}).get("source", "")
     text = (pair.get("instruction", "") + " " + tag + " " + source).lower()
 
-    if any(t in text for t in ("go ", "golang", "_go_", "go_")):
+    if re.search(r'\b(go|golang)\b', text):
         return "go"
-    if any(t in text for t in ("rust", "_rust_")):
+    if re.search(r'\brust\b', text):
         return "rust"
-    if any(t in text for t in ("c++", "cpp", "c_plus")):
+    if re.search(r'\b(c\+\+|cpp)\b', text):
         return "c++"
-    if any(t in text for t in ("javascript", "typescript", "js ", "ts ", "_js_", "_ts_")):
+    if re.search(r'\b(javascript|typescript|js|ts)\b', text):
         return "js/ts"
-    if any(t in text for t in ("python", "_py_")):
+    if re.search(r'\bpython\b', text):
         return "python"
     return "other"
 

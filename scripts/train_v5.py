@@ -417,7 +417,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             model, tokenizer = _load_standard()
 
     # Import TRL — AFTER Unsloth loads (if used) to get patched classes
-    from trl import SFTTrainer, SFTConfig  # noqa: E402
+    from trl import SFTTrainer, SFTConfig, DataCollatorForCompletionOnlyLM  # noqa: E402
 
     # Now safe to init CUDA context (model already loaded + quantized)
     optimize_system_post_load()
@@ -593,8 +593,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         internal _tokenize which can fail with messages-format datasets due to Arrow
         serialization issues.
 
-        NOTE: Using 'text' column means we lose assistant_only_loss masking.
-        We compensate by using the response_template parameter in SFTTrainer instead.
+        NOTE: Using 'text' column with DataCollatorForCompletionOnlyLM to mask
+        prompt tokens from the loss. The response_template marks where assistant
+        output begins in the formatted text.
         """
         all_texts = []
         n_truncated = 0
@@ -1127,6 +1128,14 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             lora_plus_optimizers = (lora_plus_optimizer, None)  # (optimizer, scheduler=None → default)
             logger.info(f"LoRA+ enabled: A_lr={lora_plus_lr:.2e}, B_lr={lora_plus_lr * 16:.2e} (16x)")
 
+        # Response-only loss masking: only compute loss on assistant tokens.
+        # The template marks where the assistant response starts in ChatML format.
+        response_template = "<|im_start|>assistant\n"
+        response_collator = DataCollatorForCompletionOnlyLM(
+            response_template=response_template,
+            tokenizer=tokenizer,
+        )
+
         trainer = SFTTrainer(
             model=model,
             processing_class=tokenizer,
@@ -1134,6 +1143,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             eval_dataset=eval_dataset,
             args=sft_config,
             callbacks=callbacks,
+            data_collator=response_collator,
             optimizers=lora_plus_optimizers if lora_plus else (None, None),
         )
 

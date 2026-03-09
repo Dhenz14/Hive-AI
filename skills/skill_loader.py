@@ -149,6 +149,14 @@ SKILL_ROUTES = [
         r"token\s*limit", r"context\s*budget",
     ], 3),
 
+    # RLM Patterns (architecture decomposition)
+    ("rlm_patterns", [
+        r"decompos.*query", r"multi.?hop", r"sub.?question",
+        r"divide.*conquer.*query", r"recursive.*reason",
+        r"architecture.*query", r"complex.*retrieval",
+        r"chunk.*relevance", r"retrieval.*augment",
+    ], 3),
+
     # Writing Skills (meta-skill for creating new skills)
     ("writing_skills", [
         r"creat.*skill", r"writ.*skill", r"new\s*skill",
