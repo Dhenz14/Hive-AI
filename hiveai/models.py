@@ -31,7 +31,7 @@ if DB_BACKEND == "postgresql":
     def set_hnsw_ef_search(dbapi_conn, connection_record):
         try:
             cursor = dbapi_conn.cursor()
-            cursor.execute(f"SET hnsw.ef_search = {HNSW_EF_SEARCH}")
+            cursor.execute("SET hnsw.ef_search = %s", (HNSW_EF_SEARCH,))
             cursor.close()
         except Exception:
             pass
@@ -422,6 +422,8 @@ def _migrate_add_columns(engine):
     with engine.connect() as conn:
         for table, column, col_type in migrations:
             try:
+                # Safe: table/column/col_type are hardcoded constants above, not user input.
+                # DDL identifiers can't be parameterized in SQL.
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                 conn.commit()
                 logger.info(f"Migration: added {table}.{column}")

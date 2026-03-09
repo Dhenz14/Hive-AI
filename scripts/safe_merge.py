@@ -46,7 +46,7 @@ LLAMA_PERPLEXITY = os.path.join(LLAMA_CPP_DIR, "bin", "llama-perplexity")
 
 # Windows paths (fallback)
 if sys.platform == "win32":
-    win_llama = r"c:\Users\theyc\llama.cpp\bin"
+    win_llama = os.environ.get("LLAMA_CPP_DIR", r"c:\Users\theyc\llama.cpp\bin")
     if os.path.exists(win_llama):
         LLAMA_EXPORT_LORA = os.path.join(win_llama, "llama-export-lora.exe")
         LLAMA_PERPLEXITY = os.path.join(win_llama, "llama-perplexity.exe")
