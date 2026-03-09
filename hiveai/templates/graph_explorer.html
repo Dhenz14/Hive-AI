@@ -110,6 +110,38 @@
     </div>
 </div>
 
+<div style="display: flex; gap: 0.8rem; margin-bottom: 1rem;">
+    <button class="btn btn-warning" onclick="rebuildGraph()" id="btn-rebuild">Rebuild Graph</button>
+    <button class="btn btn-primary" onclick="reembed()" id="btn-reembed">Re-embed Content</button>
+    <span id="graph-action-status" style="color: #8b7355; font-size: 0.85rem; align-self: center;"></span>
+</div>
+<script>
+async function rebuildGraph() {
+    const btn = document.getElementById('btn-rebuild');
+    const status = document.getElementById('graph-action-status');
+    btn.disabled = true; status.textContent = 'Rebuilding graph...';
+    try {
+        const r = await fetch('/api/graph/rebuild', {method: 'POST'});
+        const d = await r.json();
+        status.textContent = r.ok ? 'Graph rebuilt! Refresh to see changes.' : ('Error: ' + (d.error || 'failed'));
+        status.style.color = r.ok ? '#98d946' : '#cd5c5c';
+    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = '#cd5c5c'; }
+    btn.disabled = false;
+}
+async function reembed() {
+    const btn = document.getElementById('btn-reembed');
+    const status = document.getElementById('graph-action-status');
+    btn.disabled = true; status.textContent = 'Re-embedding content...';
+    try {
+        const r = await fetch('/api/reembed', {method: 'POST'});
+        const d = await r.json();
+        status.textContent = r.ok ? 'Re-embedding started in background.' : ('Error: ' + (d.error || 'failed'));
+        status.style.color = r.ok ? '#98d946' : '#cd5c5c';
+    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = '#cd5c5c'; }
+    btn.disabled = false;
+}
+</script>
+
 <div class="card">
     <form method="get" action="/graph">
         <div class="filters-bar">

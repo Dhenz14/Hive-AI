@@ -250,6 +250,18 @@
         td a { color: #cd7f32; text-decoration: none; }
         td a:hover { text-decoration: underline; color: #ffd700; }
         .empty { color: #6b5a3e; text-align: center; padding: 2rem; font-style: italic; }
+        #health-bar {
+            background: #1a1008;
+            border-bottom: 1px solid #3d2b1a;
+            padding: 0.3rem 2rem;
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            font-size: 0.8rem;
+            font-family: 'Crimson Text', serif;
+            color: #8b7355;
+        }
+        #health-bar .hb-val { color: #6b5a3e; }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -262,9 +274,74 @@
         <a href="/forge">🔮 Forge Mind</a>
         <a href="/eval">📊 Eval Arena</a>
     </nav>
+    <div id="health-bar">
+        <span id="hb-llm" title="LLM Server">LLM: <span class="hb-val">--</span></span>
+        <span id="hb-embed" title="Embedding Model">EMB: <span class="hb-val">--</span></span>
+        <span id="hb-gpu" title="GPU VRAM">GPU: <span class="hb-val">--</span></span>
+        <span id="hb-train" title="Training Status">TRAIN: <span class="hb-val">idle</span></span>
+    </div>
     <div class="container">
         {% block content %}{% endblock %}
     </div>
+    <script>
+    // System health bar — polls every 30s
+    async function updateHealthBar() {
+        try {
+            const [llm, embed, hw] = await Promise.all([
+                fetch('/api/llm-status').then(r=>r.json()).catch(()=>null),
+                fetch('/api/embedding-status').then(r=>r.json()).catch(()=>null),
+                fetch('/api/hardware').then(r=>r.json()).catch(()=>null),
+            ]);
+            const hbLlm = document.querySelector('#hb-llm span');
+            const hbEmbed = document.querySelector('#hb-embed span');
+            const hbGpu = document.querySelector('#hb-gpu span');
+            const hbTrain = document.querySelector('#hb-train span');
+
+            if (llm && llm.status === 'ok') {
+                hbLlm.textContent = 'online';
+                hbLlm.style.color = '#98d946';
+            } else {
+                hbLlm.textContent = 'offline';
+                hbLlm.style.color = '#cd5c5c';
+            }
+
+            if (embed && embed.loaded) {
+                hbEmbed.textContent = 'loaded';
+                hbEmbed.style.color = '#98d946';
+            } else {
+                hbEmbed.textContent = 'off';
+                hbEmbed.style.color = '#cd5c5c';
+            }
+
+            if (hw) {
+                const gpu = hw.gpu;
+                if (gpu && gpu.vram_total_gb) {
+                    const used = gpu.vram_used_gb || 0;
+                    const total = gpu.vram_total_gb;
+                    hbGpu.textContent = `${used.toFixed(1)}/${total}GB`;
+                    hbGpu.style.color = used/total > 0.9 ? '#cd5c5c' : used/total > 0.7 ? '#ffd700' : '#98d946';
+                } else {
+                    hbGpu.textContent = hw.profile || '--';
+                    hbGpu.style.color = '#b87333';
+                }
+            }
+
+            // Check training status
+            try {
+                const train = await fetch('/api/lora/training-status').then(r=>r.json()).catch(()=>null);
+                if (train && train.active) {
+                    hbTrain.textContent = train.summary || 'running';
+                    hbTrain.style.color = '#c084fc';
+                } else {
+                    hbTrain.textContent = 'idle';
+                    hbTrain.style.color = '#6b5a3e';
+                }
+            } catch(e) {}
+        } catch(e) { console.warn('Health bar update failed:', e); }
+    }
+    updateHealthBar();
+    setInterval(updateHealthBar, 30000);
+    </script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

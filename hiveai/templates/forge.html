@@ -245,6 +245,78 @@
     </div>
 </div>
 
+<!-- Training Pipeline Monitor -->
+<div class="forge-card" id="training-monitor" style="display:none; border-color: #c084fc;">
+    <h2>⚡ Training Pipeline</h2>
+    <div id="train-pipeline-stages" class="pipeline-diagram" style="margin-bottom: 1rem;">
+        <div class="pipeline-stage" id="ts-replay">1. Replay</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-train">2. Train</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-merge">3. Merge</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-consol">4. Consolidate</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-eval">5. Eval</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-promote">6. Promote</div>
+    </div>
+    <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.8rem;">
+        <div class="progress-track" style="flex: 1;">
+            <div class="progress-fill" id="train-progress" style="width: 0%;"></div>
+            <div class="progress-label" id="train-progress-label">--</div>
+        </div>
+        <button class="btn btn-danger" onclick="stopTraining()" style="white-space: nowrap;">Stop</button>
+    </div>
+    <div style="display: flex; gap: 1rem; font-size: 0.9rem;">
+        <span>Loss: <strong id="train-loss">--</strong></span>
+        <span>Stage: <strong id="train-stage">--</strong></span>
+    </div>
+    <details style="margin-top: 0.5rem;">
+        <summary style="cursor: pointer; color: #a855f7; font-size: 0.85rem;">Log tail</summary>
+        <pre id="train-log" style="background: #0d0a06; padding: 0.5rem; border-radius: 4px; font-size: 0.75rem; max-height: 200px; overflow-y: auto; color: #8b7355; margin-top: 0.3rem; white-space: pre-wrap;"></pre>
+    </details>
+</div>
+
+<!-- Micro-Train Launch -->
+<div class="forge-card">
+    <h2>⚡ Launch Micro-Training</h2>
+    <p style="color: #a855f7; font-size: 0.9rem; margin-bottom: 0.8rem;">
+        One-click training cycle: replay → train → merge → eval → promote
+    </p>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 0.8rem;">
+        <div>
+            <label style="font-size: 0.85rem; color: #a855f7;">Domain</label>
+            <select id="mt-domain" title="Training domain" style="width:100%;padding:0.5rem;background:#1a1008;border:2px solid #6b21a8;border-radius:4px;color:#d4b896;font-family:'Crimson Text',serif;">
+                <option value="thinking">Thinking</option>
+                <option value="hive">Hive</option>
+                <option value="general">General Coding</option>
+                <option value="rust">Rust</option>
+                <option value="go">Go</option>
+                <option value="cpp">C++</option>
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+            </select>
+        </div>
+        <div>
+            <label style="font-size: 0.85rem; color: #a855f7;">Version</label>
+            <input type="text" id="mt-version" placeholder="e.g. v3-think" style="border-color:#6b21a8;">
+        </div>
+    </div>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="font-size: 0.85rem; color: #a855f7;">Data Path (WSL)</label>
+        <input type="text" id="mt-data" placeholder="/opt/hiveai/project/datasets/thinking_batch2.jsonl" style="border-color:#6b21a8;">
+    </div>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="font-size: 0.85rem; color: #a855f7;">Previous Version (optional)</label>
+        <input type="text" id="mt-prev" placeholder="v2-think" style="border-color:#6b21a8;">
+    </div>
+    <button class="btn btn-primary" onclick="launchMicroTrain()" style="background: linear-gradient(180deg, #7c3aed 0%, #4c1d95 100%); border-color: #a855f7; width: 100%;">
+        ⚡ Launch Full Cycle
+    </button>
+    <div id="mt-result" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+</div>
+
 <!-- Live Mining Status -->
 <div class="forge-card" id="mining-status-card">
     <h2>⛏ Live Mining Status</h2>
@@ -944,6 +1016,83 @@ loadTeachings();
 loadMiningStatus();
 loadMinerStatus();
 refreshAdapters();
-pollInterval = setInterval(() => { loadTeachings(); loadMiningStatus(); loadMinerStatus(); }, 10000);
+pollTrainingStatus();
+pollInterval = setInterval(() => { loadTeachings(); loadMiningStatus(); loadMinerStatus(); pollTrainingStatus(); }, 10000);
+
+// ── Training Pipeline Monitor ──
+async function pollTrainingStatus() {
+    try {
+        const r = await fetch('/api/lora/training-status');
+        const data = await r.json();
+        const monitor = document.getElementById('training-monitor');
+        if (data.active) {
+            monitor.style.display = 'block';
+            // Update progress
+            if (data.step && data.total_steps) {
+                const pct = Math.round(100 * data.step / data.total_steps);
+                document.getElementById('train-progress').style.width = pct + '%';
+                document.getElementById('train-progress-label').textContent = `${data.step}/${data.total_steps} (${pct}%)`;
+            }
+            if (data.loss) document.getElementById('train-loss').textContent = data.loss.toFixed(4);
+            if (data.stage) document.getElementById('train-stage').textContent = data.stage;
+            if (data.log_tail && data.log_tail.length > 0) {
+                document.getElementById('train-log').textContent = data.log_tail.join('\n');
+            }
+            // Highlight pipeline stage
+            const stages = {'1': 'ts-replay', '2': 'ts-train', '3': 'ts-merge',
+                           '4': 'ts-consol', '5': 'ts-eval', '6': 'ts-promote'};
+            for (const [k, id] of Object.entries(stages)) {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.classList.remove('active', 'done');
+                    const stageNum = parseInt(data.stage) || 0;
+                    if (parseInt(k) < stageNum) el.classList.add('done');
+                    else if (parseInt(k) === stageNum) el.classList.add('active');
+                }
+            }
+        } else {
+            monitor.style.display = 'none';
+        }
+    } catch(e) { /* training status endpoint may not exist yet */ }
+}
+
+async function launchMicroTrain() {
+    const domain = document.getElementById('mt-domain').value;
+    const version = document.getElementById('mt-version').value;
+    const dataPath = document.getElementById('mt-data').value;
+    const prevVersion = document.getElementById('mt-prev').value;
+    const resultDiv = document.getElementById('mt-result');
+
+    if (!version || !dataPath) {
+        resultDiv.innerHTML = '<span style="color:#cd5c5c;">Version and data path are required</span>';
+        return;
+    }
+
+    resultDiv.innerHTML = '<span style="color:#a855f7;">Launching training...</span>';
+    try {
+        const r = await fetch('/api/lora/micro-train', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({domain, version, data_path: dataPath, prev_version: prevVersion})
+        });
+        const data = await r.json();
+        if (r.ok) {
+            resultDiv.innerHTML = `<span style="color:#98d946;">Training launched: ${data.version} (tmux: ${data.tmux_session})</span>`;
+            setTimeout(pollTrainingStatus, 3000);
+        } else {
+            resultDiv.innerHTML = `<span style="color:#cd5c5c;">Error: ${data.error}</span>`;
+        }
+    } catch(e) {
+        resultDiv.innerHTML = `<span style="color:#cd5c5c;">Failed: ${e.message}</span>`;
+    }
+}
+
+async function stopTraining() {
+    if (!confirm('Stop training? This will kill the tmux session.')) return;
+    try {
+        await fetch('/api/lora/stop-training', {method: 'POST'});
+        document.getElementById('training-monitor').style.display = 'none';
+    } catch(e) { alert('Failed to stop: ' + e.message); }
+}
 </script>
 {% endblock %}

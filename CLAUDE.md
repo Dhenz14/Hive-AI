@@ -42,10 +42,14 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
 
-## Continual Learning Pipeline v1.0 (Merge-then-Freeze)
+## Continual Learning Pipeline v1.2 (Merge-then-Freeze + Golden Chain)
 
 **Architecture**: Train small LoRA → merge permanently into base → consolidate → eval → promote.
 Knowledge stacks like legos — once merged, it can never be lost.
+
+**bf16 Golden Chain**: HF bf16 weights are the source of truth for ALL merges. GGUF is derived
+from HF output via `convert_hf_to_gguf.py` + `llama-quantize`. This eliminates quantization drift
+from repeated merges. After 100 merges, zero accumulated noise.
 
 **One-command cycle**:
 ```bash
@@ -53,14 +57,26 @@ bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version> [prev_version]
 # Example: bash scripts/run_full_cycle.sh hive datasets/hive_data.jsonl v1-hive v1.0
 ```
 
-**Pipeline steps** (each script can also run independently):
-1. `replay_sampler.py` — SuRe NLL-scored surprise replay (fallback: diversity sampling)
-2. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, attn-only)
-3. `safe_merge.py` — Alpha grid search [0.75-1.0], pick lowest perplexity (dual GGUF+HF path)
-4. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay)
-5. `regression_eval.py` — 18 domain probes, fail if any drops >0.03
+**Micro-training flywheel** (500 pairs at a time, test between batches):
+```bash
+# Split large dataset into 500-pair batches
+python scripts/batch_splitter.py datasets/thinking_all.jsonl --batch-size 500
 
-**Key flags added to train_v5.py**:
+# Train each batch, test, repeat
+bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch1.jsonl v2-think v1-hive
+bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-think v2-think
+# ...keep going until the "lobe" is done, then move to next domain
+```
+
+**Pipeline steps** (each script can also run independently):
+1. `preflight_check.py` — Automated pre-flight validator (7 checks: HF offline, metadata, CRLF, disk, GPU, base model, cache)
+2. `replay_sampler.py` — SuRe NLL-scored surprise replay (fallback: diversity sampling)
+3. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, all 7 modules)
+4. `safe_merge.py` — Alpha grid search [0.75-1.0], pick lowest perplexity, golden chain HF→GGUF
+5. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay, all 7 modules)
+6. `regression_eval.py` — 18 domain probes, fail if any drops >0.03
+
+**Key flags in train_v5.py**:
 - `--rank N` — LoRA rank override (4-8 for continual learning)
 - `--lr FLOAT` — Direct LR override
 - `--lora-plus` — B matrix gets 16x higher LR (LoRA+, arXiv 2602.04998)
@@ -68,21 +84,40 @@ bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version> [prev_version]
 - `--replay-ratio FLOAT` — Fraction of replay in training mix (default 0.25)
 - `--consolidation-only` — Consolidation mode (1 epoch, LR/10)
 - `--base-model-hf PATH` — Train on merged HF checkpoint (for cycle 2+)
-- `--attn-only` — Train q/k/v/o_proj only (freeze MLP)
+- `--attn-only` — Train q/k/v/o_proj only (freeze MLP) — NOT used in consolidation
+
+**Post-training automations** (no manual steps needed):
+- Auto-normalizes `adapter_config.json` (fixes absolute cache paths → `Qwen/Qwen2.5-Coder-14B-Instruct`)
+- Auto-converts LoRA adapter to GGUF (`adapter.gguf` alongside PEFT files)
+- Auto-runs preflight checks before training starts
+- Auto-cleans old model versions after promotion (keeps 3 GGUFs, 2 bf16 checkpoints)
 
 **Folder layout**:
 - `models/deploy/current_base.gguf` — Active inference GGUF
 - `replay/*.jsonl` — Per-domain replay buffers (hive, cpp, rust, go, js, general_coding)
 - `datasets/*.jsonl` — Training data for new domains
 - `score_ledger.json` — Historical scores across all versions
-- `logs/` — Per-cycle training logs
+- `logs/` — Per-cycle training logs with rich checkpoint state for resume
 
-**Pre-flight for training** (CRITICAL):
-1. Kill llama-server before training — it eats ~10GB VRAM
-2. Strip metadata from training JSONL (mixed types break pyarrow)
-3. For cycle 1: use default Unsloth base. For cycle 2+: use `--base-model-hf`
+**Pre-flight is now automated**: `scripts/preflight_check.py` runs at the start of every cycle.
+Manual pre-flight is no longer needed. The only remaining manual step: CRLF-fix after syncing to WSL.
 
 **Training data format**: Standard instruction/input/output JSONL (NO metadata field).
+
+## Training UI (Forge Mind Page)
+
+The Forge page (`/forge`) provides one-click training controls:
+- **Launch Micro-Training**: Domain selector, data path, version — launches `run_full_cycle.sh` in WSL tmux
+- **Training Monitor**: Live pipeline stage indicator (7 steps), progress bar, loss display, log tail, stop button
+- **Score Ledger**: Domain scores across all versions displayed in Eval Arena (`/eval`)
+- **System Health Bar**: All pages show LLM/Embedding/GPU/Training status (polls every 30s)
+
+**Training API endpoints**:
+- `POST /api/lora/micro-train` — Launch training cycle in WSL tmux session
+- `GET /api/lora/training-status` — Poll training progress (step, loss, stage, log tail)
+- `POST /api/lora/stop-training` — Kill training tmux session
+- `POST /api/lora/prepare-batches` — Split JSONL into 500-pair micro-training batches
+- `GET /api/eval/ledger` — Return score_ledger.json for visualization
 
 ## Eval Protocol — Work Smart Not Hard
 

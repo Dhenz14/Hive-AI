@@ -155,6 +155,11 @@ def optimize_system_pre_load():
     except Exception:
         pass
 
+    # Force offline HF loading — all models are cached, no need to phone home
+    # Prevents 120s timeout when HuggingFace is slow/down
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
     # Env vars only — no CUDA context init
     os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
@@ -373,8 +378,17 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            load_path = "Qwen/Qwen2.5-Coder-14B-Instruct"
-            logger.info(f"  Local path not found, using HF model: {load_path}")
+            # Try cached Unsloth pre-quantized model first (already 4-bit, no CPU quantization needed)
+            bnb4_cache = os.path.expanduser("~/.cache/huggingface/hub/models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit/snapshots")
+            if os.path.isdir(bnb4_cache):
+                snapshots = os.listdir(bnb4_cache)
+                if snapshots:
+                    load_path = os.path.join(bnb4_cache, snapshots[0])
+                    logger.info(f"  Using cached pre-quantized model: {load_path}")
+            if load_path == model_path:
+                # Final fallback: try HF hub name (will download if online)
+                load_path = "Qwen/Qwen2.5-Coder-14B-Instruct"
+                logger.info(f"  Local path not found, using HF model: {load_path}")
 
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -1257,6 +1271,21 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     tokenizer.save_pretrained(OUTPUT_DIR)
     logger.info(f"Adapter saved to {OUTPUT_DIR}")
 
+    # ── Normalize adapter config (fix absolute cache paths) ──
+    adapter_config_path = os.path.join(OUTPUT_DIR, "adapter_config.json")
+    if os.path.exists(adapter_config_path):
+        try:
+            with open(adapter_config_path, "r", encoding="utf-8") as f:
+                adapter_cfg = json.load(f)
+            base_path = adapter_cfg.get("base_model_name_or_path", "")
+            if "/snapshots/" in base_path or "/.cache/" in base_path:
+                adapter_cfg["base_model_name_or_path"] = "Qwen/Qwen2.5-Coder-14B-Instruct"
+                with open(adapter_config_path, "w", encoding="utf-8") as f:
+                    json.dump(adapter_cfg, f, indent=2)
+                logger.info("  Normalized adapter_config.json base_model_name_or_path")
+        except Exception as e:
+            logger.warning(f"  Could not normalize adapter config: {e}")
+
     # Save training metadata
     meta = {
         "version": "v7.0",
@@ -1283,24 +1312,60 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     with open(os.path.join(OUTPUT_DIR, "training_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
+    # ── Auto-convert LoRA to GGUF ──
+    adapter_gguf_path = os.path.join(OUTPUT_DIR, "adapter.gguf")
+    convert_script_candidates = [
+        os.path.join(os.environ.get("LLAMA_CPP_DIR", "/tmp/llama.cpp"), "convert_lora_to_gguf.py"),
+        "/tmp/llama.cpp/convert_lora_to_gguf.py",
+    ]
+    convert_script = None
+    for cs in convert_script_candidates:
+        if os.path.exists(cs):
+            convert_script = cs
+            break
+
+    if convert_script and not os.path.exists(adapter_gguf_path):
+        logger.info("Auto-converting LoRA adapter to GGUF format...")
+        try:
+            convert_result = subprocess.run(
+                [sys.executable, convert_script, OUTPUT_DIR,
+                 "--outfile", adapter_gguf_path, "--outtype", "f16"],
+                capture_output=True, text=True, timeout=300,
+                cwd=os.path.dirname(convert_script),
+            )
+            if convert_result.returncode == 0:
+                gguf_size = os.path.getsize(adapter_gguf_path) / (1024 * 1024)
+                logger.info(f"  adapter.gguf created ({gguf_size:.1f} MB)")
+            else:
+                logger.warning(f"  GGUF conversion failed: {convert_result.stderr[-500:]}")
+        except Exception as e:
+            logger.warning(f"  GGUF conversion skipped: {e}")
+    elif os.path.exists(adapter_gguf_path):
+        logger.info(f"  adapter.gguf already exists, skipping conversion")
+    else:
+        logger.info("  convert_lora_to_gguf.py not found — skipping GGUF conversion")
+
     # ── Print next steps ──
     print("\n" + "=" * 60)
-    print("  v7 Training Complete — Next Steps")
+    print("  Training Complete — Next Steps")
     print("=" * 60)
-    print(f"""
-  1. Quick eval (2 min):
+    if os.path.exists(adapter_gguf_path):
+        print(f"""
+  adapter.gguf ready at: {adapter_gguf_path}
+
+  1. Run full cycle (merge + eval + promote):
+     bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version>
+
+  2. Or quick eval:
      python scripts/quick_eval.py
+""")
+    else:
+        print(f"""
+  1. Convert LoRA to GGUF:
+     python convert_lora_to_gguf.py {OUTPUT_DIR} --outfile {adapter_gguf_path} --outtype f16
 
-  2. Convert LoRA to GGUF:
-     python convert_lora_to_gguf.py loras/v7 --base models/qwen2.5-coder-14b-base \\
-       --outfile models/hiveai-v7-lora-f16.gguf --outtype f16
-
-  3. Deploy to llama-server:
-     llama-server --model models/Qwen2.5-Coder-14B-Instruct-Q5_K_M.gguf \\
-       --lora models/hiveai-v7-lora-f16.gguf --port 11435
-
-  4. Full eval (165 challenges):
-     python scripts/run_eval.py --model hiveai-v7 --base-url http://localhost:11435
+  2. Quick eval:
+     python scripts/quick_eval.py
 """)
     print("=" * 60)
 
@@ -1462,7 +1527,9 @@ if __name__ == "__main__":
                 mixed_path = os.path.join(os.path.dirname(args.data), f"_mixed_replay_{os.getpid()}.jsonl")
                 with open(mixed_path, "w", encoding="utf-8") as f:
                     for sample in mixed:
-                        f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                        # Strip metadata — mixed types crash pyarrow
+                        clean = {k: v for k, v in sample.items() if k != "metadata"}
+                        f.write(json.dumps(clean, ensure_ascii=False) + "\n")
                 TRAINING_JSONL = mixed_path
                 logger.info(f"Replay mix: {len(domain_samples)} domain + {target_replay} replay "
                             f"= {len(mixed)} total ({args.replay_ratio:.0%} replay)")
@@ -1471,7 +1538,8 @@ if __name__ == "__main__":
                 mixed_path = os.path.join(os.path.dirname(TRAINING_JSONL), f"_consolidation_{os.getpid()}.jsonl")
                 with open(mixed_path, "w", encoding="utf-8") as f:
                     for sample in replay_samples:
-                        f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                        clean = {k: v for k, v in sample.items() if k != "metadata"}
+                        f.write(json.dumps(clean, ensure_ascii=False) + "\n")
                 TRAINING_JSONL = mixed_path
                 logger.info(f"Consolidation: using {len(replay_samples)} replay samples (100%)")
 

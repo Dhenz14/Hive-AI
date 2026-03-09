@@ -80,7 +80,6 @@ def main():
         "--no-kl",                  # No KL needed — replay IS the anchor
         "--consolidation-only",     # Flags consolidation mode
         "--lora-plus",              # LoRA+ for faster convergence
-        "--attn-only",              # Attention-only — minimal parameter changes
     ]
 
     print(f"\nRunning: {' '.join(cmd)}")

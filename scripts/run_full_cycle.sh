@@ -80,14 +80,61 @@ log_step() {
 }
 
 save_checkpoint() {
-    echo "$1" > "$CHECKPOINT_FILE"
+    # Save step number + full state for rich resume
+    cat > "$CHECKPOINT_FILE" <<CKPT
+step=$1
+version=$VERSION
+domain=$DOMAIN
+data_path=$DATA_PATH
+prev_version=$PREV_VERSION
+timestamp=$(date -Iseconds)
+CKPT
 }
 
 get_checkpoint() {
     if [ -f "$CHECKPOINT_FILE" ]; then
-        cat "$CHECKPOINT_FILE"
+        grep '^step=' "$CHECKPOINT_FILE" | cut -d= -f2
     else
         echo "0"
+    fi
+}
+
+cleanup_old_models() {
+    # Keep only the latest 3 GGUF versions in deploy/
+    echo "  Checking for old model versions to clean up..."
+    local count=0
+    for dir in $(ls -dt "$DEPLOY_DIR"/v* 2>/dev/null); do
+        count=$((count + 1))
+        if [ $count -gt 3 ] && [ -d "$dir" ]; then
+            local size=$(du -sh "$dir" 2>/dev/null | cut -f1)
+            echo "    Removing old version: $dir ($size)"
+            rm -rf "$dir"
+        fi
+    done
+
+    # Keep only 2 bf16 HF checkpoints in training dir
+    count=0
+    for dir in $(ls -dt "$TRAINING_DIR"/*/hf 2>/dev/null); do
+        count=$((count + 1))
+        if [ $count -gt 2 ]; then
+            local parent=$(dirname "$dir")
+            local size=$(du -sh "$parent" 2>/dev/null | cut -f1)
+            echo "    Removing old HF checkpoint: $parent ($size)"
+            rm -rf "$parent"
+        fi
+    done
+
+    # Clear HF dataset cache (re-created on next run)
+    if [ -d "$HOME/.cache/huggingface/datasets" ]; then
+        local cache_size=$(du -sh "$HOME/.cache/huggingface/datasets" 2>/dev/null | cut -f1)
+        echo "    Clearing HF dataset cache ($cache_size)"
+        rm -rf "$HOME/.cache/huggingface/datasets"
+    fi
+
+    # Report remaining disk usage
+    local free_kb=$(df -k "$DEPLOY_DIR" 2>/dev/null | tail -1 | awk '{print $4}')
+    if [ -n "$free_kb" ]; then
+        echo "    Disk after cleanup: $((free_kb / 1024 / 1024))GB free"
     fi
 }
 
@@ -213,6 +260,18 @@ fi
 
 # Disk space check (need ~60GB for full cycle: 4x merged candidates + HF checkpoint)
 check_disk_space "$DEPLOY_DIR" 60
+
+# Run preflight validator if available
+if [ -f "$PROJECT_ROOT/scripts/preflight_check.py" ]; then
+    echo "Running pre-flight checks..."
+    python "$PROJECT_ROOT/scripts/preflight_check.py" \
+        --data "$DATA_PATH" \
+        --base-model-hf "$PREV_HF" \
+        --min-disk-gb 20 || {
+        echo "Pre-flight check FAILED — fix issues above before training"
+        exit 1
+    }
+fi
 
 LAST_STEP=$(get_checkpoint)
 if [ "$LAST_STEP" -gt 0 ]; then
@@ -415,11 +474,18 @@ echo ""
 echo "Cleaning up intermediate files..."
 rm -f "$LORA_GGUF" "$CONSOL_GGUF"
 rm -rf "$CONSOL_OUTPUT"
-# Remove checkpoint on successful completion
+
 if [ $EVAL_EXIT -eq 0 ]; then
+    # Remove checkpoint on successful completion
     rm -f "$CHECKPOINT_FILE"
+
+    # Cleanup old model versions to prevent disk bloat
+    cleanup_old_models
+
+    echo "  Kept: $LORA_OUTPUT (trained adapter)"
+    echo "  Removed: intermediate GGUFs, consolidation adapter, old versions"
+else
+    echo "  Kept checkpoint for resume: $CHECKPOINT_FILE"
+    echo "  Resume with: bash scripts/run_full_cycle.sh $DOMAIN $DATA_PATH $VERSION $PREV_VERSION"
 fi
-# Keep $LORA_OUTPUT (the trained adapter) for reference
-echo "  Kept: $LORA_OUTPUT (trained adapter)"
-echo "  Removed: intermediate GGUF files, consolidation adapter"
 echo "Done."

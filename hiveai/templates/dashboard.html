@@ -107,7 +107,26 @@
 
 {% if books %}
 <div class="card">
-    <h2>📜 Tomes Ready for Inspection</h2>
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h2>📜 Tomes Ready for Inspection</h2>
+        <div>
+            <button type="button" class="btn btn-warning" onclick="scoreBooks(this)" style="font-size: 0.8rem; padding: 0.3rem 0.8rem;">Score All Books</button>
+            <span id="score-books-status" style="font-size: 0.8rem; color: #8b7355; margin-left: 0.5rem;"></span>
+        </div>
+    </div>
+    <script>
+    async function scoreBooks(btn) {
+        btn.disabled = true;
+        const s = document.getElementById('score-books-status');
+        s.textContent = 'Scoring...';
+        try {
+            const r = await fetch('/api/admin/score-books', {method: 'POST'});
+            s.textContent = r.ok ? 'Done! Refresh to see scores.' : 'Failed';
+            s.style.color = r.ok ? '#98d946' : '#cd5c5c';
+        } catch(e) { s.textContent = 'Error'; s.style.color = '#cd5c5c'; }
+        btn.disabled = false;
+    }
+    </script>
     <table>
         <thead>
             <tr>

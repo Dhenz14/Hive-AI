@@ -204,6 +204,14 @@
     <div id="result-dimensions" style="margin-top: 0.5rem;"></div>
 </div>
 
+<!-- Score Ledger — Domain Scores Across Versions -->
+<div class="eval-card">
+    <h2>📈 Score Ledger — Domain Progression</h2>
+    <div id="ledger-container">
+        <p class="empty">Loading score ledger...</p>
+    </div>
+</div>
+
 <!-- Past Reports -->
 <div class="eval-card">
     <h2>📜 Past Trials</h2>
@@ -373,8 +381,73 @@ function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// Load score ledger
+async function loadLedger() {
+    try {
+        const resp = await fetch('/api/eval/ledger');
+        const data = await resp.json();
+        const container = document.getElementById('ledger-container');
+        const versions = Object.keys(data);
+        if (!versions.length) {
+            container.innerHTML = '<p class="empty">No score ledger entries yet. Run regression_eval.py to populate.</p>';
+            return;
+        }
+
+        // Collect all domains across all versions
+        const domains = new Set();
+        for (const v of versions) {
+            for (const k of Object.keys(data[v])) {
+                if (k !== 'overall' && k !== 'timestamp') domains.add(k);
+            }
+        }
+        const domainList = Array.from(domains).sort();
+
+        let html = '<table style="width:100%;"><thead><tr><th>Version</th>';
+        for (const d of domainList) {
+            html += `<th style="text-transform:capitalize;">${escHtml(d)}</th>`;
+        }
+        html += '<th>Overall</th></tr></thead><tbody>';
+
+        for (const v of versions) {
+            html += `<tr><td style="color:#cd7f32;font-weight:600;">${escHtml(v)}</td>`;
+            for (const d of domainList) {
+                const val = data[v][d];
+                if (val !== undefined) {
+                    const pct = (val * 100).toFixed(1);
+                    const color = val >= 0.9 ? '#86efac' : val >= 0.8 ? '#fcd34d' : '#fca5a5';
+                    html += `<td><span style="color:${color};font-weight:700;">${pct}%</span></td>`;
+                } else {
+                    html += '<td style="color:#6b5a3e;">—</td>';
+                }
+            }
+            const overall = data[v].overall;
+            if (overall !== undefined) {
+                const pct = (overall * 100).toFixed(1);
+                const color = overall >= 0.9 ? '#86efac' : overall >= 0.8 ? '#fcd34d' : '#fca5a5';
+                html += `<td><span style="color:${color};font-weight:700;font-size:1.1rem;">${pct}%</span></td>`;
+            } else {
+                html += '<td>—</td>';
+            }
+            html += '</tr>';
+        }
+        html += '</tbody></table>';
+
+        // Add timestamp of latest version
+        const latest = data[versions[versions.length - 1]];
+        if (latest && latest.timestamp) {
+            const ts = new Date(latest.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'});
+            html += `<p style="color:#6b5a3e;font-size:0.8rem;margin-top:0.5rem;">Latest: ${ts}</p>`;
+        }
+
+        container.innerHTML = html;
+    } catch(e) {
+        document.getElementById('ledger-container').innerHTML = '<p class="empty">Could not load score ledger.</p>';
+    }
+}
+
 // Load past reports on page load
 loadReports();
+loadLedger();
 
 // Check if an eval is already running
 (async function checkRunning() {

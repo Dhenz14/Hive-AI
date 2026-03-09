@@ -1927,6 +1927,176 @@ logging.getLogger(__name__).info("LoRA pipeline routes registered: /api/lora/dis
 
 
 # ---------------------------------------------------------------------------
+# Training Pipeline API (micro-training flywheel)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/lora/micro-train", methods=["POST"])
+def lora_micro_train():
+    """Launch a micro-training cycle via WSL in a tmux session."""
+    import subprocess as sp
+    import shlex
+    data = request.get_json() or {}
+    domain = data.get("domain", "general")
+    data_path = data.get("data_path", "")
+    version = data.get("version", "")
+    prev_version = data.get("prev_version", "")
+
+    if not data_path or not version:
+        return jsonify({"error": "data_path and version are required"}), 400
+
+    # Sanitize inputs (prevent command injection)
+    for val in [domain, data_path, version, prev_version]:
+        if any(c in val for c in [";", "&", "|", "$", "`", "\n", "'"]):
+            return jsonify({"error": "Invalid characters in parameters"}), 400
+
+    # Build the run_full_cycle command
+    cycle_cmd = f"bash /opt/hiveai/project/scripts/run_full_cycle.sh {shlex.quote(domain)} {shlex.quote(data_path)} {shlex.quote(version)}"
+    if prev_version:
+        cycle_cmd += f" {shlex.quote(prev_version)}"
+
+    # Launch in tmux so it survives session closure
+    tmux_cmd = f"tmux new-session -d -s hiveai_train '{cycle_cmd}' 2>/dev/null || echo 'tmux session already exists'"
+    wsl_cmd = ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c", tmux_cmd]
+
+    try:
+        sp.Popen(wsl_cmd)
+        logging.getLogger(__name__).info(f"Micro-train launched: {version} ({domain})")
+        return jsonify({
+            "status": "launched",
+            "version": version,
+            "domain": domain,
+            "data_path": data_path,
+            "tmux_session": "hiveai_train",
+        })
+    except Exception as e:
+        return jsonify({"error": f"Failed to launch training: {e}"}), 500
+
+
+@app.route("/api/lora/training-status")
+def lora_training_status():
+    """Poll training progress from WSL tmux session."""
+    import subprocess as sp
+    result = {"active": False, "stage": None, "step": None, "total_steps": None,
+              "loss": None, "eta": None, "summary": None, "log_tail": []}
+    try:
+        # Check if tmux session exists
+        check = sp.run(
+            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+             "tmux has-session -t hiveai_train 2>/dev/null && echo ACTIVE || echo INACTIVE"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if "ACTIVE" not in check.stdout:
+            return jsonify(result)
+
+        result["active"] = True
+
+        # Read latest log
+        log_result = sp.run(
+            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+             "tail -30 /opt/hiveai/project/logs/*/train.log 2>/dev/null || "
+             "tail -30 /opt/hiveai/project/logs/*.log 2>/dev/null || echo 'no logs'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        log_lines = [l.strip() for l in log_result.stdout.strip().split("\n") if l.strip()]
+        result["log_tail"] = log_lines[-20:]
+
+        # Parse step/loss from log
+        for line in reversed(log_lines):
+            if "step" in line.lower() and "/" in line:
+                import re
+                step_match = re.search(r'(\d+)/(\d+)', line)
+                if step_match:
+                    result["step"] = int(step_match.group(1))
+                    result["total_steps"] = int(step_match.group(2))
+            if "loss" in line.lower() and "=" in line:
+                import re
+                loss_match = re.search(r'loss[=:\s]+([0-9.]+)', line, re.IGNORECASE)
+                if loss_match:
+                    result["loss"] = float(loss_match.group(1))
+
+        # Check checkpoint for pipeline stage
+        chk_result = sp.run(
+            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+             "cat /opt/hiveai/project/logs/*/.checkpoint 2>/dev/null || echo ''"],
+            capture_output=True, text=True, timeout=5,
+        )
+        checkpoint = chk_result.stdout.strip()
+        if checkpoint:
+            result["stage"] = checkpoint
+
+        # Build summary
+        if result["step"] and result["total_steps"]:
+            pct = int(100 * result["step"] / result["total_steps"])
+            result["summary"] = f"Step {result['step']}/{result['total_steps']} ({pct}%)"
+        elif result["stage"]:
+            result["summary"] = result["stage"]
+        else:
+            result["summary"] = "running"
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return jsonify(result)
+
+
+@app.route("/api/lora/stop-training", methods=["POST"])
+def lora_stop_training():
+    """Stop the running training tmux session."""
+    import subprocess as sp
+    try:
+        sp.run(
+            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+             "tmux kill-session -t hiveai_train 2>/dev/null"],
+            capture_output=True, timeout=5,
+        )
+        return jsonify({"status": "stopped"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/lora/prepare-batches", methods=["POST"])
+def lora_prepare_batches():
+    """Split a JSONL file into micro-training batches."""
+    import subprocess as sp
+    data = request.get_json() or {}
+    input_path = data.get("input_path", "")
+    batch_size = data.get("batch_size", 500)
+
+    if not input_path:
+        return jsonify({"error": "input_path is required"}), 400
+
+    script = os.path.join(WORKSPACE, "scripts", "batch_splitter.py")
+    if not os.path.exists(script):
+        return jsonify({"error": "batch_splitter.py not found"}), 500
+
+    try:
+        result = sp.run(
+            ["python", script, input_path, "--batch-size", str(batch_size)],
+            capture_output=True, text=True, timeout=60,
+            cwd=WORKSPACE,
+        )
+        if result.returncode == 0:
+            return jsonify({"status": "ok", "output": result.stdout})
+        else:
+            return jsonify({"error": result.stderr or result.stdout}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/eval/ledger")
+def eval_ledger():
+    """Return the score ledger (historical domain scores across versions)."""
+    ledger_path = os.path.join(WORKSPACE, "score_ledger.json")
+    if os.path.exists(ledger_path):
+        with open(ledger_path, "r", encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    return jsonify({})
+
+
+logging.getLogger(__name__).info("Training pipeline routes registered: /api/lora/micro-train, /api/lora/training-status, /api/eval/ledger")
+
+
+# ---------------------------------------------------------------------------
 # Sandbox API
 # ---------------------------------------------------------------------------
 

@@ -1,32 +1,37 @@
 """Safe Merge: Alpha grid search merge with perplexity validation.
 
-Dual-path merge:
-  Path A — GGUF (for inference): llama-export-lora merges LoRA into base GGUF
-  Path B — HF bf16 (for next training cycle): PEFT merge_and_unload()
+bf16 Golden Chain: HF bf16 weights are the source of truth for ALL merges.
+GGUF is derived from HF output via convert + quantize. This eliminates
+quantization drift from repeated llama-export-lora merges.
 
-Alpha grid search: try [0.75, 0.85, 0.95, 1.0], pick lowest perplexity.
+Merge paths:
+  1. Alpha grid search via llama-export-lora (fast GGUF comparison only)
+  2. HF bf16 merge at best alpha via PEFT merge_and_unload() (canonical)
+  3. Convert HF → GGUF via convert_hf_to_gguf.py + llama-quantize (deploy)
+
+If HF paths not provided, falls back to llama-export-lora GGUF (legacy mode).
 
 Based on: ProgLoRA (ACL 2025), Merge before Forget (arXiv 2512.23017)
 
 Usage:
-    # GGUF merge with alpha grid search
+    # Full golden chain merge (recommended)
     python scripts/safe_merge.py \\
         --base-gguf models/deploy/current_base.gguf \\
-        --lora-gguf models/hiveai-v9-lora-f16.gguf \\
-        --output-dir models/deploy/v1-hive \\
+        --lora-gguf loras/v2-think/adapter.gguf \\
+        --base-hf /opt/hiveai/project/models/training/v1-hive/hf \\
+        --lora-hf loras/v2-think \\
+        --output-dir models/deploy/v2-think \\
+        --output-hf /opt/hiveai/project/models/training/v2-think/hf \\
         --validation-data replay/sampled.jsonl \\
-        --version v1-hive
+        --version v2-think
 
-    # Full dual-path merge (GGUF + HF)
+    # Legacy GGUF-only merge (no golden chain)
     python scripts/safe_merge.py \\
         --base-gguf models/deploy/current_base.gguf \\
-        --lora-gguf models/hiveai-v9-lora-f16.gguf \\
-        --base-hf /opt/hiveai/project/models/training/v1.0/hf \\
-        --lora-hf loras/v9_hive \\
-        --output-dir models/deploy/v1-hive \\
-        --output-hf /opt/hiveai/project/models/training/v1-hive/hf \\
+        --lora-gguf loras/v2-think/adapter.gguf \\
+        --output-dir models/deploy/v2-think \\
         --validation-data replay/sampled.jsonl \\
-        --version v1-hive
+        --version v2-think
 """
 import argparse
 import json
@@ -48,13 +53,22 @@ if LLAMA_CPP_DIR:
     if sys.platform == "win32":
         LLAMA_EXPORT_LORA = os.path.join(_bin_dir, "llama-export-lora.exe")
         LLAMA_PERPLEXITY = os.path.join(_bin_dir, "llama-perplexity.exe")
+        LLAMA_QUANTIZE = os.path.join(_bin_dir, "llama-quantize.exe")
     else:
         LLAMA_EXPORT_LORA = os.path.join(_bin_dir, "llama-export-lora")
         LLAMA_PERPLEXITY = os.path.join(_bin_dir, "llama-perplexity")
+        LLAMA_QUANTIZE = os.path.join(_bin_dir, "llama-quantize")
 else:
     # Fall back to PATH — works if llama.cpp binaries are installed system-wide
     LLAMA_EXPORT_LORA = "llama-export-lora" + (".exe" if sys.platform == "win32" else "")
     LLAMA_PERPLEXITY = "llama-perplexity" + (".exe" if sys.platform == "win32" else "")
+    LLAMA_QUANTIZE = "llama-quantize" + (".exe" if sys.platform == "win32" else "")
+
+# convert_hf_to_gguf.py search paths
+_CONVERT_HF_CANDIDATES = [
+    os.path.join(os.environ.get("LLAMA_CPP_DIR", ""), "convert_hf_to_gguf.py"),
+    "/tmp/llama.cpp/convert_hf_to_gguf.py",
+]
 
 
 def gguf_merge_at_alpha(base_gguf: str, lora_gguf: str, output_path: str,
@@ -214,6 +228,72 @@ def hf_merge_at_alpha(base_hf: str, lora_hf: str, output_hf: str, alpha: float):
     return output_hf
 
 
+def convert_hf_to_gguf(hf_dir: str, output_gguf: str, quantize_type: str = "Q5_K_M") -> bool:
+    """Convert HF bf16 model to quantized GGUF (golden chain final step)."""
+    # Find convert_hf_to_gguf.py
+    convert_script = None
+    for cs in _CONVERT_HF_CANDIDATES:
+        if os.path.exists(cs):
+            convert_script = cs
+            break
+
+    if not convert_script:
+        print("  ERROR: convert_hf_to_gguf.py not found")
+        print(f"  Searched: {_CONVERT_HF_CANDIDATES}")
+        return False
+
+    # Step 1: Convert HF → F16 GGUF
+    f16_gguf = output_gguf.replace(".gguf", "_f16.gguf")
+    print(f"  Converting HF → F16 GGUF: {hf_dir} → {f16_gguf}")
+    try:
+        result = subprocess.run(
+            [sys.executable, convert_script, hf_dir,
+             "--outfile", f16_gguf, "--outtype", "f16"],
+            capture_output=True, text=True, timeout=600,
+            cwd=os.path.dirname(convert_script),
+        )
+        if result.returncode != 0:
+            print(f"    FAILED: {result.stderr[-500:]}")
+            return False
+        f16_size = os.path.getsize(f16_gguf) / (1024**3)
+        print(f"    F16 GGUF: {f16_size:.1f} GB")
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        print(f"    ERROR: {e}")
+        return False
+
+    # Step 2: Quantize F16 → target quant type
+    print(f"  Quantizing F16 → {quantize_type}: {output_gguf}")
+    try:
+        result = subprocess.run(
+            [LLAMA_QUANTIZE, f16_gguf, output_gguf, quantize_type],
+            capture_output=True, text=True, timeout=1200,
+        )
+        if result.returncode != 0:
+            print(f"    FAILED: {result.stderr[-500:]}")
+            # If quantize fails, keep the F16 as fallback
+            if os.path.exists(f16_gguf):
+                shutil.move(f16_gguf, output_gguf)
+                print(f"    Kept F16 GGUF as fallback (no quantization)")
+            return True
+        final_size = os.path.getsize(output_gguf) / (1024**3)
+        print(f"    Quantized GGUF: {final_size:.1f} GB")
+    except FileNotFoundError:
+        print(f"    WARNING: llama-quantize not found, keeping F16 GGUF")
+        if os.path.exists(f16_gguf):
+            shutil.move(f16_gguf, output_gguf)
+        return True
+    except subprocess.TimeoutExpired:
+        print(f"    TIMEOUT: quantization took >20 minutes")
+        return False
+
+    # Cleanup F16 intermediate
+    if os.path.exists(f16_gguf) and os.path.exists(output_gguf):
+        os.remove(f16_gguf)
+        print(f"    Cleaned up F16 intermediate")
+
+    return True
+
+
 def alpha_grid_search(base_gguf: str, lora_gguf: str, output_dir: str,
                        validation_file: str, alphas: list[float]) -> tuple[float, str]:
     """Try each alpha, compute perplexity, return best."""
@@ -284,6 +364,8 @@ def main():
                         help="Path to PEFT adapter directory (for training path)")
     parser.add_argument("--output-hf", type=str, default=None,
                         help="Output path for merged HF model (for training path)")
+    parser.add_argument("--quantize-type", type=str, default="Q5_K_M",
+                        help="GGUF quantization type when using golden chain (default: Q5_K_M)")
     args = parser.parse_args()
 
     try:
@@ -320,27 +402,53 @@ def main():
 
     start = time.time()
 
-    # Path A: GGUF merge with alpha grid search
-    best_alpha, merged_gguf = alpha_grid_search(
+    golden_chain = args.base_hf and args.lora_hf and args.output_hf
+    merge_path = "golden_chain" if golden_chain else "legacy_gguf"
+
+    if golden_chain:
+        print(f"  Mode: GOLDEN CHAIN (bf16 source of truth)")
+    else:
+        print(f"  Mode: Legacy GGUF (llama-export-lora)")
+        if args.base_hf or args.lora_hf or args.output_hf:
+            print("  WARNING: Golden chain requires all three: --base-hf, --lora-hf, --output-hf")
+
+    # Step 1: Alpha grid search via llama-export-lora (fast comparison)
+    best_alpha, search_gguf = alpha_grid_search(
         args.base_gguf, args.lora_gguf, args.output_dir,
         args.validation_data, alphas
     )
 
-    # Path B: HF merge (if paths provided)
-    if args.base_hf and args.lora_hf and args.output_hf:
-        print(f"\n--- HF Merge Path (for next training cycle) ---")
+    # Step 2: Golden chain — HF merge at best alpha, then convert to GGUF
+    if golden_chain:
+        print(f"\n--- Golden Chain: HF bf16 Merge (source of truth) ---")
         hf_merge_at_alpha(args.base_hf, args.lora_hf, args.output_hf, best_alpha)
-    elif args.base_hf or args.lora_hf or args.output_hf:
-        print("WARNING: HF merge requires all three: --base-hf, --lora-hf, --output-hf")
+
+        print(f"\n--- Golden Chain: HF → GGUF Conversion ---")
+        golden_gguf = os.path.join(args.output_dir, "merged.gguf")
+        if convert_hf_to_gguf(args.output_hf, golden_gguf, args.quantize_type):
+            # Golden chain GGUF replaces the llama-export-lora version
+            if os.path.exists(search_gguf) and search_gguf != golden_gguf:
+                os.remove(search_gguf)
+                print(f"  Replaced llama-export-lora GGUF with golden chain GGUF")
+            merged_gguf = golden_gguf
+        else:
+            print(f"  WARNING: HF→GGUF conversion failed, keeping llama-export-lora GGUF")
+            merged_gguf = search_gguf
+    else:
+        merged_gguf = search_gguf
 
     # Save metadata
     elapsed = time.time() - start
     metadata = {
         "version": args.version,
+        "merge_path": merge_path,
         "parent_gguf": args.base_gguf,
+        "parent_hf": args.base_hf,
         "lora_gguf": args.lora_gguf,
+        "lora_hf": args.lora_hf,
         "best_alpha": best_alpha,
         "alphas_tested": alphas,
+        "quantize_type": args.quantize_type if golden_chain else "native",
         "merged_gguf": merged_gguf,
         "merged_hf": args.output_hf,
         "validation_data": args.validation_data,
@@ -352,11 +460,11 @@ def main():
         json.dump(metadata, f, indent=2)
 
     print(f"\n{'=' * 60}")
-    print(f"  Merge complete!")
+    print(f"  Merge complete! ({merge_path})")
     print(f"  Best alpha: {best_alpha}")
     print(f"  Merged GGUF: {merged_gguf}")
     if args.output_hf:
-        print(f"  Merged HF: {args.output_hf}")
+        print(f"  Merged HF (bf16): {args.output_hf}")
     print(f"  Metadata: {meta_path}")
     print(f"  Time: {elapsed:.0f}s")
     print(f"{'=' * 60}")
