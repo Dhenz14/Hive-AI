@@ -52,6 +52,10 @@ def main():
         print(f"ERROR: Replay data not found: {args.replay_data}")
         sys.exit(1)
 
+    if not os.path.exists(args.base_model_hf):
+        print(f"ERROR: Base model not found: {args.base_model_hf}")
+        sys.exit(1)
+
     # Count replay samples
     with open(args.replay_data, "r", encoding="utf-8") as f:
         n_samples = sum(1 for line in f if line.strip())

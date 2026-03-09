@@ -27,7 +27,10 @@ import requests
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Think step-by-step before answering."
-TEMPERATURE = 0.1
+# Temperature scales with difficulty: harder problems get lower temperature
+# for more deterministic output, easier ones allow more variation
+TEMPERATURE_BY_DIFFICULTY = {1: 0.3, 2: 0.2, 3: 0.15, 4: 0.1, 5: 0.05}
+DEFAULT_TEMPERATURE = 0.1
 MAX_TOKENS = 1500  # Longer — we want reasoning
 TIMEOUT = 180
 
@@ -191,8 +194,18 @@ PROBES = [
 ]
 
 
-def score_think_block(response: str) -> dict:
-    """Analyze the quality of reasoning in the response."""
+def _strip_code_blocks(text: str) -> str:
+    """Remove fenced code blocks to avoid false-positive marker matches in code."""
+    return re.sub(r"```[\s\S]*?```", "", text)
+
+
+def score_think_block(response: str, difficulty: int = 3) -> dict:
+    """Analyze the quality of reasoning in the response.
+
+    Strips code blocks before scanning for reasoning markers to prevent
+    false positives from code comments, variable names, etc.
+    Length threshold scales with difficulty (harder = expect more reasoning).
+    """
     text = response.strip()
     scores = {}
 
@@ -204,82 +217,93 @@ def score_think_block(response: str) -> dict:
     # Use think block content if present, otherwise analyze full response
     reasoning_text = think_match.group(1) if think_match else text
 
-    # 2. Reasoning depth — count reasoning markers
+    # Strip code blocks — reasoning markers inside code are false positives
+    prose_text = _strip_code_blocks(reasoning_text)
+
+    # 2. Reasoning depth — count reasoning markers (in prose only)
+    # These patterns require sentence-boundary context to avoid matching
+    # code identifiers like `step_count` or `first_element`
     depth_markers = [
-        r"step \d",
-        r"first[,.]",
-        r"second[,.]",
-        r"third[,.]",
-        r"next[,.]",
-        r"then[,.]",
-        r"finally[,.]",
-        r"because",
-        r"therefore",
-        r"this means",
-        r"so we",
-        r"which gives",
-        r"let me",
-        r"let's",
-        r"consider",
-        r"notice that",
-        r"the reason",
-        r"this is because",
+        r"(?:^|\.\s+)step \d",         # "Step 1" at sentence start
+        r"(?:^|\.\s+)first(?:ly)?[,.]", # "First," not "first_element"
+        r"(?:^|\.\s+)second(?:ly)?[,.]",
+        r"(?:^|\.\s+)third(?:ly)?[,.]",
+        r"(?:^|\.\s+)next[,.]",
+        r"(?:^|\.\s+)then[,.]",
+        r"(?:^|\.\s+)finally[,.]",
+        r"\bbecause\b",
+        r"\btherefore\b",
+        r"\bthis means\b",
+        r"\bso we\b",
+        r"\bwhich gives\b",
+        r"\blet me\b",
+        r"\blet's\b",
+        r"(?:^|\.\s+)consider\b",       # "Consider X" not "considered = true"
+        r"\bnotice that\b",
+        r"\bthe reason\b",
+        r"\bthis is because\b",
     ]
     depth_count = sum(1 for m in depth_markers
-                      if re.search(m, reasoning_text, re.IGNORECASE))
+                      if re.search(m, prose_text, re.IGNORECASE | re.MULTILINE))
     scores["reasoning_depth"] = min(depth_count / 8.0, 1.0)  # 8+ markers = full score
 
-    # 3. Backtracking / self-correction
+    # 3. Backtracking / self-correction (prose only)
+    # These are inherently prose-like and less prone to code false positives,
+    # but we still scan prose_text for consistency
     backtrack_markers = [
-        r"wait[,.]",
-        r"actually[,.]",
-        r"no[,.].*that's wrong",
-        r"let me reconsider",
-        r"on second thought",
-        r"I made (a |an )?mistake",
-        r"correction",
-        r"but wait",
-        r"hmm",
-        r"that's not right",
-        r"let me re-?think",
+        r"\bwait[,.!]\s",               # "Wait, " not "wait()" in code
+        r"\bactually[,.]\s",            # "Actually, " not "actually_valid"
+        r"\bno[,.]\s.*that's wrong",
+        r"\blet me reconsider\b",
+        r"\bon second thought\b",
+        r"\bI made (?:a |an )?mistake\b",
+        r"\bcorrection:\s",             # "Correction: " not "correction_factor"
+        r"\bbut wait\b",
+        r"\bhmm\b",
+        r"\bthat's not right\b",
+        r"\blet me re-?think\b",
     ]
     backtrack_count = sum(1 for m in backtrack_markers
-                         if re.search(m, reasoning_text, re.IGNORECASE))
+                         if re.search(m, prose_text, re.IGNORECASE))
     scores["self_correction"] = min(backtrack_count / 2.0, 1.0)  # 2+ = full score
 
-    # 4. Edge case awareness
+    # 4. Edge case awareness (prose only)
     edge_markers = [
-        r"edge case",
-        r"what if",
-        r"corner case",
-        r"empty",
-        r"null|none|nil",
-        r"boundary",
-        r"overflow",
-        r"negative",
-        r"zero",
-        r"special case",
+        r"\bedge case\b",
+        r"\bwhat if\b",
+        r"\bcorner case\b",
+        r"\bempty\b",
+        r"\bnull\b|\bnone\b|\bnil\b",
+        r"\bboundary\b",
+        r"\boverflow\b",
+        r"\bnegative\b",
+        r"\bzero\b",
+        r"\bspecial case\b",
     ]
     edge_count = sum(1 for m in edge_markers
-                     if re.search(m, reasoning_text, re.IGNORECASE))
+                     if re.search(m, prose_text, re.IGNORECASE))
     scores["edge_awareness"] = min(edge_count / 3.0, 1.0)  # 3+ = full score
 
-    # 5. Concrete examples (traces values, not just abstract)
+    # 5. Concrete examples (traces values, not just abstract) — check full text
+    # since examples often appear inside code blocks
     has_concrete = bool(re.search(
         r"(for example|e\.g\.|given|input.*output|returns? \d|= \d|\[.*\d.*\])",
         reasoning_text, re.IGNORECASE
     ))
     scores["concrete_examples"] = 1.0 if has_concrete else 0.0
 
-    # 6. Line count of reasoning (longer = deeper, capped)
-    reasoning_lines = len([l for l in reasoning_text.split("\n") if l.strip()])
-    scores["reasoning_length"] = min(reasoning_lines / 20.0, 1.0)  # 20+ lines = full
+    # 6. Reasoning length — scale threshold by difficulty
+    # D1-D2: 10 lines is deep enough. D4-D5: expect 25+ lines.
+    length_threshold = 10 + (difficulty * 3)  # D1=13, D2=16, D3=19, D4=22, D5=25
+    reasoning_lines = len([l for l in prose_text.split("\n") if l.strip()])
+    scores["reasoning_length"] = min(reasoning_lines / length_threshold, 1.0)
 
     return scores
 
 
 def run_probe(probe: ReasoningProbe, server_url: str) -> dict:
     """Run a single reasoning probe and score it."""
+    temperature = TEMPERATURE_BY_DIFFICULTY.get(probe.difficulty, DEFAULT_TEMPERATURE)
     try:
         resp = requests.post(
             f"{server_url}/v1/chat/completions",
@@ -289,7 +313,7 @@ def run_probe(probe: ReasoningProbe, server_url: str) -> dict:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": probe.prompt},
                 ],
-                "temperature": TEMPERATURE,
+                "temperature": temperature,
                 "max_tokens": MAX_TOKENS,
             },
             timeout=TIMEOUT,
@@ -299,8 +323,8 @@ def run_probe(probe: ReasoningProbe, server_url: str) -> dict:
 
         content = resp.json()["choices"][0]["message"]["content"]
 
-        # Score reasoning quality
-        reasoning_scores = score_think_block(content)
+        # Score reasoning quality (pass difficulty for length scaling)
+        reasoning_scores = score_think_block(content, probe.difficulty)
 
         # Score answer correctness
         answer_correct = bool(re.search(probe.answer_check, content, re.IGNORECASE))

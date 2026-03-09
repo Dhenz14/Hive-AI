@@ -39,17 +39,22 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Default llama.cpp binary paths
-LLAMA_CPP_DIR = os.environ.get("LLAMA_CPP_DIR", "/tmp/llama.cpp")
-LLAMA_EXPORT_LORA = os.path.join(LLAMA_CPP_DIR, "bin", "llama-export-lora")
-LLAMA_PERPLEXITY = os.path.join(LLAMA_CPP_DIR, "bin", "llama-perplexity")
+# Default llama.cpp binary paths — always use LLAMA_CPP_DIR env var.
+# Never hardcode user-specific paths; fall back to system PATH lookup.
+LLAMA_CPP_DIR = os.environ.get("LLAMA_CPP_DIR", "")
 
-# Windows paths (fallback)
-if sys.platform == "win32":
-    win_llama = os.environ.get("LLAMA_CPP_DIR", r"c:\Users\theyc\llama.cpp\bin")
-    if os.path.exists(win_llama):
-        LLAMA_EXPORT_LORA = os.path.join(win_llama, "llama-export-lora.exe")
-        LLAMA_PERPLEXITY = os.path.join(win_llama, "llama-perplexity.exe")
+if LLAMA_CPP_DIR:
+    _bin_dir = os.path.join(LLAMA_CPP_DIR, "bin")
+    if sys.platform == "win32":
+        LLAMA_EXPORT_LORA = os.path.join(_bin_dir, "llama-export-lora.exe")
+        LLAMA_PERPLEXITY = os.path.join(_bin_dir, "llama-perplexity.exe")
+    else:
+        LLAMA_EXPORT_LORA = os.path.join(_bin_dir, "llama-export-lora")
+        LLAMA_PERPLEXITY = os.path.join(_bin_dir, "llama-perplexity")
+else:
+    # Fall back to PATH — works if llama.cpp binaries are installed system-wide
+    LLAMA_EXPORT_LORA = "llama-export-lora" + (".exe" if sys.platform == "win32" else "")
+    LLAMA_PERPLEXITY = "llama-perplexity" + (".exe" if sys.platform == "win32" else "")
 
 
 def gguf_merge_at_alpha(base_gguf: str, lora_gguf: str, output_path: str,
@@ -169,12 +174,25 @@ def hf_merge_at_alpha(base_hf: str, lora_hf: str, output_hf: str, alpha: float):
     print(f"    Loading LoRA adapter...")
     model = PeftModel.from_pretrained(model, lora_hf)
 
-    # Scale adapter weights by alpha before merge
+    # Scale adapter via PEFT's scaling API (works with all adapter configs,
+    # unlike manually scaling lora_B which breaks with some PEFT versions)
     if alpha != 1.0:
         print(f"    Scaling adapter weights by alpha={alpha}...")
-        for name, param in model.named_parameters():
-            if "lora_B" in name and param.requires_grad:
-                param.data *= alpha
+        try:
+            # PEFT >=0.7 supports add_weighted_adapter for scaling
+            model.add_weighted_adapter(
+                adapters=["default"],
+                weights=[alpha],
+                adapter_name="scaled",
+                combination_type="linear",
+            )
+            model.set_adapter("scaled")
+        except (AttributeError, TypeError):
+            # Fallback: manual lora_B scaling for older PEFT versions
+            print(f"    (fallback: manual lora_B scaling)")
+            for name, param in model.named_parameters():
+                if "lora_B" in name and param.requires_grad:
+                    param.data *= alpha
 
     print(f"    Merging and unloading...")
     model = model.merge_and_unload()
@@ -268,7 +286,27 @@ def main():
                         help="Output path for merged HF model (for training path)")
     args = parser.parse_args()
 
-    alphas = [float(a.strip()) for a in args.alphas.split(",")]
+    try:
+        alphas = [float(a.strip()) for a in args.alphas.split(",")]
+    except ValueError as e:
+        print(f"ERROR: Invalid alpha values '{args.alphas}': {e}")
+        print("  Expected comma-separated floats, e.g., '0.75,0.85,0.95,1.0'")
+        sys.exit(1)
+
+    for a in alphas:
+        if not (0.0 < a <= 2.0):
+            print(f"ERROR: Alpha {a} out of range (expected 0.0 < alpha <= 2.0)")
+            sys.exit(1)
+
+    # Disk space check — each merged GGUF is roughly the size of the base
+    base_size = os.path.getsize(args.base_gguf) if os.path.exists(args.base_gguf) else 0
+    needed_gb = (base_size * len(alphas)) / (1024**3)
+    output_dir_for_check = args.output_dir if os.path.exists(args.output_dir) else os.path.dirname(args.output_dir) or "."
+    free_gb = shutil.disk_usage(output_dir_for_check).free / (1024**3)
+    if needed_gb > 0 and free_gb < needed_gb * 1.2:  # 20% headroom
+        print(f"WARNING: Merge needs ~{needed_gb:.1f} GB but only {free_gb:.1f} GB free")
+        print(f"  Consider reducing --alphas count or freeing disk space")
+
     print(f"=" * 60)
     print(f"  Safe Merge — Alpha Grid Search")
     print(f"=" * 60)
@@ -277,6 +315,7 @@ def main():
     print(f"  Alphas: {alphas}")
     print(f"  Validation: {args.validation_data}")
     print(f"  Output: {args.output_dir}")
+    print(f"  Disk: {free_gb:.1f} GB free, ~{needed_gb:.1f} GB needed")
     print(f"=" * 60)
 
     start = time.time()

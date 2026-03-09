@@ -25,7 +25,13 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def detect_category(item: dict) -> str:
-    """Detect category of a training pair. Reuses logic from build_replay_buffer.py."""
+    """Detect category of a training pair. Reuses logic from build_replay_buffer.py.
+
+    Uses word boundaries in metadata matching to prevent false positives
+    (e.g., "thriving" matching "hive", "gopher" matching "go").
+    Content-based detection uses language-specific syntax patterns that are
+    unambiguous.
+    """
     import re
     text = " ".join(str(v) for v in item.values()).lower()
     meta = item.get("metadata", {})
@@ -33,24 +39,26 @@ def detect_category(item: dict) -> str:
     tag = meta.get("tag", "")
     combined = f"{source} {tag}".lower()
 
-    if "hive" in combined:
+    # Metadata-based detection (use word boundaries to avoid false positives)
+    if re.search(r"\bhive\b", combined):
         return "hive"
-    if "go" in combined or "_go" in combined:
+    if re.search(r"\bgo\b|_go\b|golang", combined):
         return "go"
-    if "cpp" in combined or "c++" in combined:
+    if re.search(r"\bcpp\b|\bc\+\+\b", combined):
         return "cpp"
-    if "rust" in combined:
+    if re.search(r"\brust\b", combined):
         return "rust"
-    if "javascript" in combined or "js" in combined or "typescript" in combined:
+    if re.search(r"\bjavascript\b|\bjs\b|\btypescript\b|\bts\b", combined):
         return "javascript"
 
-    if re.search(r"\bhive\b|hive blockchain|hive api|dhive|hivejs", text):
+    # Content-based detection (language-specific syntax patterns)
+    if re.search(r"\bhive\b.*\b(?:blockchain|api|posting|active)\b|dhive|hivejs|beem", text):
         return "hive"
     if re.search(r"\bpackage\s+main\b|go\s+func|goroutine|chan\s+\w+", text):
         return "go"
     if re.search(r"#include\s*<|std::|template\s*<|vector<", text):
         return "cpp"
-    if re.search(r"\bfn\s+main|cargo|use\s+std::|impl\s+\w+", text):
+    if re.search(r"\bfn\s+main|cargo|use\s+std::|impl\s+\w+\s+for\b", text):
         return "rust"
     if re.search(r"\bconst\s+\w+\s*=|async\s+function|=>\s*\{|\.tsx?\b", text):
         return "javascript"
@@ -130,10 +138,17 @@ def compute_nll_batch(samples: list[dict], model_url: str,
                 # Skip None entries (first token has no logprob)
                 valid_logprobs = [lp for lp in token_logprobs if lp is not None]
                 if valid_logprobs:
-                    nll = -sum(valid_logprobs) / len(valid_logprobs)  # Average NLL
+                    # Average NLL: higher = model is more "surprised" by this
+                    # sample = model has forgotten it more = higher replay priority.
+                    # This is correct per the SuRe paper (arXiv 2511.22367):
+                    # prioritize samples the current model struggles with most.
+                    nll = -sum(valid_logprobs) / len(valid_logprobs)
                     sample["nll"] = round(nll, 4)
                     scored.append((sample, nll))
                 else:
+                    # No logprobs returned — server may have logprobs disabled
+                    print(f"    WARNING: No logprobs for sample {i+1} — "
+                          "check llama-server supports logprobs")
                     scored.append((sample, 0.0))
             else:
                 scored.append((sample, 0.0))

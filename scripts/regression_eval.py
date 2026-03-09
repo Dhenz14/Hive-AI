@@ -21,6 +21,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -157,12 +158,52 @@ PROBES = [
 
 
 def score_response(response: str, expected_keywords: list) -> float:
-    """Score a response based on keyword coverage (case-insensitive)."""
+    """Score a response based on keyword coverage + structural quality.
+
+    Combines keyword coverage (70%) with structural signals (30%) to avoid
+    inflated scores from keyword-stuffed but low-quality responses.
+
+    Structural signals:
+    - Contains code blocks (fenced with ```)
+    - Has function/class definitions
+    - Has reasonable length (not trivially short)
+    - Has explanatory prose (not just code dumps)
+    """
     if not response or not response.strip():
         return 0.0
     text = response.lower()
+
+    # Keyword coverage (unique matches only — "buffer" counts once even if
+    # it appears 10 times; prevents score inflation from repetition)
     found = sum(1 for kw in expected_keywords if kw.lower() in text)
-    return found / len(expected_keywords) if expected_keywords else 0.0
+    keyword_score = found / len(expected_keywords) if expected_keywords else 0.0
+
+    # Structural quality signals
+    structure_signals = []
+
+    # Has fenced code blocks
+    has_code = bool(re.search(r"```\w*\n", response))
+    structure_signals.append(1.0 if has_code else 0.0)
+
+    # Has function/class/struct definitions (language-agnostic patterns)
+    has_definitions = bool(re.search(
+        r"\b(def |fn |func |function |class |struct |impl |interface )\b",
+        response
+    ))
+    structure_signals.append(1.0 if has_definitions else 0.0)
+
+    # Reasonable length (>200 chars for a coding response)
+    structure_signals.append(1.0 if len(response.strip()) > 200 else 0.3)
+
+    # Has explanatory prose (not just a code dump)
+    prose_text = re.sub(r"```[\s\S]*?```", "", response).strip()
+    has_prose = len(prose_text) > 50
+    structure_signals.append(1.0 if has_prose else 0.2)
+
+    structure_score = sum(structure_signals) / len(structure_signals)
+
+    # Combined: 70% keyword coverage, 30% structural quality
+    return keyword_score * 0.7 + structure_score * 0.3
 
 
 def run_probe(probe: Probe, server_url: str) -> tuple[float, str]:

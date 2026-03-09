@@ -129,7 +129,9 @@ scripts/design_patterns.pdf
 # Continual Learning Pipeline — runtime artifacts
 replay/*.jsonl
 datasets/*.jsonl
-logs/
+# Preserve training logs (valuable history) but ignore server/temp logs
+logs/*_server.log
+logs/*_checkpoint.txt
 loras/*_consolidation/
 loras/training_data/_mixed_replay_*.jsonl
 loras/training_data/_consolidation_*.jsonl

@@ -998,3 +998,97 @@ superpowers/
 - [DONE] Initialize `<think>`/`</think>` token embeddings semantically — `--init-think-tokens` flag in `train_v5.py` (same as section 32 item, 2026-03-08)
 - [LOW] Test r=32 if r=16 shows underfitting on v9 — tracking via `audit_training_data.py --test-rank 32`
 - [LOW] Run skill_lift.py once server is available to identify dead-weight skills
+
+---
+
+## 34. Continual Learning Pipeline v1.1 Hardening (2026-03-08)
+
+The team shipped Continual Learning Pipeline v1.0 (commits bc55f53..561e360) with 7 new scripts
+totaling ~2,450 lines. Code review identified several concerns — all fixed below.
+
+### Fixes Applied
+
+#### 1. reasoning_eval.py — Regex scoring was fragile (RED FLAG)
+**Problem**: Reasoning depth markers (`step \d`, `because`, `wait`) matched inside code blocks.
+A response with `step_count = 0` or a comment `// wait for response` would score false positives.
+Length threshold was fixed at 20 lines regardless of problem difficulty.
+
+**Fix**:
+- Added `_strip_code_blocks()` — removes fenced code blocks before scanning for reasoning markers
+- Tightened marker patterns with sentence-boundary anchors (`(?:^|\.\s+)step \d` instead of `step \d`)
+- Added word boundary `\b` to markers that could match code identifiers
+- Difficulty-scaled length threshold: D1=13 lines, D3=19, D5=25 (was flat 20)
+- Per-difficulty temperature: D1=0.3, D5=0.05 (was flat 0.1) — harder problems get more deterministic output
+
+**Rationale**: Reasoning eval is only useful for relative comparison if its scoring is consistent.
+Code-block contamination inflated scores unpredictably, making before/after comparisons unreliable.
+
+#### 2. regression_eval.py — Shallow keyword matching (RED FLAG)
+**Problem**: `score_response()` counted keyword occurrences regardless of context. "buffer" in
+"audio buffer" counted the same as in "buffer overflow". No quality signal beyond keyword presence.
+
+**Fix**: Composite scoring: 70% keyword coverage + 30% structural quality signals:
+- Has fenced code blocks (expects code in coding responses)
+- Has function/class definitions (not just prose)
+- Reasonable length (>200 chars)
+- Has explanatory prose (not just a code dump)
+
+**Rationale**: Pure keyword matching rewards keyword-stuffed garbage. Adding structural signals
+ensures responses that score high actually look like real coding answers. The 70/30 split preserves
+backward compatibility with existing score_ledger.json baselines (scores will shift slightly but
+the regression detection threshold absorbs the difference).
+
+#### 3. run_full_cycle.sh — Manual restart + no error recovery (RED FLAG)
+**Problem**: Step 7 paused with `read -r` waiting for the user to manually restart llama-server
+with the merged GGUF. Breaks full automation. No resume if pipeline fails mid-cycle. No disk
+space check before creating ~56GB of intermediate files.
+
+**Fix** (v1.1):
+- Auto llama-server management: `start_llama_server()` kills existing, starts new, waits for
+  health check (up to 120s). `stop_llama_server()` on exit via trap.
+- Step checkpointing: each completed step writes to `logs/<version>_checkpoint.txt`. On re-run,
+  skips completed steps. Checkpoint is deleted on successful completion.
+- Disk space pre-flight: `check_disk_space()` verifies 60GB free before starting.
+- All paths from env vars: `LLAMA_CPP_DIR`, `LLAMA_SERVER_PORT`, `HIVEAI_PROJECT_ROOT`,
+  `HF_BASE_CACHE`, `TRAINING_BASE_DIR` — zero hardcoded user paths.
+- Auto-detect HF cache and convert script paths.
+- 30-minute timeout on regression eval (`timeout 1800`).
+
+**Rationale**: A pipeline that requires human intervention mid-run isn't a pipeline. The checkpoint
+system means a GPU OOM at step 5 doesn't waste the 30+ minutes already spent on steps 1-4.
+
+#### 4. safe_merge.py — Hardcoded paths + fragile alpha handling (YELLOW FLAG)
+**Problem**: Windows fallback hardcoded `c:\Users\theyc\llama.cpp\bin`. Alpha values were not
+validated (passing "abc" would crash with unhelpful error). HF merge scaled `lora_B` directly
+which may break with some PEFT adapter configs.
+
+**Fix**:
+- Removed hardcoded user path. Uses `LLAMA_CPP_DIR` env var or falls back to system PATH.
+- Alpha validation: must be float in (0.0, 2.0] range, clear error message on bad input.
+- Disk space check: compares needed space (base_size × num_alphas) against free space.
+- HF merge uses PEFT's `add_weighted_adapter()` API (proper scaling), with manual fallback.
+
+#### 5. replay_sampler.py — Domain detection false positives (YELLOW FLAG)
+**Problem**: `"hive" in combined` matched "thriving", "beehive". `"go" in combined` matched
+"mango", "ergonomic". `"rust" in combined` matched "frustration".
+
+**Fix**: All metadata matching now uses `re.search(r"\bhive\b", ...)` with word boundaries.
+Content-based patterns tightened (e.g., `\bhive\b.*\b(?:blockchain|api|posting|active)\b`).
+Added logprobs validation warning when server returns no logprobs (helps debug misconfigured
+llama-server).
+
+**NLL interpretation note**: High NLL = model is surprised = has forgotten this sample. This IS
+correct per the SuRe paper (arXiv 2511.22367). These are the highest-value replay candidates
+because the model needs the most refreshing on them.
+
+#### 6. consolidation_train.py — Missing validation (YELLOW FLAG)
+**Problem**: No check if base model HF directory exists before launching training.
+
+**Fix**: Added `os.path.exists(args.base_model_hf)` check with clear error message.
+
+#### 7. .gitignore — Losing training history (YELLOW FLAG)
+**Problem**: `logs/` was fully excluded, meaning all training logs (timing, loss curves, eval
+results) would be lost. These are valuable for debugging regressions.
+
+**Fix**: Only ignore `logs/*_server.log` (large, regenerable) and `logs/*_checkpoint.txt`
+(ephemeral). Training logs (`*_01_replay.log`, `*_02_train.log`, etc.) are now tracked.
