@@ -383,7 +383,7 @@ def train_grpo(args):
         per_device_train_batch_size=1,
         gradient_accumulation_steps=4,
         num_train_epochs=epochs,
-        learning_rate=5e-5,
+        learning_rate=args.lr if args.lr > 0 else 5e-5,
         warmup_ratio=0.1,
         lr_scheduler_type="cosine",
         bf16=True,
@@ -444,7 +444,15 @@ if __name__ == "__main__":
     p.add_argument("--max-prompts", type=int, default=0, help="Limit prompt count (0=all)")
     p.add_argument("--dry-run", action="store_true", help="Generate candidates + score without training")
     p.add_argument("--no-cert", action="store_true", help="Disable certificate verification in reward")
+    p.add_argument("--rank", type=int, default=0,
+                   help="Override LoRA rank (default: 16)")
+    p.add_argument("--lr", type=float, default=0.0,
+                   help="Override learning rate (default: 5e-5)")
     args = p.parse_args()
+
+    if args.rank > 0:
+        LORA_CONFIG["r"] = args.rank
+        LORA_CONFIG["lora_alpha"] = args.rank * 2
 
     optimize_system()
     train_grpo(args)

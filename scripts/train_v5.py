@@ -1329,6 +1329,8 @@ if __name__ == "__main__":
                         help="Consolidation mode: 1 epoch, LR/10, 100%% replay data")
     parser.add_argument("--base-model-hf", type=str, default=None,
                         help="Path to full-precision HF base model (for training on merged checkpoint)")
+    parser.add_argument("--neftune-alpha", type=float, default=-1.0,
+                        help="Override NEFTune noise alpha (default: 5.0, set 0 to disable)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1357,6 +1359,12 @@ if __name__ == "__main__":
         args.lr = base_lr / 10  # LR/10 for consolidation
         args.epochs = args.epochs if args.epochs > 0 else 1  # 1 epoch
         logger.info(f"Consolidation mode: lr={args.lr}, epochs={args.epochs}, 100% replay")
+
+    # NEFTune alpha override
+    if args.neftune_alpha >= 0:
+        TRAINING_CONFIG["neftune_noise_alpha"] = args.neftune_alpha if args.neftune_alpha > 0 else None
+        logger.info(f"NEFTune alpha override: {args.neftune_alpha}" if args.neftune_alpha > 0
+                    else "NEFTune disabled")
 
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)

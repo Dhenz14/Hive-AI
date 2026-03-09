@@ -1,5 +1,0 @@
-FROM qwen3:14b
-ADAPTER C:/Users/theyc/HiveAi/Hive-AI/loras/v1/hiveai-v1-lora.gguf
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
-PARAMETER num_ctx 2048
