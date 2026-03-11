@@ -321,13 +321,15 @@
         <div class="pipeline-arrow">→</div>
         <div class="pipeline-stage" id="ts-train">2. Train</div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-stage" id="ts-merge">3. Merge</div>
+        <div class="pipeline-stage" id="ts-convert">3. Convert</div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-stage" id="ts-consol">4. Consolidate</div>
+        <div class="pipeline-stage" id="ts-merge">4. Merge</div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-stage" id="ts-eval">5. Eval</div>
+        <div class="pipeline-stage" id="ts-consol">5. Consolidate</div>
         <div class="pipeline-arrow">→</div>
-        <div class="pipeline-stage" id="ts-promote">6. Promote</div>
+        <div class="pipeline-stage" id="ts-eval">6. Eval</div>
+        <div class="pipeline-arrow">→</div>
+        <div class="pipeline-stage" id="ts-promote">7. Promote</div>
     </div>
     <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 0.8rem;">
         <div class="progress-track" style="flex: 1;">
@@ -1312,16 +1314,16 @@ async function pollTrainingStatus() {
             if (data.log_tail && data.log_tail.length > 0) {
                 document.getElementById('train-log').textContent = data.log_tail.join('\n');
             }
-            // Highlight pipeline stage
-            const stages = {'1': 'ts-replay', '2': 'ts-train', '3': 'ts-merge',
-                           '4': 'ts-consol', '5': 'ts-eval', '6': 'ts-promote'};
+            // Highlight pipeline stage using pipeline_step (1-7)
+            const stages = {'1': 'ts-replay', '2': 'ts-train', '3': 'ts-convert',
+                           '4': 'ts-merge', '5': 'ts-consol', '6': 'ts-eval', '7': 'ts-promote'};
+            const pipeStep = data.pipeline_step || 0;
             for (const [k, id] of Object.entries(stages)) {
                 const el = document.getElementById(id);
                 if (el) {
                     el.classList.remove('active', 'done');
-                    const stageNum = parseInt(data.stage) || 0;
-                    if (parseInt(k) < stageNum) el.classList.add('done');
-                    else if (parseInt(k) === stageNum) el.classList.add('active');
+                    if (parseInt(k) < pipeStep) el.classList.add('done');
+                    else if (parseInt(k) === pipeStep) el.classList.add('active');
                 }
             }
         } else {
@@ -1391,13 +1393,16 @@ async function stopTraining() {
 let _tmPollTimer = null;
 
 const TM_STAGE_COLORS = {
-    idle:       { bg: 'rgba(100,100,100,0.08)', border: 'var(--text-muted)',  text: 'var(--text-muted)' },
-    training:   { bg: 'rgba(245,158,11,0.08)',  border: 'var(--amber)',       text: 'var(--amber)' },
-    merging:    { bg: 'rgba(167,139,250,0.08)', border: '#a78bfa',            text: '#a78bfa' },
-    quantizing: { bg: 'rgba(59,130,246,0.08)',  border: '#3b82f6',            text: '#3b82f6' },
-    evaluating: { bg: 'rgba(234,179,8,0.08)',   border: '#eab308',            text: '#eab308' },
-    complete:   { bg: 'rgba(34,197,94,0.08)',   border: '#22c55e',            text: '#22c55e' },
-    error:      { bg: 'rgba(239,68,68,0.08)',   border: '#ef4444',            text: '#ef4444' },
+    idle:           { bg: 'rgba(100,100,100,0.08)', border: 'var(--text-muted)',  text: 'var(--text-muted)' },
+    preflight:      { bg: 'rgba(34,197,94,0.08)',   border: '#22c55e',            text: '#22c55e' },
+    replay:         { bg: 'rgba(59,130,246,0.08)',  border: '#3b82f6',            text: '#3b82f6' },
+    training:       { bg: 'rgba(245,158,11,0.08)',  border: 'var(--amber)',       text: 'var(--amber)' },
+    converting:     { bg: 'rgba(139,92,246,0.08)',  border: '#8b5cf6',            text: '#8b5cf6' },
+    merging:        { bg: 'rgba(167,139,250,0.08)', border: '#a78bfa',            text: '#a78bfa' },
+    consolidating:  { bg: 'rgba(236,72,153,0.08)',  border: '#ec4899',            text: '#ec4899' },
+    evaluating:     { bg: 'rgba(234,179,8,0.08)',   border: '#eab308',            text: '#eab308' },
+    complete:       { bg: 'rgba(34,197,94,0.08)',   border: '#22c55e',            text: '#22c55e' },
+    error:          { bg: 'rgba(239,68,68,0.08)',   border: '#ef4444',            text: '#ef4444' },
 };
 
 async function refreshTrainMonitor() {

@@ -869,6 +869,14 @@ loadReports();
 loadLedger();
 checkTrainingStatus();
 
+// Auto-refresh: poll ledger and training status every 30s so new scores appear live
+setInterval(() => {
+    loadLedger();
+    loadScoreHistory();
+    loadTrajectory();
+    checkTrainingStatus();
+}, 30000);
+
 (async function checkRunning() {
     try {
         const resp = await fetch('/api/eval/status');
@@ -900,7 +908,8 @@ async function checkTrainingStatus() {
             banner.style.display = 'flex';
             const parts = [];
             if (data.version) parts.push(data.version);
-            if (data.stage) parts.push('Step ' + data.stage);
+            if (data.stage) parts.push(data.stage);
+            if (data.pipeline_step) parts.push('stage ' + data.pipeline_step + '/7');
             if (data.step && data.total_steps) parts.push(data.step + '/' + data.total_steps + ' steps');
             if (data.loss) parts.push('loss: ' + parseFloat(data.loss).toFixed(3));
             document.getElementById('training-banner-detail').textContent = parts.join(' \u00b7 ') || 'Cycle running...';

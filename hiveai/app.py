@@ -2189,10 +2189,11 @@ def lora_training_status():
     result = {"active": False, "stage": None, "step": None, "total_steps": None,
               "loss": None, "eta": None, "summary": None, "log_tail": []}
     try:
-        # Check if tmux session exists
+        # Check if any training tmux session exists
+        # Training runs under various session names: hiveai_train, v5resume, auto_queue, etc.
         check = sp.run(
             ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "tmux has-session -t hiveai_train 2>/dev/null && echo ACTIVE || echo INACTIVE"],
+             "tmux list-sessions 2>/dev/null | grep -qiE 'train|v[0-9]|auto_queue' && echo ACTIVE || echo INACTIVE"],
             capture_output=True, text=True, timeout=5,
         )
         if "ACTIVE" not in check.stdout:
@@ -2200,11 +2201,11 @@ def lora_training_status():
 
         result["active"] = True
 
-        # Read latest log
+        # Read latest log — find most recently modified log file
         log_result = sp.run(
             ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "tail -30 /opt/hiveai/project/logs/*/train.log 2>/dev/null || "
-             "tail -30 /opt/hiveai/project/logs/*.log 2>/dev/null || echo 'no logs'"],
+             "ls -t /opt/hiveai/project/logs/auto_queue_*/*.log /opt/hiveai/project/logs/*.log "
+             "/opt/hiveai/project/logs/*/train.log 2>/dev/null | head -1 | xargs tail -30 2>/dev/null || echo 'no logs'"],
             capture_output=True, text=True, timeout=5,
         )
         log_lines = [l.strip() for l in log_result.stdout.strip().split("\n") if l.strip()]
@@ -2225,14 +2226,29 @@ def lora_training_status():
                     result["loss"] = float(loss_match.group(1))
 
         # Check checkpoint for pipeline stage
+        # Checkpoint files are logs/{version}_checkpoint.txt with format: step=N\nversion=...
         chk_result = sp.run(
             ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "cat /opt/hiveai/project/logs/*/.checkpoint 2>/dev/null || echo ''"],
+             "cat /opt/hiveai/project/logs/*_checkpoint.txt 2>/dev/null | head -5"],
             capture_output=True, text=True, timeout=5,
         )
         checkpoint = chk_result.stdout.strip()
         if checkpoint:
-            result["stage"] = checkpoint
+            # Parse step=N from checkpoint file
+            import re as _re
+            step_match = _re.search(r'step=(\d+)', checkpoint)
+            version_match = _re.search(r'version=(\S+)', checkpoint)
+            if step_match:
+                pipeline_step = int(step_match.group(1))
+                # Map checkpoint step (1-7) to human-readable stage name
+                stage_names = {
+                    0: 'preflight', 1: 'replay', 2: 'training', 3: 'converting',
+                    4: 'merging', 5: 'consolidating', 6: 'evaluating', 7: 'complete'
+                }
+                result["stage"] = stage_names.get(pipeline_step, str(pipeline_step))
+                result["pipeline_step"] = pipeline_step
+            if version_match:
+                result["version"] = version_match.group(1)
 
         # Build summary
         if result["step"] and result["total_steps"]:
