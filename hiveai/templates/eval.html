@@ -869,13 +869,6 @@ loadReports();
 loadLedger();
 checkTrainingStatus();
 
-// Auto-refresh: poll ledger and training status every 30s so new scores appear live
-setInterval(() => {
-    loadLedger();
-    loadScoreHistory();
-    loadTrajectory();
-    checkTrainingStatus();
-}, 30000);
 
 (async function checkRunning() {
     try {
