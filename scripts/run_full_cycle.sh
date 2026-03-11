@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# Hive AI Continual Learning Pipeline v1.1 — Full Cycle Orchestrator
+# Hive AI Continual Learning Pipeline v1.1 -Full Cycle Orchestrator
 #
 # Runs the complete merge-then-freeze cycle for one domain:
 #   1. Build surprise replay buffer
@@ -27,11 +27,11 @@
 #   bash scripts/run_full_cycle.sh cpp datasets/cpp_data.jsonl v2-cpp v1-hive
 #
 # Environment variables (set in .env or export):
-#   LLAMA_CPP_DIR       — Path to llama.cpp (default: /tmp/llama.cpp)
-#   LLAMA_SERVER_PORT   — Port for llama-server (default: 11435)
-#   HIVEAI_PROJECT_ROOT — Override auto-detected project root
-#   HF_BASE_CACHE       — HF snapshot path for GGUF conversion
-#   TRAINING_BASE_DIR   — Base dir for HF training checkpoints (default: /opt/hiveai/project/models/training)
+#   LLAMA_CPP_DIR       -Path to llama.cpp (default: /tmp/llama.cpp)
+#   LLAMA_SERVER_PORT   -Port for llama-server (default: 11435)
+#   HIVEAI_PROJECT_ROOT -Override auto-detected project root
+#   HF_BASE_CACHE       -HF snapshot path for GGUF conversion
+#   TRAINING_BASE_DIR   -Base dir for HF training checkpoints (default: /opt/hiveai/project/models/training)
 # =============================================================================
 set -euo pipefail
 
@@ -40,11 +40,25 @@ DATA_PATH=${2:?Usage: run_full_cycle.sh <domain> <data_path> <version> [prev_ver
 VERSION=${3:?Usage: run_full_cycle.sh <domain> <data_path> <version> [prev_version]}
 PREV_VERSION=${4:-v1.0}
 
+SKIP_CLEANUP=false
+for arg in "$@"; do
+    if [ "$arg" = "--skip-cleanup" ]; then
+        SKIP_CLEANUP=true
+    fi
+done
+
 # ---------------------------------------------------------------------------
 # Path configuration (all from env vars with sensible defaults)
 # ---------------------------------------------------------------------------
 PROJECT_ROOT="${HIVEAI_PROJECT_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-LLAMA_CPP="${LLAMA_CPP_DIR:-/tmp/llama.cpp}"
+# Prefer persistent build location, fall back to /tmp
+if [ -d "/opt/hiveai/llama-cpp-build" ]; then
+    LLAMA_CPP="${LLAMA_CPP_DIR:-/opt/hiveai/llama-cpp-build}"
+else
+    LLAMA_CPP="${LLAMA_CPP_DIR:-/tmp/llama.cpp}"
+fi
+# Export for safe_merge.py (expects LLAMA_CPP_DIR pointing to parent of bin/)
+export LLAMA_CPP_DIR="${LLAMA_CPP}/build"
 LLAMA_PORT="${LLAMA_SERVER_PORT:-11435}"
 TRAINING_DIR="${TRAINING_BASE_DIR:-/opt/hiveai/project/models/training}"
 DEPLOY_DIR="$PROJECT_ROOT/models/deploy"
@@ -176,7 +190,7 @@ start_llama_server() {
         --port "$port" \
         --flash-attn on \
         --cache-type-k q8_0 --cache-type-v q4_0 \
-        --ctx-size 8192 -ngl 99 \
+        --ctx-size 8192 -ngl 99 --threads 8 \
         > "$LOG_DIR/${VERSION}_server.log" 2>&1 &
 
     SERVER_PID=$!
@@ -186,7 +200,14 @@ start_llama_server() {
     echo "  Waiting for server to be ready..."
     for i in $(seq 1 60); do
         if curl -s "http://localhost:$port/health" >/dev/null 2>&1; then
-            echo "  Server ready! (${i}s)"
+            echo "  Server ready after ${i}s, sending warmup request..."
+            # Warmup: first request after load can 503 without this
+            curl -s "http://localhost:$port/v1/chat/completions" \
+                -H "Content-Type: application/json" \
+                -d '{"model":"test","messages":[{"role":"user","content":"hello"}],"max_tokens":10}' \
+                > /dev/null 2>&1
+            sleep 3
+            echo "  Server warmed up and ready!"
             return 0
         fi
         sleep 2
@@ -214,7 +235,7 @@ trap 'stop_llama_server; echo "  Cycle interrupted at step $(get_checkpoint)"' E
 # Pre-flight checks
 # ---------------------------------------------------------------------------
 echo "============================================================"
-echo "  Hive AI Continual Learning — Full Cycle v1.1"
+echo "  Hive AI Continual Learning -Full Cycle v1.1"
 echo "============================================================"
 echo "  Domain:       $DOMAIN"
 echo "  Data:         $DATA_PATH"
@@ -247,6 +268,14 @@ if [ -z "$HF_BASE_CACHE" ] || [ ! -d "$HF_BASE_CACHE" ]; then
     exit 1
 fi
 
+# Auto-restore llama.cpp tools from permanent cache if missing
+if [ -f /opt/hiveai/tools/restore_llama_cpp.sh ]; then
+    source /opt/hiveai/tools/restore_llama_cpp.sh
+fi
+# Ensure llama.cpp binaries are on PATH
+export PATH="${LLAMA_CPP}/build/bin:${PATH}"
+export LD_LIBRARY_PATH="${LLAMA_CPP}/build/bin:${LD_LIBRARY_PATH:-}"
+
 # Check convert script exists
 CONVERT_SCRIPT="${LLAMA_CPP}/convert_lora_to_gguf.py"
 if [ ! -f "$CONVERT_SCRIPT" ]; then
@@ -261,17 +290,19 @@ fi
 # Disk space check (need ~60GB for full cycle: 4x merged candidates + HF checkpoint)
 check_disk_space "$DEPLOY_DIR" 60
 
-# Run preflight validator if available
-if [ -f "$PROJECT_ROOT/scripts/preflight_check.py" ]; then
-    echo "Running pre-flight checks..."
-    python "$PROJECT_ROOT/scripts/preflight_check.py" \
-        --data "$DATA_PATH" \
-        --base-model-hf "$PREV_HF" \
-        --min-disk-gb 20 || {
-        echo "Pre-flight check FAILED — fix issues above before training"
-        exit 1
-    }
+###############################################################################
+# PRE-FLIGHT CHECK
+###############################################################################
+echo "[Pre-flight] Running validation checks..."
+python3 scripts/preflight_check.py --data "$DATA_PATH" ${BASE_MODEL_HF:+--base-model-hf "$BASE_MODEL_HF"}
+PREFLIGHT_EXIT=$?
+if [ $PREFLIGHT_EXIT -eq 1 ]; then
+    echo "FATAL: Pre-flight check failed. Fix issues above before training."
+    exit 1
+elif [ $PREFLIGHT_EXIT -eq 2 ]; then
+    echo "[Pre-flight] Warnings detected but proceeding..."
 fi
+echo ""
 
 LAST_STEP=$(get_checkpoint)
 if [ "$LAST_STEP" -gt 0 ]; then
@@ -291,6 +322,7 @@ if [ "$LAST_STEP" -lt 1 ]; then
         --replay-dir "$REPLAY_DIR" \
         --keep 500 \
         --output "$REPLAY_DIR/sampled.jsonl" \
+        --domain-balanced \
         --fallback-diversity \
         2>&1 | tee "$LOG_DIR/${VERSION}_01_replay.log"
     save_checkpoint 1
@@ -306,6 +338,16 @@ if [ "$LAST_STEP" -lt 2 ]; then
     source "$PROJECT_ROOT/scripts/training_guard.sh" 2>/dev/null || true
     create_lock "$VERSION" "step 2: training LoRA" 2>/dev/null || true
 
+    # Detect previous LoRA and Fisher for lossless continual learning
+    PREV_LORA_FLAG=""
+    FISHER_FLAG=""
+    if [ -d "$PROJECT_ROOT/loras/$PREV_VERSION" ]; then
+        PREV_LORA_FLAG="--prev-lora $PROJECT_ROOT/loras/$PREV_VERSION"
+    fi
+    if [ -f "$PROJECT_ROOT/loras/$PREV_VERSION/fisher.pt" ]; then
+        FISHER_FLAG="--fisher-path $PROJECT_ROOT/loras/$PREV_VERSION/fisher.pt"
+    fi
+
     python "$PROJECT_ROOT/scripts/train_v5.py" \
         --base-model-hf "$PREV_HF" \
         --data "$DATA_PATH" \
@@ -316,6 +358,9 @@ if [ "$LAST_STEP" -lt 2 ]; then
         --lora-plus \
         --no-kl \
         --epochs 2 \
+        --probe-guard \
+        $PREV_LORA_FLAG \
+        $FISHER_FLAG \
         2>&1 | tee "$LOG_DIR/${VERSION}_02_train.log"
 
     # Remove training lock
@@ -354,11 +399,14 @@ if [ "$LAST_STEP" -lt 4 ]; then
         --lora-gguf "$LORA_GGUF" \
         --output-dir "$MERGE_OUTPUT" \
         --validation-data "$REPLAY_DIR/sampled.jsonl" \
-        --alphas "0.75,0.85,0.95,1.0" \
+        --alphas "0.85,1.0" \
+        --early-exit-ppl 8.0 \
         --version "$VERSION" \
         --base-hf "$PREV_HF" \
         --lora-hf "$LORA_OUTPUT" \
         --output-hf "$TRAINING_DIR/${VERSION}/hf" \
+        --della-drop 0.7 \
+        --per-layer-alpha \
         2>&1 | tee "$LOG_DIR/${VERSION}_04_merge.log"
     save_checkpoint 4
 fi
@@ -426,7 +474,7 @@ if [ "$LAST_STEP" -lt 7 ]; then
     timeout 1800 python "$PROJECT_ROOT/scripts/regression_eval.py" \
         --model-version "$VERSION" \
         --server-url "http://localhost:$LLAMA_PORT" \
-        --threshold 0.03 \
+        --threshold 0.01 \
         2>&1 | tee "$LOG_DIR/${VERSION}_07_eval.log"
 
     EVAL_EXIT=$?
@@ -448,7 +496,7 @@ ELAPSED=$((END_TIME - START_TIME))
 echo ""
 echo "============================================================"
 if [ $EVAL_EXIT -eq 0 ]; then
-    echo "  CYCLE PASSED — Promoting $VERSION as new base"
+    echo "  CYCLE PASSED -Promoting $VERSION as new base"
     cp "$MERGE_OUTPUT/merged.gguf" "$DEPLOY_DIR/current_base.gguf"
     echo "  New base: $DEPLOY_DIR/current_base.gguf"
     echo "  Training HF: $TRAINING_DIR/${VERSION}/hf"
@@ -456,7 +504,7 @@ if [ $EVAL_EXIT -eq 0 ]; then
     echo "  Next domain command:"
     echo "    bash scripts/run_full_cycle.sh <next_domain> <data.jsonl> v<N+1> $VERSION"
 else
-    echo "  CYCLE FAILED — Regression detected!"
+    echo "  CYCLE FAILED -Regression detected!"
     echo "  NOT promoting $VERSION"
     echo "  Current base unchanged: $PREV_GGUF"
     echo ""
@@ -488,4 +536,46 @@ else
     echo "  Kept checkpoint for resume: $CHECKPOINT_FILE"
     echo "  Resume with: bash scripts/run_full_cycle.sh $DOMAIN $DATA_PATH $VERSION $PREV_VERSION"
 fi
+
+###############################################################################
+# CLEANUP -Prevent disk bloat
+###############################################################################
+if [ "$SKIP_CLEANUP" = "false" ]; then
+    echo ""
+    echo "[Cleanup] Removing intermediate files..."
+
+    # 1. Delete alpha grid search candidates (safe_merge temp files)
+    if [ -d "${PROJECT_ROOT}/models/golden" ]; then
+        find "${PROJECT_ROOT}/models/golden" -name "*-alpha-*" -type d -exec rm -rf {} + 2>/dev/null
+        echo "  Removed alpha candidate directories"
+    fi
+
+    # 2. Keep only the latest 2 bf16 checkpoints in golden/
+    if [ -d "${PROJECT_ROOT}/models/golden" ]; then
+        BF16_DIRS=$(ls -dt "${PROJECT_ROOT}/models/golden"/*/  2>/dev/null | grep -v original-bf16 | tail -n +3)
+        if [ -n "$BF16_DIRS" ]; then
+            echo "$BF16_DIRS" | while read dir; do
+                echo "  Removing old checkpoint: $dir"
+                rm -rf "$dir"
+            done
+        fi
+    fi
+
+    # 3. Clear HF dataset cache (re-created each training run)
+    rm -rf /root/.cache/huggingface/datasets/* 2>/dev/null
+    echo "  Cleared HF dataset cache"
+
+    # 4. Clear Unsloth compiled cache
+    rm -rf "${PROJECT_ROOT}/unsloth_compiled_cache" 2>/dev/null
+    echo "  Cleared Unsloth compiled cache"
+
+    # 5. Report disk usage
+    echo ""
+    echo "[Disk Usage]"
+    du -sh "${PROJECT_ROOT}/models/" 2>/dev/null || true
+    du -sh "${PROJECT_ROOT}/loras/" 2>/dev/null || true
+    du -sh /root/.cache/huggingface/hub/ 2>/dev/null || true
+    df -h / | tail -1 | awk '{print "  Free: " $4 " (" $5 " used)"}'
+fi
+
 echo "Done."

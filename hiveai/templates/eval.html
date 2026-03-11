@@ -4,142 +4,305 @@
 {% block extra_css %}
 <style>
     .eval-card {
-        background: linear-gradient(135deg, #1a1008 0%, #0d0a05 100%);
-        border: 1px solid #5c3a1e;
-        border-radius: 4px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 1.5rem;
         margin-bottom: 1rem;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5), inset 0 1px 0 rgba(205,127,50,0.1);
         position: relative;
     }
-    .eval-card::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, transparent, #cd7f32, #b87333, transparent);
-    }
-    .eval-card h2 { color: #cd7f32; }
+    .eval-card h2 { color: var(--text-primary); }
     .eval-stat-card {
-        background: linear-gradient(145deg, #1a1008 0%, #0d0a05 100%);
-        border: 2px solid #5c3a1e;
-        border-radius: 6px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 10px;
         padding: 1.2rem;
         text-align: center;
     }
     .eval-stat-card .number {
-        font-family: 'MedievalSharp', cursive;
+        font-family: 'Space Grotesk', sans-serif;
         font-size: 2rem;
         font-weight: 700;
-        color: #cd7f32;
+        color: var(--amber);
     }
     .eval-stat-card .label {
-        font-size: 0.85rem;
-        color: #b87333;
+        font-size: 0.75rem;
+        color: var(--text-muted);
         margin-top: 0.3rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .btn-eval {
-        background: linear-gradient(180deg, #92400e 0%, #78350f 100%);
-        color: #fcd34d;
-        border: 2px solid #b45309;
-        display: inline-block;
-        padding: 0.6rem 1.2rem;
-        border-radius: 4px;
+        background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dim) 100%);
+        color: var(--bg-deep);
+        border: 1px solid var(--amber);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.55rem 1.2rem;
+        border-radius: 8px;
         cursor: pointer;
-        font-size: 0.9rem;
-        font-weight: 700;
+        font-size: 0.85rem;
+        font-weight: 600;
         transition: all 0.2s;
-        font-family: 'MedievalSharp', cursive;
+        font-family: 'Inter', sans-serif;
     }
     .btn-eval:hover {
-        background: linear-gradient(180deg, #b45309 0%, #92400e 100%);
-        box-shadow: 0 0 12px rgba(180, 83, 9, 0.5);
+        box-shadow: 0 0 20px rgba(245,158,11,0.3);
+        transform: translateY(-1px);
     }
-    .btn-eval:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-eval:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
     .score-badge {
         display: inline-block;
         padding: 0.2rem 0.6rem;
-        border-radius: 4px;
-        font-family: 'MedievalSharp', cursive;
+        border-radius: 6px;
+        font-family: 'Space Grotesk', sans-serif;
         font-weight: 700;
         font-size: 1.1rem;
     }
-    .score-high { background: rgba(74,222,128,0.15); color: #86efac; border: 1px solid #4ade80; }
-    .score-mid { background: rgba(252,211,77,0.15); color: #fcd34d; border: 1px solid #f59e0b; }
-    .score-low { background: rgba(252,165,165,0.15); color: #fca5a5; border: 1px solid #ef4444; }
+    .score-high { background: rgba(34,197,94,0.1); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .score-mid { background: rgba(245,158,11,0.1); color: var(--amber); border: 1px solid rgba(245,158,11,0.3); }
+    .score-low { background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
     .dim-bar {
         display: inline-block;
-        height: 14px;
+        height: 10px;
         border-radius: 3px;
         vertical-align: middle;
     }
     .progress-track {
         width: 100%;
-        height: 28px;
-        background: #0d0a05;
-        border: 2px solid #5c3a1e;
-        border-radius: 14px;
+        height: 24px;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 12px;
         overflow: hidden;
         position: relative;
         margin: 0.8rem 0;
     }
     .progress-fill {
         height: 100%;
-        background: linear-gradient(90deg, #78350f, #b45309, #f59e0b);
-        border-radius: 14px;
+        background: linear-gradient(90deg, var(--amber-deep), var(--amber-dim), var(--amber));
+        border-radius: 12px;
         transition: width 0.5s ease;
     }
     .progress-label {
         position: absolute;
         top: 50%; left: 50%;
         transform: translate(-50%, -50%);
-        font-family: 'MedievalSharp', cursive;
-        font-size: 0.75rem;
-        color: #fef3c7;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        color: var(--text-primary);
         white-space: nowrap;
         z-index: 2;
     }
     .report-row { cursor: pointer; transition: background 0.15s; }
-    .report-row:hover { background: rgba(205,127,50,0.08); }
+    .report-row:hover { background: rgba(245,158,11,0.03); }
+    /* Intelligence Trajectory */
+    .trajectory-hero {
+        background: linear-gradient(135deg, rgba(245,158,11,0.05) 0%, rgba(34,197,94,0.05) 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .trajectory-hero h2 { margin: 0 0 0.3rem 0; }
+    .trajectory-stats {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin: 1rem 0;
+    }
+    .traj-stat {
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.5rem;
+        text-align: center;
+        flex: 1;
+        min-width: 120px;
+    }
+    .traj-stat .value {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    .traj-stat .label {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 0.2rem;
+    }
+    .traj-chart-container {
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem;
+        margin: 1rem 0;
+        overflow-x: auto;
+    }
+    .traj-chart-container svg text { font-family: 'JetBrains Mono', 'Space Grotesk', monospace; }
+    .version-timeline {
+        display: flex;
+        gap: 0;
+        margin-top: 1rem;
+        overflow-x: auto;
+    }
+    .version-timeline {
+        scroll-behavior: smooth;
+    }
+    .version-card {
+        flex: 0 0 auto;
+        min-width: 160px;
+        max-width: 200px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem;
+        position: relative;
+    }
+    .version-card.active {
+        border-color: var(--amber);
+        box-shadow: 0 0 15px rgba(245,158,11,0.15);
+    }
+    .version-card .ver-name {
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 700;
+        color: var(--amber);
+        font-size: 0.95rem;
+    }
+    .version-card .ver-score {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0.3rem 0;
+    }
+    .version-card .ver-delta {
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+    .version-card .ver-notes {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+        line-height: 1.4;
+    }
+    .delta-up { color: #22c55e; }
+    .delta-down { color: #ef4444; }
+    .delta-neutral { color: var(--text-muted); }
+    .domain-heatmap td {
+        text-align: center;
+        padding: 0.4rem 0.6rem;
+        font-family: 'Space Grotesk', sans-serif;
+        font-weight: 600;
+        font-size: 0.85rem;
+        border-radius: 4px;
+        position: relative;
+    }
+    .domain-heatmap th {
+        text-transform: capitalize;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-weight: 600;
+        padding: 0.4rem 0.6rem;
+    }
+    .domain-heatmap .arrow {
+        font-size: 0.65rem;
+        margin-left: 2px;
+        vertical-align: super;
+    }
+    .best-ever {
+        outline: 2px solid #22c55e;
+        outline-offset: -2px;
+    }
+    .training-banner {
+        background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(245,158,11,0.03) 100%);
+        border: 1px solid rgba(245,158,11,0.3);
+        border-radius: 10px;
+        padding: 0.8rem 1.2rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        font-size: 0.85rem;
+    }
+    .training-banner .pulse {
+        width: 10px; height: 10px;
+        background: var(--amber);
+        border-radius: 50%;
+        animation: pulse-glow 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse-glow {
+        0%, 100% { box-shadow: 0 0 4px rgba(245,158,11,0.4); }
+        50% { box-shadow: 0 0 12px rgba(245,158,11,0.8); }
+    }
     select {
         padding: 0.5rem 0.7rem;
-        background: #1a1008;
-        border: 2px solid #5c3a1e;
-        border-radius: 4px;
-        color: #d4b896;
-        font-size: 0.9rem;
-        font-family: 'Crimson Text', serif;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-size: 0.85rem;
+        font-family: 'Inter', sans-serif;
         outline: none;
     }
-    select:focus { border-color: #b45309; box-shadow: 0 0 8px rgba(180,83,9,0.3); }
+    select:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(245,158,11,0.1); }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1>📊 The Eval Arena</h1>
-<p style="color: #b87333; margin-bottom: 1.5rem; font-style: italic;">
-    Test the gnome's knowledge against structured challenges. Compare models, track progress, measure mastery.
+<h1>Eval Arena</h1>
+<p style="color: var(--text-muted); margin-bottom: 1.5rem;">
+    Track how HiveAI gets smarter with every training cycle. From vanilla Qwen2.5 to domain expert.
 </p>
 
-<!-- Run Evaluation -->
+<!-- Training In Progress Banner -->
+<div class="training-banner" id="training-banner" style="display:none;">
+    <div class="pulse"></div>
+    <div>
+        <strong style="color:var(--amber);">Training in progress</strong>
+        <span id="training-banner-detail" style="color:var(--text-muted);margin-left:0.5rem;"></span>
+    </div>
+</div>
+
+<!-- Intelligence Trajectory Hero -->
+<div class="trajectory-hero" id="trajectory-hero">
+    <h2>Intelligence Trajectory</h2>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">From vanilla base to trained expert — every version, every domain, every improvement.</p>
+    <div class="trajectory-stats" id="traj-stats"></div>
+    <div class="traj-chart-container" id="traj-chart-container">
+        <div id="traj-chart" style="min-height: 200px;"></div>
+    </div>
+    <div id="traj-legend" style="display:flex;gap:1.2rem;flex-wrap:wrap;font-size:0.78rem;margin-top:0.5rem;"></div>
+</div>
+
+<!-- Version Timeline -->
+<div class="eval-card" id="version-timeline-card">
+    <h2>Version Timeline</h2>
+    <p style="color: var(--text-muted); font-size: 0.82rem;">Each card = one training cycle. Knowledge stacks like legos — once merged, it can never be lost.</p>
+    <div class="version-timeline" id="version-timeline" style="gap: 0.8rem;"></div>
+</div>
+
+<!-- Domain Heatmap -->
+<div class="eval-card" id="domain-heatmap-card">
+    <h2>Domain Mastery Heatmap</h2>
+    <p style="color: var(--text-muted); font-size: 0.82rem;">Color-coded scores with delta arrows showing improvement between versions.</p>
+    <div id="domain-heatmap-container" style="overflow-x: auto;"></div>
+</div>
+
 <div class="eval-card">
-    <h2>⚔ Launch Evaluation</h2>
+    <h2>Run Evaluation</h2>
     <div style="display: flex; gap: 1.5rem; align-items: flex-end; flex-wrap: wrap; margin-top: 1rem;">
         <div>
-            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Model</label>
+            <label style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Model</label>
             <select id="eval-model">
-                <option value="">Default (fast model)</option>
-                <option value="qwen3:14b">qwen3:14b (baseline)</option>
-                <option value="hiveai-v1">hiveai-v1 (llama-server)</option>
-                <option value="hiveai-v2">hiveai-v2 (llama-server)</option>
+                <option value="">Default (llama-server)</option>
+                <option value="hiveai" selected>hiveai (current deployed)</option>
             </select>
         </div>
         <div>
-            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Category</label>
+            <label style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Category</label>
             <select id="eval-category">
                 <option value="">All (115 challenges)</option>
                 <option value="code">Code (30%)</option>
@@ -154,7 +317,7 @@
             </select>
         </div>
         <div>
-            <label style="color: #b87333; font-size: 0.85rem; display: block; margin-bottom: 0.3rem;">Limit</label>
+            <label style="color: var(--text-muted); font-size: 0.75rem; display: block; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Limit</label>
             <select id="eval-limit">
                 <option value="">All</option>
                 <option value="5">5 (quick test)</option>
@@ -163,58 +326,57 @@
             </select>
         </div>
         <div>
-            <button class="btn-eval" id="eval-run-btn" onclick="runEval()">
-                ⚔ Begin Trial
-            </button>
+            <button class="btn-eval" id="eval-run-btn" onclick="runEval()">Run Evaluation</button>
         </div>
     </div>
 
-    <!-- Progress -->
     <div id="eval-progress-container" style="display: none; margin-top: 1rem;">
         <div class="progress-track">
             <div class="progress-fill" id="eval-progress-bar" style="width: 0%;"></div>
             <div class="progress-label" id="eval-progress-label">Starting...</div>
         </div>
-        <div id="eval-current" style="color: #6b5a3e; font-size: 0.85rem; margin-top: 0.3rem;"></div>
+        <div id="eval-current" style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.3rem;"></div>
     </div>
 
-    <div id="eval-error" style="display: none; margin-top: 1rem; padding: 0.8rem; background: rgba(239,68,68,0.1); border: 1px solid #ef4444; border-radius: 4px; color: #fca5a5;"></div>
+    <div id="eval-error" style="display: none; margin-top: 1rem; padding: 0.8rem; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px; color: #fca5a5;"></div>
 </div>
 
-<!-- Latest Results -->
 <div class="eval-card" id="results-card" style="display: none;">
-    <h2>🏆 Trial Results</h2>
+    <h2>Results</h2>
     <div style="display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin: 1rem 0;">
         <div>
-            <span style="color: #b87333; font-size: 0.85rem;">Model:</span>
-            <span id="result-model" style="color: #cd7f32; font-family: 'MedievalSharp', cursive;"></span>
+            <span style="color: var(--text-muted); font-size: 0.82rem;">Model:</span>
+            <span id="result-model" style="color: var(--amber); font-family: 'Space Grotesk', sans-serif; font-weight: 600;"></span>
         </div>
         <div>
-            <span style="color: #b87333; font-size: 0.85rem;">Overall:</span>
+            <span style="color: var(--text-muted); font-size: 0.82rem;">Overall:</span>
             <span id="result-score" class="score-badge"></span>
         </div>
         <div>
-            <span style="color: #b87333; font-size: 0.85rem;">Challenges:</span>
-            <span id="result-count" style="color: #d4b896;"></span>
+            <span style="color: var(--text-muted); font-size: 0.82rem;">Challenges:</span>
+            <span id="result-count" style="color: var(--text-primary);"></span>
         </div>
     </div>
 
-    <!-- Dimension Breakdown -->
-    <h3 style="color: #b87333; margin-top: 1.2rem;">Dimension Scores</h3>
+    <h3 style="color: var(--text-muted); margin-top: 1.2rem; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 1px;">Dimension Scores</h3>
     <div id="result-dimensions" style="margin-top: 0.5rem;"></div>
 </div>
 
-<!-- Score Ledger — Domain Scores Across Versions -->
+<div class="eval-card" id="score-history-card" style="display:none;">
+    <h2>Score History</h2>
+    <div id="score-chart"></div>
+    <div id="score-legend" style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1rem;font-size:0.8rem;"></div>
+</div>
+
 <div class="eval-card">
-    <h2>📈 Score Ledger — Domain Progression</h2>
+    <h2>Score Ledger</h2>
     <div id="ledger-container">
         <p class="empty">Loading score ledger...</p>
     </div>
 </div>
 
-<!-- Past Reports -->
 <div class="eval-card">
-    <h2>📜 Past Trials</h2>
+    <h2>Past Evaluations</h2>
     <div id="reports-container">
         <p class="empty">Loading past reports...</p>
     </div>
@@ -256,7 +418,6 @@ async function runEval() {
             return;
         }
 
-        // Start polling
         pollInterval = setInterval(pollStatus, 3000);
     } catch (e) {
         showError('Connection failed. Is the server running?');
@@ -295,9 +456,7 @@ async function pollStatus() {
             loadResults();
             loadReports();
         }
-    } catch (e) {
-        // Ignore transient fetch errors during polling
-    }
+    } catch (e) {}
 }
 
 async function loadResults() {
@@ -316,17 +475,16 @@ async function loadResults() {
         scoreEl.textContent = scorePct + '%';
         scoreEl.className = 'score-badge ' + (score >= 0.8 ? 'score-high' : score >= 0.6 ? 'score-mid' : 'score-low');
 
-        // Dimension breakdown
         const dims = data.dimension_scores || {};
         const dimContainer = document.getElementById('result-dimensions');
         let dimHtml = '<table style="width: 100%;"><tbody>';
         for (const [dim, val] of Object.entries(dims)) {
             const pct = (val * 100).toFixed(1);
-            const color = val >= 0.8 ? '#86efac' : val >= 0.6 ? '#fcd34d' : '#fca5a5';
+            const color = val >= 0.8 ? '#22c55e' : val >= 0.6 ? '#f59e0b' : '#ef4444';
             dimHtml += `<tr>
-                <td style="width: 120px; color: #b87333; font-weight: 600; text-transform: capitalize;">${dim}</td>
-                <td style="width: 60px; color: ${color}; font-family: 'MedievalSharp', cursive;">${pct}%</td>
-                <td><div style="background: #0d0a05; border: 1px solid #3d2a14; border-radius: 3px; height: 14px; width: 100%;">
+                <td style="width: 120px; color: var(--text-secondary); font-weight: 600; text-transform: capitalize;">${dim}</td>
+                <td style="width: 60px; color: ${color}; font-family: 'Space Grotesk', sans-serif; font-weight: 700;">${pct}%</td>
+                <td><div style="background: var(--bg-deep); border: 1px solid var(--border); border-radius: 3px; height: 10px; width: 100%;">
                     <div class="dim-bar" style="width: ${pct}%; background: ${color};"></div>
                 </div></td>
             </tr>`;
@@ -345,7 +503,7 @@ async function loadReports() {
         const container = document.getElementById('reports-container');
 
         if (!data.length) {
-            container.innerHTML = '<p class="empty">No past trials recorded. Run an evaluation above.</p>';
+            container.innerHTML = '<p class="empty">No past evaluations. Run one above to get started.</p>';
             return;
         }
 
@@ -353,14 +511,14 @@ async function loadReports() {
         for (const r of data) {
             if (r.error) continue;
             const score = r.overall_score ? (r.overall_score * 100).toFixed(1) : '—';
-            const color = (r.overall_score || 0) >= 0.8 ? '#86efac' : (r.overall_score || 0) >= 0.6 ? '#fcd34d' : '#fca5a5';
+            const color = (r.overall_score || 0) >= 0.8 ? '#22c55e' : (r.overall_score || 0) >= 0.6 ? '#f59e0b' : '#ef4444';
             const ts = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}) : '—';
             html += `<tr class="report-row">
-                <td style="color: #cd7f32; font-size: 0.85rem;">${escHtml(r.filename)}</td>
-                <td style="color: #b87333;">${escHtml(r.model || '?')}</td>
+                <td style="color: var(--amber); font-size: 0.82rem;">${escHtml(r.filename)}</td>
+                <td style="color: var(--text-secondary);">${escHtml(r.model || '?')}</td>
                 <td><span style="color: ${color}; font-weight: 700;">${score}%</span></td>
                 <td>${r.total_challenges || '—'}</td>
-                <td style="color: #6b5a3e; font-size: 0.85rem;">${ts}</td>
+                <td style="color: var(--text-muted); font-size: 0.82rem;">${ts}</td>
             </tr>`;
         }
         html += '</tbody></table>';
@@ -381,7 +539,6 @@ function escHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// Load score ledger
 async function loadLedger() {
     try {
         const resp = await fetch('/api/eval/ledger');
@@ -393,11 +550,10 @@ async function loadLedger() {
             return;
         }
 
-        // Collect all domains across all versions
         const domains = new Set();
         for (const v of versions) {
             for (const k of Object.keys(data[v])) {
-                if (k !== 'overall' && k !== 'timestamp') domains.add(k);
+                if (k !== 'overall' && k !== 'timestamp' && k !== 'notes') domains.add(k);
             }
         }
         const domainList = Array.from(domains).sort();
@@ -409,21 +565,21 @@ async function loadLedger() {
         html += '<th>Overall</th></tr></thead><tbody>';
 
         for (const v of versions) {
-            html += `<tr><td style="color:#cd7f32;font-weight:600;">${escHtml(v)}</td>`;
+            html += `<tr><td style="color:var(--amber);font-weight:600;">${escHtml(v)}</td>`;
             for (const d of domainList) {
                 const val = data[v][d];
                 if (val !== undefined) {
                     const pct = (val * 100).toFixed(1);
-                    const color = val >= 0.9 ? '#86efac' : val >= 0.8 ? '#fcd34d' : '#fca5a5';
+                    const color = val >= 0.9 ? '#22c55e' : val >= 0.8 ? '#f59e0b' : '#ef4444';
                     html += `<td><span style="color:${color};font-weight:700;">${pct}%</span></td>`;
                 } else {
-                    html += '<td style="color:#6b5a3e;">—</td>';
+                    html += '<td style="color:var(--text-muted);">—</td>';
                 }
             }
             const overall = data[v].overall;
             if (overall !== undefined) {
                 const pct = (overall * 100).toFixed(1);
-                const color = overall >= 0.9 ? '#86efac' : overall >= 0.8 ? '#fcd34d' : '#fca5a5';
+                const color = overall >= 0.9 ? '#22c55e' : overall >= 0.8 ? '#f59e0b' : '#ef4444';
                 html += `<td><span style="color:${color};font-weight:700;font-size:1.1rem;">${pct}%</span></td>`;
             } else {
                 html += '<td>—</td>';
@@ -432,11 +588,10 @@ async function loadLedger() {
         }
         html += '</tbody></table>';
 
-        // Add timestamp of latest version
         const latest = data[versions[versions.length - 1]];
         if (latest && latest.timestamp) {
             const ts = new Date(latest.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'});
-            html += `<p style="color:#6b5a3e;font-size:0.8rem;margin-top:0.5rem;">Latest: ${ts}</p>`;
+            html += `<p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.5rem;">Latest: ${ts}</p>`;
         }
 
         container.innerHTML = html;
@@ -445,11 +600,275 @@ async function loadLedger() {
     }
 }
 
-// Load past reports on page load
+async function loadScoreHistory() {
+    try {
+        const r = await fetch('/api/eval/ledger');
+        const data = await r.json();
+        if (!data || Object.keys(data).length === 0) return;
+
+        // Filter out non-version keys if any
+        const versions = {};
+        for (const [k, v] of Object.entries(data)) {
+            if (typeof v === 'object' && v !== null) versions[k] = v;
+        }
+        if (Object.keys(versions).length === 0) return;
+
+        document.getElementById('score-history-card').style.display = 'block';
+
+        const colors = {
+            python: '#f59e0b', rust: '#ef4444', go: '#06b6d4',
+            hive: '#22c55e', js: '#a78bfa', cpp: '#f97316', overall: '#e2e8f0'
+        };
+
+        const domains = [...new Set(Object.values(versions).flatMap(v => Object.keys(v).filter(k => k !== 'timestamp' && k !== 'notes')))];
+
+        let html = '';
+        for (const [ver, scores] of Object.entries(versions)) {
+            html += '<div style="margin-bottom:1rem;">';
+            html += '<div style="font-weight:600;color:var(--amber);font-family:\'JetBrains Mono\',monospace;font-size:0.85rem;margin-bottom:0.3rem;">' + escHtml(ver) + '</div>';
+            html += '<div style="display:flex;gap:2px;align-items:end;height:60px;">';
+            for (const domain of domains) {
+                const score = scores[domain] || 0;
+                const pct = Math.round(score * 100);
+                const color = colors[domain] || '#64748b';
+                const height = Math.max(pct * 0.6, 2);
+                html += '<div title="' + domain + ': ' + pct + '%" style="flex:1;background:' + color + ';height:' + height + 'px;border-radius:2px 2px 0 0;min-width:8px;opacity:0.85;transition:opacity 0.15s;cursor:default;" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.85"></div>';
+            }
+            html += '</div>';
+            html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">Overall: ' + Math.round((scores.overall||0)*100) + '%</div>';
+            html += '</div>';
+        }
+
+        document.getElementById('score-chart').innerHTML = html;
+
+        let legend = '';
+        for (const [domain, color] of Object.entries(colors)) {
+            legend += '<span><span style="display:inline-block;width:10px;height:10px;background:' + color + ';border-radius:2px;margin-right:4px;vertical-align:middle;"></span>' + domain + '</span>';
+        }
+        document.getElementById('score-legend').innerHTML = legend;
+    } catch(e) { /* no ledger data */ }
+}
+
+async function loadTrajectory() {
+    try {
+        const r = await fetch('/api/eval/ledger');
+        const data = await r.json();
+        if (!data || Object.keys(data).length === 0) return;
+
+        // Filter to real versions (skip "failed/" prefixed)
+        const versions = {};
+        for (const [k, v] of Object.entries(data)) {
+            if (typeof v === 'object' && v !== null && !k.startsWith('failed/')) versions[k] = v;
+        }
+        const versionNames = Object.keys(versions);
+        if (versionNames.length === 0) return;
+
+        const domains = ['python', 'rust', 'go', 'cpp', 'js', 'hive'];
+        const colors = {
+            python: '#f59e0b', rust: '#ef4444', go: '#06b6d4',
+            cpp: '#f97316', js: '#a78bfa', hive: '#22c55e', overall: '#e2e8f0'
+        };
+
+        // --- Hero stats ---
+        const first = versions[versionNames[0]];
+        const latest = versions[versionNames[versionNames.length - 1]];
+        const firstOverall = first.overall || 0;
+        const latestOverall = latest.overall || 0;
+        const totalGain = latestOverall - firstOverall;
+        const bestDomain = domains.reduce((best, d) => {
+            const score = latest[d] || 0;
+            return score > (latest[best] || 0) ? d : best;
+        }, domains[0]);
+        const weakestDomain = domains.reduce((worst, d) => {
+            const score = latest[d] || 1;
+            return score < (latest[worst] || 1) ? d : worst;
+        }, domains[0]);
+
+        document.getElementById('traj-stats').innerHTML = `
+            <div class="traj-stat">
+                <div class="value" style="color: var(--amber);">${(latestOverall * 100).toFixed(1)}%</div>
+                <div class="label">Current Overall</div>
+            </div>
+            <div class="traj-stat">
+                <div class="value" style="color: ${totalGain >= 0 ? '#22c55e' : '#ef4444'};">${totalGain >= 0 ? '+' : ''}${(totalGain * 100).toFixed(1)}%</div>
+                <div class="label">Total Growth</div>
+            </div>
+            <div class="traj-stat">
+                <div class="value" style="color: #22c55e;">${(latest[bestDomain] * 100).toFixed(0)}%</div>
+                <div class="label">Best: ${bestDomain}</div>
+            </div>
+            <div class="traj-stat">
+                <div class="value" style="color: ${(latest[weakestDomain] || 0) >= 0.9 ? '#22c55e' : '#f59e0b'};">${((latest[weakestDomain] || 0) * 100).toFixed(0)}%</div>
+                <div class="label">Weakest: ${weakestDomain}</div>
+            </div>
+            <div class="traj-stat">
+                <div class="value" style="color: var(--text-primary);">${versionNames.length}</div>
+                <div class="label">Versions Trained</div>
+            </div>
+        `;
+
+        // --- SVG Line Chart ---
+        const W = Math.max(600, versionNames.length * 140);
+        const H = 220;
+        const padL = 45, padR = 20, padT = 15, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        const allScores = Object.values(versions).flatMap(v =>
+            [...domains, 'overall'].map(d => v[d]).filter(x => typeof x === 'number')
+        );
+        const minScore = Math.max(0, Math.floor(Math.min(...allScores) * 10) / 10 - 0.05);
+        const maxScore = Math.min(1, Math.ceil(Math.max(...allScores) * 10) / 10 + 0.02);
+        const range = maxScore - minScore || 0.1;
+
+        const toX = (i) => padL + (i / Math.max(1, versionNames.length - 1)) * chartW;
+        const toY = (score) => padT + chartH - ((score - minScore) / range) * chartH;
+
+        let svg = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;">`;
+
+        // Grid lines
+        for (let g = 0; g <= 4; g++) {
+            const val = minScore + (range * g / 4);
+            const y = toY(val);
+            svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>`;
+            svg += `<text x="${padL - 5}" y="${y + 4}" text-anchor="end" fill="rgba(255,255,255,0.4)" font-size="10">${(val * 100).toFixed(0)}%</text>`;
+        }
+
+        // X-axis labels
+        versionNames.forEach((v, i) => {
+            const x = toX(i);
+            svg += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10">${v}</text>`;
+            svg += `<line x1="${x}" y1="${padT}" x2="${x}" y2="${H - padB}" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>`;
+        });
+
+        // Lines for each domain + overall
+        const allLines = [...domains, 'overall'];
+        for (const domain of allLines) {
+            const points = versionNames.map((v, i) => {
+                const score = versions[v][domain];
+                return score !== undefined ? { x: toX(i), y: toY(score), score } : null;
+            }).filter(p => p !== null);
+
+            if (points.length < 2) continue;
+
+            const color = colors[domain] || '#64748b';
+            const isOverall = domain === 'overall';
+            const strokeW = isOverall ? 3 : 1.5;
+            const opacity = isOverall ? 1 : 0.7;
+
+            const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+            svg += `<path d="${pathD}" fill="none" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}" stroke-linejoin="round" stroke-linecap="round"/>`;
+
+            // Data points
+            for (const p of points) {
+                const r = isOverall ? 4 : 3;
+                svg += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${color}" opacity="${opacity}"/>`;
+                if (isOverall) {
+                    svg += `<text x="${p.x}" y="${p.y - 8}" text-anchor="middle" fill="${color}" font-size="11" font-weight="700">${(p.score * 100).toFixed(1)}%</text>`;
+                }
+            }
+        }
+
+        svg += '</svg>';
+        document.getElementById('traj-chart').innerHTML = svg;
+
+        // Legend
+        let legend = '';
+        for (const domain of allLines) {
+            const color = colors[domain] || '#64748b';
+            const weight = domain === 'overall' ? 'font-weight:700;' : '';
+            legend += `<span style="${weight}"><span style="display:inline-block;width:${domain === 'overall' ? 14 : 10}px;height:3px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle;"></span>${domain}</span>`;
+        }
+        document.getElementById('traj-legend').innerHTML = legend;
+
+        // --- Version Timeline Cards ---
+        let timeline = '';
+        versionNames.forEach((v, i) => {
+            const d = versions[v];
+            const overall = d.overall || 0;
+            const isLatest = i === versionNames.length - 1;
+            let delta = '';
+            if (i > 0) {
+                const prev = versions[versionNames[i - 1]].overall || 0;
+                const diff = overall - prev;
+                const cls = diff > 0 ? 'delta-up' : diff < 0 ? 'delta-down' : 'delta-neutral';
+                const arrow = diff > 0 ? '\u2191' : diff < 0 ? '\u2193' : '\u2192';
+                delta = `<div class="ver-delta ${cls}">${arrow} ${diff > 0 ? '+' : ''}${(diff * 100).toFixed(1)}% from ${versionNames[i-1]}</div>`;
+            } else {
+                delta = '<div class="ver-delta delta-neutral">Baseline</div>';
+            }
+            const scoreColor = overall >= 0.9 ? '#22c55e' : overall >= 0.8 ? '#f59e0b' : '#ef4444';
+            const notes = d.notes ? `<div class="ver-notes">${escHtml(d.notes)}</div>` : '';
+            const ts = d.timestamp ? new Date(d.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric'}) : '';
+
+            timeline += `
+                <div class="version-card ${isLatest ? 'active' : ''}">
+                    <div class="ver-name">${escHtml(v)} ${isLatest ? '<span style="font-size:0.7rem;color:#22c55e;">\u25cf LIVE</span>' : ''}</div>
+                    <div class="ver-score" style="color: ${scoreColor};">${(overall * 100).toFixed(1)}%</div>
+                    ${delta}
+                    ${notes}
+                    ${ts ? '<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.3rem;">' + ts + '</div>' : ''}
+                </div>`;
+        });
+        document.getElementById('version-timeline').innerHTML = timeline;
+
+        // --- Domain Heatmap with best-ever highlighting ---
+        // Compute best-ever score per domain across all versions
+        const bestEver = {};
+        for (const d of [...domains, 'overall']) {
+            bestEver[d] = 0;
+            for (const v of versionNames) {
+                const s = versions[v][d];
+                if (s !== undefined && s > bestEver[d]) bestEver[d] = s;
+            }
+        }
+
+        let hm = '<table class="domain-heatmap" style="width:100%;border-collapse:separate;border-spacing:3px;">';
+        hm += '<thead><tr><th></th>';
+        for (const d of domains) hm += `<th>${d}</th>`;
+        hm += '<th style="font-weight:700;">Overall</th></tr></thead><tbody>';
+
+        versionNames.forEach((v, vi) => {
+            const scores = versions[v];
+            const prev = vi > 0 ? versions[versionNames[vi - 1]] : null;
+            hm += `<tr><td style="color:var(--amber);font-weight:700;font-size:0.82rem;white-space:nowrap;padding-right:0.8rem;">${escHtml(v)}</td>`;
+            for (const d of [...domains, 'overall']) {
+                const score = scores[d];
+                if (score === undefined) { hm += '<td>-</td>'; continue; }
+                const pct = (score * 100).toFixed(1);
+                const r = score >= 0.95 ? 34 : score >= 0.9 ? 34 : score >= 0.8 ? 245 : 239;
+                const g = score >= 0.95 ? 197 : score >= 0.9 ? 197 : score >= 0.8 ? 158 : 68;
+                const b = score >= 0.95 ? 94 : score >= 0.9 ? 94 : score >= 0.8 ? 11 : 68;
+                const bg = `rgba(${r},${g},${b},${0.08 + score * 0.15})`;
+                const fg = score >= 0.9 ? '#22c55e' : score >= 0.8 ? '#f59e0b' : '#ef4444';
+
+                let arrow = '';
+                if (prev && prev[d] !== undefined) {
+                    const diff = score - prev[d];
+                    if (diff > 0.005) arrow = `<span class="arrow delta-up">\u2191</span>`;
+                    else if (diff < -0.005) arrow = `<span class="arrow delta-down">\u2193</span>`;
+                }
+                const isOverall = d === 'overall';
+                const fw = isOverall ? 'font-weight:800;font-size:0.95rem;' : '';
+                const isBest = score >= bestEver[d] && bestEver[d] > 0;
+                const bestClass = isBest ? ' best-ever' : '';
+                const bestTitle = isBest ? ' title="Best ever"' : '';
+                hm += `<td class="${bestClass}" style="background:${bg};color:${fg};${fw}"${bestTitle}>${pct}%${arrow}</td>`;
+            }
+            hm += '</tr>';
+        });
+        hm += '</tbody></table>';
+        document.getElementById('domain-heatmap-container').innerHTML = hm;
+
+    } catch(e) { console.error('Trajectory load failed:', e); }
+}
+
+loadTrajectory();
+loadScoreHistory();
 loadReports();
 loadLedger();
+checkTrainingStatus();
 
-// Check if an eval is already running
 (async function checkRunning() {
     try {
         const resp = await fetch('/api/eval/status');
@@ -464,5 +883,33 @@ loadLedger();
         }
     } catch (e) {}
 })();
+
+// Scroll version timeline to show the latest (active) card
+setTimeout(() => {
+    const timeline = document.getElementById('version-timeline');
+    if (timeline) timeline.scrollLeft = timeline.scrollWidth;
+}, 500);
+
+// Check if training is in progress and show banner
+async function checkTrainingStatus() {
+    try {
+        const resp = await fetch('/api/lora/training-status');
+        const data = await resp.json();
+        const banner = document.getElementById('training-banner');
+        if (data.active || data.running) {
+            banner.style.display = 'flex';
+            const parts = [];
+            if (data.version) parts.push(data.version);
+            if (data.stage) parts.push('Step ' + data.stage);
+            if (data.step && data.total_steps) parts.push(data.step + '/' + data.total_steps + ' steps');
+            if (data.loss) parts.push('loss: ' + parseFloat(data.loss).toFixed(3));
+            document.getElementById('training-banner-detail').textContent = parts.join(' \u00b7 ') || 'Cycle running...';
+        } else {
+            banner.style.display = 'none';
+        }
+    } catch (e) {
+        document.getElementById('training-banner').style.display = 'none';
+    }
+}
 </script>
 {% endblock %}

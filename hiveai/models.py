@@ -385,6 +385,35 @@ class ChatFeedback(Base):
     )
 
 
+class ChatSession(Base):
+    """Persistent chat session for history search."""
+    __tablename__ = "chat_sessions"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    title = Column(String(200), nullable=True)  # Auto-generated from first message
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    """Individual chat message within a session."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(36), ForeignKey("chat_sessions.id"), nullable=False)
+    role = Column(String(10), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+
+    session = relationship("ChatSession", back_populates="messages")
+
+    __table_args__ = (
+        Index("ix_chat_messages_session", "session_id"),
+    )
+
+
 class SystemConfig(Base):
     __tablename__ = "system_config"
     key = Column(String, primary_key=True)
@@ -403,6 +432,19 @@ def init_db():
 
     # Lightweight column migrations — add columns that create_all can't add to existing tables
     _migrate_add_columns(engine)
+
+    # Create FTS5 virtual table for chat search (SQLite only)
+    if DB_BACKEND != "postgresql":
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS chat_messages_fts "
+                    "USING fts5(content, content_rowid='rowid')"
+                ))
+                conn.commit()
+                logger.info("FTS5 chat search table ready")
+        except Exception as e:
+            logger.warning(f"Could not create FTS5 table: {e}")
 
 
 def _migrate_add_columns(engine):

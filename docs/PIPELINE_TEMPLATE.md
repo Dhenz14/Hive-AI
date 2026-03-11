@@ -19,7 +19,7 @@ export LLAMA_CPP_DIR=/tmp/llama.cpp
 export HF_BASE_CACHE=~/.cache/huggingface/hub/models--unsloth--Qwen2.5-Coder-14B-Instruct/snapshots/<hash>
 
 # 3. Kill llama-server (frees GPU)
-taskkill /IM "llama-server.exe" /F
+pkill -f llama-server || true
 
 # 4. Run the cycle (v1.1: auto-manages llama-server for eval)
 bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version> [prev_version]
@@ -67,7 +67,7 @@ python scripts/safe_merge.py --base-gguf <base> --lora-gguf <lora> \
 In v1.1, `run_full_cycle.sh` auto-starts llama-server for eval. For manual runs:
 ```bash
 # Start merged model
-llama-server.exe -m models/deploy/<version>/merged.gguf --port 11435 \
+llama-server -m models/deploy/<version>/merged.gguf --port 11435 \
     --flash-attn on --cache-type-k q8_0 --cache-type-v q4_0 --ctx-size 8192 -ngl 99
 
 # Run 18-probe eval (scoring: 70% keyword + 30% structural quality)

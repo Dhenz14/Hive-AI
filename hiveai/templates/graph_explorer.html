@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}💎 The Gold Vein Map{% endblock %}
+{% block title %}HiveAI - Knowledge Graph{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -16,80 +16,63 @@
         gap: 0.3rem;
     }
     .filter-group label {
-        font-size: 0.8rem;
-        color: #b87333;
+        font-size: 0.7rem;
+        color: var(--text-muted);
         text-transform: uppercase;
-        font-family: 'MedievalSharp', cursive;
+        font-weight: 600;
         letter-spacing: 0.5px;
     }
     .filter-group select,
     .filter-group input[type="text"],
     .filter-group input[type="number"] {
         padding: 0.5rem 0.8rem;
-        background: #1a1008;
-        border: 2px solid #5c3a1e;
-        border-radius: 4px;
-        color: #d4b896;
-        font-family: 'Crimson Text', serif;
-        font-size: 0.9rem;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text-primary);
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
         outline: none;
         width: auto;
         min-width: 160px;
     }
     .filter-group select:focus,
     .filter-group input:focus {
-        border-color: #cd7f32;
-        box-shadow: 0 0 8px rgba(205,127,50,0.3);
+        border-color: var(--amber);
+        box-shadow: 0 0 0 3px rgba(245,158,11,0.1);
     }
     .filter-group select option {
-        background: #1a1008;
-        color: #d4b896;
+        background: var(--bg-deep);
+        color: var(--text-primary);
     }
     .confidence-bar {
         display: inline-block;
-        height: 8px;
-        border-radius: 4px;
+        height: 6px;
+        border-radius: 3px;
         margin-right: 0.5rem;
         vertical-align: middle;
     }
-    .confidence-high { background: linear-gradient(90deg, #6b8e23, #98d946); }
-    .confidence-mid { background: linear-gradient(90deg, #b8860b, #ffd700); }
-    .confidence-low { background: linear-gradient(90deg, #8b2500, #cd5c5c); }
+    .confidence-high { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .confidence-mid { background: linear-gradient(90deg, var(--amber-dim), var(--amber)); }
+    .confidence-low { background: linear-gradient(90deg, #991b1b, #ef4444); }
     .source-link {
-        font-size: 0.75rem;
-        color: #6b5a3e;
+        font-size: 0.72rem;
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-muted);
         word-break: break-all;
     }
-    .source-link a {
-        color: #8b7355;
-    }
-    .source-link a:hover {
-        color: #cd7f32;
-    }
-    .triple-row:hover {
-        background: rgba(205, 127, 50, 0.05);
-    }
-    .subject-cell {
-        color: #ffd700;
-        font-weight: 600;
-    }
-    .predicate-cell {
-        color: #cd7f32;
-        font-style: italic;
-    }
-    .object-cell {
-        color: #b87333;
-    }
-    .results-info {
-        font-size: 0.85rem;
-        color: #8b7355;
-        margin-bottom: 0.5rem;
-    }
+    .source-link a { color: var(--text-muted); }
+    .source-link a:hover { color: var(--amber); }
+    .triple-row:hover { background: rgba(245,158,11,0.03); }
+    .subject-cell { color: var(--amber); font-weight: 600; }
+    .predicate-cell { color: var(--cyan); font-style: italic; }
+    .object-cell { color: var(--text-secondary); }
+    .results-info { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.5rem; }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1>💎 The Gold Vein Map</h1>
+<h1>Knowledge Graph</h1>
 
 <div class="stats-grid">
     <div class="stat-card">
@@ -110,35 +93,59 @@
     </div>
 </div>
 
-<div style="display: flex; gap: 0.8rem; margin-bottom: 1rem;">
-    <button class="btn btn-warning" onclick="rebuildGraph()" id="btn-rebuild">Rebuild Graph</button>
-    <button class="btn btn-primary" onclick="reembed()" id="btn-reembed">Re-embed Content</button>
-    <span id="graph-action-status" style="color: #8b7355; font-size: 0.85rem; align-self: center;"></span>
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem;">
+        <span style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; color: var(--text-muted);">Admin Controls</span>
+        <span style="flex: 1; height: 1px; background: var(--border);"></span>
+    </div>
+    <div style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-warning" onclick="rebuildGraph()" id="btn-rebuild">
+            <span id="btn-rebuild-text">Rebuild Knowledge Graph</span>
+        </button>
+        <button class="btn btn-primary" onclick="reembed()" id="btn-reembed">
+            <span id="btn-reembed-text">Re-embed All Documents</span>
+        </button>
+        <span id="graph-action-status" style="color: var(--text-muted); font-size: 0.82rem;"></span>
+    </div>
 </div>
 <script>
-async function rebuildGraph() {
-    const btn = document.getElementById('btn-rebuild');
-    const status = document.getElementById('graph-action-status');
-    btn.disabled = true; status.textContent = 'Rebuilding graph...';
+async function adminAction(btnId, textId, statusId, url, loadingMsg, successMsg) {
+    const btn = document.getElementById(btnId);
+    const text = document.getElementById(textId);
+    const status = document.getElementById(statusId);
+    const originalText = text.textContent;
+    btn.disabled = true;
+    btn.style.opacity = '0.6';
+    btn.style.cursor = 'wait';
+    text.textContent = loadingMsg;
+    status.textContent = '';
+    status.style.color = 'var(--text-muted)';
     try {
-        const r = await fetch('/api/graph/rebuild', {method: 'POST'});
+        const r = await fetch(url, { method: 'POST' });
         const d = await r.json();
-        status.textContent = r.ok ? 'Graph rebuilt! Refresh to see changes.' : ('Error: ' + (d.error || 'failed'));
-        status.style.color = r.ok ? '#98d946' : '#cd5c5c';
-    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = '#cd5c5c'; }
+        if (r.ok) {
+            status.textContent = d.message || successMsg;
+            status.style.color = '#22c55e';
+        } else {
+            status.textContent = 'Error: ' + (d.error || 'Request failed');
+            status.style.color = '#ef4444';
+        }
+    } catch (e) {
+        status.textContent = 'Failed: ' + e.message;
+        status.style.color = '#ef4444';
+    }
+    text.textContent = originalText;
     btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
 }
-async function reembed() {
-    const btn = document.getElementById('btn-reembed');
-    const status = document.getElementById('graph-action-status');
-    btn.disabled = true; status.textContent = 'Re-embedding content...';
-    try {
-        const r = await fetch('/api/reembed', {method: 'POST'});
-        const d = await r.json();
-        status.textContent = r.ok ? 'Re-embedding started in background.' : ('Error: ' + (d.error || 'failed'));
-        status.style.color = r.ok ? '#98d946' : '#cd5c5c';
-    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = '#cd5c5c'; }
-    btn.disabled = false;
+function rebuildGraph() {
+    adminAction('btn-rebuild', 'btn-rebuild-text', 'graph-action-status',
+        '/api/graph/rebuild', 'Rebuilding...', 'Graph rebuilt. Refresh to see changes.');
+}
+function reembed() {
+    adminAction('btn-reembed', 'btn-reembed-text', 'graph-action-status',
+        '/api/reembed', 'Re-embedding...', 'Re-embedding complete.');
 }
 </script>
 
@@ -164,20 +171,20 @@ async function reembed() {
                 <label>Min Confidence</label>
                 <select name="min_conf" onchange="this.form.submit()">
                     <option value="0" {% if current_min_conf == 0 %}selected{% endif %}>All</option>
-                    <option value="0.5" {% if current_min_conf == 0.5 %}selected{% endif %}>≥ 50%</option>
-                    <option value="0.7" {% if current_min_conf == 0.7 %}selected{% endif %}>≥ 70%</option>
-                    <option value="0.8" {% if current_min_conf == 0.8 %}selected{% endif %}>≥ 80%</option>
-                    <option value="0.9" {% if current_min_conf == 0.9 %}selected{% endif %}>≥ 90%</option>
+                    <option value="0.5" {% if current_min_conf == 0.5 %}selected{% endif %}>&ge; 50%</option>
+                    <option value="0.7" {% if current_min_conf == 0.7 %}selected{% endif %}>&ge; 70%</option>
+                    <option value="0.8" {% if current_min_conf == 0.8 %}selected{% endif %}>&ge; 80%</option>
+                    <option value="0.9" {% if current_min_conf == 0.9 %}selected{% endif %}>&ge; 90%</option>
                 </select>
             </div>
             <div class="filter-group">
                 <label>&nbsp;</label>
-                <button type="submit" class="btn btn-primary">⛏ Dig</button>
+                <button type="submit" class="btn btn-primary">Search</button>
             </div>
             {% if current_search or current_job_id or current_min_conf > 0 %}
             <div class="filter-group">
                 <label>&nbsp;</label>
-                <a href="/graph" class="btn btn-danger">✕ Clear</a>
+                <a href="/graph" class="btn btn-danger">Clear</a>
             </div>
             {% endif %}
         </div>
@@ -232,7 +239,7 @@ async function reembed() {
         </table>
     </div>
     {% else %}
-    <p class="empty">No gold veins mapped yet{% if current_search or current_job_id %} for these filters{% endif %}. Launch a mining expedition to start charting the depths!</p>
+    <p class="empty">No knowledge triples found{% if current_search or current_job_id %} for these filters{% endif %}. Run a knowledge synthesis job to populate the graph.</p>
     {% endif %}
 </div>
 {% endblock %}

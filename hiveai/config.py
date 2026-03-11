@@ -42,17 +42,16 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL_REASONING = os.environ.get("OLLAMA_MODEL_REASONING", "qwen3:14b")
 OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3.5:9b")
 
-# llama-server — used for LoRA adapter models that Ollama can't load natively.
-# Set LLAMA_SERVER_MODELS to a comma-separated list of model names that should
-# route to llama-server instead of Ollama (default: hiveai-v1).
+# llama-server — serves the merged GGUF model (merge-then-freeze, no LoRA at runtime).
+# Any model name in LLAMA_SERVER_MODELS routes to llama-server instead of Ollama.
 LLAMA_SERVER_BASE_URL = os.environ.get("LLAMA_SERVER_BASE_URL", "http://localhost:11435")
 LLAMA_SERVER_MODELS: set = {
     m.strip()
-    for m in os.environ.get("LLAMA_SERVER_MODELS", "hiveai-v1,hiveai-v1.5,hiveai-v2,hiveai-v6").split(",")
+    for m in os.environ.get("LLAMA_SERVER_MODELS", "hiveai").split(",")
     if m.strip()
 }
-# The currently-active llama-server model (the one llama-server.exe is actually running)
-LLAMA_SERVER_MODEL = os.environ.get("LLAMA_SERVER_MODEL", "hiveai-v6")
+# The currently-active llama-server model name (used for routing)
+LLAMA_SERVER_MODEL = os.environ.get("LLAMA_SERVER_MODEL", "hiveai")
 
 EXTRACTION_QUALITY = os.environ.get("EXTRACTION_QUALITY", "high").lower()
 

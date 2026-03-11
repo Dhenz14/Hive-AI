@@ -8,24 +8,24 @@
     <div class="stats-grid">
         <div class="stat-card">
             <div class="number">{{ book.word_count }}</div>
-            <div class="label">📜 Runes</div>
+            <div class="label">Words</div>
         </div>
         <div class="stat-card">
             <div class="number">{{ book.source_count }}</div>
-            <div class="label">⛏ Mines</div>
+            <div class="label">Sources</div>
         </div>
         <div class="stat-card">
             <div class="number">{{ book.triple_count }}</div>
-            <div class="label">💎 Nuggets</div>
+            <div class="label">Triples</div>
         </div>
         <div class="stat-card">
             <div class="number" style="font-size: 1rem; word-break: break-all;">{{ book.content_hash[:16] }}...</div>
-            <div class="label">⚙ Content Hash</div>
+            <div class="label">Content Hash</div>
         </div>
     </div>
 
     {% if book.quality_score is not none %}
-    <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid rgba(205,127,50,0.3);">
+    <div style="margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.3); border-radius: 10px; border: 1px solid var(--border);">
         <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.8rem;">
             <span style="font-size: 1.1rem; font-weight: bold;">Quality Score</span>
             {% set score_pct = (book.quality_score * 100)|int %}
@@ -53,9 +53,9 @@
             <div style="font-size: 0.85rem;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 2px;">
                     <span>{{ name }}</span>
-                    <span style="color: #cd7f32;">{{ (value * 100)|int }}%</span>
+                    <span style="color: var(--amber);">{{ (value * 100)|int }}%</span>
                 </div>
-                <div style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 6px; overflow: hidden;">
+                <div style="background: rgba(255,255,255,0.05); border-radius: 4px; height: 6px; overflow: hidden;">
                     {% if value >= 0.7 %}
                     <div style="width: {{ (value * 100)|int }}%; height: 100%; background: #22c55e; border-radius: 4px;"></div>
                     {% elif value >= 0.4 %}
@@ -71,12 +71,12 @@
     </div>
     {% endif %}
 
-    <div style="display: flex; gap: 1rem; align-items: center;">
+    <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
         <span class="status-badge status-{{ book.status }}" style="font-size: 1rem; padding: 0.4rem 1rem;">{{ book.status }}</span>
         {% if book.status == 'draft' %}
         <div style="display: flex; gap: 0.5rem; align-items: center;">
             <input type="text" id="author-input" placeholder="Hive username (e.g., youraccount)" style="width: 250px;">
-            <button class="btn btn-success" onclick="publishBook()">Inscribe on the Blockchain</button>
+            <button class="btn btn-success" onclick="publishBook()">Publish to Hive</button>
         </div>
         {% elif book.hive_permlink %}
         <a href="https://hive.blog/@{{ book.hive_author }}/{{ book.hive_permlink }}" target="_blank" class="btn btn-primary">View on Hive</a>
@@ -86,7 +86,7 @@
 </div>
 
 <div class="card">
-    <h2>📜 Tome Contents</h2>
+    <h2>Contents</h2>
     <div id="book-content" style="line-height: 1.8; font-size: 0.95rem;">
         {{ book.content | replace('\n', '<br>') | safe }}
     </div>
@@ -94,11 +94,11 @@
 
 {% if book.source_urls %}
 <div class="card">
-    <h2>⛏ Mines Explored ({{ book.source_urls|length }})</h2>
+    <h2>Sources ({{ book.source_urls|length }})</h2>
     <ul style="list-style: none; padding: 0;">
         {% for url in book.source_urls %}
         <li style="padding: 0.3rem 0;">
-            <a href="{{ url }}" target="_blank" style="color: #cd7f32;">{{ url[:80] }}{% if url|length > 80 %}...{% endif %}</a>
+            <a href="{{ url }}" target="_blank" style="color: var(--amber);">{{ url[:80] }}{% if url|length > 80 %}...{% endif %}</a>
         </li>
         {% endfor %}
     </ul>
@@ -118,8 +118,8 @@ async function publishBook() {
         return;
     }
 
-    feedback.textContent = 'Preparing inscription...';
-    feedback.style.color = '#cd7f32';
+    feedback.textContent = 'Preparing publication...';
+    feedback.style.color = 'var(--amber)';
 
     try {
         const resp = await fetch('/api/books/{{ book.id }}/publish', {
@@ -131,19 +131,19 @@ async function publishBook() {
 
         if (resp.ok) {
             feedback.innerHTML = `
-                <p style="color: #ffd700; margin-bottom: 0.5rem;">Inscription prepared! ${data.parts} part(s).</p>
-                <p>Permlink: <code>${data.permlink}</code></p>
-                <p style="color: #b87333; margin-top: 0.5rem;">Use Hive Keychain to sign and broadcast the transaction.</p>
+                <p style="color: #22c55e; margin-bottom: 0.5rem;">Publication prepared! ${data.parts} part(s).</p>
+                <p>Permlink: <code style="background:var(--bg-deep);padding:0.2rem 0.4rem;border-radius:4px;">${data.permlink}</code></p>
+                <p style="color: var(--text-muted); margin-top: 0.5rem;">Use Hive Keychain to sign and broadcast the transaction.</p>
             `;
 
             if (window.hive_keychain) {
                 const ops = data.operations;
-                feedback.innerHTML += '<p style="color: #cd7f32;">Keychain detected. Broadcasting...</p>';
+                feedback.innerHTML += '<p style="color: var(--amber);">Keychain detected. Broadcasting...</p>';
                 window.hive_keychain.requestBroadcast(
                     author, ops, 'posting',
                     (response) => {
                         if (response.success) {
-                            feedback.innerHTML = '<p style="color: #ffd700; font-size: 1.2rem;">⛏ Inscribed on the Blockchain!</p>';
+                            feedback.innerHTML = '<p style="color: #22c55e; font-size: 1.2rem;">Published to Hive blockchain!</p>';
                             setTimeout(() => window.location.reload(), 2000);
                         } else {
                             feedback.innerHTML += `<p style="color: #ef4444;">Keychain error: ${response.message}</p>`;
@@ -152,11 +152,11 @@ async function publishBook() {
                 );
             }
         } else {
-            feedback.textContent = data.error || 'Failed to prepare inscription';
+            feedback.textContent = data.error || 'Failed to prepare publication';
             feedback.style.color = '#ef4444';
         }
     } catch (err) {
-        feedback.textContent = 'A cave-in blocked the signal. Please try again.';
+        feedback.textContent = 'Connection failed. Please try again.';
         feedback.style.color = '#ef4444';
     }
 }

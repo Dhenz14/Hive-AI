@@ -226,14 +226,31 @@ def get_client(model: str | None = None):
     retry=retry_if_exception(is_retryable_error),
     reraise=True,
 )
-def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.", model=None, max_tokens=8192, temperature=0.3, use_cache=True):
+def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.", model=None, max_tokens=8192, temperature=0.3, use_cache=True, messages=None):
+    """Call the LLM with either a prompt string or a pre-built messages array.
+
+    When *messages* is provided, it is sent directly to the chat completions API
+    (system_prompt and prompt are ignored).  This enables proper multi-turn
+    ChatML conversations instead of flattening history into a single string.
+    """
     if not model:
         model = _get_model_for_backend("reasoning")
     _check_circuit_breaker(model)
 
+    # Build the messages payload
+    if messages is not None:
+        chat_messages = messages
+        cache_key_str = str(messages)
+    else:
+        chat_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        cache_key_str = prompt
+
     # Check LLM response cache (only for deterministic temperature <= 0.3)
     if use_cache and temperature <= 0.3:
-        cached = get_cached_response(prompt, model)
+        cached = get_cached_response(cache_key_str, model)
         if cached is not None:
             return cached
 
@@ -242,10 +259,7 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
         extra = {"chat_template_kwargs": {"enable_thinking": False}} if _is_llama_server_model(model) else {}
         response = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
+            messages=chat_messages,
             max_tokens=max_tokens,
             temperature=temperature,
             extra_body=extra or None,
@@ -255,7 +269,7 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
 
         # Cache the response for future identical queries
         if use_cache and temperature <= 0.3 and content:
-            set_cached_response(prompt, content, model)
+            set_cached_response(cache_key_str, content, model)
 
         return content
     except Exception as e:
@@ -265,16 +279,29 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
 
 
 def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.",
-                    model=None, max_tokens=4096, temperature=0.3):
+                    model=None, max_tokens=4096, temperature=0.3, messages=None):
     """
     Stream tokens from Ollama (/api/chat NDJSON) or llama-server (/v1/chat/completions SSE).
 
     Yields dicts: {"token": "..."} for each token, {"done": True, "full_response": "..."} at end.
     Routing is automatic — llama-server models (e.g. hiveai-v1) use SSE format.
+
+    When *messages* is provided, it is sent directly as the messages array
+    (system_prompt and prompt are ignored).  This enables proper multi-turn
+    ChatML conversations.
     """
     if not model:
         model = _get_model_for_backend("reasoning")
     _check_circuit_breaker(model)
+
+    # Build messages payload
+    if messages is not None:
+        chat_messages = messages
+    else:
+        chat_messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt},
+        ]
 
     # ---- llama-server path (OpenAI SSE) ----
     if _is_llama_server_model(model):
@@ -284,10 +311,7 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
                 f"{LLAMA_SERVER_BASE_URL}/v1/chat/completions",
                 json={
                     "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ],
+                    "messages": chat_messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                     "stream": True,
@@ -337,10 +361,7 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
             f"{OLLAMA_BASE_URL}/api/chat",
             json={
                 "model": model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt},
-                ],
+                "messages": chat_messages,
                 "stream": True,
                 "think": False,
                 "options": {
@@ -379,17 +400,21 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
         yield {"error": str(e), "done": True}
 
 
-def reason(prompt, max_tokens=8192, system_prompt=None):
+def reason(prompt, max_tokens=8192, system_prompt=None, messages=None):
     kwargs = {"model": _get_model_for_backend("reasoning"), "max_tokens": max_tokens, "temperature": 0.2}
-    if system_prompt:
+    if messages is not None:
+        kwargs["messages"] = messages
+    elif system_prompt:
         kwargs["system_prompt"] = system_prompt
     return llm_call(prompt, **kwargs)
 
 
 
-def fast(prompt, max_tokens=8192, system_prompt=None):
+def fast(prompt, max_tokens=8192, system_prompt=None, messages=None):
     kwargs = {"model": _get_model_for_backend("fast"), "max_tokens": max_tokens, "temperature": 0.2}
-    if system_prompt:
+    if messages is not None:
+        kwargs["messages"] = messages
+    elif system_prompt:
         kwargs["system_prompt"] = system_prompt
     return llm_call(prompt, **kwargs)
 
@@ -444,10 +469,14 @@ def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
 
 
 def smart_call(prompt: str, question: str = "", num_sections: int = 0,
-               max_tokens: int = 4096, system_prompt: str = None) -> str:
+               max_tokens: int = 4096, system_prompt: str = None,
+               messages: list = None) -> str:
     """
     Confidence-based model routing: routes easy queries to fast model,
     complex queries to full reasoning model.
+
+    When *messages* is provided, it is forwarded directly to llm_call as a
+    pre-built ChatML message array (prompt and system_prompt are ignored).
 
     When MoLoRA is enabled, domain-specialized models are tried first.
 
@@ -462,7 +491,9 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
             if domain != "general":
                 logger.info(f"MoLoRA routing: {domain} → {domain_model}")
                 kwargs = {"model": domain_model, "max_tokens": max_tokens, "temperature": 0.2}
-                if system_prompt:
+                if messages is not None:
+                    kwargs["messages"] = messages
+                elif system_prompt:
                     kwargs["system_prompt"] = system_prompt
                 return llm_call(prompt, **kwargs)
         except Exception as e:
@@ -473,10 +504,10 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
 
     if difficulty in ("trivial", "simple"):
         logger.info(f"Smart routing: {difficulty} → fast model")
-        return fast(prompt, max_tokens=min(max_tokens, 2048), system_prompt=system_prompt)
+        return fast(prompt, max_tokens=min(max_tokens, 2048), system_prompt=system_prompt, messages=messages)
     else:
         logger.info(f"Smart routing: {difficulty} → reason model")
-        return reason(prompt, max_tokens=max_tokens, system_prompt=system_prompt)
+        return reason(prompt, max_tokens=max_tokens, system_prompt=system_prompt, messages=messages)
 
 
 _instructor_clients = {}  # Cache instructor-wrapped clients per backend key

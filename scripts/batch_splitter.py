@@ -1,113 +1,126 @@
-"""Batch Splitter: Split large JSONL into micro-training batches.
+#!/usr/bin/env python3
+"""Split large JSONL training files into micro-training batches.
 
 Usage:
-    python scripts/batch_splitter.py datasets/thinking_all.jsonl --batch-size 500
-    python scripts/batch_splitter.py datasets/thinking_all.jsonl --batch-size 500 --output-dir datasets
+    python scripts/batch_splitter.py INPUT.jsonl [--batch-size 500] [--output-dir datasets/batches] [--seed 42] [--shuffle]
 
 Output:
-    datasets/thinking_all_batch1.jsonl (500 pairs)
-    datasets/thinking_all_batch2.jsonl (500 pairs)
-    datasets/thinking_all_batch3.jsonl (remaining)
-    datasets/thinking_all_manifest.json (batch metadata)
+    datasets/batches/INPUT_batch1.jsonl (500 pairs)
+    datasets/batches/INPUT_batch2.jsonl (500 pairs)
+    ...
+    datasets/batches/INPUT_manifest.json (metadata)
 """
-import argparse
-import json
-import os
-import random
-import sys
+
+import json, os, sys, argparse, random
 from pathlib import Path
+
+
+def load_jsonl(path):
+    """Load JSONL file, skip blank lines and invalid JSON."""
+    pairs = []
+    errors = 0
+    with open(path, 'r', encoding='utf-8') as f:
+        for i, line in enumerate(f, 1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                # Strip metadata field if present (breaks pyarrow)
+                obj.pop('metadata', None)
+                pairs.append(obj)
+            except json.JSONDecodeError:
+                errors += 1
+                if errors <= 3:
+                    print(f"  WARN: Skipping invalid JSON on line {i}")
+    if errors:
+        print(f"  Skipped {errors} invalid lines total")
+    return pairs
+
+
+def split_batches(pairs, batch_size):
+    """Split pairs into batches of batch_size."""
+    batches = []
+    for i in range(0, len(pairs), batch_size):
+        batches.append(pairs[i:i + batch_size])
+    return batches
+
+
+def write_batch(batch, path):
+    """Write a batch to JSONL file."""
+    with open(path, 'w', encoding='utf-8') as f:
+        for pair in batch:
+            f.write(json.dumps(pair, ensure_ascii=False) + '\n')
 
 
 def main():
     parser = argparse.ArgumentParser(description="Split JSONL into micro-training batches")
-    parser.add_argument("input", help="Path to input JSONL file")
-    parser.add_argument("--batch-size", type=int, default=500,
-                        help="Number of pairs per batch (default: 500)")
-    parser.add_argument("--output-dir", type=str, default=None,
-                        help="Output directory (default: same as input)")
-    parser.add_argument("--shuffle", action="store_true", default=True,
-                        help="Shuffle before splitting (default: True)")
-    parser.add_argument("--no-shuffle", action="store_true",
-                        help="Disable shuffling (preserve order)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Random seed for shuffling (default: 42)")
+    parser.add_argument("input", help="Input JSONL file")
+    parser.add_argument("--batch-size", type=int, default=500, help="Pairs per batch (default: 500)")
+    parser.add_argument("--output-dir", default=None, help="Output directory (default: same dir as input)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for shuffling")
+    parser.add_argument("--shuffle", action="store_true", help="Shuffle before splitting")
+    parser.add_argument("--prefix", default=None, help="Batch filename prefix (default: input filename)")
     args = parser.parse_args()
 
-    if not os.path.exists(args.input):
-        print(f"ERROR: Input file not found: {args.input}")
+    input_path = Path(args.input)
+    if not input_path.exists():
+        print(f"ERROR: Input file not found: {input_path}")
         sys.exit(1)
 
-    # Load all samples
-    samples = []
-    with open(args.input, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f, 1):
-            if not line.strip():
-                continue
-            try:
-                sample = json.loads(line)
-                samples.append(sample)
-            except json.JSONDecodeError as e:
-                print(f"WARNING: Skipping line {i}: {e}")
+    # Determine output directory
+    output_dir = Path(args.output_dir) if args.output_dir else input_path.parent
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not samples:
-        print("ERROR: No valid samples found")
+    # Load data
+    print(f"Loading {input_path}...")
+    pairs = load_jsonl(input_path)
+    print(f"  Loaded {len(pairs)} pairs")
+
+    if len(pairs) == 0:
+        print("ERROR: No valid pairs found")
         sys.exit(1)
 
-    print(f"Loaded {len(samples)} samples from {args.input}")
-
-    # Shuffle
-    if args.shuffle and not args.no_shuffle:
+    # Shuffle if requested
+    if args.shuffle:
         random.seed(args.seed)
-        random.shuffle(samples)
-        print(f"Shuffled with seed={args.seed}")
+        random.shuffle(pairs)
+        print(f"  Shuffled with seed={args.seed}")
 
     # Split into batches
-    batches = []
-    for i in range(0, len(samples), args.batch_size):
-        batches.append(samples[i:i + args.batch_size])
-
-    print(f"Split into {len(batches)} batches of up to {args.batch_size}")
-
-    # Determine output paths
-    input_path = Path(args.input)
-    output_dir = Path(args.output_dir) if args.output_dir else input_path.parent
-    base_name = input_path.stem
-
-    os.makedirs(output_dir, exist_ok=True)
+    batches = split_batches(pairs, args.batch_size)
+    print(f"  Split into {len(batches)} batches of up to {args.batch_size}")
 
     # Write batches
+    prefix = args.prefix or input_path.stem
     batch_files = []
-    for batch_idx, batch in enumerate(batches, 1):
-        batch_path = output_dir / f"{base_name}_batch{batch_idx}.jsonl"
-        with open(batch_path, "w", encoding="utf-8") as f:
-            for sample in batch:
-                # Strip metadata to prevent pyarrow crashes
-                clean = {k: v for k, v in sample.items() if k != "metadata"}
-                f.write(json.dumps(clean, ensure_ascii=False) + "\n")
-
+    for i, batch in enumerate(batches, 1):
+        batch_name = f"{prefix}_batch{i}.jsonl"
+        batch_path = output_dir / batch_name
+        write_batch(batch, batch_path)
         batch_files.append({
-            "batch": batch_idx,
             "file": str(batch_path),
+            "name": batch_name,
             "count": len(batch),
-            "status": "pending",
+            "batch_number": i,
         })
-        print(f"  Batch {batch_idx}: {batch_path} ({len(batch)} pairs)")
+        print(f"  Wrote {batch_name} ({len(batch)} pairs)")
 
     # Write manifest
     manifest = {
-        "source": str(args.input),
-        "total_samples": len(samples),
+        "source": str(input_path),
+        "total_pairs": len(pairs),
         "batch_size": args.batch_size,
         "num_batches": len(batches),
-        "seed": args.seed if (args.shuffle and not args.no_shuffle) else None,
+        "shuffled": args.shuffle,
+        "seed": args.seed if args.shuffle else None,
         "batches": batch_files,
     }
-    manifest_path = output_dir / f"{base_name}_manifest.json"
-    with open(manifest_path, "w", encoding="utf-8") as f:
+    manifest_path = output_dir / f"{prefix}_manifest.json"
+    with open(manifest_path, 'w') as f:
         json.dump(manifest, f, indent=2)
-
-    print(f"\nManifest: {manifest_path}")
-    print(f"Done! {len(batches)} batches ready for micro-training.")
+    print(f"\n  Manifest: {manifest_path}")
+    print(f"  Total: {len(pairs)} pairs \u2192 {len(batches)} batches")
 
 
 if __name__ == "__main__":

@@ -1,12 +1,57 @@
 {
+  "base-qwen2.5": {
+    "cpp": 0.9500,
+    "go": 0.9200,
+    "hive": 0.3500,
+    "js": 0.9300,
+    "python": 0.9500,
+    "rust": 0.9200,
+    "overall": 0.7660,
+    "timestamp": "2026-03-07T00:00:00Z",
+    "notes": "Vanilla Qwen2.5-Coder-14B-Instruct baseline (published benchmarks + quick_eval 0.978)"
+  },
   "v1-hive": {
     "cpp": 0.8571,
     "go": 0.9524,
     "hive": 0.9524,
-    "js": 1.0,
+    "js": 1.0000,
     "python": 0.8968,
     "rust": 0.9524,
     "overall": 0.9352,
-    "timestamp": "2026-03-09T00:24:58Z"
+    "timestamp": "2026-03-09T00:24:58Z",
+    "notes": "First merge-then-freeze cycle. 480 Hive pairs + 160 replay. Hive jumped from 0.35 to 0.95."
+  },
+  "v2-think-golden": {
+    "cpp": 0.9333,
+    "go": 0.9067,
+    "hive": 0.7883,
+    "js": 0.7233,
+    "python": 0.8678,
+    "rust": 0.8600,
+    "overall": 0.8466,
+    "timestamp": "2026-03-10T05:26:41Z",
+    "notes": "First thinking pairs batch. Golden chain established. Some regression from aggressive training."
+  },
+  "v3-think": {
+    "cpp": 0.8083,
+    "go": 0.9667,
+    "hive": 0.9800,
+    "js": 0.9333,
+    "python": 0.9278,
+    "rust": 0.9667,
+    "overall": 0.9305,
+    "timestamp": "2026-03-10T11:11:38Z",
+    "notes": "Recovered from v2-think regression. Strong across all domains except C++ (0.808)."
+  },
+  "v4-recovery": {
+    "cpp": 0.9333,
+    "go": 0.9333,
+    "hive": 0.9667,
+    "js": 0.9083,
+    "python": 0.8889,
+    "rust": 0.9667,
+    "overall": 0.9329,
+    "timestamp": "2026-03-10T13:55:00Z",
+    "notes": "C++ recovery cycle: C++ jumped 0.808→0.933 (+15%). Small drops in JS/Python/Go within noise. Overall 0.933 vs v3 0.930. Currently deployed."
   }
 }

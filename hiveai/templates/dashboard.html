@@ -1,41 +1,46 @@
 {% extends "base.html" %}
-{% block title %}HiveAI - The Gnome's Refinery{% endblock %}
+{% block title %}HiveAI - Dashboard{% endblock %}
 
 {% block content %}
-<h1>⛏ The Gnome's Refinery</h1>
+<div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;">
+    <div style="width:36px;height:36px;background:linear-gradient(135deg,var(--amber),var(--amber-deep));clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);display:flex;align-items:center;justify-content:center;">
+        <span style="font-size:0.9rem;color:var(--bg-deep);font-weight:700;">H</span>
+    </div>
+    <h1 style="margin:0;">Dashboard</h1>
+</div>
 
 <div class="stats-grid">
     <div class="stat-card">
         <div class="number" id="stat-total-jobs">{{ stats.total_jobs }}</div>
-        <div class="label">Expeditions</div>
+        <div class="label">Jobs</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-active-jobs">{{ stats.active_jobs }}</div>
-        <div class="label">Mining</div>
+        <div class="label">Active</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-total-pages">{{ stats.total_pages }}</div>
-        <div class="label">Ore Collected</div>
+        <div class="label">Pages Crawled</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-total-triples">{{ stats.total_triples }}</div>
-        <div class="label">Gold Nuggets</div>
+        <div class="label">Knowledge Triples</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-total-books">{{ stats.total_books }}</div>
-        <div class="label">Tomes</div>
+        <div class="label">Knowledge Bases</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-published-books">{{ stats.published_books }}</div>
-        <div class="label">Books Inscribed</div>
+        <div class="label">Published</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-eligible-teachings">{{ stats.eligible_teachings }}</div>
-        <div class="label">Teachings</div>
+        <div class="label">Training Pairs</div>
     </div>
     <div class="stat-card">
         <div class="number" id="stat-lora-crystals">{{ stats.lora_crystals }}</div>
-        <div class="label">Crystals Forged</div>
+        <div class="label">LoRA Adapters</div>
     </div>
     {% if merge_cycles is defined and merge_cycles > 0 %}
     <div class="stat-card">
@@ -58,20 +63,20 @@
 </div>
 
 <div class="card">
-    <h2>⛏ New Mining Expedition</h2>
-    <p style="color: #b87333; margin-bottom: 1rem;">Send yer gnomes into the deep mines! They'll scout the Hive tunnels, dig through the web, and forge a refined Tome of pure knowledge gold.</p>
+    <h2>New Knowledge Synthesis</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 1rem;">Enter a topic to synthesize a knowledge base. HiveAI will crawl sources, extract knowledge triples, and compile a structured knowledge base.</p>
     <form id="new-job-form" style="display: flex; gap: 1rem;">
-        <input type="text" id="topic-input" placeholder="e.g., Mithril smelting techniques, Ancient dwarven rune patterns, Enchanted ore refining 2026..." style="flex: 1;">
-        <button type="submit" class="btn btn-primary">Begin Expedition!</button>
+        <input type="text" id="topic-input" placeholder="e.g., Hive blockchain consensus, Rust async patterns, React server components..." style="flex: 1;">
+        <button type="submit" class="btn btn-primary">Synthesize</button>
     </form>
     <div id="form-feedback" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
 </div>
 
 <div class="card" id="queue-section">
-    <h2>&#9881; Queue Control</h2>
+    <h2>Queue Control</h2>
     <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap;">
         <div style="flex: 1; min-width: 200px;">
-            <span id="queue-status-text" style="color: #b87333;">Loading queue status...</span>
+            <span id="queue-status-text" style="color: var(--text-muted);">Loading queue status...</span>
         </div>
         <button id="queue-toggle-btn" class="btn btn-primary" onclick="toggleQueue()" style="min-width: 120px;">Loading...</button>
     </div>
@@ -89,41 +94,41 @@
             <div class="label">Worker</div>
         </div>
     </div>
-    <div id="running-job-info" style="display: none; padding: 0.5rem; background: rgba(205,127,50,0.1); border-radius: 8px; margin-bottom: 1rem;">
-        <span style="color: #cd7f32;">Currently processing: </span>
-        <a id="running-job-link" href="#" style="color: #ffd700;"></a>
-        <span id="running-job-stage" style="color: #b87333; margin-left: 0.5rem;"></span>
-        <button class="btn" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; margin-left: 0.5rem; background: #ef4444;" id="cancel-running-btn">Cancel</button>
+    <div id="running-job-info" style="display: none; padding: 0.5rem 0.8rem; background: rgba(245,158,11,0.08); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 1rem;">
+        <span style="color: var(--amber);">Processing: </span>
+        <a id="running-job-link" href="#" style="color: var(--amber-glow);"></a>
+        <span id="running-job-stage" style="color: var(--text-muted); margin-left: 0.5rem;"></span>
+        <button class="btn btn-danger" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; margin-left: 0.5rem;" id="cancel-running-btn">Cancel</button>
     </div>
 </div>
 
 <div class="card">
-    <h2>&#128230; Batch Mining Expeditions</h2>
-    <p style="color: #b87333; margin-bottom: 0.5rem;">Enter multiple topics (one per line) to queue them all at once.</p>
+    <h2>Batch Synthesis</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">Enter multiple topics (one per line) to queue them all.</p>
     <textarea id="batch-topics" rows="4" placeholder="Topic 1&#10;Topic 2&#10;Topic 3" style="width: 100%; margin-bottom: 0.5rem;"></textarea>
-    <button class="btn btn-primary" onclick="submitBatch()">Queue All Expeditions</button>
+    <button class="btn btn-primary" onclick="submitBatch()">Queue All</button>
     <div id="batch-feedback" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
 </div>
 
 {% if books %}
 <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center;">
-        <h2>📜 Tomes Ready for Inspection</h2>
+        <h2>Knowledge Bases</h2>
         <div>
-            <button type="button" class="btn btn-warning" onclick="scoreBooks(this)" style="font-size: 0.8rem; padding: 0.3rem 0.8rem;">Score All Books</button>
-            <span id="score-books-status" style="font-size: 0.8rem; color: #8b7355; margin-left: 0.5rem;"></span>
+            <button type="button" class="btn btn-warning" onclick="scoreBooksInline(this)" style="font-size: 0.8rem; padding: 0.3rem 0.8rem;">Score All</button>
+            <span id="score-books-status" style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;"></span>
         </div>
     </div>
     <script>
-    async function scoreBooks(btn) {
+    async function scoreBooksInline(btn) {
         btn.disabled = true;
         const s = document.getElementById('score-books-status');
         s.textContent = 'Scoring...';
         try {
             const r = await fetch('/api/admin/score-books', {method: 'POST'});
             s.textContent = r.ok ? 'Done! Refresh to see scores.' : 'Failed';
-            s.style.color = r.ok ? '#98d946' : '#cd5c5c';
-        } catch(e) { s.textContent = 'Error'; s.style.color = '#cd5c5c'; }
+            s.style.color = r.ok ? '#22c55e' : '#ef4444';
+        } catch(e) { s.textContent = 'Error'; s.style.color = '#ef4444'; }
         btn.disabled = false;
     }
     </script>
@@ -131,9 +136,9 @@
         <thead>
             <tr>
                 <th>Title</th>
-                <th>Runes</th>
-                <th>Mines</th>
-                <th>Nuggets</th>
+                <th>Words</th>
+                <th>Sources</th>
+                <th>Triples</th>
                 <th>Action</th>
             </tr>
         </thead>
@@ -144,7 +149,7 @@
                 <td>{{ book.word_count }}</td>
                 <td>{{ book.source_count }}</td>
                 <td>{{ book.triple_count }}</td>
-                <td><a href="/book/{{ book.id }}" class="btn btn-success" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">Inspect</a></td>
+                <td><a href="/book/{{ book.id }}" class="btn btn-success" style="padding: 0.3rem 0.8rem; font-size: 0.8rem;">View</a></td>
             </tr>
             {% endfor %}
         </tbody>
@@ -153,17 +158,17 @@
 {% endif %}
 
 <div class="card">
-    <h2>⚒ Recent Expeditions</h2>
+    <h2>Recent Jobs</h2>
     {% if jobs %}
     <table>
         <thead>
             <tr>
                 <th>ID</th>
-                <th>Quest</th>
+                <th>Topic</th>
                 <th>Status</th>
-                <th>Ore</th>
-                <th>Nuggets</th>
-                <th>Embarked</th>
+                <th>Pages</th>
+                <th>Triples</th>
+                <th>Created</th>
             </tr>
         </thead>
         <tbody>
@@ -180,8 +185,16 @@
         </tbody>
     </table>
     {% else %}
-    <p class="empty">The mines are quiet... Start a new expedition above to unearth knowledge gold!</p>
+    <p class="empty">No jobs yet. Start a knowledge synthesis above to get started.</p>
     {% endif %}
+</div>
+<div class="card">
+    <h2>Admin Tools</h2>
+    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-primary" onclick="scoreBooks()" id="btn-score-books">Score All Books</button>
+        <button class="btn btn-warning" onclick="backfillEmbeddings()" id="btn-backfill">Backfill Embeddings</button>
+        <span id="admin-status" style="color: var(--text-muted); font-size: 0.82rem;"></span>
+    </div>
 </div>
 {% endblock %}
 
@@ -199,8 +212,8 @@ document.getElementById('new-job-form').addEventListener('submit', async (e) => 
         return;
     }
 
-    feedback.textContent = 'Dispatching gnomes to the mines...';
-    feedback.style.color = '#cd7f32';
+    feedback.textContent = 'Starting knowledge synthesis...';
+    feedback.style.color = 'var(--amber)';
 
     try {
         const resp = await fetch('/api/jobs', {
@@ -211,15 +224,15 @@ document.getElementById('new-job-form').addEventListener('submit', async (e) => 
         const data = await resp.json();
 
         if (resp.ok) {
-            feedback.textContent = `Expedition #${data.id} queued! Redirecting...`;
-            feedback.style.color = '#ffd700';
+            feedback.textContent = `Job #${data.id} queued! Redirecting...`;
+            feedback.style.color = '#22c55e';
             setTimeout(() => window.location.href = `/job/${data.id}`, 1000);
         } else {
-            feedback.textContent = data.error || 'Failed to create expedition';
+            feedback.textContent = data.error || 'Failed to create job';
             feedback.style.color = '#ef4444';
         }
     } catch (err) {
-        feedback.textContent = 'A cave-in blocked the signal. Please try again.';
+        feedback.textContent = 'Connection failed. Please try again.';
         feedback.style.color = '#ef4444';
     }
 });
@@ -292,8 +305,8 @@ async function submitBatch() {
         return;
     }
 
-    feedback.textContent = 'Queueing expeditions...';
-    feedback.style.color = '#cd7f32';
+    feedback.textContent = 'Queueing jobs...';
+    feedback.style.color = 'var(--amber)';
 
     try {
         const resp = await fetch('/api/jobs/batch', {
@@ -303,8 +316,8 @@ async function submitBatch() {
         });
         const data = await resp.json();
         if (resp.ok) {
-            feedback.textContent = `${data.count} expeditions queued! Refreshing...`;
-            feedback.style.color = '#ffd700';
+            feedback.textContent = `${data.count} jobs queued! Refreshing...`;
+            feedback.style.color = '#22c55e';
             textarea.value = '';
             setTimeout(() => location.reload(), 1500);
         } else {
@@ -337,11 +350,37 @@ async function refreshStats() {
             if (el && el.textContent !== String(val)) {
                 el.textContent = val;
                 el.style.transition = 'color 0.3s';
-                el.style.color = '#ffd700';
+                el.style.color = 'var(--amber)';
                 setTimeout(() => { el.style.color = ''; }, 1500);
             }
         }
     } catch (err) {}
+}
+
+async function scoreBooks() {
+    const btn = document.getElementById('btn-score-books');
+    const status = document.getElementById('admin-status');
+    btn.disabled = true; status.textContent = 'Scoring books...';
+    try {
+        const r = await fetch('/api/admin/score-books', {method: 'POST'});
+        const d = await r.json();
+        status.textContent = r.ok ? ('Scored ' + (d.scored || d.count || '?') + ' books') : ('Error: ' + (d.error || 'failed'));
+        status.style.color = r.ok ? 'var(--success)' : 'var(--error)';
+    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = 'var(--error)'; }
+    btn.disabled = false;
+}
+
+async function backfillEmbeddings() {
+    const btn = document.getElementById('btn-backfill');
+    const status = document.getElementById('admin-status');
+    btn.disabled = true; status.textContent = 'Backfilling embeddings...';
+    try {
+        const r = await fetch('/api/admin/backfill-embeddings', {method: 'POST'});
+        const d = await r.json();
+        status.textContent = r.ok ? ('Backfilled ' + (d.count || '?') + ' embeddings') : ('Error: ' + (d.error || 'failed'));
+        status.style.color = r.ok ? 'var(--success)' : 'var(--error)';
+    } catch(e) { status.textContent = 'Failed: ' + e.message; status.style.color = 'var(--error)'; }
+    btn.disabled = false;
 }
 
 refreshQueueStatus();

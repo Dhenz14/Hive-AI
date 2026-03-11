@@ -1,12 +1,12 @@
 """Regression Evaluation: Multi-domain probes with score ledger.
 
-Runs 18 domain probes (3 per domain x 6 domains) against llama-server,
+Runs 60 domain probes (10 per domain x 6 domains) against llama-server,
 scores each domain, compares against historical best scores in score_ledger.json.
 
 FAIL if any domain drops > threshold (default 0.03) from its best score.
 PASS -> update ledger with new scores.
 
-Reuses probe definitions from train_sequential.py.
+Probes defined in probe_library.py (60 probes across 6 domains).
 
 Usage:
     # Baseline eval (first time — populates ledger)
@@ -17,6 +17,9 @@ Usage:
 
     # Custom server URL
     python scripts/regression_eval.py --model-version v1.0 --server-url http://localhost:11435
+
+    # Quick mode (original 18 probes only, for fast checks)
+    python scripts/regression_eval.py --model-version v1.0 --quick
 """
 import argparse
 import json
@@ -26,136 +29,36 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+
+# Import probe library
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from probe_library import ALL_PROBES, Probe, DOMAINS
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant."
+SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
 TEMPERATURE = 0.1
-MAX_TOKENS = 768
+MAX_TOKENS = 2048  # Thinking disabled via system prompt; reasoning fallback if needed
 TIMEOUT = 120  # seconds per probe
 
+# Original 18 probe IDs for --quick mode (backward compatibility)
+QUICK_PROBE_IDS = {
+    "py-decorators", "py-async-gen", "py-metaclass",
+    "rs-ownership", "rs-tokio", "rs-traits",
+    "go-workers", "go-interfaces", "go-channels",
+    "cpp-raii", "cpp-variadic", "cpp-move",
+    "js-event-loop", "js-promises", "js-generics",
+    "hive-custom-json", "hive-rc", "hive-keys",
+}
 
-# ---------------------------------------------------------------------------
-# Domain probe definitions (same as train_sequential.py)
-# ---------------------------------------------------------------------------
-@dataclass
-class Probe:
-    domain: str
-    prompt: str
-    expected_keywords: list
-
-
-PROBES = [
-    # --- Python (3) ---
-    Probe("python",
-          "Show how to write a Python decorator that adds both pre-call and "
-          "post-call hooks, preserving the original function's signature via "
-          "functools.wraps. Demonstrate with a timing decorator.",
-          ["functools", "wraps", "wrapper", "def", "time", "args", "kwargs"]),
-    Probe("python",
-          "Write a Python async generator that reads chunks from an aiohttp "
-          "response stream and yields parsed JSON objects as they arrive, "
-          "handling partial chunks across boundaries.",
-          ["async", "yield", "aiohttp", "json", "chunk", "await", "buffer"]),
-    Probe("python",
-          "Implement a Python metaclass that automatically registers all "
-          "subclasses of a base class into a registry dict, keyed by a "
-          "'name' class attribute. Show how to look up classes by name.",
-          ["metaclass", "__init_subclass__", "registry", "class", "name", "dict"]),
-
-    # --- Rust (3) ---
-    Probe("rust",
-          "Explain Rust's ownership and borrowing rules with a concrete "
-          "example showing how to fix a 'cannot borrow as mutable because "
-          "it is also borrowed as immutable' error. Show before and after code.",
-          ["borrow", "mut", "&", "let", "fn", "ownership", "lifetime"]),
-    Probe("rust",
-          "Write a Rust async function using tokio that spawns multiple tasks, "
-          "each making an HTTP request, then collects all results using "
-          "JoinSet. Handle individual task failures without cancelling others.",
-          ["tokio", "async", "spawn", "JoinSet", "await", "Result", "Error"]),
-    Probe("rust",
-          "Compare trait objects (dyn Trait) vs generics (impl Trait / <T: Trait>) "
-          "in Rust. When would you choose dynamic dispatch over static dispatch? "
-          "Show a concrete example where trait objects are necessary.",
-          ["dyn", "impl", "Trait", "dispatch", "vtable", "Box", "generic"]),
-
-    # --- Go (3) ---
-    Probe("go",
-          "Implement a Go worker pool pattern with a configurable number of "
-          "workers, a job channel, and a results channel. Include graceful "
-          "shutdown via context.Context cancellation.",
-          ["goroutine", "chan", "context", "WaitGroup", "func", "select", "worker"]),
-    Probe("go",
-          "Show how Go interface composition works by defining small interfaces "
-          "(Reader, Writer) and composing them into a ReadWriter. Demonstrate "
-          "how a concrete type satisfies the composed interface implicitly.",
-          ["interface", "Reader", "Writer", "func", "struct", "Read", "Write"]),
-    Probe("go",
-          "Write a Go function that uses select with multiple channels: a data "
-          "channel, a done channel, and a time.After timeout. Handle all three "
-          "cases and explain the non-deterministic selection behavior.",
-          ["select", "case", "chan", "time.After", "done", "func", "default"]),
-
-    # --- C++ (3) ---
-    Probe("cpp",
-          "Explain RAII in C++ and demonstrate the differences between "
-          "unique_ptr, shared_ptr, and weak_ptr. Show a concrete example "
-          "where weak_ptr prevents a circular reference memory leak.",
-          ["unique_ptr", "shared_ptr", "weak_ptr", "RAII", "destructor", "lock", "cycle"]),
-    Probe("cpp",
-          "Write a C++ variadic template function that pretty-prints any "
-          "number of arguments with their types (using typeid or "
-          "if-constexpr). Show fold expressions and parameter pack expansion.",
-          ["template", "typename", "Args", "fold", "constexpr", "pack", "variadic"]),
-    Probe("cpp",
-          "Explain C++ move semantics: what is an rvalue reference (&&), when "
-          "does the compiler invoke the move constructor vs copy constructor, "
-          "and write a class with both. Show std::move usage.",
-          ["move", "&&", "rvalue", "std::move", "constructor", "noexcept", "swap"]),
-
-    # --- JavaScript/TypeScript (3) ---
-    Probe("js",
-          "Explain the JavaScript event loop in detail: call stack, task queue, "
-          "microtask queue, and how setTimeout(fn, 0) interacts with "
-          "Promise.resolve().then(). Show the execution order of a tricky example.",
-          ["event loop", "microtask", "setTimeout", "Promise", "stack", "queue", "then"]),
-    Probe("js",
-          "Write a JavaScript function that chains promises to: fetch a user, "
-          "fetch their posts, then fetch comments for the first post. Handle "
-          "errors at each stage with proper .catch() placement. Then rewrite "
-          "using async/await with try/catch.",
-          ["Promise", "then", "catch", "async", "await", "fetch", "try"]),
-    Probe("js",
-          "Write a TypeScript generic function `pipe` that composes N functions "
-          "in sequence, where each function's output type matches the next "
-          "function's input type. The final type should be inferred correctly.",
-          ["generic", "function", "pipe", "type", "infer", "return", "extends"]),
-
-    # --- Hive blockchain (3) ---
-    Probe("hive",
-          "Write a Python function using the beem library that broadcasts a "
-          "custom_json operation to the Hive blockchain for a Hive Engine token "
-          "transfer. Use the ssc-mainnet-hive id and posting authority.",
-          ["custom_json", "beem", "posting", "ssc-mainnet-hive", "broadcast", "json", "Hive"]),
-    Probe("hive",
-          "Explain Hive blockchain resource credits (RC): what they are, how "
-          "they regenerate, how they limit operations, and write Python code "
-          "using beem to check an account's current RC percentage.",
-          ["resource", "credit", "RC", "mana", "regenerat", "beem", "account"]),
-    Probe("hive",
-          "Explain the Hive key hierarchy: owner, active, posting, and memo "
-          "keys. What operations does each authorize? Write a Python function "
-          "using beem that derives all four keys from a master password.",
-          ["owner", "active", "posting", "memo", "key", "beem", "password"]),
-]
+# Full probe list — imported from probe_library (60 probes)
+PROBES = ALL_PROBES
 
 
 def score_response(response: str, expected_keywords: list) -> float:
@@ -207,49 +110,78 @@ def score_response(response: str, expected_keywords: list) -> float:
     return keyword_score * 0.7 + structure_score * 0.3
 
 
-def run_probe(probe: Probe, server_url: str) -> tuple[float, str]:
-    """Run a single probe against llama-server and return (score, response)."""
-    try:
-        resp = requests.post(
-            f"{server_url}/v1/chat/completions",
-            json={
-                "model": "hiveai",
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": probe.prompt},
-                ],
-                "temperature": TEMPERATURE,
-                "max_tokens": MAX_TOKENS,
-            },
-            timeout=TIMEOUT,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            score = score_response(content, probe.expected_keywords)
-            return score, content
-        else:
-            print(f"    ERROR: {resp.status_code} — {resp.text[:200]}")
-            return 0.0, f"HTTP {resp.status_code}"
-    except requests.RequestException as e:
-        print(f"    ERROR: {e}")
-        return 0.0, str(e)
+def run_probe(probe: Probe, server_url: str, max_retries: int = 2) -> tuple[float, str]:
+    """Run a single probe against llama-server and return (score, response).
+    Retries on empty responses (llama-server intermittent issue)."""
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.post(
+                f"{server_url}/v1/chat/completions",
+                json={
+                    "model": "hiveai",
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": probe.prompt},
+                    ],
+                    "temperature": TEMPERATURE,
+                    "max_tokens": MAX_TOKENS,
+                },
+                timeout=TIMEOUT,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                msg = data["choices"][0]["message"]
+                content = msg.get("content", "")
+                reasoning = msg.get("reasoning_content", "")
+                if not content.strip() and attempt < max_retries:
+                    print(f"    RETRY {attempt+1}/{max_retries}: empty response, retrying...")
+                    time.sleep(2)
+                    continue
+                # Use content for scoring; fall back to reasoning if content empty
+                # (thinking models may put all knowledge in reasoning_content)
+                score_text = content if content.strip() else reasoning
+                if score_text != content and score_text:
+                    print(f"    NOTE: scoring from reasoning_content ({len(reasoning)} chars)")
+                score = score_response(score_text, probe.expected_keywords)
+                return score, score_text
+            else:
+                print(f"    ERROR: {resp.status_code} — {resp.text[:200]}")
+                if attempt < max_retries:
+                    time.sleep(2)
+                    continue
+                return 0.0, f"HTTP {resp.status_code}"
+        except requests.RequestException as e:
+            print(f"    ERROR: {e}")
+            if attempt < max_retries:
+                time.sleep(2)
+                continue
+            return 0.0, str(e)
+    return 0.0, "max retries exceeded"
 
 
-def run_all_probes(server_url: str) -> dict:
-    """Run all 18 probes, return {domain: score} dict."""
+def run_all_probes(server_url: str, quick: bool = False) -> dict:
+    """Run domain probes, return {domain: score} dict.
+
+    Args:
+        server_url: llama-server URL
+        quick: If True, use original 18 probes only (backward compatible)
+               If False, use all 60 probes (10 per domain)
+    """
+    probes = [p for p in PROBES if p.id in QUICK_PROBE_IDS] if quick else PROBES
     domain_scores = defaultdict(list)
-    total = len(PROBES)
+    total = len(probes)
 
-    print(f"Running {total} probes against {server_url}...")
+    mode = "QUICK (18 probes)" if quick else "FULL (60 probes)"
+    print(f"Running {total} probes against {server_url} [{mode}]...")
     start = time.time()
 
-    for i, probe in enumerate(PROBES):
+    for i, probe in enumerate(probes):
         print(f"  [{i+1}/{total}] {probe.domain}: {probe.prompt[:60]}...")
         score, response = run_probe(probe, server_url)
         domain_scores[probe.domain].append(score)
-        print(f"    Score: {score:.3f} ({sum(1 for kw in probe.expected_keywords if kw.lower() in response.lower())}"
-              f"/{len(probe.expected_keywords)} keywords)")
+        kw_found = sum(1 for kw in probe.expected_keywords if kw.lower() in response.lower())
+        print(f"    Score: {score:.3f} ({kw_found}/{len(probe.expected_keywords)} keywords)"
+              f" [{probe.id}]")
 
     elapsed = time.time() - start
 
@@ -258,7 +190,8 @@ def run_all_probes(server_url: str) -> dict:
     for domain, scores in sorted(domain_scores.items()):
         avg_scores[domain] = round(sum(scores) / len(scores), 4)
 
-    print(f"\nProbes completed in {elapsed:.0f}s")
+    print(f"\nProbes completed in {elapsed:.0f}s ({len(probes)} probes, "
+          f"{len(avg_scores)} domains)")
     return avg_scores
 
 
@@ -326,12 +259,16 @@ def main():
     parser.add_argument("--ledger", type=str,
                         default=str(PROJECT_ROOT / "score_ledger.json"),
                         help="Path to score ledger JSON")
+    parser.add_argument("--quick", action="store_true",
+                        help="Use original 18 probes only (faster, less precise)")
     args = parser.parse_args()
 
+    probe_count = 18 if args.quick else len(PROBES)
     print("=" * 60)
     print(f"  Regression Evaluation — {args.model_version}")
     print("=" * 60)
     print(f"  Server: {args.server_url}")
+    print(f"  Probes: {probe_count} ({'quick' if args.quick else 'full'} mode)")
     print(f"  Threshold: {args.threshold} (warn: {args.warn_threshold})")
     print(f"  Ledger: {args.ledger}")
     print("=" * 60)
@@ -348,7 +285,7 @@ def main():
         sys.exit(1)
 
     # Run probes
-    scores = run_all_probes(args.server_url)
+    scores = run_all_probes(args.server_url, quick=args.quick)
 
     # Display results
     print("\n" + "=" * 60)
@@ -370,15 +307,25 @@ def main():
         for issue in issues:
             print(f"  {issue}")
 
-    # Update ledger
+    # Update ledger only on pass (don't let failed scores become new baseline)
     scores_with_meta = dict(scores)
     scores_with_meta["overall"] = round(overall, 4)
     scores_with_meta["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    ledger[args.model_version] = scores_with_meta
-    save_ledger(ledger, args.ledger)
-    print(f"\nLedger updated: {args.ledger}")
+    if passed:
+        ledger[args.model_version] = scores_with_meta
+        save_ledger(ledger, args.ledger)
+        print(f"\nLedger updated: {args.ledger}")
+    else:
+        # Still record in ledger under a "failed/" prefix for history, but
+        # don't overwrite the clean version key so best-scores stay intact
+        ledger[f"failed/{args.model_version}"] = scores_with_meta
+        save_ledger(ledger, args.ledger)
+        print(f"\nLedger updated (marked as failed): {args.ledger}")
 
-    # Final verdict
+    # Final verdict — determine exit code BEFORE any auto-mining that could
+    # raise exceptions or otherwise interfere with the exit path
+    exit_code = 0 if passed else 1
+
     print("\n" + "=" * 60)
     if passed:
         print("  PASSED — No regression detected")
@@ -389,11 +336,14 @@ def main():
         print("  Consider: increase --replay-ratio or decrease LoRA rank")
 
         # Auto-trigger failure mining for regressed domains
-        _auto_mine_failures(scores, issues, args.model_version)
+        try:
+            _auto_mine_failures(scores, issues, args.model_version)
+        except Exception as e:
+            print(f"  WARN: Auto-mining crashed: {e}")
 
     print("=" * 60)
 
-    sys.exit(0 if passed else 1)
+    sys.exit(exit_code)
 
 
 def _auto_mine_failures(scores: dict, issues: list, version: str):

@@ -193,6 +193,59 @@ def sure_sample(scored: list[tuple[dict, float]], keep: int,
     return selected
 
 
+def domain_balanced_sample(scored: list[tuple[dict, float]], keep: int,
+                           domains: list[str] = None) -> list[dict]:
+    """Domain-balanced selection: equal samples per domain with SuRe scoring within each.
+
+    Guarantees every domain gets >= keep/N_domains samples. This prevents domain
+    starvation where one overrepresented domain crowds out others in replay.
+
+    Within each domain, selects highest-NLL (most forgotten) samples first.
+    """
+    if domains is None:
+        domains = ["hive", "cpp", "rust", "go", "javascript", "general"]
+
+    per_domain = keep // len(domains)
+    remainder = keep - per_domain * len(domains)
+
+    # Group by domain
+    by_domain = defaultdict(list)
+    for sample, nll in scored:
+        domain = sample.get("domain", detect_category(sample))
+        by_domain[domain].append((sample, nll))
+
+    # Sort each domain by NLL descending (most forgotten first)
+    for domain in by_domain:
+        by_domain[domain].sort(key=lambda x: x[1], reverse=True)
+
+    selected = []
+    overflow = []
+
+    for domain in domains:
+        candidates = by_domain.get(domain, [])
+        take = per_domain
+        actual = candidates[:take]
+        selected.extend([s for s, _ in actual])
+
+        # Track unused high-NLL samples for overflow
+        if len(candidates) > take:
+            overflow.extend(candidates[take:])
+
+    # Collect from unknown domains too
+    for domain, candidates in by_domain.items():
+        if domain not in domains:
+            overflow.extend(candidates)
+
+    # Fill remainder with highest-NLL overflow
+    overflow.sort(key=lambda x: x[1], reverse=True)
+    for sample, nll in overflow:
+        if len(selected) >= keep:
+            break
+        selected.append(sample)
+
+    return selected[:keep]
+
+
 def diversity_sample(samples: list[dict], keep: int) -> list[dict]:
     """Fallback: diversity-based sampling (same as build_replay_buffer.py)."""
     import random
@@ -250,6 +303,8 @@ def main():
                         help="Max candidates to NLL-score (default: 1000)")
     parser.add_argument("--fallback-diversity", action="store_true",
                         help="Skip NLL scoring, use diversity sampling instead")
+    parser.add_argument("--domain-balanced", action="store_true",
+                        help="Guarantee equal samples per domain (prevents domain starvation)")
     args = parser.parse_args()
 
     # Load all replay samples
@@ -278,7 +333,11 @@ def main():
             if resp.status_code == 200:
                 print("llama-server is healthy — using SuRe NLL scoring")
                 scored = compute_nll_batch(samples, args.model_url, args.max_candidates)
-                selected = sure_sample(scored, args.keep)
+                if args.domain_balanced:
+                    print("  Using domain-balanced selection (equal per domain)")
+                    selected = domain_balanced_sample(scored, args.keep)
+                else:
+                    selected = sure_sample(scored, args.keep)
             else:
                 print(f"llama-server returned {resp.status_code} — falling back to diversity sampling")
                 selected = diversity_sample(samples, args.keep)

@@ -1,270 +1,227 @@
-"""Pre-flight training validator: catches all known crash causes before training starts.
-
-Checks:
-  1. HF_HUB_OFFLINE=1 is set (prevents 120s timeout)
-  2. Training JSONL has no metadata fields (prevents pyarrow crash)
-  3. No CRLF in script files (prevents bash parse errors)
-  4. Disk space > 20GB free in WSL
-  5. GPU VRAM available (llama-server not running)
-  6. Base model path exists and is valid
-  7. Dataset loads without JSON errors
-  8. HF cache has required model snapshots
+#!/usr/bin/env python3
+"""Pre-flight checks for HiveAI training pipeline.
+Run before any training to catch preventable failures early.
 
 Usage:
-    python scripts/preflight_check.py --data datasets/thinking_batch2.jsonl
-    python scripts/preflight_check.py --data datasets/batch.jsonl --base-model-hf /path/to/hf
+    python scripts/preflight_check.py [--data PATH] [--base-model PATH]
 
-Exit codes: 0 = all checks passed, 1 = critical failure, 2 = warnings only
+Exit codes:
+    0 = all checks passed
+    1 = critical failure (training will crash)
+    2 = warnings only (training may work but risky)
 """
-import argparse
-import json
-import os
-import subprocess
-import sys
-from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-# ANSI colors
-GREEN = "\033[92m"
-RED = "\033[91m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
-
-
-def check_pass(msg):
-    print(f"  {GREEN}PASS{RESET} {msg}")
-    return True
-
-
-def check_fail(msg):
-    print(f"  {RED}FAIL{RESET} {msg}")
-    return False
-
-
-def check_warn(msg):
-    print(f"  {YELLOW}WARN{RESET} {msg}")
-    return True  # warnings don't fail
-
+import os, sys, json, subprocess, shutil, argparse
 
 def check_hf_offline():
-    """Ensure HF_HUB_OFFLINE is set to prevent timeout."""
-    if os.environ.get("HF_HUB_OFFLINE") == "1":
-        return check_pass("HF_HUB_OFFLINE=1")
-    # Check if train_v5.py sets it (it does, but verify)
-    train_v5 = PROJECT_ROOT / "scripts" / "train_v5.py"
-    if train_v5.exists():
-        content = train_v5.read_text(encoding="utf-8", errors="replace")
-        if 'os.environ.setdefault("HF_HUB_OFFLINE", "1")' in content:
-            return check_pass("HF_HUB_OFFLINE=1 set in train_v5.py (auto-applied)")
-    return check_fail("HF_HUB_OFFLINE not set — training may hang for 120s")
-
-
-def check_metadata(data_path):
-    """Check if JSONL has metadata fields that crash pyarrow."""
-    if not os.path.exists(data_path):
-        return check_fail(f"Data file not found: {data_path}")
-
-    has_metadata = False
-    mixed_types = False
-    line_count = 0
-    errors = []
-
-    with open(data_path, "r", encoding="utf-8") as f:
-        for i, line in enumerate(f, 1):
-            if not line.strip():
-                continue
-            try:
-                sample = json.loads(line)
-                line_count += 1
-                if "metadata" in sample:
-                    has_metadata = True
-                    meta = sample["metadata"]
-                    if isinstance(meta, dict):
-                        types = set(type(v).__name__ for v in meta.values())
-                        if len(types) > 1:
-                            mixed_types = True
-            except json.JSONDecodeError as e:
-                errors.append(f"  Line {i}: {e}")
-                if len(errors) >= 5:
-                    break
-
-    if errors:
-        check_fail(f"JSON parse errors in {data_path}:")
-        for err in errors:
-            print(err)
-        return False
-
-    if mixed_types:
-        return check_fail(f"Mixed metadata types in {data_path} — will crash pyarrow. Strip metadata.")
-    elif has_metadata:
-        check_warn(f"Data has metadata fields — train_v5.py strips them, but consider pre-cleaning")
-
-    return check_pass(f"Data OK: {line_count} samples, no mixed metadata")
-
-
-def check_crlf():
-    """Check for Windows CRLF in script files."""
-    scripts_dir = PROJECT_ROOT / "scripts"
-    crlf_files = []
-    for f in scripts_dir.glob("*.py"):
-        try:
-            content = f.read_bytes()
-            if b"\r\n" in content:
-                crlf_files.append(f.name)
-        except Exception:
-            pass
-    for f in scripts_dir.glob("*.sh"):
-        try:
-            content = f.read_bytes()
-            if b"\r\n" in content:
-                crlf_files.append(f.name)
-        except Exception:
-            pass
-
-    if crlf_files:
-        check_warn(f"CRLF detected in: {', '.join(crlf_files)}")
-        print(f"    Fix: sed -i 's/\\r$//' /opt/hiveai/project/scripts/*.py *.sh")
-        return True  # warning, not failure (train_v5.py handles this)
-    return check_pass("No CRLF in scripts")
-
+    """HF_HUB_OFFLINE should be set to avoid 120s timeouts"""
+    val = os.environ.get("HF_HUB_OFFLINE", "")
+    if val != "1":
+        return "WARN", "HF_HUB_OFFLINE not set to 1. Training may hang on HF validation."
+    return "OK", "HF_HUB_OFFLINE=1"
 
 def check_disk_space(min_gb=20):
-    """Check free disk space."""
+    """Check WSL has enough free disk space"""
+    try:
+        stat = shutil.disk_usage("/opt/hiveai/project")
+        free_gb = stat.free / (1024**3)
+        if free_gb < min_gb:
+            return "FAIL", f"Only {free_gb:.1f}GB free (need {min_gb}GB minimum)"
+        return "OK", f"{free_gb:.1f}GB free"
+    except Exception as e:
+        return "WARN", f"Could not check disk: {e}"
+
+def check_gpu_free():
+    """Check if GPU VRAM is available (llama-server not hogging it)"""
     try:
         result = subprocess.run(
-            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "df -BG /opt/hiveai/project 2>/dev/null | tail -1 | awk '{print $4}'"],
-            capture_output=True, text=True, timeout=10,
+            ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=5
         )
-        if result.returncode == 0 and result.stdout.strip():
-            free_str = result.stdout.strip().rstrip("G")
-            try:
-                free_gb = int(free_str)
-                if free_gb < min_gb:
-                    return check_fail(f"Only {free_gb}GB free in WSL (need {min_gb}GB)")
-                return check_pass(f"Disk space: {free_gb}GB free")
-            except ValueError:
-                pass
-    except Exception:
-        pass
-    return check_warn("Could not check WSL disk space")
+        if result.returncode != 0:
+            return "WARN", "nvidia-smi failed"
+        used, total = [int(x.strip()) for x in result.stdout.strip().split(",")]
+        free = total - used
+        if free < 8000:  # Need at least 8GB for training
+            return "FAIL", f"Only {free}MB VRAM free ({used}/{total}MB used). Kill llama-server first."
+        return "OK", f"{free}MB VRAM free ({used}/{total}MB)"
+    except FileNotFoundError:
+        return "WARN", "nvidia-smi not found"
+    except Exception as e:
+        return "WARN", f"GPU check failed: {e}"
 
-
-def check_gpu():
-    """Check if GPU is free (no llama-server eating VRAM)."""
+def check_llama_server():
+    """Warn if llama-server is running (eats ~10GB VRAM)"""
     try:
-        result = subprocess.run(
-            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "nvidia-smi --query-compute-apps=name,used_memory --format=csv,noheader 2>/dev/null || echo 'no-nvidia'"],
-            capture_output=True, text=True, timeout=10,
-        )
-        output = result.stdout.strip()
-        if "no-nvidia" in output:
-            return check_warn("nvidia-smi not available — cannot verify GPU")
-        if "llama" in output.lower() or "server" in output.lower():
-            return check_fail(f"llama-server is using GPU — kill it before training. Processes: {output}")
-        if output:
-            check_warn(f"GPU processes: {output}")
-        return check_pass("GPU VRAM available (no llama-server running)")
+        result = subprocess.run(["pgrep", "-f", "llama-server"], capture_output=True, timeout=5)
+        if result.returncode == 0:
+            return "WARN", "llama-server is running. It uses ~10GB VRAM. Kill it before training."
+        return "OK", "llama-server not running"
     except Exception:
-        return check_warn("Could not check GPU status")
+        return "OK", "Could not check (non-Linux?)"
 
+def check_data_file(path):
+    """Validate training JSONL file"""
+    if not path:
+        return "SKIP", "No data file specified"
+    if not os.path.exists(path):
+        return "FAIL", f"Data file not found: {path}"
 
-def check_base_model(base_model_hf=None):
-    """Check if base model exists."""
-    # Check default Unsloth cache
-    bnb4_cache = os.path.expanduser("~/.cache/huggingface/hub/models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit/snapshots")
-    has_bnb4 = os.path.isdir(bnb4_cache) and os.listdir(bnb4_cache)
+    errors = []
+    line_count = 0
+    has_metadata = False
 
-    if base_model_hf:
-        if os.path.exists(base_model_hf):
-            config_path = os.path.join(base_model_hf, "config.json")
-            if os.path.exists(config_path):
-                return check_pass(f"Base model found: {base_model_hf}")
-            else:
-                return check_fail(f"Base model dir exists but missing config.json: {base_model_hf}")
-        else:
-            # Check WSL path
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            for i, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError as e:
+                    errors.append(f"Line {i}: invalid JSON — {e}")
+                    if len(errors) >= 5:
+                        break
+                    continue
+
+                line_count += 1
+
+                # Check for metadata field (breaks pyarrow)
+                if "metadata" in obj:
+                    has_metadata = True
+
+                # Check required fields
+                if "instruction" not in obj and "input" not in obj:
+                    if "messages" not in obj:  # Allow chat format too
+                        errors.append(f"Line {i}: missing 'instruction' field")
+                        if len(errors) >= 5:
+                            break
+    except Exception as e:
+        return "FAIL", f"Could not read data file: {e}"
+
+    if errors:
+        return "FAIL", f"{len(errors)} errors in data file: {errors[0]}"
+
+    warnings = []
+    if has_metadata:
+        warnings.append("Has 'metadata' field — mixed types may crash pyarrow. Strip metadata before training.")
+    if line_count < 10:
+        warnings.append(f"Only {line_count} pairs — very small dataset")
+
+    if warnings:
+        return "WARN", f"{line_count} pairs. " + " ".join(warnings)
+
+    return "OK", f"{line_count} valid training pairs"
+
+def check_base_model(path):
+    """Check if base model path exists and has required files"""
+    if not path:
+        return "SKIP", "No base model specified (will use default)"
+    if not os.path.exists(path):
+        return "FAIL", f"Base model not found: {path}"
+
+    # Check for safetensors or bin files
+    has_weights = any(
+        f.endswith(('.safetensors', '.bin'))
+        for f in os.listdir(path)
+    )
+    has_config = os.path.exists(os.path.join(path, "config.json"))
+
+    if not has_weights:
+        return "FAIL", f"No model weights found in {path}"
+    if not has_config:
+        return "WARN", f"No config.json in {path}"
+
+    return "OK", f"Base model found at {path}"
+
+def check_crlf():
+    """Check for Windows CRLF in critical scripts"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    bad_files = []
+    for fname in os.listdir(script_dir):
+        if fname.endswith(('.py', '.sh')):
+            fpath = os.path.join(script_dir, fname)
             try:
-                result = subprocess.run(
-                    ["wsl.exe", "-d", "Ubuntu-24.04", "--", "test", "-d", base_model_hf],
-                    capture_output=True, timeout=5,
-                )
-                if result.returncode == 0:
-                    return check_pass(f"Base model found in WSL: {base_model_hf}")
+                with open(fpath, 'rb') as f:
+                    content = f.read(4096)  # Check first 4KB
+                if b'\r\n' in content:
+                    bad_files.append(fname)
             except Exception:
                 pass
-            return check_fail(f"Base model not found: {base_model_hf}")
 
-    if has_bnb4:
-        return check_pass("Default Unsloth BNB-4bit cache found")
-    return check_warn("No base model specified and no Unsloth cache found")
-
+    if bad_files:
+        return "WARN", f"CRLF detected in: {', '.join(bad_files[:5])}. Run: sed -i 's/\r$//' scripts/*.py scripts/*.sh"
+    return "OK", "No CRLF issues"
 
 def check_hf_cache():
-    """Check HF cache has needed snapshots."""
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-    unsloth_dir = cache_dir / "models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit"
-    if unsloth_dir.exists():
-        snapshots = list((unsloth_dir / "snapshots").iterdir()) if (unsloth_dir / "snapshots").exists() else []
-        if snapshots:
-            return check_pass(f"HF cache: {len(snapshots)} snapshot(s) of Unsloth BNB-4bit")
-    # Also check WSL
-    try:
-        result = subprocess.run(
-            ["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-             "ls /root/.cache/huggingface/hub/models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit/snapshots/ 2>/dev/null | head -1"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.stdout.strip():
-            return check_pass("HF cache: Unsloth BNB-4bit snapshot in WSL")
-    except Exception:
-        pass
-    return check_warn("Unsloth BNB-4bit model not found in HF cache")
+    """Check if required HF model snapshots are cached"""
+    cache_base = os.path.expanduser("~/.cache/huggingface/hub")
+    model_dir = os.path.join(cache_base, "models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit")
+
+    if os.path.exists(model_dir):
+        snapshots = os.path.join(model_dir, "snapshots")
+        if os.path.exists(snapshots) and os.listdir(snapshots):
+            return "OK", "Unsloth 4-bit model cached"
+
+    # Check for standard model
+    model_dir2 = os.path.join(cache_base, "models--Qwen--Qwen2.5-Coder-14B-Instruct")
+    if os.path.exists(model_dir2):
+        return "OK", "Qwen base model cached"
+
+    return "WARN", "No cached model found. First training run will download ~8GB."
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Pre-flight training checks")
-    parser.add_argument("--data", type=str, required=True,
-                        help="Path to training JSONL file")
-    parser.add_argument("--base-model-hf", type=str, default=None,
-                        help="Path to HF base model (optional)")
-    parser.add_argument("--min-disk-gb", type=int, default=20,
-                        help="Minimum free disk space in GB (default: 20)")
+    parser = argparse.ArgumentParser(description="Pre-flight checks for HiveAI training")
+    parser.add_argument("--data", help="Path to training JSONL file")
+    parser.add_argument("--base-model", help="Path to base model directory")
+    parser.add_argument("--quiet", action="store_true", help="Only show failures and warnings")
     args = parser.parse_args()
 
-    print("=" * 60)
-    print("  Pre-Flight Training Check")
-    print("=" * 60)
-
     checks = [
-        ("HF Offline Mode", lambda: check_hf_offline()),
-        ("Training Data", lambda: check_metadata(args.data)),
-        ("CRLF in Scripts", lambda: check_crlf()),
-        ("Disk Space", lambda: check_disk_space(args.min_disk_gb)),
-        ("GPU Availability", lambda: check_gpu()),
-        ("Base Model", lambda: check_base_model(args.base_model_hf)),
-        ("HF Cache", lambda: check_hf_cache()),
+        ("HF Offline Mode", check_hf_offline),
+        ("Disk Space", lambda: check_disk_space(20)),
+        ("GPU VRAM", check_gpu_free),
+        ("llama-server", check_llama_server),
+        ("CRLF Check", check_crlf),
+        ("HF Cache", check_hf_cache),
+        ("Training Data", lambda: check_data_file(args.data)),
+        ("Base Model", lambda: check_base_model(args.base_model)),
     ]
 
-    results = {}
+    print("=" * 60)
+    print("  HiveAI Pre-Flight Check")
+    print("=" * 60)
+
+    results = []
     for name, check_fn in checks:
-        print(f"\n[{name}]")
-        results[name] = check_fn()
+        status, msg = check_fn()
+        results.append((name, status, msg))
 
-    print(f"\n{'=' * 60}")
-    passed = sum(1 for v in results.values() if v)
-    total = len(results)
-    failed = total - passed
+        if args.quiet and status in ("OK", "SKIP"):
+            continue
 
-    if failed == 0:
-        print(f"  {GREEN}ALL {total} CHECKS PASSED{RESET} — ready to train!")
-        sys.exit(0)
+        icon = {"OK": "✓", "WARN": "⚠", "FAIL": "✗", "SKIP": "–"}[status]
+        color_start = {"OK": "", "WARN": "\033[33m", "FAIL": "\033[31m", "SKIP": ""}[status]
+        color_end = "\033[0m" if color_start else ""
+        print(f"  {color_start}{icon} {name}: {msg}{color_end}")
+
+    print("=" * 60)
+
+    fails = sum(1 for _, s, _ in results if s == "FAIL")
+    warns = sum(1 for _, s, _ in results if s == "WARN")
+
+    if fails:
+        print(f"\033[31m  BLOCKED: {fails} critical issue(s) must be fixed before training\033[0m")
+        return 1
+    elif warns:
+        print(f"\033[33m  READY with {warns} warning(s)\033[0m")
+        return 2
     else:
-        print(f"  {RED}{failed} CHECK(S) FAILED{RESET} — fix issues before training")
-        sys.exit(1)
+        print(f"  ALL CLEAR — ready for training")
+        return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

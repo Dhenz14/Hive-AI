@@ -409,9 +409,9 @@ def deploy_to_llama_server(
     Starting llama-server is left to the user or the improve.py orchestrator,
     since it's a long-running process.
     """
-    llama_server = r"C:\Users\theyc\llama.cpp\bin\llama-server.exe"
+    # Linux-only: use WSL llama-server
+    llama_server = "/opt/hiveai/llama-cpp-build/build/bin/llama-server"
     if not os.path.exists(llama_server):
-        # Try common alternative
         llama_server = "llama-server"
 
     cmd = [

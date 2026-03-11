@@ -5,11 +5,11 @@ import logging
 import threading
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from sqlalchemy import func
-from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, utcnow
+from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, utcnow
 from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
-from hiveai.chat import search_knowledge_sections, build_conversation_context, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
+from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
 from skills.skill_loader import load_skills_for_query
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
@@ -830,9 +830,18 @@ def hardware_status():
 @app.route("/api/llm-status")
 def llm_status():
     from hiveai.llm.client import get_active_backend, _detect_ollama
-    from hiveai.config import LLM_BACKEND, OPENROUTER_API_KEY, OLLAMA_BASE_URL
+    from hiveai.config import LLM_BACKEND, OPENROUTER_API_KEY, OLLAMA_BASE_URL, LLAMA_SERVER_BASE_URL
     backend = get_active_backend()
+    # Check llama-server connectivity for health bar
+    import requests as _req
+    llm_online = False
+    try:
+        r = _req.get(f"{LLAMA_SERVER_BASE_URL}/health", timeout=3)
+        llm_online = r.status_code == 200
+    except Exception:
+        pass
     return jsonify({
+        "online": llm_online,
         "active_backend": backend,
         "configured_backend": LLM_BACKEND,
         "ollama_available": _detect_ollama(),
@@ -855,6 +864,7 @@ def embedding_status_api():
         else:
             embedding_count = db.query(BookSection).filter(BookSection.embedding.isnot(None)).count()
         return jsonify({
+            "online": match and embedding_count > 0,
             "configured_model": _configured_model,
             "stored_model": stored,
             "match": match,
@@ -935,8 +945,6 @@ def chat_api():
         if compressed:
             knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
 
-        conversation_context = build_conversation_context(history)
-
         # Inject domain skills for Hive-related queries
         skill_context = load_skills_for_query(message)
         skill_block = f"\n\n{skill_context}" if skill_context else ""
@@ -950,12 +958,11 @@ Your knowledge sections (from verified Golden Books):
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
 
-        user_prompt = f"""{conversation_context}
+        # Build proper multi-turn ChatML message array
+        chat_messages = build_message_array(system_prompt, history, user_message=message)
 
-User's question: {message}"""
-
-        response = smart_call(user_prompt, question=message,
-                             system_prompt=system_prompt,
+        response = smart_call("", question=message,
+                             messages=chat_messages,
                              num_sections=len(top_sections), max_tokens=4096)
         response = clean_llm_response(response)
 
@@ -1068,6 +1075,8 @@ def chat_stream():
     data = request.get_json()
     message = (data.get("message") or "").strip()
     history = data.get("history", [])
+    agent_mode = data.get("agent_mode", False)
+    workspace = data.get("workspace", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
@@ -1085,13 +1094,8 @@ def chat_stream():
             if not books:
                 # No Golden Books yet — stream direct Ollama response without RAG
                 yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
-                conversation_context = build_conversation_context(history)
-                prompt = f"""You are HiveAI, a helpful coding knowledge assistant.
-{conversation_context}
-
-User's question: {message}
-
-Answer the question directly and helpfully. Note: The knowledge library is still being built, so this response comes from the base model without RAG context."""
+                no_rag_system = "You are HiveAI, a helpful coding knowledge assistant.\n\nAnswer the question directly and helpfully. Note: The knowledge library is still being built, so this response comes from the base model without RAG context."
+                chat_messages = build_message_array(no_rag_system, history, user_message=message)
             else:
                 # Phase 1: RAG search (sync)
                 top_sections, source_books, all_books = search_knowledge_sections(message, db, history=history)
@@ -1107,8 +1111,6 @@ Answer the question directly and helpfully. Note: The knowledge library is still
                 if compressed:
                     knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
 
-                conversation_context = build_conversation_context(history)
-
                 # Inject domain skills for Hive-related queries
                 skill_context = load_skills_for_query(message)
                 skill_block = f"\n\n{skill_context}" if skill_context else ""
@@ -1122,12 +1124,31 @@ Your knowledge sections (from verified Golden Books):
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
 
-                prompt = f"""{conversation_context}
+                # Build proper multi-turn ChatML message array
+                chat_messages = build_message_array(rich_system_prompt, history, user_message=message)
 
-User's question: {message}"""
+            # ---- Agent mode: tool-use loop ----
+            if agent_mode:
+                from hiveai.agent.runner import run_agent_stream
+                for event in run_agent_stream(chat_messages, workspace, base_system=rich_system_prompt):
+                    if "token" in event:
+                        yield f"data: {json.dumps({'token': event['token']})}\n\n"
+                    elif "tool_call" in event:
+                        yield f"event: tool_call\ndata: {json.dumps(event['tool_call'])}\n\n"
+                    elif "tool_result" in event:
+                        yield f"event: tool_result\ndata: {json.dumps(event['tool_result'], default=str)}\n\n"
+                    elif "iteration" in event:
+                        yield f"event: iteration\ndata: {json.dumps(event)}\n\n"
+                    elif "error" in event:
+                        yield f"event: error\ndata: {json.dumps({'error': event['error']})}\n\n"
+                        return
+                    elif event.get("done"):
+                        full = clean_llm_response(event.get("full_response", ""))
+                        yield f"event: done\ndata: {json.dumps({'full_response': full})}\n\n"
+                return
 
-            # Phase 2: Stream tokens from Ollama
-            for chunk in stream_llm_call(prompt, system_prompt=rich_system_prompt, max_tokens=4096):
+            # ---- Normal mode: single-shot stream ----
+            for chunk in stream_llm_call("", messages=chat_messages, max_tokens=4096):
                 if "error" in chunk:
                     yield f"event: error\ndata: {json.dumps({'error': chunk['error']})}\n\n"
                     return
@@ -1387,6 +1408,172 @@ def chat_feedback():
     except Exception as e:
         db.rollback()
         return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Chat Session Persistence & Search API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/chat/sessions", methods=["POST"])
+def create_chat_session():
+    """Create a new chat session. Returns session_id."""
+    import uuid
+    from hiveai.models import ChatSession
+    db = SessionLocal()
+    try:
+        session = ChatSession(id=str(uuid.uuid4()))
+        db.add(session)
+        db.commit()
+        return jsonify({"session_id": session.id})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/chat/sessions", methods=["GET"])
+def list_chat_sessions():
+    """List recent chat sessions with titles."""
+    from hiveai.models import ChatSession
+    db = SessionLocal()
+    try:
+        sessions = db.query(ChatSession).order_by(
+            ChatSession.updated_at.desc()
+        ).limit(50).all()
+        return jsonify([{
+            "id": s.id,
+            "title": s.title or "Untitled",
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            "message_count": len(s.messages),
+        } for s in sessions])
+    finally:
+        db.close()
+
+
+@app.route("/api/chat/sessions/<session_id>/messages", methods=["POST"])
+def save_chat_message(session_id):
+    """Save a message to a session. Body: {role, content}."""
+    from hiveai.models import ChatSession, ChatMessage
+    body = request.get_json(silent=True) or {}
+    role = (body.get("role") or "").strip()
+    content = (body.get("content") or "").strip()
+    if not role or not content:
+        return jsonify({"error": "role and content required"}), 400
+
+    db = SessionLocal()
+    try:
+        session = db.query(ChatSession).get(session_id)
+        if not session:
+            return jsonify({"error": "session not found"}), 404
+
+        msg = ChatMessage(session_id=session_id, role=role, content=content)
+        db.add(msg)
+
+        # Auto-title from first user message
+        if not session.title and role == "user":
+            session.title = content[:100]
+
+        db.commit()
+
+        # Update FTS index
+        try:
+            db.execute(
+                text("INSERT INTO chat_messages_fts(rowid, content) VALUES (:id, :content)"),
+                {"id": msg.id, "content": content}
+            )
+            db.commit()
+        except Exception:
+            pass  # FTS table may not exist yet
+
+        return jsonify({"ok": True, "message_id": msg.id})
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/chat/sessions/<session_id>/messages", methods=["GET"])
+def get_chat_messages(session_id):
+    """Get all messages for a session."""
+    from hiveai.models import ChatMessage
+    db = SessionLocal()
+    try:
+        messages = db.query(ChatMessage).filter_by(
+            session_id=session_id
+        ).order_by(ChatMessage.id).all()
+        return jsonify([{
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        } for m in messages])
+    finally:
+        db.close()
+
+
+@app.route("/api/chat/search", methods=["GET"])
+def search_chat_history():
+    """Full-text search across all chat sessions.
+    Query param: q=<search terms>
+    Returns matching messages grouped by session.
+    """
+    from hiveai.models import ChatMessage, ChatSession
+    query = request.args.get("q", "").strip()
+    if not query or len(query) < 2:
+        return jsonify({"error": "query too short (min 2 chars)"}), 400
+
+    db = SessionLocal()
+    try:
+        # Try FTS5 search first
+        try:
+            fts_results = db.execute(
+                text("""
+                    SELECT cm.id, cm.session_id, cm.role, cm.content, cm.created_at
+                    FROM chat_messages_fts fts
+                    JOIN chat_messages cm ON cm.id = fts.rowid
+                    WHERE chat_messages_fts MATCH :query
+                    ORDER BY rank
+                    LIMIT 30
+                """),
+                {"query": query}
+            ).fetchall()
+        except Exception:
+            # FTS table doesn't exist, fall back to LIKE search
+            fts_results = db.execute(
+                text("""
+                    SELECT id, session_id, role, content, created_at
+                    FROM chat_messages
+                    WHERE content LIKE :pattern
+                    ORDER BY id DESC
+                    LIMIT 30
+                """),
+                {"pattern": f"%{query}%"}
+            ).fetchall()
+
+        # Group by session
+        sessions = {}
+        for row in fts_results:
+            sid = row[1]
+            if sid not in sessions:
+                sess = db.query(ChatSession).get(sid)
+                sessions[sid] = {
+                    "session_id": sid,
+                    "title": sess.title if sess else "Untitled",
+                    "matches": [],
+                }
+            sessions[sid]["matches"].append({
+                "id": row[0],
+                "role": row[2],
+                "content": row[3][:300],  # Truncate for preview
+                "created_at": row[4].isoformat() if row[4] else None,
+            })
+
+        return jsonify(list(sessions.values()))
     finally:
         db.close()
 
@@ -1930,6 +2117,29 @@ logging.getLogger(__name__).info("LoRA pipeline routes registered: /api/lora/dis
 # Training Pipeline API (micro-training flywheel)
 # ---------------------------------------------------------------------------
 
+@app.route('/api/preflight', methods=['POST'])
+def run_preflight():
+    """Run pre-flight checks before training"""
+    import subprocess
+    data = request.json or {}
+    cmd = ['python3', 'scripts/preflight_check.py', '--quiet']
+    if data.get('data_path'):
+        cmd.extend(['--data', data['data_path']])
+    if data.get('base_model'):
+        cmd.extend(['--base-model', data['base_model']])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return jsonify({
+            'exit_code': result.returncode,
+            'output': result.stdout,
+            'errors': result.stderr,
+            'status': 'pass' if result.returncode == 0 else 'warn' if result.returncode == 2 else 'fail'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+
 @app.route("/api/lora/micro-train", methods=["POST"])
 def lora_micro_train():
     """Launch a micro-training cycle via WSL in a tmux session."""
@@ -2052,6 +2262,30 @@ def lora_stop_training():
         return jsonify({"status": "stopped"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/lora/list-batches", methods=["GET"])
+def lora_list_batches():
+    """List available training batch files in datasets/ directory."""
+    datasets_dir = os.path.join(WORKSPACE, "datasets")
+    batches = []
+    if os.path.isdir(datasets_dir):
+        for fname in sorted(os.listdir(datasets_dir)):
+            if not fname.endswith(".jsonl"):
+                continue
+            fpath = os.path.join(datasets_dir, fname)
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    pair_count = sum(1 for _ in f)
+            except Exception:
+                pair_count = 0
+            batches.append({
+                "filename": fname,
+                "path": fpath,
+                "pair_count": pair_count,
+                "size_kb": round(os.path.getsize(fpath) / 1024, 1),
+            })
+    return jsonify({"batches": batches})
 
 
 @app.route("/api/lora/prepare-batches", methods=["POST"])
@@ -2259,6 +2493,68 @@ logging.getLogger(__name__).info("Sandbox + Eval routes registered: /api/sandbox
 def eval_page():
     """Evaluation dashboard — run evals, view results, compare models."""
     return render_template("eval.html")
+
+
+@app.route("/api/browse/communities")
+def browse_communities():
+    """Browse community detection results."""
+    db = SessionLocal()
+    try:
+        page = max(1, request.args.get("page", 1, type=int))
+        per_page = min(100, request.args.get("per_page", 50, type=int))
+        total = db.query(Community).count()
+        communities = (db.query(Community)
+                       .order_by(Community.created_at.desc())
+                       .offset((page - 1) * per_page)
+                       .limit(per_page)
+                       .all())
+        return jsonify({
+            "total": total, "page": page, "per_page": per_page,
+            "items": [{
+                "id": c.id, "job_id": c.job_id,
+                "entities": c.entities, "triple_count": c.triple_count,
+                "summary": c.summary,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            } for c in communities]
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/browse/hive-known")
+def browse_hive_known():
+    """Browse known Hive blockchain content."""
+    db = SessionLocal()
+    try:
+        page = max(1, request.args.get("page", 1, type=int))
+        per_page = min(100, request.args.get("per_page", 50, type=int))
+        search = request.args.get("q", "").strip()
+        query = db.query(HiveKnown)
+        if search:
+            query = query.filter(
+                HiveKnown.title.ilike(f"%{search}%") |
+                HiveKnown.author.ilike(f"%{search}%") |
+                HiveKnown.permlink.ilike(f"%{search}%")
+            )
+        total = query.count()
+        items = (query.order_by(HiveKnown.discovered_at.desc())
+                 .offset((page - 1) * per_page)
+                 .limit(per_page)
+                 .all())
+        return jsonify({
+            "total": total, "page": page, "per_page": per_page,
+            "items": [{
+                "id": h.id, "job_id": h.job_id, "url": h.url,
+                "permlink": h.permlink, "author": h.author,
+                "title": h.title, "tags": h.tags,
+                "discovered_at": h.discovered_at.isoformat() if h.discovered_at else None,
+            } for h in items]
+        })
+    finally:
+        db.close()
+
+
+logging.getLogger(__name__).info("Browse routes registered: /api/browse/communities, /api/browse/hive-known")
 
 
 if __name__ == "__main__":

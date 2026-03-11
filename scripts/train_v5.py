@@ -93,6 +93,16 @@ KL_CONFIG = {
     "seq_limit": 512,     # Max tokens for KL (safe with cut_cross_entropy on 14B)
 }
 
+# EWC-LoRA — Elastic Weight Consolidation for LoRA parameters (ICLR 2026)
+# Computes Fisher Information Matrix over replay data to identify important parameters,
+# then adds a quadratic penalty preventing those parameters from changing.
+# Result: +8.92% over vanilla LoRA on continual learning benchmarks.
+EWC_CONFIG = {
+    "lambda": 0.5,         # EWC penalty weight (0.3-0.7 recommended range)
+    "fisher_samples": 200, # Number of replay samples for Fisher computation
+    "enabled": True,       # Can disable for first cycle (no previous knowledge)
+}
+
 
 # ---------------------------------------------------------------------------
 # System Optimizer (from train_v3.py — hardware auto-detection)
@@ -217,14 +227,75 @@ def optimize_system_post_load():
 
 
 # ---------------------------------------------------------------------------
+# Auto GGUF Conversion
+# ---------------------------------------------------------------------------
+def auto_convert_gguf(adapter_dir):
+    """Convert PEFT adapter to GGUF format for llama.cpp"""
+    gguf_path = os.path.join(adapter_dir, "adapter.gguf")
+    if os.path.exists(gguf_path):
+        print(f"[GGUF] adapter.gguf already exists at {gguf_path}")
+        return gguf_path
+
+    # Try to find convert_lora_to_gguf.py
+    search_paths = [
+        "/tmp/llama_cpp_build/convert_lora_to_gguf.py",
+        "/tmp/llama.cpp/convert_lora_to_gguf.py",
+        os.path.expanduser("~/llama.cpp/convert_lora_to_gguf.py"),
+    ]
+    # Also check LLAMA_CPP_DIR env var
+    llama_cpp_dir = os.environ.get("LLAMA_CPP_DIR", "")
+    if llama_cpp_dir:
+        search_paths.insert(0, os.path.join(llama_cpp_dir, "convert_lora_to_gguf.py"))
+
+    convert_script = None
+    for p in search_paths:
+        if os.path.exists(p):
+            convert_script = p
+            break
+
+    if not convert_script:
+        print("[GGUF] convert_lora_to_gguf.py not found — skipping auto-conversion")
+        print("[GGUF] Manually run: python convert_lora_to_gguf.py --outfile adapter.gguf <adapter_dir>")
+        return None
+
+    print(f"[GGUF] Converting adapter to GGUF format...")
+    try:
+        result = subprocess.run(
+            ["python3", convert_script, "--outfile", gguf_path, adapter_dir],
+            capture_output=True, text=True, timeout=300
+        )
+        if result.returncode == 0 and os.path.exists(gguf_path):
+            size_mb = os.path.getsize(gguf_path) / (1024 * 1024)
+            print(f"[GGUF] Successfully created {gguf_path} ({size_mb:.1f} MB)")
+            return gguf_path
+        else:
+            print(f"[GGUF] Conversion failed: {result.stderr[:500]}")
+            return None
+    except subprocess.TimeoutExpired:
+        print("[GGUF] Conversion timed out after 300s")
+        return None
+    except Exception as e:
+        print(f"[GGUF] Conversion error: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
              seq_length_override: int = 0, warm_start: str = None,
              epochs_override: int = 0, two_stage: bool = False,
-             lora_plus: bool = False):
-    """Train LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
+             lora_plus: bool = False, use_ewc: bool = False,
+             ewc_fisher_path: str = None, prev_lora_path: str = None,
+             probe_guard: bool = False, probe_interval: int = 50,
+             probe_server_url: str = "http://localhost:11435"):
+    """Train LoRA on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth).
+
+    Lossless continual learning features:
+    - EWC-LoRA: Fisher penalty prevents changing important parameters (--ewc-lambda)
+    - Orthogonal init: Initialize new LoRA orthogonal to previous task (--prev-lora)
+    """
     import torch
     import torch.nn.functional as F
 
@@ -596,6 +667,93 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     model.print_trainable_parameters()
 
+    # ── Orthogonal LoRA Initialization ("Merge before Forget") ──
+    # Initialize new LoRA in the null space of previous LoRA's subspace.
+    # This ensures new learning cannot interfere with previous directions.
+    if prev_lora_path and os.path.exists(prev_lora_path):
+        try:
+            import safetensors.torch as st
+            logger.info(f"Orthogonal LoRA init: loading previous adapter from {prev_lora_path}")
+
+            # Load previous adapter weights
+            prev_adapter_file = os.path.join(prev_lora_path, "adapter_model.safetensors")
+            if not os.path.exists(prev_adapter_file):
+                prev_adapter_file = os.path.join(prev_lora_path, "adapter_model.bin")
+                prev_state = torch.load(prev_adapter_file, map_location="cpu", weights_only=True)
+            else:
+                prev_state = st.load_file(prev_adapter_file)
+
+            # Build lookup of previous A/B matrices by layer
+            prev_lora = {}
+            for k, v in prev_state.items():
+                if 'lora_A' in k or 'lora_B' in k:
+                    prev_lora[k] = v
+
+            ortho_count = 0
+            for name, param in model.named_parameters():
+                if 'lora_A' not in name or not param.requires_grad:
+                    continue
+
+                # Find matching previous A and B matrices
+                # Name pattern: base_model.model.model.layers.N.self_attn.q_proj.lora_A.default.weight
+                b_name = name.replace('lora_A', 'lora_B')
+                prev_a_key = None
+                prev_b_key = None
+                for k in prev_lora:
+                    if 'lora_A' in k and name.split('lora_A')[0] in k:
+                        prev_a_key = k
+                    if 'lora_B' in k and name.split('lora_A')[0].replace('lora_A', 'lora_B') in k:
+                        prev_b_key = k
+
+                # Try exact match first
+                if prev_a_key is None:
+                    # Try matching by the layer path portion
+                    for k in prev_lora:
+                        # Extract just the module path (e.g., layers.0.self_attn.q_proj)
+                        curr_parts = name.replace('base_model.model.', '').split('.lora_A')[0]
+                        prev_parts = k.replace('base_model.model.', '').split('.lora_A')[0]
+                        if curr_parts == prev_parts and 'lora_A' in k:
+                            prev_a_key = k
+                        if curr_parts == prev_parts.replace('lora_B', 'lora_A').replace('lora_A', 'lora_B') and 'lora_B' in k:
+                            prev_b_key = k
+
+                if prev_a_key is None or prev_b_key is None:
+                    continue
+
+                prev_A = prev_lora[prev_a_key].float()  # [r, in]
+                prev_B = prev_lora[prev_b_key].float()  # [out, r]
+
+                # Compute effective delta and its SVD
+                prev_delta = prev_B @ prev_A  # [out, in]
+                try:
+                    _, _, Vh = torch.linalg.svd(prev_delta, full_matrices=False)
+                    # Vh shape: [min(out,in), in] — these are the input directions used
+
+                    # Project current A init to be orthogonal to previous directions
+                    new_A = param.data.float()
+                    # Only use top-r singular vectors (the rank of previous LoRA)
+                    r_prev = min(prev_A.shape[0], Vh.shape[0])
+                    Vh_top = Vh[:r_prev, :]  # [r_prev, in]
+
+                    # Remove previous subspace: A_ortho = A - A @ Vh^T @ Vh
+                    projection = Vh_top.T @ Vh_top  # [in, in]
+                    orthogonal = new_A - new_A @ projection
+
+                    # Re-normalize to maintain initialization scale
+                    orig_norm = new_A.norm()
+                    ortho_norm = orthogonal.norm().clamp(min=1e-8)
+                    param.data = (orthogonal * (orig_norm / ortho_norm)).to(param.dtype)
+                    ortho_count += 1
+                except Exception:
+                    continue  # Skip layers where SVD fails
+
+            logger.info(f"  Orthogonal init applied to {ortho_count} lora_A matrices "
+                        f"(orthogonal to previous LoRA subspace)")
+        except Exception as e:
+            logger.warning(f"Orthogonal init failed: {e} — using default init (non-fatal)")
+    elif prev_lora_path:
+        logger.warning(f"Previous LoRA path not found: {prev_lora_path} — using default init")
+
     # Cast LoRA adapter weights to bf16 (if not already done by Unsloth)
     if not use_unsloth:
         n_cast = 0
@@ -737,12 +895,51 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     logger.info(f"  First 200 chars: {sample_text[:200]}...")
     logger.info(f"  Last 200 chars: ...{sample_text[-200:]}")
 
+    # ── EWC-LoRA Setup ──
+    # Elastic Weight Consolidation: penalizes changes to important LoRA parameters
+    ewc_state = {"fisher": None, "old_params": None, "enabled": False}
+
+    if use_ewc and EWC_CONFIG["enabled"]:
+        fisher_path = ewc_fisher_path
+        if fisher_path and os.path.exists(fisher_path):
+            logger.info(f"Loading EWC Fisher matrix from {fisher_path}")
+            try:
+                fisher_data = torch.load(fisher_path, map_location="cpu", weights_only=True)
+                ewc_state["fisher"] = fisher_data["fisher"]
+                ewc_state["old_params"] = fisher_data["old_params"]
+                ewc_state["enabled"] = True
+                logger.info(f"  EWC active: {len(ewc_state['fisher'])} parameter groups, "
+                            f"lambda={EWC_CONFIG['lambda']}")
+            except Exception as e:
+                logger.warning(f"Failed to load Fisher matrix: {e} — EWC disabled")
+        else:
+            logger.info("No Fisher matrix found — EWC disabled (first cycle or no --fisher-path)")
+    else:
+        logger.info("EWC disabled" + (" (--no-ewc)" if not use_ewc else ""))
+
+    def compute_ewc_loss(model_arg):
+        """Compute EWC quadratic penalty: lambda * sum(F_i * (theta_i - theta_i_old)^2)"""
+        if not ewc_state["enabled"]:
+            return 0.0
+
+        ewc_loss = torch.tensor(0.0, device=next(model_arg.parameters()).device)
+        fisher = ewc_state["fisher"]
+        old_params = ewc_state["old_params"]
+
+        for name, param in model_arg.named_parameters():
+            if name in fisher and param.requires_grad:
+                fisher_val = fisher[name].to(param.device)
+                old_val = old_params[name].to(param.device)
+                ewc_loss = ewc_loss + (fisher_val * (param - old_val) ** 2).sum()
+
+        return EWC_CONFIG["lambda"] * ewc_loss
+
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
     # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
     # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
-    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0}
+    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0, "last_ewc": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
     def _chunked_log_probs(model_arg, inputs, label_slice, kl_slice, with_grad):
@@ -865,15 +1062,30 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     logger.warning(f"KL chunked error ({type(e).__name__}: {e}) — disabling")
                     kl_state["disabled"] = True
 
+        # Phase 4: EWC penalty (additive, independent of KL)
+        ewc_loss_val = 0.0
+        if ewc_state["enabled"]:
+            try:
+                ewc_penalty = compute_ewc_loss(model_arg)
+                if isinstance(ewc_penalty, torch.Tensor):
+                    ewc_loss_val = ewc_penalty.item()
+                    sft_loss = sft_loss + ewc_penalty
+            except Exception as e:
+                if ewc_state["enabled"]:
+                    logger.warning(f"EWC loss error ({type(e).__name__}: {e}) — disabling")
+                    ewc_state["enabled"] = False
+
         kl_state["last_kl"] = kl_loss_val
         kl_state["last_sft"] = (sft_loss.item() - KL_CONFIG["lambda"] * kl_loss_val
-                                 if kl_loss_val else sft_loss.item())
+                                 - ewc_loss_val if kl_loss_val or ewc_loss_val
+                                 else sft_loss.item())
+        kl_state["last_ewc"] = ewc_loss_val
 
         if return_outputs:
             return sft_loss, outputs
         return sft_loss
 
-    if use_kl:
+    if use_kl or use_ewc:
         SFTTrainer.compute_loss = compute_loss_with_kl
 
     # ── Callbacks ──
@@ -1160,6 +1372,38 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             if stage_cfg is None:
                 logger.info("EarlyStoppingCallback added (patience=3 evals)")
 
+        # Domain probe callback: mid-training regression detection (--probe-guard)
+        if probe_guard and max_steps > probe_interval:
+            try:
+                from domain_probe_callback import DomainProbeCallback
+                probe_cb = DomainProbeCallback(
+                    probe_interval=probe_interval,
+                    server_url=probe_server_url,
+                )
+                # Set baseline from score_ledger if available
+                ledger_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "score_ledger.json")
+                if os.path.exists(ledger_path):
+                    with open(ledger_path, "r") as f:
+                        ledger = json.load(f)
+                    versions = [k for k in ledger if not k.startswith("failed/")]
+                    if versions:
+                        latest = ledger[versions[-1]]
+                        baseline = {d: s for d, s in latest.items()
+                                    if isinstance(s, (int, float)) and d in ('python', 'rust', 'go', 'cpp', 'js', 'hive')}
+                        if baseline:
+                            probe_cb.set_baseline(baseline)
+                            callbacks.append(probe_cb)
+                            logger.info(f"DomainProbeCallback enabled: every {probe_interval} steps, "
+                                        f"baseline from {versions[-1]}")
+                        else:
+                            logger.warning("Probe guard: no numeric domain scores in ledger, skipping")
+                    else:
+                        logger.warning("Probe guard: empty score_ledger, skipping")
+                else:
+                    logger.warning("Probe guard: score_ledger.json not found, skipping")
+            except ImportError as e:
+                logger.warning(f"Probe guard: could not import DomainProbeCallback: {e}")
+
         # LoRA+ optimizer: B matrix gets 16x higher LR (arXiv 2602.04998)
         lora_plus_optimizers = None
         if lora_plus:
@@ -1286,6 +1530,50 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         except Exception as e:
             logger.warning(f"  Could not normalize adapter config: {e}")
 
+    # ── Compute & save Fisher matrix for next EWC cycle ──
+    if use_ewc or EWC_CONFIG["enabled"]:
+        try:
+            logger.info("Computing Fisher Information Matrix for EWC (next cycle)...")
+            fisher = {}
+            old_params = {}
+            model.eval()
+
+            # Collect LoRA parameter names
+            for name, param in model.named_parameters():
+                if 'lora_' in name and param.requires_grad:
+                    fisher[name] = torch.zeros_like(param, device="cpu")
+                    old_params[name] = param.data.clone().cpu()
+
+            if fisher:
+                # Use training dataset for Fisher computation (up to N samples)
+                fisher_samples = min(EWC_CONFIG["fisher_samples"], len(dataset))
+                import itertools
+                fisher_loader = torch.utils.data.DataLoader(
+                    dataset.select(range(fisher_samples)),
+                    batch_size=1,
+                    collate_fn=trainer.data_collator,
+                )
+                for batch in itertools.islice(fisher_loader, fisher_samples):
+                    batch = {k: v.to(model.device) if hasattr(v, 'to') else v
+                             for k, v in batch.items()}
+                    model.zero_grad()
+                    outputs = model(**batch)
+                    outputs.loss.backward()
+                    for name, param in model.named_parameters():
+                        if name in fisher and param.grad is not None:
+                            fisher[name] += (param.grad.data ** 2).cpu() / fisher_samples
+                    model.zero_grad()
+
+                fisher_save_path = os.path.join(OUTPUT_DIR, "fisher.pt")
+                torch.save({"fisher": fisher, "old_params": old_params}, fisher_save_path)
+                size_mb = os.path.getsize(fisher_save_path) / (1024 * 1024)
+                logger.info(f"  Fisher matrix saved: {fisher_save_path} ({size_mb:.1f} MB, "
+                            f"{len(fisher)} params, {fisher_samples} samples)")
+            else:
+                logger.warning("  No LoRA parameters found — skipping Fisher computation")
+        except Exception as e:
+            logger.warning(f"  Fisher computation failed: {e} — skipping (non-fatal)")
+
     # Save training metadata
     meta = {
         "version": "v7.0",
@@ -1300,6 +1588,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         "training_config": TRAINING_CONFIG,
         "kl_config": KL_CONFIG if use_kl else None,
         "kl_disabled_during_training": kl_state["disabled"],
+        "ewc_config": EWC_CONFIG if use_ewc else None,
+        "ewc_enabled_during_training": ewc_state["enabled"],
         "max_seq_length": seq_length,
         "system_prompt": "CODING_SYSTEM_PROMPT (hiveai.llm.prompts)",
         "format": "ChatML via tokenizer.apply_chat_template",
@@ -1313,37 +1603,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         json.dump(meta, f, indent=2)
 
     # ── Auto-convert LoRA to GGUF ──
+    auto_convert_gguf(OUTPUT_DIR)
     adapter_gguf_path = os.path.join(OUTPUT_DIR, "adapter.gguf")
-    convert_script_candidates = [
-        os.path.join(os.environ.get("LLAMA_CPP_DIR", "/tmp/llama.cpp"), "convert_lora_to_gguf.py"),
-        "/tmp/llama.cpp/convert_lora_to_gguf.py",
-    ]
-    convert_script = None
-    for cs in convert_script_candidates:
-        if os.path.exists(cs):
-            convert_script = cs
-            break
-
-    if convert_script and not os.path.exists(adapter_gguf_path):
-        logger.info("Auto-converting LoRA adapter to GGUF format...")
-        try:
-            convert_result = subprocess.run(
-                [sys.executable, convert_script, OUTPUT_DIR,
-                 "--outfile", adapter_gguf_path, "--outtype", "f16"],
-                capture_output=True, text=True, timeout=300,
-                cwd=os.path.dirname(convert_script),
-            )
-            if convert_result.returncode == 0:
-                gguf_size = os.path.getsize(adapter_gguf_path) / (1024 * 1024)
-                logger.info(f"  adapter.gguf created ({gguf_size:.1f} MB)")
-            else:
-                logger.warning(f"  GGUF conversion failed: {convert_result.stderr[-500:]}")
-        except Exception as e:
-            logger.warning(f"  GGUF conversion skipped: {e}")
-    elif os.path.exists(adapter_gguf_path):
-        logger.info(f"  adapter.gguf already exists, skipping conversion")
-    else:
-        logger.info("  convert_lora_to_gguf.py not found — skipping GGUF conversion")
 
     # ── Print next steps ──
     print("\n" + "=" * 60)
@@ -1433,6 +1694,21 @@ if __name__ == "__main__":
                         help="Path to full-precision HF base model (for training on merged checkpoint)")
     parser.add_argument("--neftune-alpha", type=float, default=-1.0,
                         help="Override NEFTune noise alpha (default: 5.0, set 0 to disable)")
+    # === Lossless Continual Learning flags ===
+    parser.add_argument("--ewc-lambda", type=float, default=-1.0,
+                        help="EWC penalty weight (default: 0.5, set 0 to disable)")
+    parser.add_argument("--no-ewc", action="store_true",
+                        help="Disable EWC-LoRA regularization")
+    parser.add_argument("--fisher-path", type=str, default=None,
+                        help="Path to Fisher matrix .pt file from previous cycle")
+    parser.add_argument("--prev-lora", type=str, default=None,
+                        help="Path to previous cycle's LoRA adapter for orthogonal init")
+    parser.add_argument("--probe-guard", action="store_true",
+                        help="Enable mid-training domain probe callback (for runs >50 steps)")
+    parser.add_argument("--probe-interval", type=int, default=50,
+                        help="Steps between domain probe checks (default: 50)")
+    parser.add_argument("--probe-server", type=str, default="http://localhost:11435",
+                        help="llama-server URL for probe checks (default: http://localhost:11435)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1468,6 +1744,15 @@ if __name__ == "__main__":
         logger.info(f"NEFTune alpha override: {args.neftune_alpha}" if args.neftune_alpha > 0
                     else "NEFTune disabled")
 
+    # EWC-LoRA configuration
+    use_ewc = not args.no_ewc
+    if args.ewc_lambda >= 0:
+        EWC_CONFIG["lambda"] = args.ewc_lambda
+        if args.ewc_lambda == 0:
+            use_ewc = False
+        logger.info(f"EWC lambda override: {args.ewc_lambda}")
+    ewc_fisher_path = args.fisher_path
+
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)
 
@@ -1498,6 +1783,31 @@ if __name__ == "__main__":
         model_path = args.base_model_hf
         logger.info(f"Base model HF override: {model_path}")
 
+    # Adaptive replay ratio: check score_ledger for domains that dropped last cycle
+    effective_replay_ratio = args.replay_ratio
+    boosted_domains = []
+    ledger_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "score_ledger.json")
+    if os.path.exists(ledger_path) and not args.consolidation_only:
+        try:
+            with open(ledger_path, "r") as f:
+                ledger = json.load(f)
+            versions = [k for k in ledger if not k.startswith("failed/")]
+            if len(versions) >= 2:
+                latest = ledger[versions[-1]]
+                prev = ledger[versions[-2]]
+                for domain in ['python', 'rust', 'go', 'cpp', 'js', 'hive']:
+                    curr_score = latest.get(domain, 0)
+                    prev_score = prev.get(domain, 0)
+                    if isinstance(curr_score, (int, float)) and isinstance(prev_score, (int, float)):
+                        if curr_score < prev_score - 0.01:
+                            boosted_domains.append(domain)
+                if boosted_domains:
+                    effective_replay_ratio = min(0.40, args.replay_ratio + 0.15)
+                    logger.info(f"ADAPTIVE REPLAY: domains {boosted_domains} dropped last cycle — "
+                                f"boosting replay ratio {args.replay_ratio:.0%} -> {effective_replay_ratio:.0%}")
+        except Exception as e:
+            logger.warning(f"Could not read score_ledger for adaptive replay: {e}")
+
     # Replay data mixing
     if args.replay_dir and os.path.isdir(args.replay_dir):
         from pathlib import Path
@@ -1518,7 +1828,7 @@ if __name__ == "__main__":
                     domain_samples = [json.loads(l) for l in f if l.strip()]
                 # Calculate mix: domain_count / (1 - replay_ratio) = total
                 # replay_count = total * replay_ratio
-                target_replay = int(len(domain_samples) * args.replay_ratio / (1 - args.replay_ratio))
+                target_replay = int(len(domain_samples) * effective_replay_ratio / (1 - effective_replay_ratio))
                 target_replay = min(target_replay, len(replay_samples))
                 selected_replay = random.sample(replay_samples, target_replay)
                 mixed = domain_samples + selected_replay
@@ -1532,7 +1842,7 @@ if __name__ == "__main__":
                         f.write(json.dumps(clean, ensure_ascii=False) + "\n")
                 TRAINING_JSONL = mixed_path
                 logger.info(f"Replay mix: {len(domain_samples)} domain + {target_replay} replay "
-                            f"= {len(mixed)} total ({args.replay_ratio:.0%} replay)")
+                            f"= {len(mixed)} total ({effective_replay_ratio:.0%} replay)")
             elif args.consolidation_only and replay_samples:
                 # Consolidation mode: 100% replay
                 mixed_path = os.path.join(os.path.dirname(TRAINING_JSONL), f"_consolidation_{os.getpid()}.jsonl")
@@ -1548,4 +1858,7 @@ if __name__ == "__main__":
              skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
              seq_length_override=args.seq_length, warm_start=args.warm_start,
              epochs_override=args.epochs, two_stage=args.two_stage,
-             lora_plus=args.lora_plus)
+             lora_plus=args.lora_plus, use_ewc=use_ewc,
+             ewc_fisher_path=ewc_fisher_path, prev_lora_path=args.prev_lora,
+             probe_guard=args.probe_guard, probe_interval=args.probe_interval,
+             probe_server_url=args.probe_server)

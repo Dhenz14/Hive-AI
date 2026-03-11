@@ -95,7 +95,7 @@ def _llm_extract_keywords(question, history=None):
                 prompt += f"\n\nRecent context: {context[:500]}"
 
         payload = _json.dumps({
-            "model": "hiveai-v7",
+            "model": "hiveai",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": 200,
@@ -159,7 +159,7 @@ def _extract_section_keywords(header, content):
         )
 
         payload = _json.dumps({
-            "model": "hiveai-v7",
+            "model": "hiveai",
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.0,
             "max_tokens": 200,
@@ -480,6 +480,7 @@ _compaction_cache = {}
 _compaction_cache_lock = threading.Lock()
 COMPACTION_THRESHOLD = 10  # compact when history exceeds this many messages
 RECENT_KEEP = 4  # keep this many recent messages verbatim
+CONTEXT_BUDGET_TOKENS = 6000  # max tokens for prompt (leaves ~2K for response in 8K ctx)
 
 # ---------------------------------------------------------------------------
 # Compaction & Context Quality Metrics (§12 improvement_notes.md)
@@ -819,7 +820,12 @@ def compact_conversation(history):
 
 
 def build_conversation_context(history):
-    """Build conversation context, using LLM compaction for long histories."""
+    """Build conversation context, using LLM compaction for long histories.
+
+    LEGACY: Flattens history into a string.  Prefer build_message_array() for
+    proper multi-turn ChatML when calling llama-server or any OpenAI-compatible
+    endpoint.
+    """
     if not history:
         return ""
 
@@ -851,6 +857,79 @@ def build_conversation_context(history):
         result += f"\nTopics already discussed: {', '.join(topics_discussed)}"
     result += "\n" + "\n".join(context_lines)
     return result
+
+
+def _estimate_tokens(text):
+    """Estimate token count from text (~1.3 tokens per word for English)."""
+    return max(1, int(len(text.split()) * 1.3))
+
+
+def _estimate_messages_tokens(messages):
+    """Estimate total tokens across a message array."""
+    return sum(_estimate_tokens(m.get("content", "")) for m in messages) + len(messages) * 4
+
+
+def build_message_array(system_prompt, history, user_message):
+    """Build a proper ChatML message array for multi-turn conversations.
+
+    Returns a list of dicts like:
+        [
+            {"role": "system", "content": "..."},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "user", "content": "follow-up question"},
+        ]
+
+    For long conversations (>COMPACTION_THRESHOLD messages), older history is
+    compacted into the system prompt to stay within context limits while
+    preserving the most recent turns as proper ChatML pairs.
+
+    Token budget enforcement: if total exceeds CONTEXT_BUDGET_TOKENS, older
+    history turns are dropped (oldest first) until within budget.
+    """
+    messages = [{"role": "system", "content": system_prompt}]
+
+    if not history:
+        messages.append({"role": "user", "content": user_message})
+        return messages
+
+    # For long conversations, compact older history into system context
+    # and keep recent turns as proper message pairs
+    if len(history) > COMPACTION_THRESHOLD:
+        # Compact older messages, keep last 6 as real turns
+        older = history[:-6]
+        recent = history[-6:]
+
+        compacted = compact_conversation(older)
+        if compacted:
+            # Append compacted summary to system prompt
+            messages[0]["content"] += (
+                f"\n\nConversation history (build on this, don't repeat):\n{compacted}"
+            )
+    else:
+        recent = history[-6:]
+
+    # Add recent history as proper ChatML turns
+    for h in recent:
+        role = h.get("role", "")
+        content = h.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+
+    # Ensure the last message is the current user message
+    messages.append({"role": "user", "content": user_message})
+
+    # Token budget enforcement: drop oldest history turns if over budget.
+    # Always keep: system prompt (index 0) and current user message (last).
+    total = _estimate_messages_tokens(messages)
+    while total > CONTEXT_BUDGET_TOKENS and len(messages) > 2:
+        # Remove the oldest non-system message (index 1)
+        removed = messages.pop(1)
+        total = _estimate_messages_tokens(messages)
+        logger.debug("Token budget: dropped turn (%s, %d chars), now ~%d tokens",
+                      removed["role"], len(removed.get("content", "")), total)
+
+    return messages
 
 
 def get_compressed_knowledge(book_ids, db):
