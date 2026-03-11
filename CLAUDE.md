@@ -100,7 +100,7 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 1. `preflight_check.py` — Automated pre-flight validator (7 checks: HF offline, metadata, CRLF, disk, GPU, base model, cache)
 2. `replay_sampler.py` — SuRe NLL-scored surprise replay + domain-balanced sampling
 3. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, all 7 modules, EWC penalty, orthogonal init)
-4. `safe_merge.py` — DELLA pruning + alpha grid search [0.75-1.0], golden chain HF→GGUF
+4. `safe_merge.py` — DELLA pruning + golden chain HF merge + per-layer alpha + convert + quantize (~15 min)
 5. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay, all 7 modules)
 6. `regression_eval.py` — 60 domain probes (10/domain), fail if any drops >0.03. `--quick` for original 18.
 
