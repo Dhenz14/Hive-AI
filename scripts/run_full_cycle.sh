@@ -392,15 +392,16 @@ LORA_GGUF="$PROJECT_ROOT/models/hiveai-${VERSION}-lora-f16.gguf"
 # Step 4: Safe merge (alpha grid search)
 # =============================================================================
 if [ "$LAST_STEP" -lt 4 ]; then
-    log_step "4/7" "Safe merge with alpha grid search"
+    log_step "4/7" "Safe merge (golden chain)"
     MERGE_OUTPUT="$DEPLOY_DIR/${VERSION}"
+    # Single alpha + golden chain = skip throwaway GGUF comparison entirely.
+    # HF merge is the source of truth. Per-layer alpha handles fine-tuning.
     python "$PROJECT_ROOT/scripts/safe_merge.py" \
         --base-gguf "$PREV_GGUF" \
         --lora-gguf "$LORA_GGUF" \
         --output-dir "$MERGE_OUTPUT" \
         --validation-data "$REPLAY_DIR/sampled.jsonl" \
-        --alphas "0.85,1.0" \
-        --early-exit-ppl 8.0 \
+        --alphas "1.0" \
         --version "$VERSION" \
         --base-hf "$PREV_HF" \
         --lora-hf "$LORA_OUTPUT" \
