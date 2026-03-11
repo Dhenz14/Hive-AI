@@ -369,9 +369,38 @@ def convert_hf_to_gguf(hf_dir: str, output_gguf: str, quantize_type: str = "Q5_K
     return True
 
 
+def _quantize_for_eval(f16_path: str, quantize_type: str = "Q5_K_M") -> str:
+    """Quantize an F16 GGUF to a smaller quant for fast perplexity eval.
+
+    llama-export-lora always outputs F16 (26GB for 14B model). Evaluating
+    perplexity on F16 takes 30+ min and can timeout. Quantizing to Q5_K_M
+    first (10GB) makes eval 3x faster.
+    """
+    quant_path = f16_path.replace(".gguf", f"_{quantize_type}.gguf")
+    print(f"    Quantizing for eval: {quantize_type}...")
+    try:
+        result = subprocess.run(
+            [LLAMA_QUANTIZE, f16_path, quant_path, quantize_type],
+            capture_output=True, text=True, timeout=600,
+        )
+        if result.returncode == 0:
+            quant_size = os.path.getsize(quant_path) / (1024**3)
+            print(f"    Quantized: {quant_size:.1f} GB (was {os.path.getsize(f16_path) / (1024**3):.1f} GB)")
+            # Delete the F16 intermediate — we only need the quantized version
+            os.remove(f16_path)
+            return quant_path
+        else:
+            print(f"    Quantize failed, using F16: {result.stderr[:200]}")
+            return f16_path
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print(f"    Quantize unavailable, using F16")
+        return f16_path
+
+
 def alpha_grid_search(base_gguf: str, lora_gguf: str, output_dir: str,
                        validation_file: str, alphas: list[float],
-                       early_exit_ppl: float = 0.0) -> tuple[float, str]:
+                       early_exit_ppl: float = 0.0,
+                       quantize_for_eval: str = "Q5_K_M") -> tuple[float, str]:
     """Try each alpha, compute perplexity, return best.
 
     Uses pipeline parallelism: CPU merge of alpha[i+1] overlaps with
@@ -379,6 +408,9 @@ def alpha_grid_search(base_gguf: str, lora_gguf: str, output_dir: str,
 
     If early_exit_ppl > 0 and first alpha achieves perplexity below that
     threshold, skips remaining alphas (saves ~20 min per skipped alpha).
+
+    If quantize_for_eval is set, quantizes each F16 candidate to that quant
+    type before running perplexity (3x faster: 10GB Q5_K_M vs 26GB F16).
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -391,13 +423,16 @@ def alpha_grid_search(base_gguf: str, lora_gguf: str, output_dir: str,
     early_stop = threading.Event()
 
     def merge_worker():
-        """Merge all alphas sequentially (CPU-bound)."""
+        """Merge all alphas sequentially (CPU-bound), quantize for eval."""
         for alpha in alphas:
             if early_stop.is_set():
                 print(f"  Skipping alpha {alpha} (early exit triggered)")
                 break
             merged_path = os.path.join(output_dir, f"merged_alpha_{alpha}.gguf")
             success = gguf_merge_at_alpha(base_gguf, lora_gguf, merged_path, alpha)
+            if success and quantize_for_eval:
+                # Quantize F16 → Q5_K_M before eval (3x faster perplexity)
+                merged_path = _quantize_for_eval(merged_path, quantize_for_eval)
             merge_ready.put((alpha, merged_path, success))
         merge_ready.put(None)  # sentinel
 
@@ -705,12 +740,23 @@ def main():
         if args.base_hf or args.lora_hf or args.output_hf:
             print("  WARNING: Golden chain requires all three: --base-hf, --lora-hf, --output-hf")
 
-    # Step 1: Alpha grid search via llama-export-lora (fast comparison)
-    best_alpha, search_gguf = alpha_grid_search(
-        args.base_gguf, args.lora_gguf, args.output_dir,
-        args.validation_data, alphas,
-        early_exit_ppl=args.early_exit_ppl
-    )
+    # Single alpha + golden chain = skip GGUF comparison entirely.
+    # No point merging F16, running perplexity, then throwing it away.
+    # Just go straight to HF merge + convert + quantize.
+    skip_gguf_search = golden_chain and len(alphas) == 1
+
+    if skip_gguf_search:
+        best_alpha = alphas[0]
+        search_gguf = None
+        print(f"\n  Single alpha ({best_alpha}) + golden chain — skipping GGUF comparison")
+    else:
+        # Step 1: Alpha grid search via llama-export-lora (quantized comparison)
+        best_alpha, search_gguf = alpha_grid_search(
+            args.base_gguf, args.lora_gguf, args.output_dir,
+            args.validation_data, alphas,
+            early_exit_ppl=args.early_exit_ppl,
+            quantize_for_eval=args.quantize_type,
+        )
 
     # Step 2: Golden chain — HF merge at best alpha, then convert to GGUF
     if golden_chain:
@@ -746,13 +792,13 @@ def main():
         golden_gguf = os.path.join(args.output_dir, "merged.gguf")
         if convert_hf_to_gguf(args.output_hf, golden_gguf, args.quantize_type):
             # Golden chain GGUF replaces the llama-export-lora version
-            if os.path.exists(search_gguf) and search_gguf != golden_gguf:
+            if search_gguf and os.path.exists(search_gguf) and search_gguf != golden_gguf:
                 os.remove(search_gguf)
                 print(f"  Replaced llama-export-lora GGUF with golden chain GGUF")
             merged_gguf = golden_gguf
         else:
-            print(f"  WARNING: HF→GGUF conversion failed, keeping llama-export-lora GGUF")
-            merged_gguf = search_gguf
+            print(f"  WARNING: HF→GGUF conversion failed")
+            merged_gguf = search_gguf or golden_gguf
     else:
         merged_gguf = search_gguf
         per_layer_alphas = None
