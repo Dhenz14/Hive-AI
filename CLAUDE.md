@@ -1,5 +1,15 @@
 # HiveAI Project Rules
 
+## Core Philosophy — Non-Negotiable
+
+**Greatness is taken, not given.** This project holds itself to the highest standard:
+
+- **1% regression threshold is absolute** — never lower it, never "round down," never call it noise. If a domain drops >1%, the cycle fails. Period.
+- **Never settle for "good enough"** — if something can be better with zero downside, we do it. Every time.
+- **Iterate until solved** — when something fails, we diagnose, fix, and re-run. We don't lower the bar, we raise our game.
+- **Zero information loss** — every domain must maintain or improve after every training cycle. No exceptions, no "noise tolerance."
+- **Ship quality, not excuses** — if a feature is broken, fix it before moving on. Don't paper over problems.
+
 ## Context Management
 
 Context is your most important resource. Proactively use subagents (Agent tool) to keep exploration, research, and verbose operations out of the main conversation.
