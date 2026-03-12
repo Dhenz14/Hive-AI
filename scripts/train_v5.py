@@ -2451,6 +2451,10 @@ if __name__ == "__main__":
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, OUTPUT_DIR)
             model.train()
+            # PeftModel.from_pretrained loads params frozen — unfreeze LoRA for gradient flow
+            for name, param in model.named_parameters():
+                if 'lora_' in name:
+                    param.requires_grad_(True)
         else:
             logger.info("No trained adapter found — applying fresh LoRA for Fisher bootstrap")
             model = FastLanguageModel.get_peft_model(

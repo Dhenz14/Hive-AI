@@ -328,8 +328,8 @@ fi
 # PRE-FLIGHT CHECK
 ###############################################################################
 echo "[Pre-flight] Running validation checks..."
-python3 scripts/preflight_check.py --data "$DATA_PATH" ${BASE_MODEL_HF:+--base-model-hf "$BASE_MODEL_HF"}
-PREFLIGHT_EXIT=$?
+PREFLIGHT_EXIT=0
+python3 scripts/preflight_check.py --data "$DATA_PATH" ${BASE_MODEL_HF:+--base-model-hf "$BASE_MODEL_HF"} || PREFLIGHT_EXIT=$?
 if [ $PREFLIGHT_EXIT -eq 1 ]; then
     echo "FATAL: Pre-flight check failed. Fix issues above before training."
     exit 1
