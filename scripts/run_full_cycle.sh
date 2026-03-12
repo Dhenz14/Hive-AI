@@ -63,6 +63,8 @@ LLAMA_PORT="${LLAMA_SERVER_PORT:-11435}"
 TRAINING_DIR="${TRAINING_BASE_DIR:-/opt/hiveai/project/models/training}"
 DEPLOY_DIR="$PROJECT_ROOT/models/deploy"
 REPLAY_DIR="$PROJECT_ROOT/replay"
+# v3.0 Style tokens: set STYLE_TOKENS=1 to enable <direct>/<agentic> routing
+STYLE_TOKENS="${STYLE_TOKENS:-0}"
 LORA_OUTPUT="$PROJECT_ROOT/loras/${VERSION}"
 CONSOL_OUTPUT="$PROJECT_ROOT/loras/${VERSION}_consolidation"
 LOG_DIR="$PROJECT_ROOT/logs"
@@ -198,9 +200,10 @@ start_llama_server() {
 
     # Wait for health check (up to 120s for model loading)
     echo "  Waiting for server to be ready..."
-    for i in $(seq 1 60); do
-        if curl -s "http://localhost:$port/health" >/dev/null 2>&1; then
-            echo "  Server ready after ${i}s, sending warmup request..."
+    for i in $(seq 1 120); do
+        HEALTH=$(curl -s "http://localhost:$port/health" 2>/dev/null || echo "")
+        if echo "$HEALTH" | grep -q '"ok"'; then
+            echo "  Server ready after $((i*3))s, sending warmup request..."
             # Warmup: first request after load can 503 without this
             curl -s "http://localhost:$port/v1/chat/completions" \
                 -H "Content-Type: application/json" \
@@ -210,7 +213,7 @@ start_llama_server() {
             echo "  Server warmed up and ready!"
             return 0
         fi
-        sleep 2
+        sleep 3
     done
 
     echo "  ERROR: llama-server failed to start within 120s"
@@ -291,6 +294,32 @@ fi
 check_disk_space "$DEPLOY_DIR" 60
 
 ###############################################################################
+# AUTO-SYNC FROM WINDOWS GIT REPO + CRLF FIX
+###############################################################################
+WIN_SCRIPTS="/mnt/c/Users/theyc/HiveAi/Hive-AI/scripts"
+if [ "${SKIP_SYNC:-0}" = "1" ]; then
+    echo "[Sync] SKIP_SYNC=1 — using pre-synced scripts."
+elif [ -d "$WIN_SCRIPTS" ]; then
+    echo "[Sync] Auto-syncing scripts from Windows git repo..."
+    # Copy Python scripts (the authoritative code-edit source)
+    cp "$WIN_SCRIPTS"/*.py "$PROJECT_ROOT/scripts/" 2>/dev/null || true
+    # Copy shell scripts EXCEPT this one (overwriting self mid-execution corrupts bash)
+    for f in "$WIN_SCRIPTS"/*.sh; do
+        [ "$(basename "$f")" = "run_full_cycle.sh" ] && continue
+        cp "$f" "$PROJECT_ROOT/scripts/" 2>/dev/null || true
+    done
+    # Fix Windows CRLF → Unix LF (exclude self — sed -i rewrites inode, corrupts bash read)
+    sed -i 's/\r$//' "$PROJECT_ROOT/scripts/"*.py 2>/dev/null || true
+    for f in "$PROJECT_ROOT/scripts/"*.sh; do
+        [ "$(basename "$f")" = "run_full_cycle.sh" ] && continue
+        sed -i 's/\r$//' "$f" 2>/dev/null || true
+    done
+    echo "[Sync] Scripts synced and CRLF-fixed."
+else
+    echo "[Sync] Windows repo not found at $WIN_SCRIPTS — running from WSL copy."
+fi
+
+###############################################################################
 # PRE-FLIGHT CHECK
 ###############################################################################
 echo "[Pre-flight] Running validation checks..."
@@ -318,12 +347,17 @@ START_TIME=$(date +%s)
 # =============================================================================
 if [ "$LAST_STEP" -lt 1 ]; then
     log_step "1/7" "Building SuRe replay buffer"
+    STYLE_TAG_FLAG=""
+    if [ "$STYLE_TOKENS" = "1" ]; then
+        STYLE_TAG_FLAG="--style-tag direct"
+    fi
     python "$PROJECT_ROOT/scripts/replay_sampler.py" \
         --replay-dir "$REPLAY_DIR" \
         --keep 500 \
         --output "$REPLAY_DIR/sampled.jsonl" \
         --domain-balanced \
         --fallback-diversity \
+        $STYLE_TAG_FLAG \
         2>&1 | tee "$LOG_DIR/${VERSION}_01_replay.log"
     save_checkpoint 1
 fi
@@ -348,6 +382,27 @@ if [ "$LAST_STEP" -lt 2 ]; then
         FISHER_FLAG="--fisher-path $PROJECT_ROOT/loras/$PREV_VERSION/fisher.pt"
     fi
 
+    # Dynamic probe interval: lower for small datasets so probe-guard actually fires
+    PAIR_COUNT=$(wc -l < "$DATA_PATH" 2>/dev/null || echo "500")
+    PAIR_COUNT=$(echo "$PAIR_COUNT" | tr -d ' ')
+    if [ "$PAIR_COUNT" -le 200 ]; then
+        PROBE_INTERVAL=5
+        echo "  Small dataset ($PAIR_COUNT pairs) — probe-guard interval=5 steps"
+    elif [ "$PAIR_COUNT" -le 500 ]; then
+        PROBE_INTERVAL=15
+        echo "  Medium dataset ($PAIR_COUNT pairs) — probe-guard interval=15 steps"
+    else
+        PROBE_INTERVAL=50
+        echo "  Large dataset ($PAIR_COUNT pairs) — probe-guard interval=50 steps"
+    fi
+
+    # v3.0 flags: style tokens + probe-aware + hidden-anchor + CURLoRA
+    V3_FLAGS=""
+    if [ "$STYLE_TOKENS" = "1" ]; then
+        V3_FLAGS="--style-tokens --style-mode direct --probe-aware --hidden-anchor --curlora-init --probe-loss-every 5"
+        echo "  v3.0 defense stack: style-tokens + probe-aware + hidden-anchor + CURLoRA (probe every 5 steps)"
+    fi
+
     python "$PROJECT_ROOT/scripts/train_v5.py" \
         --base-model-hf "$PREV_HF" \
         --data "$DATA_PATH" \
@@ -359,8 +414,10 @@ if [ "$LAST_STEP" -lt 2 ]; then
         --no-kl \
         --epochs 2 \
         --probe-guard \
+        --probe-interval "$PROBE_INTERVAL" \
         $PREV_LORA_FLAG \
         $FISHER_FLAG \
+        $V3_FLAGS \
         2>&1 | tee "$LOG_DIR/${VERSION}_02_train.log"
 
     # Remove training lock
@@ -387,6 +444,87 @@ fi
 
 # Set LORA_GGUF for later steps (needed if resuming past step 3)
 LORA_GGUF="$PROJECT_ROOT/models/hiveai-${VERSION}-lora-f16.gguf"
+
+# =============================================================================
+# Step 3.5: Pre-merge regression gate (defense in depth)
+# =============================================================================
+# Run quick domain probes with base + LoRA BEFORE committing to full merge.
+# Catches catastrophic regression early — saves 30+ min of wasted merge time.
+if [ "$LAST_STEP" -lt 4 ] && [ -f "$LORA_GGUF" ]; then
+    echo ""
+    echo "  [PRE-MERGE GATE] Running quick regression probes with LoRA applied..."
+    echo ""
+
+    # Start server with base GGUF + LoRA adapter
+    GATE_PORT=$((LLAMA_PORT + 1))  # Use different port to avoid conflicts
+    if lsof -i ":$GATE_PORT" >/dev/null 2>&1; then
+        fuser -k "$GATE_PORT/tcp" 2>/dev/null || true
+        sleep 2
+    fi
+
+    GATE_SERVER="${LLAMA_CPP}/bin/llama-server"
+    if [ ! -f "$GATE_SERVER" ]; then
+        GATE_SERVER="llama-server"
+    fi
+
+    $GATE_SERVER \
+        -m "$PREV_GGUF" \
+        --lora "$LORA_GGUF" \
+        --port "$GATE_PORT" \
+        --flash-attn on \
+        --cache-type-k q8_0 --cache-type-v q4_0 \
+        --ctx-size 4096 -ngl 99 --threads 8 \
+        > "$LOG_DIR/${VERSION}_premerge_server.log" 2>&1 &
+    GATE_PID=$!
+
+    # Wait for server (must return {"status":"ok"}, not 503 loading)
+    GATE_READY=0
+    for i in $(seq 1 120); do
+        HEALTH=$(curl -s "http://localhost:$GATE_PORT/health" 2>/dev/null || echo "")
+        if echo "$HEALTH" | grep -q '"ok"'; then
+            GATE_READY=1
+            break
+        fi
+        sleep 3
+    done
+
+    if [ "$GATE_READY" -eq 1 ]; then
+        # Run quick regression eval (~18 probes, up to 30 min for thinking model)
+        # NOTE: --style-prefix value contains angle brackets — must be passed as array arg
+        # to avoid shell treating <direct> as a file redirect.
+        # NOTE: Use `python -u` (unbuffered) so output is written even if timeout kills process.
+        PREMERGE_CMD=(timeout 1800 python -u "$PROJECT_ROOT/scripts/regression_eval.py"
+            --model-version "${VERSION}-premerge"
+            --server-url "http://localhost:$GATE_PORT"
+            --threshold 0.01
+            --quick)
+        # NOTE: --style-prefix is NOT used for GGUF inference because the GGUF tokenizer
+        # doesn't have <direct> as a special token — it tokenizes as 3+ regular chars,
+        # causing garbage output. Style tokens only work in HF Python inference.
+        GATE_EXIT=0
+        "${PREMERGE_CMD[@]}" 2>&1 | tee "$LOG_DIR/${VERSION}_premerge_eval.log" || GATE_EXIT=$?
+    else
+        echo "  WARNING: Pre-merge server failed to start — skipping gate (non-fatal)"
+        GATE_EXIT=0
+    fi
+
+    # Cleanup
+    kill "$GATE_PID" 2>/dev/null || true
+    wait "$GATE_PID" 2>/dev/null || true
+
+    if [ "$GATE_EXIT" -ne 0 ]; then
+        echo ""
+        echo "  ╔══════════════════════════════════════════════════════════╗"
+        echo "  ║  PRE-MERGE GATE: BLOCKED                               ║"
+        echo "  ║  LoRA caused >1% regression BEFORE merge.              ║"
+        echo "  ║  Aborting cycle — no merge damage done.                 ║"
+        echo "  ╚══════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "  Check: $LOG_DIR/${VERSION}_premerge_eval.log"
+        exit 1
+    fi
+    echo "  [PRE-MERGE GATE] PASSED — proceeding to merge"
+fi
 
 # =============================================================================
 # Step 4: Safe merge (alpha grid search)
@@ -419,10 +557,15 @@ MERGE_OUTPUT="$DEPLOY_DIR/${VERSION}"
 # =============================================================================
 if [ "$LAST_STEP" -lt 5 ]; then
     log_step "5/7" "Consolidation training"
+    CONSOL_STYLE_FLAG=""
+    if [ "$STYLE_TOKENS" = "1" ]; then
+        CONSOL_STYLE_FLAG="--style-tokens --probe-aware --hidden-anchor --curlora-init"
+    fi
     python "$PROJECT_ROOT/scripts/consolidation_train.py" \
         --base-model-hf "$TRAINING_DIR/${VERSION}/hf" \
         --replay-data "$REPLAY_DIR/sampled.jsonl" \
         --output-dir "$CONSOL_OUTPUT" \
+        $CONSOL_STYLE_FLAG \
         2>&1 | tee "$LOG_DIR/${VERSION}_05_consolidation.log"
 
     # Convert consolidation LoRA to GGUF
@@ -471,14 +614,17 @@ if [ "$LAST_STEP" -lt 7 ]; then
         exit 1
     fi
 
-    # Run eval with timeout (30 min max)
-    timeout 1800 python "$PROJECT_ROOT/scripts/regression_eval.py" \
-        --model-version "$VERSION" \
-        --server-url "http://localhost:$LLAMA_PORT" \
-        --threshold 0.01 \
-        2>&1 | tee "$LOG_DIR/${VERSION}_07_eval.log"
-
-    EVAL_EXIT=$?
+    # Run eval with timeout (60 min max for full 60-probe eval on thinking model)
+    # NOTE: --style-prefix value contains angle brackets — must use array to avoid
+    # bash treating <direct> as a file redirect (stdin from file "direct").
+    # NOTE: Use `python -u` (unbuffered) so output is written even if timeout kills process.
+    EVAL_CMD=(timeout 3600 python -u "$PROJECT_ROOT/scripts/regression_eval.py"
+        --model-version "$VERSION"
+        --server-url "http://localhost:$LLAMA_PORT"
+        --threshold 0.01)
+    # NOTE: --style-prefix is NOT used for GGUF inference — see pre-merge gate comment.
+    EVAL_EXIT=0
+    "${EVAL_CMD[@]}" 2>&1 | tee "$LOG_DIR/${VERSION}_07_eval.log" || EVAL_EXIT=$?
 
     # Stop server after eval
     stop_llama_server

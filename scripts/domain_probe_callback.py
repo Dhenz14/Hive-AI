@@ -78,9 +78,10 @@ def _score_response(response: str, expected_keywords: list) -> float:
 SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
 
 
-def run_quick_probes(server_url: str, timeout: int = 60) -> dict:
+def run_quick_probes(server_url: str, timeout: int = 60, style_prefix: str = "") -> dict:
     """Run 6 quick probes (1 per domain), return {domain: score}."""
     domain_scores = {}
+    effective_system = (f"{style_prefix}\n{SYSTEM_PROMPT}" if style_prefix else SYSTEM_PROMPT)
 
     for probe in QUICK_PROBES:
         try:
@@ -89,7 +90,7 @@ def run_quick_probes(server_url: str, timeout: int = 60) -> dict:
                 json={
                     "model": "hiveai",
                     "messages": [
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": effective_system},
                         {"role": "user", "content": probe.prompt},
                     ],
                     "temperature": 0.1,
@@ -124,9 +125,10 @@ class DomainProbeCallback(TrainerCallback):
 
     def __init__(self, probe_interval=50, lr_reduction=0.5,
                  warn_threshold=0.02, stop_threshold=0.04,
-                 server_url="http://localhost:11435"):
+                 server_url="http://localhost:11435", style_prefix=""):
         self.probe_interval = probe_interval
         self.lr_reduction = lr_reduction
+        self.style_prefix = style_prefix
         self.warn_threshold = warn_threshold
         self.stop_threshold = stop_threshold
         self.server_url = server_url
@@ -155,7 +157,7 @@ class DomainProbeCallback(TrainerCallback):
         logger.info(f"[PROBE CHECK #{self.check_count}] Running 6 domain probes at step {state.global_step}...")
 
         try:
-            scores = run_quick_probes(self.server_url)
+            scores = run_quick_probes(self.server_url, style_prefix=self.style_prefix)
         except Exception as e:
             logger.warning(f"  Probe check failed: {e} — skipping")
             return

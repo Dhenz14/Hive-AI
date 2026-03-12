@@ -45,6 +45,15 @@ def main():
                         help="Learning rate (default: 1e-5 = base_lr/20)")
     parser.add_argument("--epochs", type=int, default=1,
                         help="Number of epochs (default: 1)")
+    # v3.0 pass-through flags
+    parser.add_argument("--style-tokens", action="store_true",
+                        help="Enable style tokens (passed through to train_v5.py)")
+    parser.add_argument("--probe-aware", action="store_true",
+                        help="Enable probe-aware loss during consolidation")
+    parser.add_argument("--hidden-anchor", action="store_true",
+                        help="Enable hidden state anchoring during consolidation")
+    parser.add_argument("--curlora-init", action="store_true",
+                        help="Use CURLoRA initialization during consolidation")
     args = parser.parse_args()
 
     # Validate inputs
@@ -81,6 +90,16 @@ def main():
         "--consolidation-only",     # Flags consolidation mode
         "--lora-plus",              # LoRA+ for faster convergence
     ]
+    # v3.0 pass-through flags
+    if args.style_tokens:
+        cmd.extend(["--style-tokens", "--style-mode", "direct"])
+    if args.probe_aware:
+        cmd.extend(["--probe-aware", "--probe-weight", "0.05",  # Half weight for consolidation
+                     "--probe-guard", "--probe-interval", "5"])  # Force frequent checks on short runs
+    if args.hidden_anchor:
+        cmd.extend(["--hidden-anchor", "--anchor-weight", "0.025"])
+    if args.curlora_init:
+        cmd.append("--curlora-init")
 
     print(f"\nRunning: {' '.join(cmd)}")
     print("=" * 60)

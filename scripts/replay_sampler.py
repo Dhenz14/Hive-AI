@@ -305,6 +305,8 @@ def main():
                         help="Skip NLL scoring, use diversity sampling instead")
     parser.add_argument("--domain-balanced", action="store_true",
                         help="Guarantee equal samples per domain (prevents domain starvation)")
+    parser.add_argument("--style-tag", type=str, default="",
+                        help="Style tag to inject into output samples (e.g., 'direct')")
     args = parser.parse_args()
 
     # Load all replay samples
@@ -350,6 +352,8 @@ def main():
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         for sample in selected:
+            if args.style_tag:
+                sample["style"] = args.style_tag
             f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
     # Final stats

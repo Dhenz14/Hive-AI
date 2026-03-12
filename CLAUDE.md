@@ -69,11 +69,15 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
 
-## Continual Learning Pipeline v2.0 (Lossless Zero-Forgetting)
+## Continual Learning Pipeline v3.0 (Lossless Zero-Forgetting + Style Protection)
 
 **Architecture**: Train small LoRA → merge permanently into base → consolidate → eval → promote.
 Knowledge stacks like legos — once merged, it can never be lost.
-**6-layer lossless defense** ensures zero domain regression across cycles.
+**12-layer defense** (6 weight-level + 6 representation-level) ensures zero domain regression.
+
+**v3.0 Root Cause**: v5-agentic failed from STYLE contamination (not weight interference).
+Agentic data shifted output style from direct-code to verbose walkthrough, killing keyword-heavy
+probes. v3.0 adds 6 new representation-level defenses targeting this exact failure mode.
 
 **bf16 Golden Chain**: HF bf16 weights are the source of truth for ALL merges. GGUF is derived
 from HF output via `convert_hf_to_gguf.py` + `llama-quantize`. This eliminates quantization drift
@@ -83,6 +87,7 @@ from repeated merges. After 100 merges, zero accumulated noise.
 ```bash
 bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version> [prev_version]
 # Example: bash scripts/run_full_cycle.sh hive datasets/hive_data.jsonl v1-hive v1.0
+# With style protection: STYLE_TOKENS=1 bash scripts/run_full_cycle.sh ...
 ```
 
 **Micro-training flywheel** (500 pairs at a time, test between batches):
@@ -97,20 +102,32 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 ```
 
 **Pipeline steps** (each script can also run independently):
+0. Auto-sync from Windows git repo + CRLF fix (baked into run_full_cycle.sh)
 1. `preflight_check.py` — Automated pre-flight validator (7 checks: HF offline, metadata, CRLF, disk, GPU, base model, cache)
 2. `replay_sampler.py` — SuRe NLL-scored surprise replay + domain-balanced sampling
-3. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, all 7 modules, EWC penalty, orthogonal init)
-4. `safe_merge.py` — DELLA pruning + golden chain HF merge + per-layer alpha + convert + quantize (~15 min)
+3. `train_v5.py` — Train domain LoRA (rank 4-8, LoRA+, all 7 modules, EWC, style tokens, probe-aware loss)
+4. `safe_merge.py` — Golden chain HF merge + per-layer alpha + convert + quantize (~15 min)
 5. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay, all 7 modules)
 6. `regression_eval.py` — 60 domain probes (10/domain), fail if any drops >0.03. `--quick` for original 18.
 
-**6-Layer Lossless Defense**:
-1. **60-Probe Eval** (Layer 1) — 10 probes/domain eliminates measurement noise (±1% vs old ±5.6%)
-2. **EWC-LoRA** (Layer 2) — Fisher Information penalty prevents training from overwriting existing knowledge
-3. **Domain Probe Callback** (Layer 3) — Mid-training regression detection every N steps; auto-reduces LR or halts
-4. **DELLA Pruning** (Layer 4) — Drop 70% low-magnitude delta params before merge, keep only what matters
-5. **Orthogonal LoRA Init** (Layer 5) — New LoRA initialized orthogonal to previous task's subspace via SVD
-6. **Domain-Balanced Replay** (Layer 6) — Equal samples/domain + adaptive ratio boost for dropped domains
+**12-Layer Defense Stack**:
+
+*Weight-level (v2.0):*
+
+1. **60-Probe Eval** — 10 probes/domain eliminates measurement noise (±1% vs old ±5.6%)
+2. **EWC-LoRA** — Fisher Information penalty prevents training from overwriting existing knowledge. Fisher is auto-normalized (max→1.0) at load time. Post-training Fisher uses `trainer.train_dataset` (tokenized). `--compute-fisher-only` loads trained adapter if available.
+3. **Domain Probe Callback** — Mid-training regression detection every N steps; auto-reduces LR or halts
+4. **DELLA Pruning** — **BROKEN** — 3.33x rescaling corrupts PEFT merges. DO NOT USE until fixed.
+5. **Orthogonal LoRA Init** — New LoRA initialized orthogonal to previous task's subspace via SVD
+6. **Domain-Balanced Replay** — Equal samples/domain + adaptive ratio boost for dropped domains
+
+*Representation-level (v3.0 — all opt-in via CLI flags):*
+7. **Conditional Style Prefixing** (`--style-tokens`) — `<direct>`/`<agentic>` tokens route output style during HF training. **GGUF limitation:** style tokens only work in HF Python inference; GGUF tokenizer splits `<direct>` into 3+ tokens causing garbage. Do NOT use `--style-prefix` in GGUF evals.
+8. **Pre-training Style Shift Analysis** (`style_shift_analysis.py`) — Predicts contamination BEFORE training using few-shot injection (zero VRAM)
+9. **Probe-Aware Training Loss** (`--probe-aware`) — KL-div on cached base-model log-probs during training (steers, not just halts)
+10. **Hidden State Anchoring** (`--hidden-anchor`) — MSE on layer 24 hidden states protects representation routing
+11. **CURLoRA Initialization** (`--curlora-init`) — CUR decomposition replaces broken orthogonal SVD init
+12. **Dataset Retagging** (`retag_style.py`) — Adds style field to JSONL for conditional routing
 
 **Key flags in train_v5.py**:
 - `--rank N` — LoRA rank override (4-8 for continual learning)
@@ -124,21 +141,39 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - `--no-ewc` — Disable EWC penalty entirely
 - `--fisher-path PATH` — Load Fisher matrix from previous cycle
 - `--prev-lora PATH` — Previous LoRA adapter for orthogonal initialization
+- `--style-tokens` — Enable `<direct>`/`<agentic>` style token system (v3.0)
+- `--style-mode MODE` — Default style for untagged data: "direct" or "agentic" (v3.0)
+- `--probe-aware` — Enable probe-anchoring KL loss during training (v3.0)
+- `--hidden-anchor` — Enable mid-layer hidden state MSE anchoring (v3.0)
+- `--probe-weight FLOAT` — Base weight for probe KL loss (default 0.1) (v3.0)
+- `--anchor-weight FLOAT` — Weight for hidden MSE loss (default 0.05) (v3.0)
+- `--anchor-layer INT` — Layer to anchor (default 24 = middle of 48-layer Qwen2.5) (v3.0)
+- `--curlora-init` — CUR decomposition init (replaces orthogonal SVD) (v3.0)
 
 **Key flags in safe_merge.py**:
-- `--della-drop FLOAT` — DELLA pruning drop rate (default 0.0, recommended 0.7)
+- `--della-drop FLOAT` — DELLA pruning drop rate (default 0.0). **WARNING: DELLA is BROKEN for PEFT merge — 3.33x rescaling corrupts model weights. DO NOT USE until fixed. Use 0.0.**
 
 **Key flags in replay_sampler.py**:
 - `--domain-balanced` — Equal samples per domain (prevents domain starvation)
+- `--style-tag TEXT` — Tag replay output with style field (v3.0, default: "direct")
 
 **Key flags in regression_eval.py**:
 - `--quick` — Use original 18 probes (fast, ~6 min) vs default 60 probes (precise, ~20 min)
+- `--style-prefix TEXT` — Prepend style token to system prompt for probes (v3.0). **WARNING: Do NOT use with GGUF inference — the GGUF tokenizer doesn't have custom style tokens, so `<direct>` tokenizes as 3+ regular chars causing garbage output. Style tokens only work in HF Python inference.**
 
-**New scripts**:
+**Key env vars in run_full_cycle.sh**:
+
+- `STYLE_TOKENS=1` — Enable full v3.0 style protection pipeline (threads flags to all scripts)
+
+**Scripts**:
 - `probe_library.py` — Central probe definitions (60 probes, 6 domains, importable)
 - `domain_probe_callback.py` — TRL TrainerCallback for mid-training regression detection
+- `style_shift_analysis.py` — Pre-training contamination predictor (v3.0)
+- `retag_style.py` — Add style field to JSONL training data (v3.0)
 
 **Post-training automations** (no manual steps needed):
+
+- Auto-syncs scripts from Windows git repo + CRLF fix before every cycle
 - Auto-normalizes `adapter_config.json` (fixes absolute cache paths → `Qwen/Qwen2.5-Coder-14B-Instruct`)
 - Auto-converts LoRA adapter to GGUF (`adapter.gguf` alongside PEFT files)
 - Auto-runs preflight checks before training starts
@@ -153,11 +188,11 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - `score_ledger.json` — Historical scores across all versions
 - `logs/` — Per-cycle training logs with rich checkpoint state for resume
 - `loras/<version>/fisher.pt` — Fisher matrix for EWC (auto-generated)
+- `style_shift_history.json` — Historical style shift scores for threshold calibration (v3.0)
 
-**Pre-flight is now automated**: `scripts/preflight_check.py` runs at the start of every cycle.
-Manual pre-flight is no longer needed. The only remaining manual step: CRLF-fix after syncing to WSL.
+**Fully automated**: No manual steps. Scripts auto-sync from Windows, CRLF auto-fixed, preflight auto-runs.
 
-**Training data format**: Standard instruction/input/output JSONL (NO metadata field).
+**Training data format**: Standard instruction/input/output JSONL (NO metadata field). Optional "style" field for v3.0 routing.
 
 ## Training UI (Forge Mind Page)
 

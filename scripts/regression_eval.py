@@ -261,7 +261,14 @@ def main():
                         help="Path to score ledger JSON")
     parser.add_argument("--quick", action="store_true",
                         help="Use original 18 probes only (faster, less precise)")
+    parser.add_argument("--style-prefix", type=str, default="",
+                        help="Style prefix to prepend to system prompt (e.g., '<direct>')")
     args = parser.parse_args()
+
+    # Apply style prefix to system prompt (v3.0 style tokens)
+    global SYSTEM_PROMPT
+    if args.style_prefix:
+        SYSTEM_PROMPT = f"{args.style_prefix}\n{SYSTEM_PROMPT}"
 
     probe_count = 18 if args.quick else len(PROBES)
     print("=" * 60)

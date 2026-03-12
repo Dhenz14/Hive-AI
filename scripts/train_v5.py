@@ -174,8 +174,8 @@ def optimize_system_pre_load():
     os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
-                          "expandable_segments:False,"
-                          "garbage_collection_threshold:0.6")
+                          "expandable_segments:True,"
+                          "garbage_collection_threshold:0.4")
     optimizations.append("CUDA env vars set")
 
     # Check for available VRAM optimizations (import only, no CUDA init)
@@ -581,6 +581,48 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         else:
             logger.info("No <think>/</think> tokens found in tokenizer -- skipping init")
 
+    # ── Style token initialization (v3.0 — conditional style routing) ──
+    # Must happen BEFORE LoRA application — resize_token_embeddings breaks PEFT if done after.
+    style_tokens_enabled = getattr(args, "style_tokens", False)
+    style_mode = getattr(args, "style_mode", "direct")
+    if style_tokens_enabled:
+        _STYLE_TOKENS = ["<direct>", "<agentic>"]
+        new_style_toks = [t for t in _STYLE_TOKENS if t not in tokenizer.get_vocab()]
+        if new_style_toks:
+            # Qwen2.5 has padded embeddings: model has 152064 rows but tokenizer has
+            # 151665 tokens. There are 399 unused slots. Adding tokens to the tokenizer
+            # assigns them indices 151665, 151666 which already have embedding rows.
+            # DO NOT call resize_token_embeddings() — it would SHRINK from 152064 to
+            # 151667, allocating ~2GB temp memory and losing 397 padding slots.
+            tok_size_before = len(tokenizer)
+            embed_size = model.get_input_embeddings().weight.shape[0]
+            tokenizer.add_special_tokens({"additional_special_tokens": new_style_toks})
+            new_tok_size = len(tokenizer)
+
+            if new_tok_size <= embed_size:
+                # New token IDs fit within existing embedding — no resize needed
+                # Mean-init the new token embeddings for faster convergence
+                embed_layer = model.get_input_embeddings()
+                with torch.no_grad():
+                    mean_emb = embed_layer.weight[:tok_size_before].mean(dim=0)
+                    for i in range(len(new_style_toks)):
+                        embed_layer.weight[tok_size_before + i] = mean_emb
+                logger.info(f"Style tokens added: {new_style_toks}, mean-initialized "
+                            f"using existing padding slots ({embed_size - new_tok_size} "
+                            f"slots remaining, no resize needed, mode: {style_mode})")
+            else:
+                # Rare: more tokens than embedding rows — must resize
+                model.resize_token_embeddings(new_tok_size)
+                embed_layer = model.get_input_embeddings()
+                with torch.no_grad():
+                    mean_emb = embed_layer.weight[:tok_size_before].mean(dim=0)
+                    for i in range(len(new_style_toks)):
+                        embed_layer.weight[tok_size_before + i] = mean_emb
+                logger.info(f"Style tokens added: {new_style_toks}, mean-initialized "
+                            f"(resized {embed_size} → {new_tok_size}, mode: {style_mode})")
+        else:
+            logger.info(f"Style tokens already in vocab — skipping add (mode: {style_mode})")
+
     # Count quantized modules
     n_quantized = sum(1 for _, m in model.named_modules()
                       if hasattr(m, "weight") and hasattr(m.weight, "quant_state"))
@@ -667,10 +709,82 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     model.print_trainable_parameters()
 
+    # ── CURLoRA Initialization (v3.0 — data-aware subspace selection) ──
+    # Uses CUR matrix decomposition to initialize LoRA in a non-interfering manifold.
+    # Alternative to orthogonal SVD init — more stable with small data.
+    curlora_init = getattr(args, "curlora_init", False)
+    if curlora_init:
+        try:
+            logger.info("CURLoRA init: initializing adapters via CUR decomposition")
+            cur_count = 0
+            cur_skip = 0
+            for name, param in model.named_parameters():
+                if 'lora_A' not in name or not param.requires_grad:
+                    continue
+
+                # Navigate PEFT to find the LoRA-wrapped linear layer
+                # PEFT layout: base_model.model.model.layers.N.self_attn.q_proj.lora_A.default.weight
+                # We want: base_model.model.model.layers.N.self_attn.q_proj (the Linear4bit wrapper)
+                try:
+                    base_path = name.split('.lora_A')[0]
+                    obj = model
+                    for attr in base_path.split('.'):
+                        obj = getattr(obj, attr)
+                except (AttributeError, RuntimeError):
+                    cur_skip += 1
+                    continue
+
+                # Get the base weight — handle BNB 4-bit quantized layers
+                try:
+                    base_layer = obj.base_layer if hasattr(obj, 'base_layer') else obj
+                    weight = base_layer.weight
+                    # BNB 4-bit: weight has quant_state attribute
+                    if hasattr(weight, 'quant_state'):
+                        import bitsandbytes as bnb
+                        W = bnb.functional.dequantize_4bit(
+                            weight.data, weight.quant_state
+                        ).float()
+                    else:
+                        W = weight.data.float()
+                except Exception:
+                    cur_skip += 1
+                    continue
+
+                # Safety: ensure W is 2D
+                if W.dim() != 2:
+                    cur_skip += 1
+                    continue
+
+                r = param.shape[0]  # LoRA rank
+                # CUR: select rows using leverage scores (row norms as proxy)
+                row_norms = W.norm(dim=1)
+                n_rows = row_norms.shape[0]
+                k = min(r, n_rows)
+                probs = torch.softmax(row_norms, dim=0)
+                if n_rows > (1 << 24):
+                    # torch.multinomial has 2^24 category limit — use topk instead
+                    _, selected_rows = torch.topk(row_norms, k)
+                else:
+                    selected_rows = torch.multinomial(probs, k, replacement=False)
+                # Initialize A from selected rows, scaled by inverse probability
+                scale = (1.0 / (r * probs[selected_rows]).sqrt()).unsqueeze(-1)
+                # Truncate/pad to match lora_A dimensions
+                init_A = W[selected_rows, :param.shape[1]] * scale
+                if init_A.shape == param.shape:
+                    param.data = init_A.to(param.dtype)
+                    cur_count += 1
+                    del W  # Free dequantized weight immediately
+
+            logger.info(f"  CURLoRA init applied to {cur_count} lora_A matrices, "
+                        f"{cur_skip} skipped (data-aware CUR decomposition)")
+        except Exception as e:
+            logger.warning(f"CURLoRA init failed: {e} — using default init (non-fatal)")
+
     # ── Orthogonal LoRA Initialization ("Merge before Forget") ──
     # Initialize new LoRA in the null space of previous LoRA's subspace.
     # This ensures new learning cannot interfere with previous directions.
-    if prev_lora_path and os.path.exists(prev_lora_path):
+    # NOTE: Skipped if CURLoRA init was applied (they're mutually exclusive)
+    if prev_lora_path and os.path.exists(prev_lora_path) and not curlora_init:
         try:
             import safetensors.torch as st
             logger.info(f"Orthogonal LoRA init: loading previous adapter from {prev_lora_path}")
@@ -751,8 +865,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                         f"(orthogonal to previous LoRA subspace)")
         except Exception as e:
             logger.warning(f"Orthogonal init failed: {e} — using default init (non-fatal)")
-    elif prev_lora_path:
+    elif prev_lora_path and not os.path.exists(prev_lora_path):
         logger.warning(f"Previous LoRA path not found: {prev_lora_path} — using default init")
+    elif prev_lora_path and curlora_init:
+        logger.info(f"Orthogonal init skipped (CURLoRA active) — prev LoRA at {prev_lora_path}")
 
     # Cast LoRA adapter weights to bf16 (if not already done by Unsloth)
     if not use_unsloth:
@@ -787,8 +903,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Load and format dataset ──
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
-    # Strip all columns except instruction/input/output — mixed types break pyarrow/tokenizer
+    # Strip all columns except instruction/input/output (+ style if enabled) — mixed types break pyarrow/tokenizer
     keep_cols = {"instruction", "input", "output"}
+    if style_tokens_enabled:
+        keep_cols.add("style")
     drop_cols = [c for c in dataset.column_names if c not in keep_cols]
     if drop_cols:
         dataset = dataset.remove_columns(drop_cols)
@@ -808,15 +926,23 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         """
         all_texts = []
         n_truncated = 0
-        for inst, inp, out in zip(
+        # Style field: present if --style-tokens and data has "style" column
+        styles = examples.get("style", None) if style_tokens_enabled else None
+        for idx, (inst, inp, out) in enumerate(zip(
             examples["instruction"], examples["input"], examples["output"]
-        ):
+        )):
             user_content = str(inst)
             if inp:
                 user_content += "\n" + str(inp)
 
+            # Build system prompt with optional style prefix
+            sys_content = CODING_SYSTEM_PROMPT
+            if style_tokens_enabled:
+                style_val = styles[idx] if styles and idx < len(styles) and styles[idx] else style_mode
+                sys_content = f"<{style_val}>\n{CODING_SYSTEM_PROMPT}"
+
             messages = [
-                {"role": "system", "content": CODING_SYSTEM_PROMPT},
+                {"role": "system", "content": sys_content},
                 {"role": "user", "content": user_content},
                 {"role": "assistant", "content": str(out)},
             ]
@@ -827,13 +953,13 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     messages, tokenize=False, add_generation_prompt=False
                 )
             except Exception:
-                text = f"system\n{CODING_SYSTEM_PROMPT}\nuser\n{user_content}\nassistant\n{out}"
+                text = f"system\n{sys_content}\nuser\n{user_content}\nassistant\n{out}"
 
             # Truncate long responses to fit seq_length
             n_tokens = len(tokenizer.encode(text))
             if n_tokens > seq_length:
                 overhead_messages = [
-                    {"role": "system", "content": CODING_SYSTEM_PROMPT},
+                    {"role": "system", "content": sys_content},
                     {"role": "user", "content": user_content},
                     {"role": "assistant", "content": ""},
                 ]
@@ -854,7 +980,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                         messages, tokenize=False, add_generation_prompt=False
                     )
                 except Exception:
-                    text = f"system\n{CODING_SYSTEM_PROMPT}\nuser\n{user_content}\nassistant\n{truncated_out}"
+                    text = f"system\n{sys_content}\nuser\n{user_content}\nassistant\n{truncated_out}"
                 n_truncated += 1
 
             all_texts.append(text)
@@ -905,11 +1031,69 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.info(f"Loading EWC Fisher matrix from {fisher_path}")
             try:
                 fisher_data = torch.load(fisher_path, map_location="cpu", weights_only=True)
-                ewc_state["fisher"] = fisher_data["fisher"]
-                ewc_state["old_params"] = fisher_data["old_params"]
-                ewc_state["enabled"] = True
-                logger.info(f"  EWC active: {len(ewc_state['fisher'])} parameter groups, "
-                            f"lambda={EWC_CONFIG['lambda']}")
+                fisher_dict = fisher_data["fisher"]
+                old_params_dict = fisher_data["old_params"]
+
+                # Validate Fisher rank matches current LoRA config
+                fisher_lora_cfg = fisher_data.get("lora_config", {})
+                fisher_rank = fisher_lora_cfg.get("r", None)
+                current_rank = LORA_CONFIG["r"]
+                if fisher_rank and fisher_rank != current_rank:
+                    logger.warning(f"Fisher rank mismatch: fisher.pt has r={fisher_rank}, "
+                                   f"current training uses r={current_rank}")
+
+                # Shape-check each Fisher param against model LoRA params
+                # Build lookup of current model's LoRA param shapes
+                model_param_shapes = {}
+                for name, param in model.named_parameters():
+                    if 'lora_' in name and param.requires_grad:
+                        model_param_shapes[name] = param.shape
+
+                valid_fisher = {}
+                valid_old_params = {}
+                skipped = 0
+                for name in list(fisher_dict.keys()):
+                    if name in model_param_shapes:
+                        if fisher_dict[name].shape == model_param_shapes[name]:
+                            valid_fisher[name] = fisher_dict[name]
+                            valid_old_params[name] = old_params_dict[name]
+                        else:
+                            logger.warning(f"  EWC shape mismatch for {name}: "
+                                           f"fisher={fisher_dict[name].shape} vs "
+                                           f"model={model_param_shapes[name]} — skipping")
+                            skipped += 1
+                    else:
+                        skipped += 1
+
+                if skipped > 0:
+                    logger.warning(f"  EWC: skipped {skipped}/{len(fisher_dict)} params "
+                                   f"(shape mismatch or missing in model)")
+
+                if valid_fisher:
+                    # Normalize Fisher diagonal so max value = 1.0
+                    # Raw Fisher from LoRA gradient² is near-zero because:
+                    #   dL/dA = (alpha/r) * B^T @ dL/dW → when B≈0 (early training), grad_A≈0
+                    # Without normalization, EWC penalty is negligible (~1e-8).
+                    all_fisher_vals = torch.cat([v.flatten() for v in valid_fisher.values()])
+                    fisher_max = all_fisher_vals.max().item()
+                    if fisher_max > 0:
+                        scale = 1.0 / fisher_max
+                        for k in valid_fisher:
+                            valid_fisher[k] = valid_fisher[k] * scale
+                        logger.info(f"  Fisher normalized: max was {fisher_max:.2e}, "
+                                    f"scaled by {scale:.2e}")
+                    else:
+                        logger.warning("  Fisher diagonal is ALL zeros — EWC will have no effect")
+
+                    ewc_state["fisher"] = valid_fisher
+                    ewc_state["old_params"] = valid_old_params
+                    ewc_state["enabled"] = True
+                    logger.info(f"  EWC active: {len(valid_fisher)} parameter groups "
+                                f"({skipped} skipped), lambda={EWC_CONFIG['lambda']}")
+                else:
+                    logger.warning("  EWC: no valid parameter groups after shape validation "
+                                   "— EWC disabled. Re-run --compute-fisher-only with "
+                                   f"--rank {current_rank}")
             except Exception as e:
                 logger.warning(f"Failed to load Fisher matrix: {e} — EWC disabled")
         else:
@@ -933,6 +1117,182 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 ewc_loss = ewc_loss + (fisher_val * (param - old_val) ** 2).sum()
 
         return EWC_CONFIG["lambda"] * ewc_loss
+
+    # ── Probe Reference Caching (v3.0 — probe-aware loss + hidden anchoring) ──
+    probe_aware = getattr(args, "probe_aware", False)
+    hidden_anchor = getattr(args, "hidden_anchor", False)
+    probe_loss_every = getattr(args, "probe_loss_every", 1)
+    probe_weight_base = getattr(args, "probe_weight", 0.1)
+    anchor_weight = getattr(args, "anchor_weight", 0.05)
+    anchor_layer = getattr(args, "anchor_layer", 24)
+
+    # Mutable state for probe loss tracking (accessible in compute_loss closure)
+    probe_state = {
+        "step": 0, "enabled": False, "disabled_reason": None,
+        "last_probe_kl": 0.0, "last_anchor_mse": 0.0,
+    }
+    probe_cache = {"log_probs": {}, "hidden_states": {}, "inputs": {}, "masks": {}, "domains": {}}
+
+    if (probe_aware or hidden_anchor) and not getattr(args, "compute_fisher_only", False):
+        try:
+            from probe_library import ALL_PROBES, DOMAINS
+            import torch.nn.functional as F
+            import random as _cache_rng
+
+            # Pre-select 1 probe per domain (6 total, not 60) — avoids VRAM
+            # fragmentation from 60 forward passes. During loss we sample 1/domain
+            # anyway, so caching all 60 is wasteful.
+            by_domain = {}
+            for p in ALL_PROBES:
+                by_domain.setdefault(p.domain, []).append(p)
+            selected_probes = []
+            for domain, probes_in_domain in by_domain.items():
+                selected_probes.append(_cache_rng.choice(probes_in_domain))
+
+            logger.info(f"Caching probe references: probe_aware={probe_aware}, "
+                        f"hidden_anchor={hidden_anchor} (layer {anchor_layer}), "
+                        f"probes={len(selected_probes)} (1/domain from {len(ALL_PROBES)} total)")
+
+            # Navigate to backbone for hidden state extraction
+            try:
+                causal_lm = model.base_model.model  # Qwen2ForCausalLM
+                backbone = causal_lm.model           # Qwen2Model
+                lm_head = causal_lm.lm_head
+            except AttributeError:
+                backbone = model.model
+                lm_head = model.lm_head
+
+            model.eval()
+            # Disable adapters to cache BASE model behavior (what we want to preserve)
+            try:
+                model.disable_adapter_layers()
+            except Exception:
+                pass
+
+            cached_count = 0
+            for probe in selected_probes:
+                # Build probe prompt in same format as training data
+                probe_sys = CODING_SYSTEM_PROMPT
+                if style_tokens_enabled:
+                    probe_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
+                messages = [
+                    {"role": "system", "content": probe_sys},
+                    {"role": "user", "content": probe.prompt},
+                ]
+                try:
+                    probe_text = tokenizer.apply_chat_template(
+                        messages, tokenize=False, add_generation_prompt=True
+                    )
+                except Exception:
+                    probe_text = f"system\n{probe_sys}\nuser\n{probe.prompt}\nassistant\n"
+
+                # Tokenize (no padding — each probe cached individually)
+                tokens = tokenizer(probe_text, return_tensors="pt",
+                                   max_length=512, truncation=True)
+                tokens = {k: v.to(model.device) for k, v in tokens.items()}
+
+                with torch.no_grad():
+                    if hidden_anchor:
+                        # Full forward with hidden states
+                        hidden_out = backbone(
+                            input_ids=tokens["input_ids"],
+                            attention_mask=tokens["attention_mask"],
+                            output_hidden_states=True, use_cache=False,
+                        )
+                        # Cache hidden states at anchor layer
+                        layer_idx = min(anchor_layer, len(hidden_out.hidden_states) - 1)
+                        probe_cache["hidden_states"][probe.id] = \
+                            hidden_out.hidden_states[layer_idx].cpu()
+                        # Also get log-probs from lm_head if probe_aware
+                        if probe_aware:
+                            try:
+                                logits = lm_head(hidden_out.last_hidden_state)
+                                labels = tokens["input_ids"][:, 1:]
+                                log_probs = F.log_softmax(logits[:, :-1], dim=-1)
+                                selected_lp = torch.gather(
+                                    log_probs, 2, labels.unsqueeze(-1)
+                                ).squeeze(-1)
+                                probe_cache["log_probs"][probe.id] = selected_lp.cpu()
+                                del logits, log_probs
+                            except Exception as lp_err:
+                                logger.warning(f"  Log-prob caching failed for probe {probe.id}: {lp_err}")
+                        del hidden_out
+                    elif probe_aware:
+                        # Just get log-probs (lighter path)
+                        outputs = backbone(
+                            input_ids=tokens["input_ids"],
+                            attention_mask=tokens["attention_mask"],
+                            use_cache=False,
+                        )
+                        logits = lm_head(outputs.last_hidden_state)
+                        labels = tokens["input_ids"][:, 1:]
+                        log_probs = F.log_softmax(logits[:, :-1], dim=-1)
+                        selected_lp = torch.gather(
+                            log_probs, 2, labels.unsqueeze(-1)
+                        ).squeeze(-1)
+                        probe_cache["log_probs"][probe.id] = selected_lp.cpu()
+                        del outputs, logits
+
+                # Cache inputs and masks on CPU
+                probe_cache["inputs"][probe.id] = {
+                    k: v.cpu() for k, v in tokens.items()
+                }
+                probe_cache["masks"][probe.id] = tokens["attention_mask"].cpu()
+                probe_cache["domains"][probe.id] = probe.domain
+                cached_count += 1
+
+                # Free GPU memory between probes
+                torch.cuda.empty_cache()
+
+            # Re-enable adapters
+            try:
+                model.enable_adapter_layers()
+            except Exception:
+                pass
+            model.train()
+
+            # Hard VRAM cleanup — release ALL cached allocator blocks back to CUDA driver.
+            # empty_cache() alone only marks blocks reusable within PyTorch's pool;
+            # we need to actually shrink the pool so Unsloth's fused CE can allocate fresh.
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            # Nuclear option: force CUDA memory pool to release back to driver
+            if hasattr(torch.cuda, 'memory') and hasattr(torch.cuda.memory, 'CUDACachingAllocator'):
+                try:
+                    torch.cuda.memory.CUDACachingAllocator.release_all_memory()
+                except Exception:
+                    pass
+            # Alternative: reset peak stats so Unsloth sees true current state
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.reset_accumulated_memory_stats()
+
+            # Compute cache sizes
+            lp_size = sum(t.numel() * t.element_size()
+                          for t in probe_cache["log_probs"].values()) / 1e6
+            hs_size = sum(t.numel() * t.element_size()
+                          for t in probe_cache["hidden_states"].values()) / 1e6
+            logger.info(f"  Cached {cached_count} probes: "
+                        f"log_probs={lp_size:.1f}MB, hidden_states={hs_size:.1f}MB")
+            probe_state["enabled"] = True
+
+        except Exception as e:
+            logger.warning(f"Probe caching failed: {e} — probe-aware/anchor disabled")
+            probe_state["enabled"] = False
+            probe_state["disabled_reason"] = str(e)
+
+    # Helper: sample 1 probe per domain for loss computation
+    def _sample_probes_by_domain(cache_dict, n_per_domain=1):
+        """Return list of probe IDs, n_per_domain from each domain."""
+        import random as _rng
+        by_domain = {}
+        for pid, domain in cache_dict["domains"].items():
+            by_domain.setdefault(domain, []).append(pid)
+        selected = []
+        for domain, pids in by_domain.items():
+            selected.extend(_rng.sample(pids, min(n_per_domain, len(pids))))
+        return selected
 
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
@@ -1075,17 +1435,166 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     logger.warning(f"EWC loss error ({type(e).__name__}: {e}) — disabling")
                     ewc_state["enabled"] = False
 
+        # ── Phase 5: Probe-Aware KL (v3.0 — representation anchoring) ──
+        probe_kl_val = 0.0
+        if probe_state["enabled"] and probe_aware and \
+                probe_state["step"] % probe_loss_every == 0:
+            try:
+                import torch.nn.functional as _F
+                probe_batch = _sample_probes_by_domain(probe_cache, n_per_domain=1)
+                probe_kl_total = torch.tensor(0.0, device=sft_loss.device)
+                n_probes = 0
+
+                for pid in probe_batch:
+                    if pid not in probe_cache["log_probs"]:
+                        continue
+                    cached_lp = probe_cache["log_probs"][pid].to(sft_loss.device)
+                    p_inputs = {k: v.to(sft_loss.device) for k, v
+                                in probe_cache["inputs"][pid].items()}
+
+                    # Forward through current model (adapters ON, no_grad)
+                    # We use no_grad to avoid building massive computation graphs
+                    # (6 probes × 512 tokens × 151K vocab = ~3.5GB grad tensors).
+                    # The KL is added to sft_loss as a detached scalar penalty.
+                    try:
+                        p_causal = model_arg.base_model.model
+                        p_backbone = p_causal.model
+                        p_lm_head = p_causal.lm_head
+                    except AttributeError:
+                        p_backbone = model_arg.model
+                        p_lm_head = model_arg.lm_head
+
+                    with torch.no_grad():
+                        p_hidden = p_backbone(
+                            input_ids=p_inputs["input_ids"],
+                            attention_mask=p_inputs["attention_mask"],
+                            use_cache=False,
+                        )
+                        p_logits = p_lm_head(p_hidden.last_hidden_state)
+                        p_labels = p_inputs["input_ids"][:, 1:]
+                        curr_lp = _F.log_softmax(p_logits[:, :-1], dim=-1)
+                        curr_selected = torch.gather(
+                            curr_lp, 2, p_labels.unsqueeze(-1)
+                        ).squeeze(-1)
+
+                        # k3 KL estimator
+                        log_ratio = curr_selected - cached_lp
+                        ratio = torch.exp(log_ratio)
+                        kl = ((ratio - 1) - log_ratio).mean()
+
+                    probe_kl_total = probe_kl_total + kl.detach()
+                    n_probes += 1
+
+                    del cached_lp, p_hidden, p_logits, curr_lp, curr_selected
+                    torch.cuda.empty_cache()
+
+                if n_probes > 0:
+                    avg_kl = probe_kl_total / n_probes
+                    # Clamp KL to prevent dominating the SFT loss
+                    # KL > 10 means representations have diverged massively — cap contribution
+                    avg_kl = torch.clamp(avg_kl, max=10.0)
+                    probe_kl_val = avg_kl.item()
+                    # Dynamic weight: inversely proportional to task loss
+                    sft_val = max(sft_loss.item(), 0.01)
+                    dyn_weight = min(probe_weight_base / (sft_val + 0.1),
+                                    probe_weight_base * 3)
+                    sft_loss = sft_loss + dyn_weight * avg_kl
+
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                logger.warning("Probe-aware KL OOM — disabling for rest of run")
+                probe_state["enabled"] = False
+                probe_state["disabled_reason"] = "OOM"
+            except Exception as e:
+                logger.warning(f"Probe-aware KL error ({type(e).__name__}: {e}) — disabling")
+                probe_state["enabled"] = False
+                probe_state["disabled_reason"] = str(e)
+
+        # ── Phase 6: Hidden State Anchoring (v3.0 — mid-layer MSE) ──
+        anchor_mse_val = 0.0
+        if probe_state["enabled"] and hidden_anchor and \
+                probe_state["step"] % probe_loss_every == 0:
+            try:
+                probe_batch = _sample_probes_by_domain(probe_cache, n_per_domain=1)
+                mse_total = torch.tensor(0.0, device=sft_loss.device)
+                n_probes = 0
+
+                for pid in probe_batch:
+                    if pid not in probe_cache["hidden_states"]:
+                        continue
+                    cached_hs = probe_cache["hidden_states"][pid].to(sft_loss.device)
+                    cached_mask = probe_cache["masks"][pid].to(sft_loss.device)
+                    p_inputs = {k: v.to(sft_loss.device) for k, v
+                                in probe_cache["inputs"][pid].items()}
+
+                    try:
+                        p_causal = model_arg.base_model.model
+                        p_backbone = p_causal.model
+                    except AttributeError:
+                        p_backbone = model_arg.model
+
+                    # no_grad: avoid building gradient graph for 6 × full backbone passes
+                    with torch.no_grad():
+                        h_out = p_backbone(
+                            input_ids=p_inputs["input_ids"],
+                            attention_mask=p_inputs["attention_mask"],
+                            output_hidden_states=True, use_cache=False,
+                        )
+                        layer_idx = min(anchor_layer,
+                                        len(h_out.hidden_states) - 1)
+                        current_hs = h_out.hidden_states[layer_idx]
+
+                        # Masked MSE over non-pad positions (mean over seq AND hidden dim)
+                        mask = cached_mask.unsqueeze(-1).float()  # [1, seq, 1]
+                        n_elements = mask.sum() * current_hs.shape[-1]
+                        mse = ((current_hs - cached_hs) ** 2 * mask).sum() \
+                            / n_elements.clamp(min=1)
+
+                    mse_total = mse_total + mse.detach()
+                    n_probes += 1
+
+                    del cached_hs, current_hs, h_out
+                    torch.cuda.empty_cache()
+
+                if n_probes > 0:
+                    avg_mse = mse_total / n_probes
+                    # Clamp MSE to prevent dominating SFT loss
+                    avg_mse = torch.clamp(avg_mse, max=1.0)
+                    anchor_mse_val = avg_mse.item()
+                    sft_loss = sft_loss + anchor_weight * avg_mse
+
+            except torch.cuda.OutOfMemoryError:
+                torch.cuda.empty_cache()
+                logger.warning("Hidden anchor MSE OOM — disabling for rest of run")
+                probe_state["enabled"] = False
+                probe_state["disabled_reason"] = "OOM"
+            except Exception as e:
+                logger.warning(f"Hidden anchor error ({type(e).__name__}: {e}) — disabling")
+                probe_state["enabled"] = False
+                probe_state["disabled_reason"] = str(e)
+
+        probe_state["step"] += 1
+        probe_state["last_probe_kl"] = probe_kl_val
+        probe_state["last_anchor_mse"] = anchor_mse_val
+
         kl_state["last_kl"] = kl_loss_val
-        kl_state["last_sft"] = (sft_loss.item() - KL_CONFIG["lambda"] * kl_loss_val
-                                 - ewc_loss_val if kl_loss_val or ewc_loss_val
-                                 else sft_loss.item())
+        # Compute pure SFT loss by subtracting all WEIGHTED penalty contributions
+        total_penalty = KL_CONFIG["lambda"] * kl_loss_val + ewc_loss_val
+        if probe_kl_val > 0:
+            p_sft_val = max(sft_loss.item() - total_penalty, 0.01)
+            p_dw = min(probe_weight_base / (p_sft_val + 0.1), probe_weight_base * 3)
+            total_penalty += p_dw * probe_kl_val
+        if anchor_mse_val > 0:
+            total_penalty += anchor_weight * anchor_mse_val
+        kl_state["last_sft"] = (sft_loss.item() - total_penalty
+                                 if total_penalty > 0 else sft_loss.item())
         kl_state["last_ewc"] = ewc_loss_val
 
         if return_outputs:
             return sft_loss, outputs
         return sft_loss
 
-    if use_kl or use_ewc:
+    if use_kl or use_ewc or probe_state["enabled"]:
         SFTTrainer.compute_loss = compute_loss_with_kl
 
     # ── Callbacks ──
@@ -1111,11 +1620,20 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             parts = [f"Step {step}/{total}"]
             if loss is not None:
                 parts.append(f"loss={loss:.4f}")
-                self._loss_history.append(loss)
+                # Track SFT loss (not total) for divergence detection when penalties are active
+                track_loss = (kl_state["last_sft"] if probe_state.get("enabled") and kl_state.get("last_sft", 0) > 0 else loss)
+                self._loss_history.append(track_loss)
                 self._check_loss_health(step, total, loss, control)
-            if use_kl and kl_state["last_kl"] > 0:
+            if probe_state.get("last_probe_kl", 0) > 0 or probe_state.get("last_anchor_mse", 0) > 0:
                 parts.append(f"sft={kl_state['last_sft']:.4f}")
+            if use_kl and kl_state["last_kl"] > 0:
                 parts.append(f"kl={kl_state['last_kl']:.4f}")
+            if ewc_state["enabled"] and kl_state["last_ewc"] > 0:
+                parts.append(f"ewc={kl_state['last_ewc']:.4f}")
+            if probe_state.get("last_probe_kl", 0) > 0:
+                parts.append(f"p_kl={probe_state['last_probe_kl']:.4f}")
+            if probe_state.get("last_anchor_mse", 0) > 0:
+                parts.append(f"a_mse={probe_state['last_anchor_mse']:.6f}")
             if lr is not None:
                 parts.append(f"lr={lr:.2e}")
             parts.append(f"step_time={step_time:.1f}s")
@@ -1126,16 +1644,24 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
         def _check_loss_health(self, step, total, loss, control):
             """Auto-abort if training is clearly failing."""
+            # When probe-aware or hidden-anchor penalties are active, total loss includes
+            # KL and MSE contributions that inflate the value (can be 20-50x SFT loss).
+            # Use the pure SFT component for health checks in that case.
+            check_loss = loss
+            if probe_state.get("enabled") and kl_state.get("last_sft", 0) > 0:
+                check_loss = kl_state["last_sft"]
+
             # 1. Bad init: loss > 2.0 after 20 steps means something is very wrong
-            if step >= 20 and step <= 30 and loss > 2.0:
-                logger.error(f"QUALITY ALARM: Loss {loss:.4f} > 2.0 at step {step} — "
+            if step >= 20 and step <= 30 and check_loss > 2.0:
+                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 2.0 at step {step} — "
                              f"bad initialization, aborting to save time")
                 control.should_training_stop = True
                 return
 
-            # 2. Not converging: loss > 1.0 after 25% of training
-            if step > total * 0.25 and loss > 1.0:
-                logger.error(f"QUALITY ALARM: Loss {loss:.4f} > 1.0 at step {step} "
+            # 2. Not converging: loss > 1.5 after 50% of training
+            # (threshold 1.5 to accommodate thinking/reasoning data which has higher SFT loss)
+            if step > total * 0.5 and check_loss > 1.5:
+                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 1.5 at step {step} "
                              f"({step/total*100:.0f}% through) — not converging, aborting")
                 control.should_training_stop = True
                 return
@@ -1379,6 +1905,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 probe_cb = DomainProbeCallback(
                     probe_interval=probe_interval,
                     server_url=probe_server_url,
+                    style_prefix=f"<{style_mode}>" if style_tokens_enabled else "",
                 )
                 # Set baseline from score_ledger if available
                 ledger_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "score_ledger.json")
@@ -1545,11 +2072,13 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     old_params[name] = param.data.clone().cpu()
 
             if fisher:
-                # Use training dataset for Fisher computation (up to N samples)
-                fisher_samples = min(EWC_CONFIG["fisher_samples"], len(dataset))
+                # Use trainer's TOKENIZED dataset (not raw `dataset` which may have
+                # only a 'text' column — the data_collator expects input_ids/labels).
+                tokenized_ds = trainer.train_dataset
+                fisher_samples = min(EWC_CONFIG["fisher_samples"], len(tokenized_ds))
                 import itertools
                 fisher_loader = torch.utils.data.DataLoader(
-                    dataset.select(range(fisher_samples)),
+                    tokenized_ds.select(range(fisher_samples)),
                     batch_size=1,
                     collate_fn=trainer.data_collator,
                 )
@@ -1565,7 +2094,15 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     model.zero_grad()
 
                 fisher_save_path = os.path.join(OUTPUT_DIR, "fisher.pt")
-                torch.save({"fisher": fisher, "old_params": old_params}, fisher_save_path)
+                torch.save({
+                    "fisher": fisher,
+                    "old_params": old_params,
+                    "lora_config": {
+                        "r": LORA_CONFIG["r"],
+                        "lora_alpha": LORA_CONFIG["lora_alpha"],
+                        "target_modules": list(LORA_CONFIG["target_modules"]),
+                    },
+                }, fisher_save_path)
                 size_mb = os.path.getsize(fisher_save_path) / (1024 * 1024)
                 logger.info(f"  Fisher matrix saved: {fisher_save_path} ({size_mb:.1f} MB, "
                             f"{len(fisher)} params, {fisher_samples} samples)")
@@ -1709,6 +2246,28 @@ if __name__ == "__main__":
                         help="Steps between domain probe checks (default: 50)")
     parser.add_argument("--probe-server", type=str, default="http://localhost:11435",
                         help="llama-server URL for probe checks (default: http://localhost:11435)")
+    parser.add_argument("--compute-fisher-only", action="store_true",
+                        help="Compute Fisher matrix for EWC on base model and exit (no training)")
+    # === Continual Learning v3.0: Style tokens + Probe-aware training ===
+    parser.add_argument("--style-tokens", action="store_true",
+                        help="Enable <direct>/<agentic> style token system for style routing")
+    parser.add_argument("--style-mode", type=str, default="direct",
+                        choices=["direct", "agentic"],
+                        help="Default style for untagged data (default: direct)")
+    parser.add_argument("--probe-aware", action="store_true",
+                        help="Enable probe-anchoring KL-div loss (cached v_prev logits)")
+    parser.add_argument("--hidden-anchor", action="store_true",
+                        help="Enable mid-layer hidden state MSE anchoring")
+    parser.add_argument("--probe-loss-every", type=int, default=1,
+                        help="Steps between probe loss computation (default: 1)")
+    parser.add_argument("--probe-weight", type=float, default=0.1,
+                        help="Base weight for probe KL loss (default: 0.1)")
+    parser.add_argument("--anchor-weight", type=float, default=0.05,
+                        help="Weight for hidden state MSE loss (default: 0.05)")
+    parser.add_argument("--anchor-layer", type=int, default=24,
+                        help="Model layer to anchor hidden states (default: 24, mid-Qwen2.5)")
+    parser.add_argument("--curlora-init", action="store_true",
+                        help="Use CURLoRA initialization (replaces orthogonal SVD init)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -1764,6 +2323,12 @@ if __name__ == "__main__":
         logger.error("Run: python scripts/prepare_v5_data.py")
         sys.exit(1)
 
+    # Base model HF override for continual learning (train on merged checkpoint)
+    # Must be applied BEFORE existence check so --base-model-hf is used for validation
+    if args.base_model_hf:
+        model_path = args.base_model_hf
+        logger.info(f"Base model HF override: {model_path}")
+
     if not os.path.exists(model_path):
         if args.no_unsloth:
             logger.error(f"Base model not found: {model_path}")
@@ -1777,11 +2342,6 @@ if __name__ == "__main__":
     if args.lr > 0:
         TRAINING_CONFIG["learning_rate"] = args.lr
         logger.info(f"Learning rate override: {args.lr}")
-
-    # Base model HF override for continual learning (train on merged checkpoint)
-    if args.base_model_hf:
-        model_path = args.base_model_hf
-        logger.info(f"Base model HF override: {model_path}")
 
     # Adaptive replay ratio: check score_ledger for domains that dropped last cycle
     effective_replay_ratio = args.replay_ratio
@@ -1852,6 +2412,132 @@ if __name__ == "__main__":
                         f.write(json.dumps(clean, ensure_ascii=False) + "\n")
                 TRAINING_JSONL = mixed_path
                 logger.info(f"Consolidation: using {len(replay_samples)} replay samples (100%)")
+
+    # ── Compute-Fisher-Only mode: bootstrap Fisher for a base model ──
+    if args.compute_fisher_only:
+        import torch
+        import itertools
+        logger.info("=" * 60)
+        logger.info("COMPUTE-FISHER-ONLY MODE")
+        logger.info("=" * 60)
+        optimize_system_pre_load()
+
+        fisher_save_path = args.fisher_path
+        if not fisher_save_path:
+            fisher_save_path = os.path.join(OUTPUT_DIR, "fisher.pt")
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+        # Load base model in 4-bit with temporary LoRA
+        base_hf = args.base_model_hf or model_path
+        logger.info(f"Loading base model: {base_hf}")
+
+        # Use short sequences (256) for Fisher — importance estimation doesn't need long context
+        # 16GB VRAM is tight for 14B 4-bit + forward/backward, 256 avoids OOM
+        FISHER_SEQ_LEN = 256
+
+        # Use Unsloth for loading (handles 16GB VRAM correctly on RTX 4070 Ti)
+        from unsloth import FastLanguageModel
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            base_hf, max_seq_length=FISHER_SEQ_LEN,
+            dtype=None, load_in_4bit=True,
+        )
+        # Check if a trained adapter already exists at OUTPUT_DIR — load it
+        # instead of a fresh LoRA so Fisher reflects trained weights (B≠0).
+        # With fresh LoRA (B=0), dL/dA = (alpha/r)*B^T@dL/dW = 0, making Fisher useless.
+        existing_adapter = os.path.join(OUTPUT_DIR, "adapter_model.safetensors")
+        if os.path.exists(existing_adapter):
+            logger.info(f"Loading TRAINED adapter from {OUTPUT_DIR} for Fisher computation")
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, OUTPUT_DIR)
+            model.train()
+        else:
+            logger.info("No trained adapter found — applying fresh LoRA for Fisher bootstrap")
+            model = FastLanguageModel.get_peft_model(
+                model,
+                r=LORA_CONFIG["r"],
+                lora_alpha=LORA_CONFIG["lora_alpha"],
+                target_modules=LORA_CONFIG["target_modules"],
+                lora_dropout=LORA_CONFIG["lora_dropout"],
+            )
+        logger.info(f"Model loaded via Unsloth (r={LORA_CONFIG['r']}), "
+                    f"trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+
+        # Load replay data for Fisher computation
+        logger.info(f"Loading training data: {TRAINING_JSONL}")
+        from datasets import Dataset
+        with open(TRAINING_JSONL, "r", encoding="utf-8") as f:
+            data = [json.loads(line) for line in f if line.strip()]
+
+        # Format as chat messages for tokenization
+        formatted = []
+        for item in data:
+            text = tokenizer.apply_chat_template(
+                [{"role": "user", "content": item.get("instruction", "") + ("\n" + item["input"] if item.get("input") else "")},
+                 {"role": "assistant", "content": item.get("output", "")}],
+                tokenize=False,
+            )
+            formatted.append({"text": text})
+
+        dataset = Dataset.from_list(formatted)
+        dataset = dataset.map(
+            lambda x: tokenizer(x["text"], truncation=True, max_length=FISHER_SEQ_LEN, padding="max_length"),
+            batched=True, remove_columns=["text"],
+        )
+        # Set labels = input_ids for causal LM loss computation (required for .loss)
+        dataset = dataset.map(lambda x: {"labels": x["input_ids"]})
+        dataset.set_format("torch")
+
+        # Compute Fisher — need train mode for gradient computation through Unsloth patches
+        fisher = {}
+        old_params = {}
+        model.train()
+
+        for name, param in model.named_parameters():
+            if 'lora_' in name and param.requires_grad:
+                fisher[name] = torch.zeros_like(param, device="cpu")
+                old_params[name] = param.data.clone().cpu()
+
+        if not fisher:
+            logger.error("No LoRA parameters found — cannot compute Fisher")
+            sys.exit(1)
+
+        # 50 samples sufficient for diagonal Fisher approximation (saves ~15 min vs 200)
+        fisher_samples = min(50, len(dataset))
+        logger.info(f"Computing Fisher over {fisher_samples} samples ({len(fisher)} LoRA params)...")
+
+        fisher_loader = torch.utils.data.DataLoader(
+            dataset.select(range(fisher_samples)),
+            batch_size=1,
+            shuffle=False,
+        )
+
+        for i, batch in enumerate(itertools.islice(fisher_loader, fisher_samples)):
+            batch = {k: v.to(model.device) if hasattr(v, 'to') else v for k, v in batch.items()}
+            model.zero_grad()
+            outputs = model(**batch)
+            outputs.loss.backward()
+            for name, param in model.named_parameters():
+                if name in fisher and param.grad is not None:
+                    fisher[name] += (param.grad.data ** 2).cpu() / fisher_samples
+            model.zero_grad()
+            if (i + 1) % 10 == 0 or (i + 1) == fisher_samples:
+                logger.info(f"  Fisher progress: {i + 1}/{fisher_samples}")
+
+        os.makedirs(os.path.dirname(fisher_save_path), exist_ok=True)
+        torch.save({
+            "fisher": fisher,
+            "old_params": old_params,
+            "lora_config": {
+                "r": LORA_CONFIG["r"],
+                "lora_alpha": LORA_CONFIG["lora_alpha"],
+                "target_modules": list(LORA_CONFIG["target_modules"]),
+            },
+        }, fisher_save_path)
+        size_mb = os.path.getsize(fisher_save_path) / (1024 * 1024)
+        logger.info(f"Fisher matrix saved: {fisher_save_path} ({size_mb:.1f} MB, "
+                    f"{len(fisher)} params, {fisher_samples} samples)")
+        logger.info("Done — exiting (no training in compute-fisher-only mode)")
+        sys.exit(0)
 
     optimize_system_pre_load()
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
