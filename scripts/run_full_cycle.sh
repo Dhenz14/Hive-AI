@@ -35,6 +35,11 @@
 # =============================================================================
 set -euo pipefail
 
+# Activate Python venv (provides 'python' command + all packages)
+if [ -f /opt/hiveai-env/bin/activate ]; then
+    source /opt/hiveai-env/bin/activate
+fi
+
 DOMAIN=${1:?Usage: run_full_cycle.sh <domain> <data_path> <version> [prev_version]}
 DATA_PATH=${2:?Usage: run_full_cycle.sh <domain> <data_path> <version> [prev_version]}
 VERSION=${3:?Usage: run_full_cycle.sh <domain> <data_path> <version> [prev_version]}
@@ -396,11 +401,25 @@ if [ "$LAST_STEP" -lt 2 ]; then
         echo "  Large dataset ($PAIR_COUNT pairs) — probe-guard interval=50 steps"
     fi
 
-    # v3.0 flags: style tokens + probe-aware + hidden-anchor + CURLoRA
+    # v3.0 flags: each defense is independently toggleable
+    # STYLE_TOKENS=1  → add <direct>/<agentic> tokens (HF-only, breaks GGUF LoRA inference)
+    # PROBE_AWARE=1   → probe-anchoring KL loss + hidden-state MSE (safe for GGUF)
+    # CURLORA=1       → CUR decomposition init instead of orthogonal SVD (safe for GGUF)
+    # Defaults: CURLORA always on (faster + better than SVD), others off
+    CURLORA="${CURLORA:-1}"
+    PROBE_AWARE="${PROBE_AWARE:-0}"
     V3_FLAGS=""
     if [ "$STYLE_TOKENS" = "1" ]; then
-        V3_FLAGS="--style-tokens --style-mode direct --probe-aware --hidden-anchor --curlora-init --probe-loss-every 5"
-        echo "  v3.0 defense stack: style-tokens + probe-aware + hidden-anchor + CURLoRA (probe every 5 steps)"
+        V3_FLAGS="$V3_FLAGS --style-tokens --style-mode direct"
+        echo "  v3.0: style-tokens ON (WARNING: breaks GGUF LoRA pre-merge gate)"
+    fi
+    if [ "$PROBE_AWARE" = "1" ]; then
+        V3_FLAGS="$V3_FLAGS --probe-aware --hidden-anchor --probe-loss-every 5"
+        echo "  v3.0: probe-aware + hidden-anchor ON"
+    fi
+    if [ "$CURLORA" = "1" ]; then
+        V3_FLAGS="$V3_FLAGS --curlora-init"
+        echo "  v3.0: CURLoRA init ON (replaces orthogonal SVD)"
     fi
 
     python "$PROJECT_ROOT/scripts/train_v5.py" \
@@ -557,15 +576,15 @@ MERGE_OUTPUT="$DEPLOY_DIR/${VERSION}"
 # =============================================================================
 if [ "$LAST_STEP" -lt 5 ]; then
     log_step "5/7" "Consolidation training"
-    CONSOL_STYLE_FLAG=""
-    if [ "$STYLE_TOKENS" = "1" ]; then
-        CONSOL_STYLE_FLAG="--style-tokens --probe-aware --hidden-anchor --curlora-init"
-    fi
+    CONSOL_V3_FLAGS=""
+    [ "$STYLE_TOKENS" = "1" ] && CONSOL_V3_FLAGS="$CONSOL_V3_FLAGS --style-tokens"
+    [ "$PROBE_AWARE" = "1" ] && CONSOL_V3_FLAGS="$CONSOL_V3_FLAGS --probe-aware --hidden-anchor"
+    [ "$CURLORA" = "1" ] && CONSOL_V3_FLAGS="$CONSOL_V3_FLAGS --curlora-init"
     python "$PROJECT_ROOT/scripts/consolidation_train.py" \
         --base-model-hf "$TRAINING_DIR/${VERSION}/hf" \
         --replay-data "$REPLAY_DIR/sampled.jsonl" \
         --output-dir "$CONSOL_OUTPUT" \
-        $CONSOL_STYLE_FLAG \
+        $CONSOL_V3_FLAGS \
         2>&1 | tee "$LOG_DIR/${VERSION}_05_consolidation.log"
 
     # Convert consolidation LoRA to GGUF

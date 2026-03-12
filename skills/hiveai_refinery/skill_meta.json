@@ -1,0 +1,26 @@
+{
+  "name": "hiveai_refinery",
+  "title": "HiveAI Refinery - Continual Learning Pipeline & Architecture",
+  "description": "Merge-then-freeze continual learning, golden chain, micro-training, SuRe replay, alpha grid search, regression evaluation",
+  "test_cases": [
+    {
+      "input": "How does HiveAI's continual learning pipeline work?",
+      "expected_keywords": ["merge-then-freeze", "LoRA", "consolidation", "regression", "replay"]
+    },
+    {
+      "input": "What is the golden chain in HiveAI?",
+      "expected_keywords": ["bf16", "source of truth", "quantization drift", "GGUF", "deploy"]
+    },
+    {
+      "input": "How does HiveAI prevent catastrophic forgetting?",
+      "expected_keywords": ["merge", "permanent", "replay", "SuRe", "consolidation", "regression"]
+    }
+  ],
+  "pre_conditions": {
+    "must_match_pattern": ["hiveai", "refinery", "continual.learning", "merge.then.freeze", "golden.chain", "micro.train"]
+  },
+  "post_conditions": {
+    "min_response_length": 200,
+    "must_mention": ["merge", "LoRA"]
+  }
+}

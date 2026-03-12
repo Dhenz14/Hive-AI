@@ -1658,10 +1658,11 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 control.should_training_stop = True
                 return
 
-            # 2. Not converging: loss > 1.5 after 50% of training
-            # (threshold 1.5 to accommodate thinking/reasoning data which has higher SFT loss)
-            if step > total * 0.5 and check_loss > 1.5:
-                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 1.5 at step {step} "
+            # 2. Not converging: loss > 3.0 after 75% of training
+            # (raised from 1.5@50% — probe-aware KL + hidden anchor inflate SFT loss
+            #  to 2-3x normal range; thinking/reasoning data also runs higher)
+            if step > total * 0.75 and check_loss > 3.0:
+                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 3.0 at step {step} "
                              f"({step/total*100:.0f}% through) — not converging, aborting")
                 control.should_training_stop = True
                 return
