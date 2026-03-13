@@ -63,6 +63,8 @@ else:
 # convert_hf_to_gguf.py search paths
 _CONVERT_HF_CANDIDATES = [
     os.path.join(os.environ.get("LLAMA_CPP_DIR", ""), "convert_hf_to_gguf.py"),
+    "/opt/hiveai/llama-cpp-build/convert_hf_to_gguf.py",
+    "/opt/hiveai/tools/convert_hf_to_gguf.py",
     "/tmp/llama.cpp/convert_hf_to_gguf.py",
 ]
 
@@ -360,6 +362,23 @@ def convert_hf_to_gguf(hf_dir: str, output_gguf: str, quantize_type: str = "Q5_K
     except subprocess.TimeoutExpired:
         print(f"    TIMEOUT: quantization took >20 minutes")
         return False
+
+    # Produce extra Q4_K_M quant for CPU dual-server inference (if primary isn't already Q4_K_M)
+    if quantize_type != "Q4_K_M" and os.path.exists(f16_gguf):
+        q4_gguf = output_gguf.replace(".gguf", "_Q4_K_M.gguf")
+        print(f"  Extra quant: F16 → Q4_K_M for CPU server: {q4_gguf}")
+        try:
+            result = subprocess.run(
+                [LLAMA_QUANTIZE, f16_gguf, q4_gguf, "Q4_K_M"],
+                capture_output=True, text=True, timeout=1200,
+            )
+            if result.returncode == 0:
+                q4_size = os.path.getsize(q4_gguf) / (1024**3)
+                print(f"    Q4_K_M GGUF: {q4_size:.1f} GB (for CPU dual-server)")
+            else:
+                print(f"    Q4_K_M quant failed (non-fatal): {result.stderr[-200:]}")
+        except Exception as e:
+            print(f"    Q4_K_M quant skipped: {e} (non-fatal)")
 
     # Cleanup F16 intermediate
     if os.path.exists(f16_gguf) and os.path.exists(output_gguf):

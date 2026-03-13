@@ -38,7 +38,7 @@ logger = logging.getLogger("domain_probe_callback")
 
 # Import quick probes from probe library
 try:
-    from probe_library import QUICK_PROBES, Probe, score_response
+    from probe_library import QUICK_PROBES, Probe
 except ImportError:
     import sys
     from pathlib import Path
@@ -125,13 +125,15 @@ class DomainProbeCallback(TrainerCallback):
 
     def __init__(self, probe_interval=50, lr_reduction=0.5,
                  warn_threshold=0.02, stop_threshold=0.04,
-                 server_url="http://localhost:11435", style_prefix=""):
+                 server_url=None, style_prefix=""):
         self.probe_interval = probe_interval
         self.lr_reduction = lr_reduction
         self.style_prefix = style_prefix
         self.warn_threshold = warn_threshold
         self.stop_threshold = stop_threshold
-        self.server_url = server_url
+        # Prefer explicit server_url, then env var, then default (GPU server)
+        import os
+        self.server_url = server_url or os.environ.get("PROBE_SERVER_URL", "http://localhost:11435")
         self.baseline_scores = None
         self.lr_reductions = 0
         self.check_count = 0

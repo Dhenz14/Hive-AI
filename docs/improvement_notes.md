@@ -1092,3 +1092,346 @@ results) would be lost. These are valuable for debugging regressions.
 
 **Fix**: Only ignore `logs/*_server.log` (large, regenerable) and `logs/*_checkpoint.txt`
 (ephemeral). Training logs (`*_01_replay.log`, `*_02_train.log`, etc.) are now tracked.
+
+---
+
+## 11. Autonomous Data Acquisition — Browser Tools
+
+**Source A**: https://github.com/lightpanda-io/browser
+**Source B**: https://github.com/pinchtab/pinchtab
+
+**Tools**:
+- **Lightpanda** — Zig-based headless browser, 9x less memory / 11x faster than Chrome.
+  Puppeteer/Playwright compatible via CDP. Single binary, no Chromium deps. Best for bulk
+  static/JS page scraping. AGPL-3.0. (4,849 commits, 13.9k stars)
+- **PinchTab** — Go-based HTTP server that gives AI agents direct Chrome control via accessibility
+  trees. 800 tokens/page vs 10,000+ for screenshots (5-13x token reduction). Supports login-gated
+  pages, SPAs, and interactive content via stable element references. Best for complex pages
+  requiring authentication or interaction. 12MB binary, MCP integration.
+
+**Why it matters for HiveAI**: Currently ArcHive handles client-side data scraping. But the long-term
+vision is **self-directed learning**: the AI identifies what it doesn't know (via probe failures or
+user queries it can't answer), autonomously browses docs/tutorials/repos/Stack Overflow to find that
+knowledge, distills it into training pairs, and triggers a micro-training cycle.
+
+**Pipeline sketch**:
+1. Probe eval or user query reveals knowledge gap (e.g., Rust async streams score drops)
+2. Lightpanda scrapes relevant docs/examples (Tokio docs, async-std tutorials, real-world repos)
+3. Quality scorer filters and ranks scraped content
+4. `generate_thinking_traces.py` distills into instruction/output pairs with `<think>` blocks
+5. `run_full_cycle.sh` trains a micro-batch automatically
+
+**Status**: MAYBE — requires quality scoring pipeline + gap detection + cycle orchestration.
+Lightpanda itself is mature (4,849 commits, 13.9k stars) but AGPL-3.0 licensed.
+
+**Benchmarks** (from their README, 100 pages on AWS EC2 m5.large):
+- Memory: 11% of Chrome baseline (9x reduction)
+- Execution time: 9% of Chrome baseline (11x faster)
+
+---
+
+## 12. Distillation Insights for Reasoning Training (from Raschka Ch.8)
+
+**Source**: https://github.com/rasbt/reasoning-from-scratch/blob/main/ch08/01_main-chapter-code/ch08_main.ipynb
+
+Sebastian Raschka's "Reasoning from Scratch" Chapter 8 — hard distillation from large teacher models
+to train small models to reason. Uses DeepSeek-R1 (671B) as teacher, Qwen3 0.6B as student.
+
+### [IMPLEMENTED] Truncation audit + filter
+
+**Problem**: Raschka starts with 12K examples, filters to 6,695 by max_len=2048 — dropping 44% of
+data that would be truncated. Truncated examples train on incomplete reasoning chains, which teaches
+the model to produce cut-off `<think>` blocks.
+
+**Implemented (2026-03-13)**: Added `--max-seq-len-filter` flag to `train_v5.py`. Sequence length
+audit runs on every training run (logs count of over-limit examples). When flag is set, drops
+examples exceeding max_seq_length instead of silently truncating. Also added to `run_full_cycle.sh`.
+
+### SOON — External teacher for high-value traces
+
+**Insight**: Teacher quality = student ceiling. Distillation can never exceed the teacher's accuracy
+(DeepSeek-R1 at 90.6% = upper bound for student). Our `generate_thinking_traces.py` uses the LOCAL
+model as teacher, which caps quality at our own model's level — a self-referential ceiling.
+
+**Action**: For critical domains or hard examples where local generation is weak, use an external
+teacher API (DeepSeek-R1 or Claude Opus) to generate higher-quality `<think>` traces. Raschka's cost:
+~$50 for 12K traces from DeepSeek-R1 API. We could do targeted batches of 500-1000 hard examples
+per domain for ~$5 each.
+
+**Priority**: After v7 stabilizes. Start with domains where probe scores are weakest.
+
+### VALIDATED — Our approach is research-backed
+
+These findings confirm choices we already made:
+
+1. **Hard distillation (SFT on traces) > RL for <=14B models** — Raschka shows distillation
+   consistently beats GRPO/PPO for smaller models. We use SFT on `<think>` traces, not RL. Correct.
+2. **`train_on_responses_only` (prompt masking)** — Loss on answer tokens only, not prompts.
+   We already do this. Correct.
+3. **`<think>` token formatting** — Same `<think>...</think>` pattern we use. Correct.
+4. **AdamW + cosine schedule** — Same optimizer setup. Correct.
+
+---
+
+## 13. Dual-Server Architecture: CPU Inference During GPU Training [IMPLEMENTED]
+
+**Inspiration**: Microsoft BitNet's CPU inference approach — but we don't need ternary weights.
+llama.cpp already supports `--n-gpu-layers 0` for pure CPU inference.
+
+**Problem today**: Training and inference are mutually exclusive. When GPU trains, llama-server is
+down. This means no mid-training probes against the CURRENT model, no NLL scoring for next batch,
+no style shift analysis during training. The pipeline is sequential when it could be parallel.
+
+**Solution**: Run a second llama-server on CPU (port 11436) alongside GPU training (port 11435).
+Use a smaller quant (Q4_K_M ~8GB) that fits entirely in RAM for CPU inference.
+
+```bash
+# Existing GPU server (inference when not training)
+llama-server --model current_base.gguf --port 11435 --n-gpu-layers 99
+
+# NEW CPU server (runs DURING training — zero GPU contention)
+llama-server --model current_base_q4.gguf --port 11436 --n-gpu-layers 0 --threads 12
+```
+
+**What this unlocks**:
+- Mid-training domain probes hit CPU server → `domain_probe_callback` works during training
+- NLL scoring for next batch while current batch trains → pipelining
+- Style shift analysis runs before/during training → no GPU wait
+- Pre-merge gate eval runs on CPU while GPU finishes Fisher → parallelism
+- Consolidation eval can start scoring while consolidation trains
+
+**Performance estimate** (14B Q4_K_M on 24 CPUs, 63.4GB RAM):
+- ~1-2 tok/s with AVX2 (conservative)
+- Probe scoring: 60 probes × ~50 tokens × ~1.5 tok/s = ~33 min (parallel with training)
+- NLL scoring: 200 samples × ~100 tokens = ~3.7 hours (can run overnight)
+- Acceptable for background tasks — not for interactive chat
+
+**Implemented (2026-03-13)** across 4 files:
+
+1. **run_full_cycle.sh** — `start_cpu_server()` / `stop_cpu_server()` functions. Auto-starts Q4_K_M
+   on port 11436 before training, passes `--probe-server http://localhost:11436` to train_v5.py,
+   stops after training completes. Added to cleanup trap.
+2. **domain_probe_callback.py** — `__init__` now checks `PROBE_SERVER_URL` env var, falls back to
+   explicit `server_url` param, then default 11435.
+3. **replay_sampler.py** — `--server-url` added as alias for `--model-url`.
+4. **safe_merge.py** — Auto-produces Q4_K_M quant alongside primary quant (if primary != Q4_K_M).
+   Uses F16 intermediate before cleanup.
+
+**Prerequisites remaining**:
+
+- First run needs a manual Q4_K_M quant of the current model (subsequent cycles auto-produce it)
+- Verify CPU inference quality is acceptable for scoring (Q4 vs Q5 probe scores should be within 2%)
+
+---
+
+## 14. BitNet Full Distillation — Custom 1.58-bit Coding Model (LATER)
+
+**Source**: https://github.com/microsoft/BitNet
+
+**Vision**: Fork BitNet architecture, scale to 14B, distill our Qwen2.5-Coder-14B's knowledge into
+a ternary-weight model. Run inference on CPU at 5-7 tok/s with 55-82% less energy. GPU permanently
+free for training.
+
+**Why LATER, not now**:
+- BitNet requires training from scratch with ternary weights (STE for gradients) — can't convert Qwen
+- Training 14B from scratch needs datacenter compute (thousands of GPU-hours)
+- No BitNet fine-tuning/LoRA framework exists yet (open research problem)
+- Student quality drops 5-15% from distillation — would need continual learning to recover
+- Tooling gap: training code not fully open-sourced (inference only)
+
+**Path when ready**:
+1. Fork BitNet architecture, scale to 14B transformer
+2. Hard-distill Qwen's coding knowledge (teacher→student SFT, ~$50-500 in compute)
+3. Fine-tune with continual learning pipeline (needs LoRA-for-BitNet or equivalent)
+4. Run on CPU permanently, GPU 100% for training
+5. Continue golden chain on BitNet model going forward
+
+**Prerequisite milestones** (not in our control):
+- Community ships BitNet fine-tuning framework
+- Someone trains a coding-focused BitNet at 14B+ scale
+- LoRA equivalent for ternary weights is published
+
+**Interim alternative**: Distill into existing BitNet 2.4B as a cheap sidecar for scoring tasks.
+Would run on CPU with near-zero resources. Less ambitious but immediately feasible.
+
+---
+
+## 15. KeepLoRA: Gradient Subspace Projection for Zero-Forgetting [IMPLEMENTED]
+
+**Source**: https://openreview.net/forum?id=T3Vc5fkTzV
+**Code**: https://github.com/MaolinLuo/KeepLoRA
+**Venue**: ICLR 2026 (Poster), MIT License
+
+**What it is**: KeepLoRA constrains LoRA gradient updates to a "residual subspace" orthogonal to
+both pre-trained knowledge and all previously learned tasks. Instead of just INITIALIZING LoRA
+orthogonally (what we do now), it PROJECTS gradients every step to stay orthogonal. Zero
+interference by mathematical construction, not just by initialization.
+
+**Why this is a major upgrade**: Our current orthogonal init sets LoRA in the right subspace at
+step 0, but gradients can drift into protected subspaces during training. KeepLoRA prevents this
+entirely. This is the difference between "start right" and "stay right throughout training."
+
+**The decomposition**:
+- **Principal subspace**: SVD of pre-trained/merged base weights → base knowledge directions
+- **Task subspaces**: Dominant SVD directions from each previous cycle's LoRA delta (cumulative)
+- **Residual subspace**: Orthogonal to both → only place new learning can happen
+
+**Replaces**: Both our orthogonal LoRA init (train_v5.py lines 670-755) AND the planned PackNet
+subspace tracking. KeepLoRA is strictly stronger — it subsumes both into one mechanism.
+
+### Implementation for HiveAI (~30 lines in train_v5.py)
+
+**New CLI args**:
+```
+--keeplora              Enable gradient subspace projection
+--keeplora-rank INT     Rank of protected subspace per layer (default: 8)
+```
+
+**Step 1: Compute protected subspaces (before training, after model load)**:
+```python
+# Principal subspace: SVD of base weight matrices for each LoRA target
+protected_subspaces = {}
+if args.keeplora:
+    for name, module in model.named_modules():
+        if hasattr(module, 'lora_A'):
+            # Get base weight for this layer
+            base_w = module.base_layer.weight.data  # [out, in]
+            U, S, Vt = torch.linalg.svd(base_w, full_matrices=False)
+            principal = Vt[:args.keeplora_rank]  # top-k right singular vectors
+
+            # Load previous task subspaces (cumulative, from frozen_subspace.pt)
+            task_dirs = []
+            if os.path.exists(subspace_path):
+                prev = torch.load(subspace_path)
+                if name in prev:
+                    task_dirs = prev[name]  # list of [rank, in_dim] tensors
+
+            # Stack all protected directions
+            all_protected = torch.cat(
+                [principal] + task_dirs, dim=0
+            )  # [N_protected, in_dim]
+
+            # Orthonormalize via QR
+            Q, _ = torch.linalg.qr(all_protected.T)
+            protected_subspaces[name] = Q  # [in_dim, N_protected]
+```
+
+**Step 2: Gradient projection hook (register after model setup)**:
+```python
+def make_grad_hook(proj_matrix):
+    """Project gradient orthogonal to protected subspace."""
+    def hook(grad):
+        # Remove component in protected subspace
+        proj = grad @ proj_matrix @ proj_matrix.T  # project onto protected
+        return grad - proj                           # keep only residual
+    return hook
+
+if args.keeplora:
+    for name, param in model.named_parameters():
+        if 'lora_A' in name and param.requires_grad:
+            module_name = name.rsplit('.lora_A', 1)[0]
+            if module_name in protected_subspaces:
+                Q = protected_subspaces[module_name].to(param.device)
+                param.register_hook(make_grad_hook(Q))
+    logger.info(f"KeepLoRA: gradient projection active on {len(protected_subspaces)} layers")
+```
+
+**Step 3: Save new task subspace after training (before merge)**:
+```python
+# After training completes, save this cycle's LoRA directions
+if args.keeplora:
+    new_directions = {}
+    for name, module in model.named_modules():
+        if hasattr(module, 'lora_A'):
+            # LoRA delta = B @ A
+            A = module.lora_A.default.weight.data  # [rank, in_dim]
+            B = module.lora_B.default.weight.data  # [out_dim, rank]
+            delta = B @ A  # [out_dim, in_dim]
+            U, S, Vt = torch.linalg.svd(delta, full_matrices=False)
+            new_directions[name] = Vt[:args.keeplora_rank]  # top directions
+
+    # Append to cumulative subspace file
+    cumulative = {}
+    if os.path.exists(subspace_path):
+        cumulative = torch.load(subspace_path)
+    for name, dirs in new_directions.items():
+        if name not in cumulative:
+            cumulative[name] = []
+        cumulative[name].append(dirs)
+    torch.save(cumulative, subspace_path)
+```
+
+**Overhead estimate**:
+- Subspace computation: ~30s one-time (SVD on each LoRA target layer)
+- Per-step gradient projection: one matmul per LoRA param per backward pass (~1-2% overhead)
+- Storage: ~115KB per cycle (same as PackNet estimate — rank-8 SVD per layer)
+- VRAM: projection matrices are small ([in_dim, N_protected]) — negligible
+
+**Interaction with other defenses**:
+- **Replaces**: Orthogonal init (lines 670-755) + planned PackNet — KeepLoRA is strictly stronger
+- **Complements**: CKA monitoring (detects drift that projection might miss at representation level)
+- **Complements**: EWC (EWC penalizes, KeepLoRA prohibits — belt AND suspenders)
+- **Complements**: Replay (still valuable for refreshing activations even if weights are protected)
+
+**Testing plan**:
+1. Smoke test: `--keeplora --test 5` — verify grad hook fires, loss still decreases
+2. Verify: Save model, check that protected subspace has zero component in LoRA delta
+3. A/B test: Run one cycle with vs without KeepLoRA, compare regression on 60-probe eval
+4. Capacity check: After 6 cycles, verify residual subspace still has room (3584 - 6×8 = 3536 dims)
+
+**Implemented (2026-03-13)** in `train_v5.py` + `run_full_cycle.sh`:
+
+- CLI flags: `--keeplora` (enable) + `--keeplora-rank N` (directions per layer, default 8)
+- Loads cumulative `frozen_subspace.pt` from `--prev-lora` directory
+- Registers `param.register_hook()` on each lora_A that projects gradients orthogonal to Q
+- After training: computes SVD of each LoRA delta (B@A), merges with previous subspace via QR,
+  saves cumulative `frozen_subspace.pt` to output dir
+- Hooks cleaned up before adapter save
+- `run_full_cycle.sh` passes `--keeplora` by default
+
+---
+
+## 16. Continual Learning v4.0 Defense Stack [IMPLEMENTED]
+
+**Implemented (2026-03-13)** — Full v4.0 defense stack from Grok+Claude collaboration session.
+All features gated behind CLI flags (defaults OFF), zero behavioral change when disabled.
+
+### [IMPLEMENTED] Adaptive EWC v2
+
+Fixes 3 compounding bugs that made EWC v1 unusable (see `ewc_debugging_lessons.md`):
+
+1. **Removed Fisher max->1.0 normalization** — was amplifying tiny values by 11.5x
+2. **Per-parameter adaptive lambda** — `importance = F_ii / (F.mean() + 1e-8)`, `lambda_base = 0.05`
+3. **Divide penalty by gradient_accumulation_steps** — was accumulated 16x
+
+Files: `train_v5.py` (EWC_CONFIG lambda, Fisher loading, `compute_ewc_loss()`)
+
+### [IMPLEMENTED] CKA Mini-Anchor (Representation Drift Detection)
+
+Linear CKA compares GEOMETRY of representations between golden baseline and current model.
+Catches representation drift mid-training before it causes output changes.
+
+- `linear_cka()` function: `CKA = tr(KL) / sqrt(tr(K^2) * tr(L^2))`
+- Golden baseline: 60 probes -> layer 24 mean-pooled hidden states -> [60, 3584] matrix
+- Mid-training: every N steps, recompute with adapters ON, compare via CKA
+- CKA < 0.93 -> WARNING, CKA < 0.88 -> HALT training
+- CLI: `--cka-anchor`, `--cka-interval 20`, `--cka-threshold 0.93`, `--cka-halt 0.88`
+- ~4% overhead (60 forward passes on short probes every 20 steps)
+
+Files: `train_v5.py` (function, CLI args, golden baseline cache, `on_step_end` check, `on_log`)
+
+### [IMPLEMENTED] 8-bit AdamW Optimizer
+
+- CLI: `--optim adamw_8bit` (or any optimizer string)
+- 15-20% faster + ~500MB VRAM savings via bitsandbytes
+- Integrates with LoRA+ (separate optimizer path also supports 8-bit)
+- `run_full_cycle.sh` passes `--optim adamw_8bit` by default
+
+Files: `train_v5.py` (CLI arg, SFTConfig optim, LoRA+ optimizer), `run_full_cycle.sh`
+
+### [IMPLEMENTED] TORCH_CUDA_ARCH_LIST="8.9"
+
+RTX 4070 Ti Super = Ada Lovelace compute capability 8.9. Skips compiling kernels for
+sm_50/60/70/75/80/86/90. 5-10% compile speedup.
+
+Files: `run_full_cycle.sh` (1 line)

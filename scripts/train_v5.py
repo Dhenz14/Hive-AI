@@ -36,6 +36,19 @@ logging.getLogger("transformers").setLevel(logging.INFO)
 logging.getLogger("trl").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def linear_cka(X, Y):
+    """Linear CKA (Centered Kernel Alignment) between [n, d] representation matrices.
+    Returns float in [0,1]. 1.0 = geometrically identical representations.
+    Ref: Kornblith et al., ICML 2019."""
+    X, Y = X - X.mean(0, keepdim=True), Y - Y.mean(0, keepdim=True)
+    XtY = X.T @ Y
+    hsic_xy = (XtY * XtY).sum()
+    hsic_xx = (X.T @ X).pow(2).sum()
+    hsic_yy = (Y.T @ Y).pow(2).sum()
+    return (hsic_xy / (hsic_xx * hsic_yy).sqrt().clamp(min=1e-8)).item()
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -74,14 +87,14 @@ TRAINING_CONFIG = {
     "per_device_train_batch_size": 1,      # batch=1 for 14B on 16GB (fused CE needs VRAM headroom)
     "gradient_accumulation_steps": 16,     # Effective batch = 16
     "num_train_epochs": 2,                 # 2 epochs — v6 overfitted at 3 (loss 0.51 but eval unchanged)
-    "learning_rate": 2e-4,                 # Standard for QLoRA fine-tuning
+    "learning_rate": 5e-5,                 # v7 retry: Grok says safe B effective = 4e-4 to 8e-4. 5e-5 × 16x = 8e-4.
     "warmup_ratio": 0.05,                  # 5% warmup — ensures model sees multiple curriculum phases before full LR
     "lr_scheduler_type": "cosine",
     "bf16": True,
     "logging_steps": 5,
     "save_steps": 100,
     "weight_decay": 0.01,
-    "max_grad_norm": 1.0,
+    "max_grad_norm": 0.5,                  # v6 post-mortem: 1.0 too loose with LoRA+ 16x. Grok: use 0.5
     "seed": 42,
     "neftune_noise_alpha": 5.0,            # NEFTune: +0.5-1% quality, zero cost
 }
@@ -98,7 +111,8 @@ KL_CONFIG = {
 # then adds a quadratic penalty preventing those parameters from changing.
 # Result: +8.92% over vanilla LoRA on continual learning benchmarks.
 EWC_CONFIG = {
-    "lambda": 0.5,         # EWC penalty weight (0.3-0.7 recommended range)
+    "lambda": 0.05,        # EWC penalty weight — v2: per-param adaptive lambda, raw Fisher,
+                           #   divided by grad_accum_steps. See ewc_debugging_lessons.md.
     "fisher_samples": 200, # Number of replay samples for Fisher computation
     "enabled": True,       # Can disable for first cycle (no previous knowledge)
 }
@@ -215,8 +229,9 @@ def optimize_system_post_load():
         if capability[0] >= 8:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
+            torch.backends.cudnn.benchmark = True
             torch.set_float32_matmul_precision("high")
-            optimizations.append("TF32 enabled")
+            optimizations.append("TF32 enabled, cuDNN benchmark")
         if hasattr(torch.backends.cuda, "flash_sdp_enabled"):
             torch.backends.cuda.enable_flash_sdp(True)
             torch.backends.cuda.enable_mem_efficient_sdp(True)
@@ -870,6 +885,61 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     elif prev_lora_path and curlora_init:
         logger.info(f"Orthogonal init skipped (CURLoRA active) — prev LoRA at {prev_lora_path}")
 
+    # ── KeepLoRA: gradient subspace projection (ICLR 2026) ──
+    # Constrains LoRA gradients to be orthogonal to protected subspaces from previous tasks.
+    # Unlike orthogonal init (which only sets starting point), this enforces the constraint
+    # at EVERY gradient step via backward hooks.
+    keeplora_hooks = []  # Track hooks for cleanup
+    keeplora_enabled = getattr(args, "keeplora", False)
+    keeplora_rank = getattr(args, "keeplora_rank", 8)
+
+    if keeplora_enabled:
+        try:
+            # Load cumulative frozen subspace from previous cycle
+            frozen_subspace = {}
+            subspace_path = None
+            if prev_lora_path and os.path.exists(prev_lora_path):
+                subspace_path = os.path.join(prev_lora_path, "frozen_subspace.pt")
+            if subspace_path and os.path.exists(subspace_path):
+                frozen_subspace = torch.load(subspace_path, map_location="cpu", weights_only=True)
+                logger.info(f"KeepLoRA: loaded frozen subspace from {subspace_path} "
+                            f"({len(frozen_subspace)} layers)")
+
+            # Build projection matrices and register gradient hooks
+            def make_keeplora_hook(proj_matrix):
+                """Create a backward hook that projects gradients orthogonal to protected subspace."""
+                def hook(grad):
+                    Q = proj_matrix.to(grad.device, dtype=grad.dtype)
+                    # Remove protected components: grad_ortho = grad - grad @ Q @ Q^T
+                    return grad - grad @ Q @ Q.T
+                return hook
+
+            hook_count = 0
+            for name, param in model.named_parameters():
+                if "lora_A" in name and param.requires_grad:
+                    # Check if we have a frozen subspace for this layer
+                    layer_key = name.replace(".lora_A.default.weight", "").replace(".lora_A.weight", "")
+                    if layer_key in frozen_subspace:
+                        Q = frozen_subspace[layer_key]  # [k, in_dim] orthonormal directions
+                        # Q^T is [in_dim, k], Q is [k, in_dim]
+                        # For lora_A [r, in_dim], gradient projection removes components along Q
+                        h = param.register_hook(make_keeplora_hook(Q))
+                        keeplora_hooks.append(h)
+                        hook_count += 1
+                    elif "lora_B" not in name:
+                        # No previous subspace for this layer — no constraint needed
+                        pass
+
+            if hook_count > 0:
+                logger.info(f"KeepLoRA: registered gradient hooks on {hook_count} lora_A params "
+                            f"(rank-{keeplora_rank} protected subspace per layer)")
+            else:
+                logger.info("KeepLoRA: enabled but no frozen subspace found — "
+                            "first cycle, will save subspace after training")
+        except Exception as e:
+            logger.warning(f"KeepLoRA setup failed: {e} — continuing without gradient projection (non-fatal)")
+            keeplora_hooks = []
+
     # Cast LoRA adapter weights to bf16 (if not already done by Unsloth)
     if not use_unsloth:
         n_cast = 0
@@ -1014,6 +1084,26 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
+    # ── Sequence length audit + optional filtering ──
+    max_seq_filter = getattr(args, "max_seq_len_filter", False)
+    total_before = len(dataset)
+    dataset = dataset.map(
+        lambda ex: {"_tok_len": len(tokenizer.encode(ex["text"], add_special_tokens=False))},
+        desc="Auditing token lengths",
+    )
+    over_limit = sum(1 for ex in dataset if ex["_tok_len"] > seq_length)
+    if over_limit > 0:
+        logger.info(f"Sequence length audit: {over_limit}/{total_before} examples exceed "
+                    f"max_seq_length={seq_length}")
+        if max_seq_filter:
+            dataset = dataset.filter(lambda ex: ex["_tok_len"] <= seq_length)
+            logger.info(f"  Filtered: {total_before} -> {len(dataset)} examples "
+                        f"(dropped {over_limit} truncation-prone examples)")
+    else:
+        logger.info(f"Sequence length audit: all {total_before} examples fit within {seq_length} tokens")
+    if "_tok_len" in dataset.column_names:
+        dataset = dataset.remove_columns(["_tok_len"])
+
     sample_text = dataset[0]["text"]
     sample_len = len(tokenizer.encode(sample_text))
     ends_with_eos = sample_text.rstrip().endswith("<|im_end|>")
@@ -1070,20 +1160,19 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                                    f"(shape mismatch or missing in model)")
 
                 if valid_fisher:
-                    # Normalize Fisher diagonal so max value = 1.0
-                    # Raw Fisher from LoRA gradient² is near-zero because:
-                    #   dL/dA = (alpha/r) * B^T @ dL/dW → when B≈0 (early training), grad_A≈0
-                    # Without normalization, EWC penalty is negligible (~1e-8).
+                    # EWC v2: Use RAW Fisher (no max→1.0 normalization).
+                    # v1 normalization amplified tiny values by 11.5x, causing penalty domination.
+                    # Per-param adaptive lambda in compute_ewc_loss handles scaling instead.
                     all_fisher_vals = torch.cat([v.flatten() for v in valid_fisher.values()])
                     fisher_max = all_fisher_vals.max().item()
-                    if fisher_max > 0:
-                        scale = 1.0 / fisher_max
-                        for k in valid_fisher:
-                            valid_fisher[k] = valid_fisher[k] * scale
-                        logger.info(f"  Fisher normalized: max was {fisher_max:.2e}, "
-                                    f"scaled by {scale:.2e}")
-                    else:
+                    fisher_mean = all_fisher_vals.mean().item()
+                    if fisher_max == 0:
                         logger.warning("  Fisher diagonal is ALL zeros — EWC will have no effect")
+                    else:
+                        logger.info(f"  Fisher stats (raw, no normalization): "
+                                    f"max={fisher_max:.2e}, mean={fisher_mean:.2e}, "
+                                    f"nonzero={(all_fisher_vals > 0).sum().item()}"
+                                    f"/{all_fisher_vals.numel()}")
 
                     ewc_state["fisher"] = valid_fisher
                     ewc_state["old_params"] = valid_old_params
@@ -1102,21 +1191,28 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info("EWC disabled" + (" (--no-ewc)" if not use_ewc else ""))
 
     def compute_ewc_loss(model_arg):
-        """Compute EWC quadratic penalty: lambda * sum(F_i * (theta_i - theta_i_old)^2)"""
+        """EWC v2: per-param adaptive lambda on raw Fisher, divided by grad_accum_steps.
+        Fixes 3 compounding bugs from v1: normalization amplification, single lambda, stacking."""
         if not ewc_state["enabled"]:
             return 0.0
 
         ewc_loss = torch.tensor(0.0, device=next(model_arg.parameters()).device)
         fisher = ewc_state["fisher"]
         old_params = ewc_state["old_params"]
+        grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
 
         for name, param in model_arg.named_parameters():
             if name in fisher and param.requires_grad:
-                fisher_val = fisher[name].to(param.device)
+                fisher_diag = fisher[name].to(param.device)
                 old_val = old_params[name].to(param.device)
-                ewc_loss = ewc_loss + (fisher_val * (param - old_val) ** 2).sum()
+                param_diff = (param - old_val) ** 2
+                # Per-parameter adaptive lambda: scale by relative importance
+                importance = fisher_diag / (fisher_diag.mean() + 1e-8)
+                lambda_i = EWC_CONFIG["lambda"] * importance
+                ewc_loss = ewc_loss + (lambda_i * param_diff).sum()
 
-        return EWC_CONFIG["lambda"] * ewc_loss
+        # Divide by gradient_accumulation_steps to match SFT loss scale
+        return ewc_loss / grad_accum
 
     # ── Probe Reference Caching (v3.0 — probe-aware loss + hidden anchoring) ──
     probe_aware = getattr(args, "probe_aware", False)
@@ -1294,12 +1390,85 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             selected.extend(_rng.sample(pids, min(n_per_domain, len(pids))))
         return selected
 
+    # ── CKA Mini-Anchor: cache golden baseline representations ──
+    cka_state = {"enabled": False, "golden_reps": None, "last_cka": 1.0, "warnings": 0, "probes": []}
+    cka_anchor = getattr(args, "cka_anchor", False)
+    cka_interval = getattr(args, "cka_interval", 20)
+    cka_threshold = getattr(args, "cka_threshold", 0.93)
+    cka_halt_val = getattr(args, "cka_halt", 0.88)
+    cka_anchor_layer = getattr(args, "anchor_layer", 24)
+
+    if cka_anchor and not getattr(args, "compute_fisher_only", False):
+        try:
+            from probe_library import ALL_PROBES as CKA_PROBES
+            logger.info(f"CKA anchor: caching golden baseline ({len(CKA_PROBES)} probes, "
+                        f"layer {cka_anchor_layer}, interval={cka_interval})")
+
+            try:
+                _cka_causal = model.base_model.model
+                _cka_backbone = _cka_causal.model
+            except AttributeError:
+                _cka_backbone = model.model
+
+            model.eval()
+            try:
+                model.disable_adapter_layers()
+            except Exception:
+                pass
+
+            golden_reps = []
+            for probe in CKA_PROBES:
+                probe_sys = CODING_SYSTEM_PROMPT
+                if style_tokens_enabled:
+                    probe_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
+                messages = [
+                    {"role": "system", "content": probe_sys},
+                    {"role": "user", "content": probe.prompt},
+                ]
+                try:
+                    text = tokenizer.apply_chat_template(messages, tokenize=False,
+                                                         add_generation_prompt=True)
+                except Exception:
+                    text = f"system\n{probe_sys}\nuser\n{probe.prompt}\nassistant\n"
+                tokens = tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
+                tokens = {k: v.to(model.device) for k, v in tokens.items()}
+
+                with torch.no_grad():
+                    h_out = _cka_backbone(input_ids=tokens["input_ids"],
+                                          attention_mask=tokens["attention_mask"],
+                                          output_hidden_states=True, use_cache=False)
+                    layer_idx = min(cka_anchor_layer, len(h_out.hidden_states) - 1)
+                    mask = tokens["attention_mask"].unsqueeze(-1).float()
+                    hidden = h_out.hidden_states[layer_idx]
+                    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+                    golden_reps.append(pooled.squeeze(0).cpu())
+                    del h_out
+                torch.cuda.empty_cache()
+
+            try:
+                model.enable_adapter_layers()
+            except Exception:
+                pass
+            model.train()
+
+            cka_state["golden_reps"] = torch.stack(golden_reps)  # [60, 3584]
+            cka_state["enabled"] = True
+            cka_state["probes"] = CKA_PROBES
+            golden_mb = cka_state["golden_reps"].numel() * 4 / 1e6
+            logger.info(f"  CKA golden baseline cached: {cka_state['golden_reps'].shape}, "
+                        f"{golden_mb:.1f}MB")
+            import gc; gc.collect(); torch.cuda.empty_cache()
+
+        except Exception as e:
+            logger.warning(f"CKA anchor caching failed: {e} — disabled")
+            cka_state["enabled"] = False
+
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
     # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
     # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
-    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0, "last_ewc": 0.0}
+    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": None, "last_ewc": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
     def _chunked_log_probs(model_arg, inputs, label_slice, kl_slice, with_grad):
@@ -1365,6 +1534,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         else:
             sft_loss = result
             outputs = None
+
+        # Track pure SFT loss before any penalty additions
+        # (used by quality alarm to avoid false positives from EWC/KL/probe penalties)
+        kl_state["last_sft"] = sft_loss.item()
 
         kl_loss_val = 0.0
         if use_kl and KL_CONFIG["lambda"] > 0 and not kl_state["disabled"]:
@@ -1494,11 +1667,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     # KL > 10 means representations have diverged massively — cap contribution
                     avg_kl = torch.clamp(avg_kl, max=10.0)
                     probe_kl_val = avg_kl.item()
-                    # Dynamic weight: inversely proportional to task loss
-                    sft_val = max(sft_loss.item(), 0.01)
-                    dyn_weight = min(probe_weight_base / (sft_val + 0.1),
-                                    probe_weight_base * 3)
-                    sft_loss = sft_loss + dyn_weight * avg_kl
+                    # NOTE: probe KL is a MONITORING metric, not a loss term.
+                    # Computed under no_grad so it has zero gradient signal.
+                    # Used by CKA/heartbeat for drift detection, not for training.
 
             except torch.cuda.OutOfMemoryError:
                 torch.cuda.empty_cache()
@@ -1515,7 +1686,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         if probe_state["enabled"] and hidden_anchor and \
                 probe_state["step"] % probe_loss_every == 0:
             try:
-                probe_batch = _sample_probes_by_domain(probe_cache, n_per_domain=1)
+                probe_batch = _shared_probe_batch or _sample_probes_by_domain(probe_cache, n_per_domain=1)
                 mse_total = torch.tensor(0.0, device=sft_loss.device)
                 n_probes = 0
 
@@ -1561,7 +1732,9 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     # Clamp MSE to prevent dominating SFT loss
                     avg_mse = torch.clamp(avg_mse, max=1.0)
                     anchor_mse_val = avg_mse.item()
-                    sft_loss = sft_loss + anchor_weight * avg_mse
+                    # NOTE: anchor MSE is a MONITORING metric, not a loss term.
+                    # Computed under no_grad — zero gradient signal.
+                    # Used by CKA/heartbeat for drift detection.
 
             except torch.cuda.OutOfMemoryError:
                 torch.cuda.empty_cache()
@@ -1578,16 +1751,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         probe_state["last_anchor_mse"] = anchor_mse_val
 
         kl_state["last_kl"] = kl_loss_val
-        # Compute pure SFT loss by subtracting all WEIGHTED penalty contributions
-        total_penalty = KL_CONFIG["lambda"] * kl_loss_val + ewc_loss_val
-        if probe_kl_val > 0:
-            p_sft_val = max(sft_loss.item() - total_penalty, 0.01)
-            p_dw = min(probe_weight_base / (p_sft_val + 0.1), probe_weight_base * 3)
-            total_penalty += p_dw * probe_kl_val
-        if anchor_mse_val > 0:
-            total_penalty += anchor_weight * anchor_mse_val
-        kl_state["last_sft"] = (sft_loss.item() - total_penalty
-                                 if total_penalty > 0 else sft_loss.item())
+        # last_sft is captured at line 1373 BEFORE any penalties are added
+        # (no back-computation needed — eliminates circular dependency)
         kl_state["last_ewc"] = ewc_loss_val
 
         if return_outputs:
@@ -1617,11 +1782,28 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             step_time = time.time() - self._step_start
             eta_s = (elapsed / max(step, 1)) * (total - step) if step > 0 else 0
 
+            # Grad norm explosion detector — v6-think had grad_norm=154 at step 5, 580 at step 10
+            grad_norm = logs.get("grad_norm")
+            if grad_norm is not None and step >= 2:
+                if isinstance(grad_norm, str):
+                    try:
+                        grad_norm = float(grad_norm)
+                    except ValueError:
+                        grad_norm = None
+                if grad_norm is not None and grad_norm > 100:
+                    self._diverge_warnings += 1
+                    logger.warning(f"GRAD NORM EXPLOSION: {grad_norm:.1f} > 100 at step {step} "
+                                   f"[warning {self._diverge_warnings}/2]")
+                    if self._diverge_warnings >= 2:
+                        logger.error(f"QUALITY ALARM: grad_norm > 100 for 2 consecutive logs — "
+                                     f"training is diverging, aborting to save GPU time")
+                        control.should_training_stop = True
+
             parts = [f"Step {step}/{total}"]
             if loss is not None:
                 parts.append(f"loss={loss:.4f}")
                 # Track SFT loss (not total) for divergence detection when penalties are active
-                track_loss = (kl_state["last_sft"] if probe_state.get("enabled") and kl_state.get("last_sft", 0) > 0 else loss)
+                track_loss = kl_state["last_sft"] if kl_state.get("last_sft") is not None else loss
                 self._loss_history.append(track_loss)
                 self._check_loss_health(step, total, loss, control)
             if probe_state.get("last_probe_kl", 0) > 0 or probe_state.get("last_anchor_mse", 0) > 0:
@@ -1634,6 +1816,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 parts.append(f"p_kl={probe_state['last_probe_kl']:.4f}")
             if probe_state.get("last_anchor_mse", 0) > 0:
                 parts.append(f"a_mse={probe_state['last_anchor_mse']:.6f}")
+            if cka_state["enabled"] and cka_state["last_cka"] < 1.0:
+                parts.append(f"cka={cka_state['last_cka']:.4f}")
             if lr is not None:
                 parts.append(f"lr={lr:.2e}")
             parts.append(f"step_time={step_time:.1f}s")
@@ -1643,35 +1827,45 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             sys.stderr.flush()
 
         def _check_loss_health(self, step, total, loss, control):
-            """Auto-abort if training is clearly failing."""
-            # When probe-aware or hidden-anchor penalties are active, total loss includes
-            # KL and MSE contributions that inflate the value (can be 20-50x SFT loss).
-            # Use the pure SFT component for health checks in that case.
+            """Auto-abort if training is clearly failing.
+
+            v6-think post-mortem: model exploded at step 5 (grad_norm=154, loss=14.6)
+            but old alarm didn't trigger until step 20. Wasted entire night on dead run.
+            Now checks from step 3 onwards with grad_norm monitoring.
+            """
+            # Use per-sample SFT loss when available, otherwise raw loss
             check_loss = loss
-            if probe_state.get("enabled") and kl_state.get("last_sft", 0) > 0:
+            if kl_state.get("last_sft") is not None:
                 check_loss = kl_state["last_sft"]
 
-            # 1. Bad init: loss > 2.0 after 20 steps means something is very wrong
-            if step >= 20 and step <= 30 and check_loss > 2.0:
-                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 2.0 at step {step} — "
-                             f"bad initialization, aborting to save time")
+            # 0. NaN detector — catches corrupted forward pass immediately
+            import math
+            if math.isnan(check_loss) or math.isinf(check_loss):
+                logger.error(f"QUALITY ALARM: Loss is {check_loss} at step {step} — "
+                             f"model producing NaN/Inf, aborting immediately")
                 control.should_training_stop = True
                 return
 
-            # 2. Not converging: loss > 3.0 after 75% of training
-            # (raised from 1.5@50% — probe-aware KL + hidden anchor inflate SFT loss
-            #  to 2-3x normal range; thinking/reasoning data also runs higher)
-            if step > total * 0.75 and check_loss > 3.0:
+            # 1. EARLY explosion detector — catches gradient blowup within first 10 steps
+            # v6-think: loss went 0.82 → 0.98 → 14.6 in 10 steps. This catches it at step 5.
+            if step >= 3 and check_loss > 5.0:
+                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 5.0 at step {step} — "
+                             f"training has exploded, aborting immediately")
+                control.should_training_stop = True
+                return
+
+            # 2. Not converging: loss > 3.0 after 25% of training
+            if step > total * 0.25 and check_loss > 3.0:
                 logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 3.0 at step {step} "
                              f"({step/total*100:.0f}% through) — not converging, aborting")
                 control.should_training_stop = True
                 return
 
-            # 3. Diverging: loss trending up over last 20 logged values
-            if len(self._loss_history) >= 20:
-                recent = self._loss_history[-20:]
-                first_half = sum(recent[:10]) / 10
-                second_half = sum(recent[10:]) / 10
+            # 3. Diverging: loss trending up over last 10 logged values (was 20 — too slow)
+            if len(self._loss_history) >= 10:
+                recent = self._loss_history[-10:]
+                first_half = sum(recent[:5]) / 5
+                second_half = sum(recent[5:]) / 5
                 if second_half > first_half * 1.10:  # 10% increase
                     self._diverge_warnings += 1
                     logger.warning(f"QUALITY WARNING: Loss trending UP "
@@ -1723,6 +1917,66 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     )
             except Exception:
                 pass
+
+            # ── CKA Mini-Anchor: periodic representation drift check ──
+            if (cka_state["enabled"] and state.global_step > 0
+                    and state.global_step % cka_interval == 0):
+                try:
+                    _m = kwargs.get("model", model)
+                    try:
+                        _cka_bb = _m.base_model.model.model
+                    except AttributeError:
+                        _cka_bb = _m.model
+
+                    current_reps = []
+                    _m.eval()
+                    for probe in cka_state["probes"]:
+                        p_sys = CODING_SYSTEM_PROMPT
+                        if style_tokens_enabled:
+                            p_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
+                        msgs = [{"role": "system", "content": p_sys},
+                                {"role": "user", "content": probe.prompt}]
+                        try:
+                            txt = tokenizer.apply_chat_template(
+                                msgs, tokenize=False, add_generation_prompt=True)
+                        except Exception:
+                            txt = f"system\n{p_sys}\nuser\n{probe.prompt}\nassistant\n"
+                        toks = tokenizer(txt, return_tensors="pt", max_length=512, truncation=True)
+                        toks = {k: v.to(_m.device) for k, v in toks.items()}
+                        with torch.no_grad():
+                            h = _cka_bb(input_ids=toks["input_ids"],
+                                        attention_mask=toks["attention_mask"],
+                                        output_hidden_states=True, use_cache=False)
+                            li = min(cka_anchor_layer, len(h.hidden_states) - 1)
+                            msk = toks["attention_mask"].unsqueeze(-1).float()
+                            hid = h.hidden_states[li]
+                            pooled = (hid * msk).sum(dim=1) / msk.sum(dim=1).clamp(min=1)
+                            current_reps.append(pooled.squeeze(0).cpu())
+                            del h
+                        torch.cuda.empty_cache()
+                    _m.train()
+
+                    cka_val = linear_cka(cka_state["golden_reps"], torch.stack(current_reps))
+                    cka_state["last_cka"] = cka_val
+
+                    if cka_val < cka_halt_val:
+                        logger.error(f"CKA HALT: {cka_val:.4f} < {cka_halt_val} at step "
+                                     f"{state.global_step} — representations diverged")
+                        control.should_training_stop = True
+                    elif cka_val < cka_threshold:
+                        cka_state["warnings"] += 1
+                        logger.warning(f"CKA WARNING: {cka_val:.4f} < {cka_threshold} "
+                                       f"at step {state.global_step} "
+                                       f"[{cka_state['warnings']} warnings]")
+                    else:
+                        logger.info(f"CKA OK: {cka_val:.4f} at step {state.global_step}")
+                except torch.cuda.OutOfMemoryError:
+                    torch.cuda.empty_cache()
+                    logger.warning("CKA check OOM — disabling")
+                    cka_state["enabled"] = False
+                except Exception as e:
+                    logger.warning(f"CKA check error: {e} — disabling")
+                    cka_state["enabled"] = False
 
         def on_train_begin(self, args, state, control, **kwargs):
             self._start_time = time.time()
@@ -1857,7 +2111,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             report_to="none",
             disable_tqdm=True,
             gradient_checkpointing=True,
-            optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
+            optim=getattr(args, "optim", "") or ("adamw_torch_fused" if not use_unsloth else "adamw_8bit"),
             dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
             dataloader_pin_memory=True,
             dataloader_persistent_workers=True,
@@ -1900,7 +2154,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 logger.info("EarlyStoppingCallback added (patience=3 evals)")
 
         # Domain probe callback: mid-training regression detection (--probe-guard)
-        if probe_guard and max_steps > probe_interval:
+        if probe_guard and (max_steps == 0 or max_steps > probe_interval):
             try:
                 from domain_probe_callback import DomainProbeCallback
                 probe_cb = DomainProbeCallback(
@@ -1947,7 +2201,17 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             ]
             if other_params:
                 param_groups.append({"params": other_params, "lr": lora_plus_lr})
-            lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
+            optim_choice = getattr(args, "optim", "") or ("adamw_8bit" if use_unsloth else "")
+            if optim_choice == "adamw_8bit":
+                try:
+                    import bitsandbytes as bnb
+                    lora_plus_optimizer = bnb.optim.AdamW8bit(param_groups, weight_decay=0.01)
+                    logger.info("LoRA+ using 8-bit AdamW (bitsandbytes)")
+                except ImportError:
+                    lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
+                    logger.warning("bitsandbytes not available, LoRA+ falling back to 32-bit AdamW")
+            else:
+                lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
             lora_plus_optimizers = (lora_plus_optimizer, None)  # (optimizer, scheduler=None → default)
             logger.info(f"LoRA+ enabled: A_lr={lora_plus_lr:.2e}, B_lr={lora_plus_lr * 16:.2e} (16x)")
 
@@ -2038,10 +2302,69 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"Two-stage training complete: final_loss={loss}, "
                     f"total_time={elapsed:.0f}s ({elapsed/3600:.1f}h)")
 
+    # ── Remove KeepLoRA gradient hooks ──
+    if keeplora_hooks:
+        for h in keeplora_hooks:
+            h.remove()
+        logger.info(f"KeepLoRA: removed {len(keeplora_hooks)} gradient hooks")
+
     # ── Save adapter ──
     model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
     logger.info(f"Adapter saved to {OUTPUT_DIR}")
+
+    # ── KeepLoRA: save task subspace for next cycle ──
+    if keeplora_enabled:
+        try:
+            logger.info("KeepLoRA: computing task subspace from trained LoRA...")
+            new_subspace = {}
+
+            # Collect lora_A and lora_B pairs to compute effective delta per layer
+            lora_params = {}
+            for name, param in model.named_parameters():
+                if "lora_A" in name:
+                    layer_key = name.replace(".lora_A.default.weight", "").replace(".lora_A.weight", "")
+                    lora_params.setdefault(layer_key, {})["A"] = param.data.float().cpu()
+                elif "lora_B" in name:
+                    layer_key = name.replace(".lora_B.default.weight", "").replace(".lora_B.weight", "")
+                    lora_params.setdefault(layer_key, {})["B"] = param.data.float().cpu()
+
+            for layer_key, params in lora_params.items():
+                if "A" not in params or "B" not in params:
+                    continue
+                # Effective delta = B @ A  [out_dim, in_dim]
+                delta = params["B"] @ params["A"]
+                try:
+                    _, _, Vh = torch.linalg.svd(delta, full_matrices=False)
+                    # Keep top-k principal directions (input-space)
+                    k = min(keeplora_rank, Vh.shape[0])
+                    new_dirs = Vh[:k, :]  # [k, in_dim]
+
+                    # Merge with previous frozen subspace (cumulative)
+                    if layer_key in frozen_subspace:
+                        prev_dirs = frozen_subspace[layer_key]  # [prev_k, in_dim]
+                        combined = torch.cat([prev_dirs, new_dirs], dim=0)
+                        # QR re-orthonormalize to remove redundancy
+                        Q, R = torch.linalg.qr(combined.T)  # Q: [in_dim, rank]
+                        # Keep only directions with non-trivial magnitude
+                        norms = R.diag().abs()
+                        keep = norms > 1e-6
+                        new_subspace[layer_key] = Q[:, keep].T  # [kept, in_dim]
+                    else:
+                        new_subspace[layer_key] = new_dirs
+                except Exception:
+                    continue  # Skip layers where SVD fails
+
+            if new_subspace:
+                subspace_save_path = os.path.join(OUTPUT_DIR, "frozen_subspace.pt")
+                torch.save(new_subspace, subspace_save_path)
+                total_dirs = sum(v.shape[0] for v in new_subspace.values())
+                logger.info(f"KeepLoRA: saved frozen subspace to {subspace_save_path} "
+                            f"({len(new_subspace)} layers, {total_dirs} total protected directions)")
+            else:
+                logger.warning("KeepLoRA: no LoRA pairs found — skipping subspace save")
+        except Exception as e:
+            logger.warning(f"KeepLoRA subspace save failed: {e} — non-fatal")
 
     # ── Normalize adapter config (fix absolute cache paths) ──
     adapter_config_path = os.path.join(OUTPUT_DIR, "adapter_config.json")
@@ -2269,6 +2592,23 @@ if __name__ == "__main__":
                         help="Model layer to anchor hidden states (default: 24, mid-Qwen2.5)")
     parser.add_argument("--curlora-init", action="store_true",
                         help="Use CURLoRA initialization (replaces orthogonal SVD init)")
+    # v4.0 Continual Learning: KeepLoRA + CKA + optimizer
+    parser.add_argument("--optim", type=str, default="",
+                        help="Optimizer override (e.g., 'adamw_8bit', 'adamw_torch_fused')")
+    parser.add_argument("--max-seq-len-filter", action="store_true",
+                        help="Drop examples exceeding max_seq_length instead of truncating")
+    parser.add_argument("--keeplora", action="store_true",
+                        help="KeepLoRA: project gradients orthogonal to protected subspaces (ICLR 2026)")
+    parser.add_argument("--keeplora-rank", type=int, default=8,
+                        help="Number of principal directions to protect per layer (default: 8)")
+    parser.add_argument("--cka-anchor", action="store_true",
+                        help="CKA mini-anchor: detect representation drift mid-training")
+    parser.add_argument("--cka-interval", type=int, default=20,
+                        help="Steps between CKA checks (default: 20)")
+    parser.add_argument("--cka-threshold", type=float, default=0.93,
+                        help="CKA warning threshold (default: 0.93)")
+    parser.add_argument("--cka-halt", type=float, default=0.88,
+                        help="CKA halt threshold — stops training (default: 0.88)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.

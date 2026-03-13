@@ -70,6 +70,8 @@ DEPLOY_DIR="$PROJECT_ROOT/models/deploy"
 REPLAY_DIR="$PROJECT_ROOT/replay"
 # v3.0 Style tokens: set STYLE_TOKENS=1 to enable <direct>/<agentic> routing
 STYLE_TOKENS="${STYLE_TOKENS:-0}"
+# RTX 4070 Ti Super = Ada Lovelace compute capability 8.9 — skip other architectures
+export TORCH_CUDA_ARCH_LIST="8.9"
 LORA_OUTPUT="$PROJECT_ROOT/loras/${VERSION}"
 CONSOL_OUTPUT="$PROJECT_ROOT/loras/${VERSION}_consolidation"
 LOG_DIR="$PROJECT_ROOT/logs"
@@ -236,8 +238,63 @@ stop_llama_server() {
     fi
 }
 
+# ── Dual-Server: CPU inference during GPU training ──
+# Runs a second llama-server on CPU (port 11436) so domain probes and replay
+# sampling can operate WHILE the GPU is occupied with training.
+CPU_SERVER_PORT="${CPU_SERVER_PORT:-11436}"
+CPU_SERVER_PID=""
+
+start_cpu_server() {
+    local gguf_path="$1"
+    # Skip if no Q4_K_M quant available
+    if [ ! -f "$gguf_path" ]; then
+        echo "  CPU server: no Q4_K_M GGUF at $gguf_path — skipping"
+        return 1
+    fi
+    # Kill existing on this port
+    if lsof -i ":$CPU_SERVER_PORT" >/dev/null 2>&1; then
+        echo "  Stopping existing server on port $CPU_SERVER_PORT..."
+        fuser -k "$CPU_SERVER_PORT/tcp" 2>/dev/null || true
+        sleep 2
+    fi
+    local server_bin="${LLAMA_CPP}/bin/llama-server"
+    if [ ! -f "$server_bin" ]; then
+        server_bin="llama-server"
+    fi
+    echo "  Starting CPU llama-server with $gguf_path on port $CPU_SERVER_PORT..."
+    $server_bin \
+        -m "$gguf_path" \
+        --port "$CPU_SERVER_PORT" \
+        -ngl 0 --threads 12 --ctx-size 4096 \
+        > "$LOG_DIR/${VERSION}_cpu_server.log" 2>&1 &
+    CPU_SERVER_PID=$!
+    echo "  CPU server PID: $CPU_SERVER_PID"
+    # Wait for health (CPU loading is fast, 60s max)
+    for i in $(seq 1 60); do
+        HEALTH=$(curl -s "http://localhost:$CPU_SERVER_PORT/health" 2>/dev/null || echo "")
+        if echo "$HEALTH" | grep -q '"ok"'; then
+            echo "  CPU server ready after $((i*2))s"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "  WARNING: CPU server failed to start within 120s"
+    kill "$CPU_SERVER_PID" 2>/dev/null || true
+    CPU_SERVER_PID=""
+    return 1
+}
+
+stop_cpu_server() {
+    if [ -n "${CPU_SERVER_PID:-}" ]; then
+        echo "  Stopping CPU llama-server (PID $CPU_SERVER_PID)..."
+        kill "$CPU_SERVER_PID" 2>/dev/null || true
+        wait "$CPU_SERVER_PID" 2>/dev/null || true
+        CPU_SERVER_PID=""
+    fi
+}
+
 # Cleanup on exit (stop server, report status)
-trap 'stop_llama_server; echo "  Cycle interrupted at step $(get_checkpoint)"' EXIT
+trap 'stop_llama_server; stop_cpu_server; echo "  Cycle interrupted at step $(get_checkpoint)"' EXIT
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -377,6 +434,23 @@ if [ "$LAST_STEP" -lt 2 ]; then
     source "$PROJECT_ROOT/scripts/training_guard.sh" 2>/dev/null || true
     create_lock "$VERSION" "step 2: training LoRA" 2>/dev/null || true
 
+    # Dual-server: start CPU inference server for mid-training probes
+    # Q4_K_M of current base (if available) — allows eval WHILE GPU trains
+    CPU_GGUF="${DEPLOY_DIR}/${PREV_VERSION}/merged_Q4_K_M.gguf"
+    if [ ! -f "$CPU_GGUF" ]; then
+        # Try alternative name pattern
+        CPU_GGUF="${DEPLOY_DIR}/current_base_Q4_K_M.gguf"
+    fi
+    CPU_PROBE_FLAG=""
+    PROBE_GUARD_FLAG=""
+    if start_cpu_server "$CPU_GGUF" 2>/dev/null; then
+        CPU_PROBE_FLAG="--probe-server http://localhost:$CPU_SERVER_PORT"
+        PROBE_GUARD_FLAG="--probe-guard --probe-interval $PROBE_INTERVAL"
+        echo "  Dual-server: domain probes will use CPU server (port $CPU_SERVER_PORT)"
+    else
+        echo "  Dual-server: no Q4_K_M available — probe-guard DISABLED (no server during training)"
+    fi
+
     # Detect previous LoRA and Fisher for lossless continual learning
     PREV_LORA_FLAG=""
     FISHER_FLAG=""
@@ -432,12 +506,19 @@ if [ "$LAST_STEP" -lt 2 ]; then
         --lora-plus \
         --no-kl \
         --epochs 2 \
-        --probe-guard \
-        --probe-interval "$PROBE_INTERVAL" \
+        $PROBE_GUARD_FLAG \
+        --optim adamw_8bit \
+        --keeplora \
+        --cka-anchor \
+        --max-seq-len-filter \
         $PREV_LORA_FLAG \
         $FISHER_FLAG \
+        $CPU_PROBE_FLAG \
         $V3_FLAGS \
         2>&1 | tee "$LOG_DIR/${VERSION}_02_train.log"
+
+    # Stop CPU server (GPU is free now)
+    stop_cpu_server
 
     # Remove training lock
     remove_lock 2>/dev/null || true
@@ -563,7 +644,7 @@ if [ "$LAST_STEP" -lt 4 ]; then
         --base-hf "$PREV_HF" \
         --lora-hf "$LORA_OUTPUT" \
         --output-hf "$TRAINING_DIR/${VERSION}/hf" \
-        --della-drop 0.7 \
+        --della-drop 0.0 \
         --per-layer-alpha \
         2>&1 | tee "$LOG_DIR/${VERSION}_04_merge.log"
     save_checkpoint 4

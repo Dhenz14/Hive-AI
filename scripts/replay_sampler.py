@@ -293,7 +293,7 @@ def main():
     parser = argparse.ArgumentParser(description="SuRe surprise-driven replay sampler")
     parser.add_argument("--replay-dir", type=str, default="replay",
                         help="Directory with per-domain JSONL files (default: replay/)")
-    parser.add_argument("--model-url", type=str, default="http://localhost:11435",
+    parser.add_argument("--model-url", "--server-url", type=str, default="http://localhost:11435",
                         help="llama-server URL (default: http://localhost:11435)")
     parser.add_argument("--keep", type=int, default=500,
                         help="Number of replay samples to keep (default: 500)")

@@ -95,7 +95,7 @@ def main():
         cmd.extend(["--style-tokens", "--style-mode", "direct"])
     if args.probe_aware:
         cmd.extend(["--probe-aware", "--probe-weight", "0.05",  # Half weight for consolidation
-                     "--probe-guard", "--probe-interval", "5"])  # Force frequent checks on short runs
+])  # Probe-guard removed: no llama-server running during consolidation
     if args.hidden_anchor:
         cmd.extend(["--hidden-anchor", "--anchor-weight", "0.025"])
     if args.curlora_init:
