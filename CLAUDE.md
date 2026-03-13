@@ -194,6 +194,16 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 
 **Training data format**: Standard instruction/input/output JSONL (NO metadata field). Optional "style" field for v3.0 routing.
 
+**Domain-balanced training data** (`loras/training_data/new_pairs_merged_512.jsonl`):
+512 targeted pairs generated to fix catastrophic forgetting in underfitted domains:
+- C++ (100 pairs): RAII, move semantics, C++20/23, templates, concurrency, error handling, systems
+- Rust (104 pairs): tokio, traits, ownership, unsafe/FFI, serde, design patterns, macros, perf
+- Go (100 pairs): channels, workers, context, goroutine safety, HTTP, generics, DB, CLI
+- JS/TS (108 pairs): advanced types, async patterns, Node.js, React, security, cross-language design
+- Python (50 pairs): metaclasses, async, type system, performance, testing, architecture
+- Algo & Reasoning (50 pairs): DP, graphs, data structures, debugging, system design (100% `<think>` blocks)
+Individual files preserved as `new_pairs_*.jsonl` for traceability.
+
 ## Training UI (Forge Mind Page)
 
 The Forge page (`/forge`) provides one-click training controls:
