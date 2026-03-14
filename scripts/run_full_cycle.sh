@@ -70,6 +70,9 @@ DEPLOY_DIR="$PROJECT_ROOT/models/deploy"
 REPLAY_DIR="$PROJECT_ROOT/replay"
 # v3.0 Style tokens: set STYLE_TOKENS=1 to enable <direct>/<agentic> routing
 STYLE_TOKENS="${STYLE_TOKENS:-0}"
+# v5.0 STM + SDFT: set STM=1 and/or SDFT=1 to enable anti-forgetting defenses
+STM="${STM:-1}"       # ON by default — masks high-PPL tokens in training loss
+SDFT="${SDFT:-1}"     # ON by default — self-distillation reverse KL mixing
 # RTX 4070 Ti Super = Ada Lovelace compute capability 8.9 — skip other architectures
 export TORCH_CUDA_ARCH_LIST="8.9"
 LORA_OUTPUT="$PROJECT_ROOT/loras/${VERSION}"
@@ -495,6 +498,14 @@ if [ "$LAST_STEP" -lt 2 ]; then
         V3_FLAGS="$V3_FLAGS --curlora-init"
         echo "  v3.0: CURLoRA init ON (replaces orthogonal SVD)"
     fi
+    if [ "$STM" = "1" ]; then
+        V3_FLAGS="$V3_FLAGS --stm --stm-threshold 2.5"
+        echo "  v5.0: STM ON (mask high-PPL tokens, threshold=2.5)"
+    fi
+    if [ "$SDFT" = "1" ]; then
+        V3_FLAGS="$V3_FLAGS --sdft --sdft-alpha 0.7"
+        echo "  v5.0: SDFT ON (self-distillation mixing, alpha=0.7)"
+    fi
 
     python "$PROJECT_ROOT/scripts/train_v5.py" \
         --base-model-hf "$PREV_HF" \
@@ -645,7 +656,6 @@ if [ "$LAST_STEP" -lt 4 ]; then
         --lora-hf "$LORA_OUTPUT" \
         --output-hf "$TRAINING_DIR/${VERSION}/hf" \
         --della-drop 0.0 \
-        --per-layer-alpha \
         2>&1 | tee "$LOG_DIR/${VERSION}_04_merge.log"
     save_checkpoint 4
 fi
@@ -723,8 +733,13 @@ if [ "$LAST_STEP" -lt 7 ]; then
         --server-url "http://localhost:$LLAMA_PORT"
         --threshold 0.01)
     # NOTE: --style-prefix is NOT used for GGUF inference — see pre-merge gate comment.
-    EVAL_EXIT=0
-    "${EVAL_CMD[@]}" 2>&1 | tee "$LOG_DIR/${VERSION}_07_eval.log" || EVAL_EXIT=$?
+    # CRITICAL: Use PIPESTATUS to capture eval exit code through tee pipe.
+    # `|| EVAL_EXIT=$?` with pipefail gives tee's exit code if eval fails first.
+    # PIPESTATUS[0] always gives the first command's exit code.
+    set +e  # Temporarily disable errexit so we can capture the exit code
+    "${EVAL_CMD[@]}" 2>&1 | tee "$LOG_DIR/${VERSION}_07_eval.log"
+    EVAL_EXIT=${PIPESTATUS[0]}
+    set -e
 
     # Stop server after eval
     stop_llama_server

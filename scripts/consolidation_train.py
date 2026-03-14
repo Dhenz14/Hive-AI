@@ -87,6 +87,7 @@ def main():
         "--lr", str(args.lr),
         "--epochs", str(args.epochs),
         "--no-kl",                  # No KL needed — replay IS the anchor
+        "--no-ewc",                 # No Fisher computation — EWC not used in consolidation
         "--consolidation-only",     # Flags consolidation mode
         "--lora-plus",              # LoRA+ for faster convergence
     ]

@@ -1435,3 +1435,31 @@ RTX 4070 Ti Super = Ada Lovelace compute capability 8.9. Skips compiling kernels
 sm_50/60/70/75/80/86/90. 5-10% compile speedup.
 
 Files: `run_full_cycle.sh` (1 line)
+
+---
+
+## 17. TinyLoRA Reasoning — RL Fine-Tuning for Deep Code Reasoning (FUTURE)
+
+**Source**: "Learning to Reason in 13 Parameters" (arXiv 2602.04118) — Morris, Mireshghallah, Ibrahim, Mahloujifar
+
+**Key finding**: 91% GSM8K accuracy with **13 trainable parameters** (26 bytes) on Qwen 2.5 8B using RL-based fine-tuning. SFT needs 100-1000x more parameters than RL for equivalent reasoning performance.
+
+**Why this matters for HiveAI**:
+- Deep reasoning is our bread and butter — a coder that can reason through complex problems is the ultimate goal
+- RL with tiny rank (even rank 1) causes virtually zero catastrophic forgetting — impossible to corrupt existing knowledge with 13 parameters
+- Our current SFT pipeline is optimal for **knowledge injection** (coding patterns, APIs, Hive blockchain)
+- But for **reasoning capabilities** (chain-of-thought debugging, multi-step problem decomposition), RL would be dramatically more efficient
+
+**Actionable plan for "Reasoning LoRA" layer**:
+1. Keep SFT golden chain for domain knowledge (current pipeline, unchanged)
+2. Add a separate tiny RL-trained LoRA (rank 1-4) specifically for reasoning enhancement
+3. Use GRPO or similar RL method (not SFT) — the paper shows RL is 100-1000x more parameter-efficient for reasoning
+4. Training data: coding problems with verifiable outputs (unit tests as reward signal)
+5. Stack reasoning LoRA on top of knowledge LoRA, or merge into golden chain
+
+**Prerequisites**:
+- RL training infrastructure (GRPO/PPO — not in our pipeline yet)
+- Reward model or verifier (unit test execution as proxy reward)
+- Reasoning-specific evaluation probes (multi-step coding challenges)
+
+**Risk**: Low — tiny rank means minimal forgetting risk. Can be tested as a bolt-on experiment without touching the golden chain.

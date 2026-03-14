@@ -83,6 +83,27 @@ LORA_CONFIG = {
     "use_rslora": True,               # Rank-stabilized LoRA — better scaling at any rank
 }
 
+# v6.0: Layer-selective adapter templates for domain-isolated training.
+# Each template targets specific layers and modules based on domain type:
+#   - Syntax/DSL domains (hive): mid-band attention readout (layers 12-27, V+O)
+#   - Semantic/concept domains (cpp): upper-mid MLP (layers 24-39, gate+up+down)
+#   - Balanced fallback (generic): mid attention + MLP (layers 16-31, V+O+down)
+# Research: Qwen2.5 sensitivity study (arXiv 2505.06272), code probing (arXiv 2212.10017)
+ADAPTER_TEMPLATES = {
+    "hive": {
+        "target_modules": ["v_proj", "o_proj"],
+        "layers_to_transform": list(range(12, 28)),   # 16 layers, ~2.1M params at r=8
+    },
+    "cpp": {
+        "target_modules": ["gate_proj", "up_proj", "down_proj"],
+        "layers_to_transform": list(range(24, 40)),   # 16 layers, ~7.3M params at r=8
+    },
+    "generic": {
+        "target_modules": ["v_proj", "o_proj", "down_proj"],
+        "layers_to_transform": list(range(16, 32)),   # 16 layers, ~4.5M params at r=8
+    },
+}
+
 TRAINING_CONFIG = {
     "per_device_train_batch_size": 1,      # batch=1 for 14B on 16GB (fused CE needs VRAM headroom)
     "gradient_accumulation_steps": 16,     # Effective batch = 16
@@ -395,9 +416,13 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"  Strategy:    half LR ({actual_lr}) + {actual_epochs} epoch(s) — gentle integration")
     logger.info(f"  Data:        {TRAINING_JSONL}")
     logger.info(f"  Output:      {OUTPUT_DIR}")
+    layers_info = ""
+    if "layers_to_transform" in LORA_CONFIG:
+        lt = LORA_CONFIG["layers_to_transform"]
+        layers_info = f", layers={lt[0]}-{lt[-1]} ({len(lt)}/48)"
     logger.info(f"  LoRA:        r={LORA_CONFIG['r']}, alpha={LORA_CONFIG['lora_alpha']}, "
                 f"DoRA={LORA_CONFIG.get('use_dora')}, "
-                f"modules={LORA_CONFIG['target_modules']}")
+                f"modules={LORA_CONFIG['target_modules']}{layers_info}")
     logger.info(f"  Training:    batch={TRAINING_CONFIG['per_device_train_batch_size']}x"
                 f"{TRAINING_CONFIG['gradient_accumulation_steps']}="
                 f"{eff_batch} effective, "
@@ -657,6 +682,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             use_gradient_checkpointing="unsloth",
             use_rslora=LORA_CONFIG.get("use_rslora", True),
             use_dora=LORA_CONFIG["use_dora"],
+            layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
         )
         # Load v7 weights into the LoRA layers
         import safetensors.torch
@@ -689,6 +715,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             use_gradient_checkpointing="unsloth",  # Unsloth's optimized version (2x faster)
             use_rslora=LORA_CONFIG.get("use_rslora", True),
             use_dora=LORA_CONFIG["use_dora"],
+            layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
         )
         logger.info("LoRA applied via Unsloth (optimized gradient checkpointing)")
     else:
@@ -711,7 +738,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info("Gradient checkpointing enabled")
 
-        lora_config = LoraConfig(
+        lora_config_kwargs = dict(
             r=LORA_CONFIG["r"],
             lora_alpha=LORA_CONFIG["lora_alpha"],
             target_modules=LORA_CONFIG["target_modules"],
@@ -720,9 +747,26 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             task_type=TaskType.CAUSAL_LM,
             use_dora=LORA_CONFIG["use_dora"],
         )
+        if "layers_to_transform" in LORA_CONFIG:
+            lora_config_kwargs["layers_to_transform"] = LORA_CONFIG["layers_to_transform"]
+            lora_config_kwargs["layers_pattern"] = "layers"  # Qwen2 decoder block pattern
+        lora_config = LoraConfig(**lora_config_kwargs)
         model = get_peft_model(model, lora_config)
 
     model.print_trainable_parameters()
+
+    # v6.0: Verify layer-selective config was applied correctly
+    if "layers_to_transform" in LORA_CONFIG:
+        pcfg = model.peft_config.get("default", None) if hasattr(model, "peft_config") else None
+        if pcfg:
+            expected_layers = LORA_CONFIG["layers_to_transform"]
+            actual_layers = list(pcfg.layers_to_transform) if pcfg.layers_to_transform else None
+            if actual_layers != expected_layers:
+                logger.error(f"LAYER MISMATCH! Expected layers {expected_layers[0]}-{expected_layers[-1]}, "
+                             f"got {actual_layers}")
+                raise ValueError("layers_to_transform was not applied correctly — check Unsloth/PEFT version")
+            logger.info(f"Verified: layers_to_transform={actual_layers[0]}-{actual_layers[-1]} "
+                        f"({len(actual_layers)} of 48 layers)")
 
     # ── CURLoRA Initialization (v3.0 — data-aware subspace selection) ──
     # Uses CUR matrix decomposition to initialize LoRA in a non-interfering manifold.
@@ -1469,6 +1513,30 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
     # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
     kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": None, "last_ewc": 0.0}
+
+    # ── STM: Selective Token Masking (NeurIPS 2025, arXiv 2501.14315) ──
+    # High-PPL tokens cause gradient-rank explosion that kills keyword probes.
+    # Mask them in labels (-100) so model sees them in context but doesn't learn to produce them.
+    use_stm = getattr(args, "stm", False)
+    stm_threshold = getattr(args, "stm_threshold", 2.5)
+    stm_state = {"enabled": use_stm, "total_masked": 0, "total_completion": 0,
+                 "disabled": False, "disabled_reason": None}
+    if use_stm:
+        logger.info(f"STM enabled: masking tokens with PPL > {stm_threshold}")
+
+    # ── SDFT: Self-Distillation Fine-Tuning (MIT Jan 2026, arXiv 2601.19897) ──
+    # Replace additive KL penalty with SDFT mixing: (1-alpha)*CE + alpha*KL.
+    # Uses reverse KL (mode-seeking) — student stays near its own distribution.
+    use_sdft = getattr(args, "sdft", False)
+    sdft_alpha = getattr(args, "sdft_alpha", 0.7)
+    sdft_state = {"enabled": use_sdft, "last_sdft_kl": 0.0}
+    if use_sdft:
+        logger.info(f"SDFT enabled: alpha={sdft_alpha} (KL weight), reverse KL mode-seeking")
+        # SDFT implicitly enables KL path (uses same infrastructure)
+        if not use_kl:
+            use_kl = True
+            logger.info("  SDFT auto-enabled KL path")
+
     _original_compute_loss = SFTTrainer.compute_loss
 
     def _chunked_log_probs(model_arg, inputs, label_slice, kl_slice, with_grad):
@@ -1570,14 +1638,22 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
                 # Phase 3: k3 KL estimator — O(seq_len) memory, not O(seq×vocab)
                 log_ratio = tuned_log_prob - ref_log_prob.detach()
+                log_ratio = log_ratio.clamp(-5.0, 5.0)  # PPO-style clamp: prevents exp() explosion
                 ratio = torch.exp(log_ratio)
                 kl_per_token = (ratio - 1) - log_ratio
                 kl_per_token[ignore_mask] = 0.0
                 n_valid = (~ignore_mask).sum().clamp(min=1)
                 kl_loss = kl_per_token.sum() / n_valid
+                kl_loss = torch.clamp(kl_loss, max=1.0)  # Hard cap: with SDFT alpha=0.7, max KL contribution = 0.7
 
                 kl_loss_val = kl_loss.item()
-                sft_loss = sft_loss + KL_CONFIG["lambda"] * kl_loss
+                if use_sdft:
+                    # SDFT mixing: (1-alpha)*CE + alpha*KL replaces additive penalty.
+                    # This makes KL the PRIMARY signal, not just a penalty.
+                    sft_loss = (1.0 - sdft_alpha) * sft_loss + sdft_alpha * kl_loss
+                    sdft_state["last_sdft_kl"] = kl_loss_val
+                else:
+                    sft_loss = sft_loss + KL_CONFIG["lambda"] * kl_loss
 
                 del tuned_log_prob, ref_log_prob, log_ratio, ratio, kl_per_token
                 torch.cuda.empty_cache()
@@ -1759,7 +1835,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             return sft_loss, outputs
         return sft_loss
 
-    if use_kl or use_ewc or probe_state["enabled"]:
+    if use_kl or use_ewc or use_sdft or probe_state["enabled"]:
         SFTTrainer.compute_loss = compute_loss_with_kl
 
     # ── Callbacks ──
@@ -1818,6 +1894,11 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 parts.append(f"a_mse={probe_state['last_anchor_mse']:.6f}")
             if cka_state["enabled"] and cka_state["last_cka"] < 1.0:
                 parts.append(f"cka={cka_state['last_cka']:.4f}")
+            if use_sdft and sdft_state["last_sdft_kl"] > 0:
+                parts.append(f"sdft_kl={sdft_state['last_sdft_kl']:.4f}")
+            if use_stm and stm_state["total_completion"] > 0:
+                pct = 100.0 * stm_state["total_masked"] / max(stm_state["total_completion"], 1)
+                parts.append(f"stm={pct:.1f}%")
             if lr is not None:
                 parts.append(f"lr={lr:.2e}")
             parts.append(f"step_time={step_time:.1f}s")
@@ -2243,6 +2324,60 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
         _orig_training_step = trainer.training_step
         def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
+            # ── STM: mask high-PPL completion tokens before loss computation ──
+            # Per-token PPL via base model (adapters disabled) identifies tokens the
+            # model finds surprising. Masking these prevents gradient-rank explosion
+            # that kills fragile keyword probes (NeurIPS 2025, arXiv 2501.14315).
+            if stm_state["enabled"] and not stm_state["disabled"]:
+                try:
+                    labels = inputs.get("labels")
+                    input_ids = inputs.get("input_ids")
+                    if labels is not None and input_ids is not None:
+                        completion_mask = (labels != -100)  # only process completion tokens
+                        if completion_mask.any():
+                            attn = inputs.get("attention_mask", torch.ones_like(input_ids))
+                            with torch.no_grad():
+                                model_arg.disable_adapter_layers()
+                                try:
+                                    base_out = model_arg(input_ids=input_ids,
+                                                        attention_mask=attn)
+                                    logits = base_out.logits
+                                    # Per-token CE: logits[t] predicts input_ids[t+1]
+                                    shift_logits = logits[:, :-1, :].contiguous()
+                                    shift_ids = input_ids[:, 1:].contiguous()
+                                    ce = F.cross_entropy(
+                                        shift_logits.view(-1, shift_logits.size(-1)),
+                                        shift_ids.view(-1),
+                                        reduction='none'
+                                    ).view(shift_ids.shape)
+                                    ppl = torch.exp(ce.float())
+                                    # Build mask: ppl[t] corresponds to labels[t+1]
+                                    high_ppl = torch.zeros_like(labels, dtype=torch.bool)
+                                    high_ppl[:, 1:] = (ppl > stm_threshold)
+                                    # Only mask completion tokens (preserve prompt masking)
+                                    newly_masked = high_ppl & completion_mask
+                                    n_masked = newly_masked.sum().item()
+                                    n_completion = completion_mask.sum().item()
+                                    labels[newly_masked] = -100
+                                    stm_state["total_masked"] += n_masked
+                                    stm_state["total_completion"] += n_completion
+                                    del logits, shift_logits, ce, ppl, base_out
+                                finally:
+                                    model_arg.enable_adapter_layers()
+                            torch.cuda.empty_cache()
+                except torch.cuda.OutOfMemoryError:
+                    model_arg.enable_adapter_layers()
+                    torch.cuda.empty_cache()
+                    stm_state["disabled"] = True
+                    stm_state["disabled_reason"] = "OOM"
+                    logger.warning("STM OOM — disabling for rest of training")
+                except Exception as e:
+                    model_arg.enable_adapter_layers()
+                    torch.cuda.empty_cache()
+                    stm_state["disabled"] = True
+                    stm_state["disabled_reason"] = str(e)
+                    logger.warning(f"STM error ({type(e).__name__}: {e}) — disabling")
+
             result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
             torch.cuda.empty_cache()
             return result
@@ -2382,7 +2517,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             logger.warning(f"  Could not normalize adapter config: {e}")
 
     # ── Compute & save Fisher matrix for next EWC cycle ──
-    if use_ewc or EWC_CONFIG["enabled"]:
+    if use_ewc:
         try:
             logger.info("Computing Fisher Information Matrix for EWC (next cycle)...")
             fisher = {}
@@ -2403,7 +2538,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 import itertools
                 fisher_loader = torch.utils.data.DataLoader(
                     tokenized_ds.select(range(fisher_samples)),
-                    batch_size=1,
+                    batch_size=4,
                     collate_fn=trainer.data_collator,
                 )
                 for batch in itertools.islice(fisher_loader, fisher_samples):
@@ -2592,6 +2727,15 @@ if __name__ == "__main__":
                         help="Model layer to anchor hidden states (default: 24, mid-Qwen2.5)")
     parser.add_argument("--curlora-init", action="store_true",
                         help="Use CURLoRA initialization (replaces orthogonal SVD init)")
+    # v5.0 Continual Learning: STM + SDFT (NeurIPS 2025 / MIT Jan 2026)
+    parser.add_argument("--stm", action="store_true",
+                        help="STM: mask high-PPL tokens in training loss (prevents keyword probe collapse)")
+    parser.add_argument("--stm-threshold", type=float, default=2.5,
+                        help="Per-token PPL threshold for STM masking (default: 2.5)")
+    parser.add_argument("--sdft", action="store_true",
+                        help="SDFT: self-distillation loss mixing (on-policy reverse KL from base model)")
+    parser.add_argument("--sdft-alpha", type=float, default=0.7,
+                        help="SDFT mixing weight: alpha*KL + (1-alpha)*CE (default: 0.7)")
     # v4.0 Continual Learning: KeepLoRA + CKA + optimizer
     parser.add_argument("--optim", type=str, default="",
                         help="Optimizer override (e.g., 'adamw_8bit', 'adamw_torch_fused')")
@@ -2609,6 +2753,16 @@ if __name__ == "__main__":
                         help="CKA warning threshold (default: 0.93)")
     parser.add_argument("--cka-halt", type=float, default=0.88,
                         help="CKA halt threshold — stops training (default: 0.88)")
+    # v6.0: Domain-isolated layer-selective adapters
+    parser.add_argument("--adapter-template", type=str, default="",
+                        choices=["", "hive", "cpp", "generic"],
+                        help="Preset layer-selective adapter config (overrides --target-layers/--target-modules)")
+    parser.add_argument("--target-layers", type=str, default="",
+                        help="Layer range to train, e.g., '12-27' (0-indexed, inclusive). Empty=all layers.")
+    parser.add_argument("--target-modules", type=str, default="",
+                        help="Comma-separated modules, e.g., 'v_proj,o_proj'. Empty=use LORA_CONFIG default.")
+    parser.add_argument("--lora-dropout", type=float, default=-1.0,
+                        help="Override LoRA dropout (default: 0.0, Unsloth fast-path requires 0.0)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -2630,6 +2784,30 @@ if __name__ == "__main__":
         LORA_CONFIG["r"] = args.rank
         LORA_CONFIG["lora_alpha"] = args.rank * 2  # maintain 2x ratio
         logger.info(f"LoRA rank override: r={args.rank}, alpha={args.rank * 2}")
+
+    # v6.0: Layer-selective adapter templates (domain-isolated training)
+    if args.adapter_template:
+        tmpl = ADAPTER_TEMPLATES[args.adapter_template]
+        LORA_CONFIG["target_modules"] = tmpl["target_modules"]
+        LORA_CONFIG["layers_to_transform"] = tmpl["layers_to_transform"]
+        logger.info(f"Adapter template '{args.adapter_template}': "
+                    f"modules={tmpl['target_modules']}, "
+                    f"layers={tmpl['layers_to_transform'][0]}-{tmpl['layers_to_transform'][-1]}")
+    else:
+        # Manual layer/module overrides (finer control than templates)
+        if args.target_modules:
+            LORA_CONFIG["target_modules"] = [m.strip() for m in args.target_modules.split(",")]
+            logger.info(f"Target modules override: {LORA_CONFIG['target_modules']}")
+        if args.target_layers:
+            parts = args.target_layers.split("-")
+            start, end = int(parts[0]), int(parts[1])
+            LORA_CONFIG["layers_to_transform"] = list(range(start, end + 1))
+            logger.info(f"Target layers override: {start}-{end} ({end - start + 1} layers)")
+
+    # Dropout override (default 0.0 for Unsloth fast-path)
+    if args.lora_dropout >= 0:
+        LORA_CONFIG["lora_dropout"] = args.lora_dropout
+        logger.info(f"LoRA dropout override: {args.lora_dropout}")
 
     # Consolidation mode: override LR and epochs
     if args.consolidation_only:
@@ -2803,6 +2981,7 @@ if __name__ == "__main__":
                 lora_alpha=LORA_CONFIG["lora_alpha"],
                 target_modules=LORA_CONFIG["target_modules"],
                 lora_dropout=LORA_CONFIG["lora_dropout"],
+                layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
             )
         logger.info(f"Model loaded via Unsloth (r={LORA_CONFIG['r']}), "
                     f"trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
@@ -2852,7 +3031,7 @@ if __name__ == "__main__":
 
         fisher_loader = torch.utils.data.DataLoader(
             dataset.select(range(fisher_samples)),
-            batch_size=1,
+            batch_size=4,
             shuffle=False,
         )
 

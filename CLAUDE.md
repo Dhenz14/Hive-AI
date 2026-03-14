@@ -110,12 +110,12 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 5. `consolidation_train.py` — Post-merge stabilization (rank 2, LR/20, 1 epoch, 100% replay, all 7 modules)
 6. `regression_eval.py` — 60 domain probes (10/domain), fail if any drops >0.03. `--quick` for original 18.
 
-**12-Layer Defense Stack**:
+**14-Layer Defense Stack**:
 
 *Weight-level (v2.0):*
 
 1. **60-Probe Eval** — 10 probes/domain eliminates measurement noise (±1% vs old ±5.6%)
-2. **EWC-LoRA** — Fisher Information penalty prevents training from overwriting existing knowledge. Fisher is auto-normalized (max→1.0) at load time. Post-training Fisher uses `trainer.train_dataset` (tokenized). `--compute-fisher-only` loads trained adapter if available.
+2. **EWC-LoRA** — Fisher Information penalty prevents training from overwriting existing knowledge. Currently DISABLED — STM+SDFT+KeepLoRA provide better protection without the 5-15 min Fisher computation.
 3. **Domain Probe Callback** — Mid-training regression detection every N steps; auto-reduces LR or halts
 4. **DELLA Pruning** — **BROKEN** — 3.33x rescaling corrupts PEFT merges. DO NOT USE until fixed.
 5. **Orthogonal LoRA Init** — New LoRA initialized orthogonal to previous task's subspace via SVD
@@ -128,6 +128,10 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 10. **Hidden State Anchoring** (`--hidden-anchor`) — MSE on layer 24 hidden states protects representation routing
 11. **CURLoRA Initialization** (`--curlora-init`) — CUR decomposition replaces broken orthogonal SVD init
 12. **Dataset Retagging** (`retag_style.py`) — Adds style field to JSONL for conditional routing
+
+*Anti-forgetting (v5.0 — ON by default in pipeline):*
+13. **STM: Selective Token Masking** (`--stm`) — Masks high-PPL tokens in training loss (labels→-100). High-perplexity tokens cause gradient-rank explosion that kills keyword probes even when CKA stays high. Per-token PPL computed via base model (adapters disabled) each micro-batch. Threshold default 2.5. (NeurIPS 2025, arXiv 2501.14315)
+14. **SDFT: Self-Distillation Fine-Tuning** (`--sdft`) — Replaces additive KL penalty with mixing formula: `(1-alpha)*CE + alpha*KL`. Uses reverse KL (mode-seeking) so student stays near its own distribution. Prevents the off-policy drift that causes "healthy metrics but failed eval." Default alpha=0.7. (MIT Jan 2026, arXiv 2601.19897)
 
 **Key flags in train_v5.py**:
 - `--rank N` — LoRA rank override (4-8 for continual learning)
@@ -149,6 +153,10 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - `--anchor-weight FLOAT` — Weight for hidden MSE loss (default 0.05) (v3.0)
 - `--anchor-layer INT` — Layer to anchor (default 24 = middle of 48-layer Qwen2.5) (v3.0)
 - `--curlora-init` — CUR decomposition init (replaces orthogonal SVD) (v3.0)
+- `--stm` — Enable STM per-token PPL masking (ON by default in pipeline) (v5.0)
+- `--stm-threshold FLOAT` — PPL threshold for token masking (default 2.5) (v5.0)
+- `--sdft` — Enable SDFT self-distillation loss mixing (ON by default in pipeline) (v5.0)
+- `--sdft-alpha FLOAT` — SDFT mixing weight: alpha*KL + (1-alpha)*CE (default 0.7) (v5.0)
 
 **Key flags in safe_merge.py**:
 - `--della-drop FLOAT` — DELLA pruning drop rate (default 0.0). **WARNING: DELLA is BROKEN for PEFT merge — 3.33x rescaling corrupts model weights. DO NOT USE until fixed. Use 0.0.**
@@ -164,6 +172,9 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 **Key env vars in run_full_cycle.sh**:
 
 - `STYLE_TOKENS=1` — Enable full v3.0 style protection pipeline (threads flags to all scripts)
+- `STM=1` — Enable STM per-token PPL masking (ON by default) (v5.0)
+- `SDFT=1` — Enable SDFT self-distillation loss mixing (ON by default) (v5.0)
+- `STM=0 SDFT=0` — Disable v5.0 defenses (for debugging/comparison)
 
 **Scripts**:
 - `probe_library.py` — Central probe definitions (60 probes, 6 domains, importable)
