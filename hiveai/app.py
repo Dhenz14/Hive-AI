@@ -8,7 +8,7 @@ from sqlalchemy import func
 from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, utcnow
 from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
-from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
+from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION
 from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
 from skills.skill_loader import load_skills_for_query
 from hiveai.orchestrator import classify_request, should_retry_verification, build_revision_prompt
@@ -984,6 +984,10 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
 Answer the question directly and helpfully."""
 
+        # Inject executable output contract if needed
+        if classify.response_contract == "executable_code":
+            system_prompt += EXECUTABLE_CODE_INSTRUCTION
+
         chat_messages = build_message_array(system_prompt, history, user_message=message)
 
         # --- Step 4: Generate ---
@@ -996,6 +1000,7 @@ Answer the question directly and helpfully."""
         # --- Step 5: Verify + bounded revision ---
         verified_meta = None
         was_revised = False
+        _contract_mode = "none"
         try:
             from hiveai.config import CHAT_VERIFY_CODE
             _verify_logger = logging.getLogger("hiveai.verify")
@@ -1003,6 +1008,7 @@ Answer the question directly and helpfully."""
             if CHAT_VERIFY_CODE and classify.needs_verification:
                 from hiveai.sandbox import verify_response_code
                 verification = verify_response_code(response, timeout=15)
+                _contract_mode = verification.get("contract_mode", "none")
                 _verify_logger.info(f"Verification result: blocks={verification['total_blocks']}, passed={verification['passed']}, failed={verification['failed']}")
                 if verification["total_blocks"] > 0:
                     verified_meta = {
@@ -1153,6 +1159,8 @@ Answer the question directly and helpfully."""
             "solved_example_count": len(_solved_sections_retrieved),
             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
             "revised": was_revised,
+            "response_contract": classify.response_contract,
+            "contract_mode": _contract_mode,
             "latency_ms": {
                 "classify": round((t_classify - t_start) * 1000, 1),
                 "retrieval": round((t_retrieval - t_classify) * 1000, 1),
@@ -1266,6 +1274,10 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     skill_block = f"\n\n{skill_context}" if skill_context else ""
                     rich_system_prompt = f"{CHAT_SYSTEM_PROMPT}{skill_block}\n\nAnswer the question directly and helpfully."
 
+                # Inject executable output contract if needed
+                if classify.response_contract == "executable_code":
+                    rich_system_prompt += EXECUTABLE_CODE_INSTRUCTION
+
                 chat_messages = build_message_array(rich_system_prompt, history, user_message=message)
 
             t_retrieval = _time.perf_counter()
@@ -1320,12 +1332,14 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
                     # Self-verify + bounded revision
                     was_revised = False
+                    _contract_mode = "none"
                     verification = None
                     try:
                         from hiveai.config import CHAT_VERIFY_CODE
                         if CHAT_VERIFY_CODE and classify.needs_verification:
                             from hiveai.sandbox import verify_response_code
                             verification = verify_response_code(full, timeout=15)
+                            _contract_mode = verification.get("contract_mode", "none")
                             if verification["total_blocks"] > 0:
                                 v_data = {
                                     "blocks": verification["total_blocks"],
@@ -1437,6 +1451,8 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "solved_example_count": len(_solved_sections_retrieved),
                             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
                             "revised": was_revised,
+                            "response_contract": classify.response_contract,
+                            "contract_mode": _contract_mode,
                             "latency_ms": {
                                 "retrieval": round((t_retrieval - t_start) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),

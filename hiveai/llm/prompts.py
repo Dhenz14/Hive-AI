@@ -239,6 +239,27 @@ Conversation rules:
 - Connect related concepts when they come up naturally."""
 
 
+# Appended to system prompt when response_contract == "executable_code"
+EXECUTABLE_CODE_INSTRUCTION = """
+
+OUTPUT FORMAT — STRICT:
+When writing code, you MUST use this exact format:
+
+```json
+{"language": "<lang>", "code": "<solution code>", "tests": "<test assertions>", "explanation": "<brief explanation>"}
+```
+
+Rules:
+- The JSON must be inside a single ```json fenced block.
+- "code" contains ONLY the solution (functions, classes, imports).
+- "tests" contains ONLY test assertions that verify the solution. Write the expected values carefully — double-check them.
+- "explanation" is a brief one-line description.
+- Escape newlines as \\n inside the JSON strings.
+- If you cannot produce valid JSON, fall back to a single ```<language> fenced code block with both solution and tests in one block.
+- NEVER split code across multiple fenced blocks.
+- ALWAYS close your code fences with ```."""
+
+
 KNOWLEDGE_GAP_PROMPT = """Given the user's question and the available Golden Book topics, determine if we have sufficient knowledge to answer.
 
 User question: {question}

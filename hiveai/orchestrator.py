@@ -24,6 +24,7 @@ class RequestClassification:
     needs_retrieval: bool
     retrieval_mode: str      # preinject | agent | hybrid
     needs_verification: bool
+    response_contract: str   # none | executable_code — controls output format instruction
     scope: str               # project | global
     confidence: float        # 0.0-1.0 — how confident we are in the classification
     matched_signals: list    # which rules fired (for trace/debug)
@@ -308,12 +309,16 @@ def classify_request(
 
     elapsed_us = (time.perf_counter() - start) * 1_000_000
 
+    # --- Response contract ---
+    response_contract = "executable_code" if needs_verification else "none"
+
     result = RequestClassification(
         intent=intent,
         language=language,
         needs_retrieval=needs_retrieval,
         retrieval_mode=retrieval_mode,
         needs_verification=needs_verification,
+        response_contract=response_contract,
         scope=scope,
         confidence=confidence,
         matched_signals=signals,

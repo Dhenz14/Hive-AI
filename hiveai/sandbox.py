@@ -28,19 +28,94 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT_BYTES = 10_000  # Cap stdout/stderr at 10KB
 
 
+def _try_json_code_contract(text: str) -> list[dict]:
+    """Try to extract code from executable output contract JSON.
+
+    Checks in order:
+    1. ```json fenced blocks containing {"language": ..., "code": ..., "tests": ...}
+    2. Raw JSON object in the response (model sometimes omits the fence)
+
+    Returns parsed code blocks or empty list if not found/invalid.
+    """
+    import json as _json
+
+    # Strategy 1: ```json fenced blocks
+    json_pattern = re.compile(r"```json\s*\n(.*?)```", re.DOTALL)
+    candidates = [m.group(1).strip() for m in json_pattern.finditer(text)]
+
+    # Strategy 2: raw JSON object (starts with { and contains "code")
+    if not candidates and '"code"' in text:
+        # Find the outermost JSON object
+        start = text.find('{')
+        if start >= 0:
+            # Find matching closing brace
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == '{':
+                    depth += 1
+                elif text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        candidates.append(text[start:i+1])
+                        break
+
+    results = []
+    for idx, raw in enumerate(candidates):
+        try:
+            obj = _json.loads(raw)
+        except _json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict) or "code" not in obj:
+            continue
+        lang = obj.get("language", "python").lower()
+        lang_map = {"py": "python", "python3": "python", "js": "javascript",
+                     "ts": "javascript", "c++": "cpp", "rs": "rust", "golang": "go"}
+        lang = lang_map.get(lang, lang)
+        code = obj["code"]
+        tests = obj.get("tests", "")
+        # Combine code + tests into one executable block
+        combined = code if not tests else f"{code}\n\n{tests}"
+        # Find position in original text for ordering
+        pos = text.find(raw[:20]) if len(raw) >= 20 else 0
+        results.append({
+            "code": combined,
+            "language": lang,
+            "index": max(pos, 0),
+            "contract": "json",
+            "code_only": code,
+            "tests_only": tests,
+        })
+    return results
+
+
 def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
     """
     Extract code blocks from markdown-formatted text.
+
+    Extraction priority:
+    1. JSON executable contract (```json with code/tests fields) — "json" contract
+    2. Fenced code blocks (```python ... ```) — "fenced" contract
+    3. Unclosed fences (fallback) — "fallback" contract
 
     Args:
         text: Markdown text containing fenced code blocks
         languages: Which languages to extract —
             "all", "python", "javascript", "cpp", "rust", "go"
 
-    Returns list of dicts: [{code, language, index}, ...]
+    Returns list of dicts: [{code, language, index, contract?}, ...]
     Includes blocks tagged as python/py/js/javascript/ts/typescript/
     cpp/c++/rust/rs/go/golang and untagged blocks that parse as valid Python.
     """
+    # Step 0: Try JSON executable contract first (preferred path)
+    json_blocks = _try_json_code_contract(text)
+    if json_blocks:
+        # Filter by requested language
+        if languages != "all":
+            json_blocks = [b for b in json_blocks if b["language"] == languages]
+        if json_blocks:
+            return json_blocks
+
+    # Step 1: Standard fenced code blocks
     # Match fenced code blocks with optional language tag
     # Also handle unclosed fences (LLMs sometimes omit closing ```)
     pattern = re.compile(r"```(\w*)\s*\n(.*?)```", re.DOTALL)
@@ -61,24 +136,24 @@ def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
 
         # Accept explicitly Python-tagged blocks
         if want_python and lang in ("python", "py", "python3"):
-            blocks.append({"code": code, "language": "python", "index": match.start()})
+            blocks.append({"code": code, "language": "python", "index": match.start(), "contract": "fenced"})
         # Accept JavaScript/TypeScript-tagged blocks
         elif want_js and lang in ("javascript", "js", "typescript", "ts"):
-            blocks.append({"code": code, "language": "javascript", "index": match.start()})
+            blocks.append({"code": code, "language": "javascript", "index": match.start(), "contract": "fenced"})
         # Accept C/C++-tagged blocks
         elif want_cpp and lang in ("cpp", "c++", "cc", "cxx", "c"):
-            blocks.append({"code": code, "language": "cpp", "index": match.start()})
+            blocks.append({"code": code, "language": "cpp", "index": match.start(), "contract": "fenced"})
         # Accept Rust-tagged blocks
         elif want_rust and lang in ("rust", "rs"):
-            blocks.append({"code": code, "language": "rust", "index": match.start()})
+            blocks.append({"code": code, "language": "rust", "index": match.start(), "contract": "fenced"})
         # Accept Go-tagged blocks
         elif want_go and lang in ("go", "golang"):
-            blocks.append({"code": code, "language": "go", "index": match.start()})
+            blocks.append({"code": code, "language": "go", "index": match.start(), "contract": "fenced"})
         # Accept untagged blocks if they parse as Python
         elif want_python and lang == "":
             try:
                 ast.parse(code)
-                blocks.append({"code": code, "language": "python", "index": match.start()})
+                blocks.append({"code": code, "language": "python", "index": match.start(), "contract": "fenced"})
             except SyntaxError:
                 pass  # Not Python, skip
 
@@ -145,7 +220,7 @@ def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
             }
             mapped = lang_map.get(lang)
             if mapped and languages in ("all", mapped):
-                blocks.append({"code": code, "language": mapped, "index": match.start(), "unclosed": True})
+                blocks.append({"code": code, "language": mapped, "index": match.start(), "unclosed": True, "contract": "fallback"})
 
     # Fallback: if no fenced blocks found, try to detect unfenced Python code
     if not blocks and want_python:
@@ -865,6 +940,19 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         results.append(entry)
 
     executed = passed + failed + timed_out
+
+    # Determine which contract path was used for extraction
+    if blocks:
+        contract_modes = set(b.get("contract", "fenced") for b in blocks)
+        if "json" in contract_modes:
+            contract_mode = "json"
+        elif "fallback" in contract_modes:
+            contract_mode = "fallback"
+        else:
+            contract_mode = "fenced"
+    else:
+        contract_mode = "none"
+
     return {
         "total_blocks": len(blocks),
         "python_blocks": python_blocks,
@@ -879,6 +967,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "timed_out": timed_out,
         "results": results,
         "overall_pass_rate": passed / max(executed, 1),
+        "contract_mode": contract_mode,
     }
 
 
