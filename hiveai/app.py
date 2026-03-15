@@ -78,6 +78,11 @@ def _background_warmup():
         _warm_embed("warmup")
         _log.info(f"Embedding model warmed up ({_t.time() - _start:.0f}s)")
 
+        _ce_start = _t.time()
+        from hiveai.llm.client import _get_cross_encoder
+        _get_cross_encoder()
+        _log.info(f"Cross-encoder warmed up ({_t.time() - _ce_start:.0f}s)")
+
         from hiveai.lora.dedup import _get_cached_embeddings
         _warm_db = SessionLocal()
         _embs, _quals = _get_cached_embeddings(_warm_db)
@@ -1269,6 +1274,9 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             _solved_sections_retrieved = [
                 s for s in top_sections if s.get("is_solved_example")
             ]
+            if _solved_sections_retrieved:
+                _se_ids = [s.get("id") for s in _solved_sections_retrieved if s.get("id")]
+                yield f"event: solved_examples\ndata: {json.dumps({'retrieved': True, 'count': len(_solved_sections_retrieved), 'ids': _se_ids})}\n\n"
 
             # ---- Agent mode: tool-use loop ----
             if use_agent:
@@ -1427,6 +1435,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "chunks_considered": len(top_sections),
                             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
                             "solved_example_count": len(_solved_sections_retrieved),
+                            "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
                             "revised": was_revised,
                             "latency_ms": {
                                 "retrieval": round((t_retrieval - t_start) * 1000, 1),

@@ -1318,6 +1318,7 @@
             let autoStagedData = null;
             let classifyData = null;
             let revisionData = null;
+            let solvedExampleData = null;
             let traceData = null;
             let nextEventType = null;
             streamEl = createStreamingMessage();
@@ -1408,6 +1409,10 @@
                                 autoStagedData = payload;
                                 continue;
                             }
+                            if (evType === 'solved_examples') {
+                                solvedExampleData = payload;
+                                continue;
+                            }
                             if (evType === 'domain') {
                                 domainData = payload.domain || payload;
                                 continue;
@@ -1419,7 +1424,12 @@
                             }
                             if (evType === 'done') {
                                 if (payload.full_response) rawText = payload.full_response;
-                                if (payload.trace) traceData = payload.trace;
+                                if (payload.trace) {
+                                    traceData = payload.trace;
+                                    if (!solvedExampleData && traceData.solved_example_retrieved) {
+                                        solvedExampleData = {retrieved: true, count: traceData.solved_example_count, ids: traceData.solved_example_ids || []};
+                                    }
+                                }
                                 continue;
                             }
 
@@ -1499,6 +1509,17 @@
                     if (classifyData.retrieval_mode === 'agent') label += ' \u00b7 agent';
                     cBadge.textContent = label;
                     badgeBar.appendChild(cBadge);
+                }
+
+                // Solved-example badge (memory reuse indicator)
+                if (solvedExampleData && solvedExampleData.retrieved) {
+                    const seBadge = document.createElement('span');
+                    seBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(251,191,36,0.08);color:#fbbf24;border:1px solid rgba(251,191,36,0.15);';
+                    seBadge.textContent = '\u2728 memory \u00b7 ' + solvedExampleData.count + ' solved';
+                    if (solvedExampleData.ids && solvedExampleData.ids.length > 0) {
+                        seBadge.title = 'Solved example IDs: ' + solvedExampleData.ids.join(', ');
+                    }
+                    badgeBar.appendChild(seBadge);
                 }
 
                 // Verification badge
