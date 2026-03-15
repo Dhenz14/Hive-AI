@@ -6,22 +6,22 @@ Trusted verification module for GPU compute workloads.
 This module runs ONLY on trusted infrastructure (coordinator/server side).
 It validates untrusted worker outputs by:
 
-1. Re-running a HIDDEN subset of challenges (worker doesn't know which)
-2. Comparing worker-reported scores against independently computed scores
+1. Re-running the SAME eval/benchmark independently (job-scoped output)
+2. Comparing worker-reported per-domain scores against verifier-observed scores
 3. Rejecting results with suspicious deviations
 
-The hidden eval subset is NEVER exposed to workers or the public repo.
-It is loaded from a private file that the coordinator controls.
+V1 supports: eval_sweep (regression_eval.py), benchmark_run (executable_eval.py)
 
-V1 supports: eval_sweep, benchmark_run
+IMPORTANT: Every verifier run writes to a unique, job-scoped output file.
+No shared mutable state. No mtime-based file discovery.
 """
 
 import json
 import logging
 import os
-import random
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -35,48 +35,30 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Maximum acceptable deviation between worker-reported and verifier-observed scores
-# Beyond this, the submission is suspicious
-MAX_SCORE_DEVIATION = 0.15  # 15% absolute deviation
+MAX_SCORE_DEVIATION = 0.15  # 15% absolute deviation per domain
 
-# Minimum hidden challenges to re-run for verification
-MIN_HIDDEN_CHALLENGES = 3
-# Maximum (cap for cost reasons)
-MAX_HIDDEN_CHALLENGES = 10
-
-# Fraction of worker's challenges to re-run (randomly sampled)
-HIDDEN_SAMPLE_FRACTION = 0.15  # 15% of challenges
+# Minimum domains that must match for a PASS
+MIN_MATCH_RATE = 0.7  # 70% of domains must be within tolerance
 
 
 class EvalSweepVerifier:
-    """Verifies eval_sweep results by re-running a hidden challenge subset."""
+    """Verifies eval_sweep (regression_eval.py) results.
+
+    Compares worker-reported per-domain scores against an independent
+    regression eval run on the verifier side. Uses job-scoped output
+    files to prevent cross-contamination between concurrent runs.
+    """
 
     def __init__(
         self,
         model_name: str | None = None,
-        base_url: str | None = None,
-        hidden_challenge_ids: list[str] | None = None,
+        server_url: str | None = None,
     ):
-        """
-        Args:
-            model_name: Ollama model to use for verification (same as worker used)
-            base_url: llama-server URL if not Ollama
-            hidden_challenge_ids: Specific challenge IDs to use as hidden set.
-                If None, randomly samples from the worker's reported challenges.
-        """
         self.model_name = model_name
-        self.base_url = base_url
-        self.hidden_challenge_ids = hidden_challenge_ids
+        self.server_url = server_url
 
     def verify(self, worker_result_json: str, manifest: dict) -> VerificationDecision:
-        """Verify a worker's eval_sweep result.
-
-        Steps:
-            1. Parse worker result
-            2. Select hidden challenge subset
-            3. Re-run those challenges independently
-            4. Compare scores
-            5. Return verification decision
-        """
+        """Verify a worker's eval_sweep result."""
         try:
             worker_result = json.loads(worker_result_json)
         except (json.JSONDecodeError, TypeError):
@@ -88,8 +70,7 @@ class EvalSweepVerifier:
             )
 
         # Structural checks
-        required_fields = ["overall_score", "challenges_run", "scores"]
-        for field in required_fields:
+        for field in ("overall_score", "challenges_run", "scores"):
             if field not in worker_result:
                 return VerificationDecision(
                     result=VerificationResult.FAIL,
@@ -98,70 +79,62 @@ class EvalSweepVerifier:
                     details={"error": f"Missing required field: {field}"},
                 )
 
-        if worker_result["challenges_run"] == 0:
-            return VerificationDecision(
-                result=VerificationResult.FAIL,
-                score=0.0,
-                verifier_type="hidden_eval",
-                details={"error": "Zero challenges reported"},
-            )
-
-        # Select hidden challenge subset to re-run
         worker_scores = worker_result.get("scores", {})
         if not worker_scores:
             return VerificationDecision(
                 result=VerificationResult.FAIL,
                 score=0.0,
                 verifier_type="hidden_eval",
-                details={"error": "No per-challenge scores reported"},
+                details={"error": "No per-domain scores reported"},
             )
 
-        hidden_ids = self._select_hidden_challenges(list(worker_scores.keys()))
-        if not hidden_ids:
-            # Not enough challenges to verify — soft pass with low score
-            return VerificationDecision(
-                result=VerificationResult.SOFT_FAIL,
-                score=0.3,
-                verifier_type="hidden_eval",
-                details={"warning": "Too few challenges to verify"},
-                hidden_challenges_run=0,
-                hidden_challenges_matched=0,
-            )
+        # Re-run regression eval independently
+        model = self.model_name or manifest.get("model_name", "v5-think")
+        url = self.server_url or manifest.get("server_url", "http://localhost:11435")
+        quick = manifest.get("quick", False)
 
-        # Re-run hidden challenges
-        model = self.model_name or manifest.get("model_name", "qwen3:14b")
-        verifier_scores = self._run_hidden_eval(model, hidden_ids, manifest)
-
+        verifier_scores = self._run_regression_eval(model, url, quick)
         if verifier_scores is None:
             return VerificationDecision(
                 result=VerificationResult.SOFT_FAIL,
                 score=0.3,
                 verifier_type="hidden_eval",
-                details={"error": "Hidden eval execution failed"},
+                details={"error": "Verifier regression eval failed"},
                 hidden_challenges_run=0,
                 hidden_challenges_matched=0,
             )
 
-        # Compare worker-reported vs verifier-observed scores
+        # Compare per-domain scores
+        all_domains = set(worker_scores.keys()) | set(verifier_scores.keys())
+        # Exclude meta keys
+        compare_domains = [d for d in all_domains if d not in ("overall", "model_name", "eval_harness_version")]
+
+        if not compare_domains:
+            return VerificationDecision(
+                result=VerificationResult.SOFT_FAIL,
+                score=0.3,
+                verifier_type="hidden_eval",
+                details={"warning": "No comparable domains found"},
+                hidden_challenges_run=0,
+                hidden_challenges_matched=0,
+            )
+
         matched = 0
-        deviations = []
-        for cid in hidden_ids:
-            worker_score = self._extract_challenge_score(worker_scores.get(cid, {}))
-            verifier_score = verifier_scores.get(cid, 0.0)
-
-            deviation = abs(worker_score - verifier_score)
-            deviations.append(deviation)
-
-            if deviation <= MAX_SCORE_DEVIATION:
+        deviations = {}
+        for domain in compare_domains:
+            w_score = self._to_float(worker_scores.get(domain, 0.0))
+            v_score = self._to_float(verifier_scores.get(domain, 0.0))
+            dev = abs(w_score - v_score)
+            deviations[domain] = round(dev, 4)
+            if dev <= MAX_SCORE_DEVIATION:
                 matched += 1
 
-        avg_deviation = sum(deviations) / len(deviations) if deviations else 1.0
-        match_rate = matched / len(hidden_ids) if hidden_ids else 0.0
+        match_rate = matched / len(compare_domains)
+        avg_deviation = sum(deviations.values()) / len(deviations) if deviations else 1.0
 
-        # Decision logic
-        if match_rate >= 0.7 and avg_deviation <= MAX_SCORE_DEVIATION:
+        # Decision
+        if match_rate >= MIN_MATCH_RATE and avg_deviation <= MAX_SCORE_DEVIATION:
             result = VerificationResult.PASS
-            # Score reflects quality: high match rate + low deviation = high contribution
             score = min(1.0, match_rate * (1.0 - avg_deviation))
         elif match_rate >= 0.5:
             result = VerificationResult.SOFT_FAIL
@@ -176,103 +149,254 @@ class EvalSweepVerifier:
             verifier_type="hidden_eval",
             verifier_version="1.0.0",
             details={
-                "hidden_ids": hidden_ids,
-                "match_rate": match_rate,
+                "domains_compared": compare_domains,
+                "match_rate": round(match_rate, 4),
                 "avg_deviation": round(avg_deviation, 4),
-                "per_challenge_deviations": {
-                    cid: round(dev, 4)
-                    for cid, dev in zip(hidden_ids, deviations)
-                },
-                "worker_overall_score": worker_result.get("overall_score", 0.0),
+                "per_domain_deviations": deviations,
+                "worker_overall": worker_result.get("overall_score", 0.0),
+                "verifier_overall": verifier_scores.get("overall", 0.0),
             },
-            hidden_challenges_run=len(hidden_ids),
+            hidden_challenges_run=len(compare_domains),
             hidden_challenges_matched=matched,
             score_deviation=avg_deviation,
         )
 
-    def _select_hidden_challenges(self, all_challenge_ids: list[str]) -> list[str]:
-        """Select a random subset of challenges for hidden verification."""
-        if self.hidden_challenge_ids:
-            # Use pre-specified hidden set (rotated by coordinator)
-            return [cid for cid in self.hidden_challenge_ids if cid in all_challenge_ids]
+    def _run_regression_eval(self, model: str, server_url: str, quick: bool) -> dict | None:
+        """Run regression_eval.py with a job-scoped output, return domain scores."""
+        eval_script = str(PROJECT_ROOT / "scripts" / "regression_eval.py")
+        if not Path(eval_script).exists():
+            logger.error(f"regression_eval.py not found at {eval_script}")
+            return None
 
-        # Random sample from worker's reported challenges
-        n = max(
-            MIN_HIDDEN_CHALLENGES,
-            min(MAX_HIDDEN_CHALLENGES, int(len(all_challenge_ids) * HIDDEN_SAMPLE_FRACTION)),
-        )
-        n = min(n, len(all_challenge_ids))
-        return random.sample(all_challenge_ids, n)
-
-    def _run_hidden_eval(
-        self, model: str, challenge_ids: list[str], manifest: dict
-    ) -> dict[str, float] | None:
-        """Re-run specific challenges using run_eval.py.
-
-        Returns dict of {challenge_id: score} or None on failure.
-        """
-        eval_script = str(PROJECT_ROOT / "scripts" / "run_eval.py")
-        base_url = self.base_url or manifest.get("base_url")
+        # Job-scoped ledger file — no shared mutable state
+        with tempfile.NamedTemporaryFile(
+            prefix="verifier_ledger_", suffix=".json", delete=False,
+            dir=str(PROJECT_ROOT / "evals"),
+        ) as f:
+            ledger_path = f.name
 
         cmd = [
             sys.executable, eval_script,
-            "--model", model,
-            "--limit", str(len(challenge_ids)),
-            "--temperature", str(manifest.get("temperature", 0.3)),
-            "--max-tokens", str(manifest.get("max_tokens", 4096)),
+            "--model-version", f"verifier-{model}",
+            "--server-url", server_url,
+            "--ledger", ledger_path,
         ]
-        if base_url:
-            cmd.extend(["--base-url", base_url])
+        if quick:
+            cmd.append("--quick")
 
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(PROJECT_ROOT),
-                timeout=600,  # 10 min max for hidden eval
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=str(PROJECT_ROOT), timeout=600,
             )
 
-            if result.returncode != 0:
-                logger.error(f"Hidden eval failed: {result.stderr[-1000:]}")
-                return None
+            # Parse from job-scoped ledger (not shared score_ledger.json)
+            scores = self._parse_ledger(ledger_path, f"verifier-{model}")
+            if scores:
+                return scores
 
-            # Find and parse the output report
-            evals_dir = PROJECT_ROOT / "evals"
-            reports = sorted(evals_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if not reports:
-                return None
-
-            with open(reports[0]) as f:
-                report = json.load(f)
-
-            scores = {}
-            for cid, score_data in report.get("scores", {}).items():
-                if cid in challenge_ids:
-                    scores[cid] = self._extract_challenge_score(score_data)
-
-            return scores
+            # Fallback: parse stdout
+            scores = self._parse_stdout(proc.stdout)
+            return scores if scores else None
 
         except subprocess.TimeoutExpired:
-            logger.error("Hidden eval timed out")
+            logger.error("Verifier regression eval timed out")
             return None
         except Exception as e:
-            logger.error(f"Hidden eval error: {e}")
+            logger.error(f"Verifier regression eval error: {e}")
+            return None
+        finally:
+            # Clean up job-scoped ledger
+            try:
+                os.unlink(ledger_path)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _parse_ledger(path: str, model_key: str) -> dict | None:
+        """Parse a job-scoped score_ledger.json."""
+        try:
+            with open(path) as f:
+                ledger = json.load(f)
+            return ledger.get(model_key)
+        except (json.JSONDecodeError, FileNotFoundError, KeyError):
             return None
 
     @staticmethod
-    def _extract_challenge_score(score_data: dict | float) -> float:
-        """Extract a numeric score from challenge data."""
-        if isinstance(score_data, (int, float)):
-            return float(score_data)
-        if isinstance(score_data, dict):
-            return float(score_data.get("score", score_data.get("overall", 0.0)))
+    def _parse_stdout(stdout: str) -> dict | None:
+        """Parse regression_eval.py stdout for domain scores."""
+        import re
+        scores = {}
+        for line in stdout.splitlines():
+            m = re.match(r'\s*(\w+)\s*:\s*([\d.]+)', line)
+            if m and m.group(1) in ("python", "rust", "go", "cpp", "js", "hive", "overall"):
+                scores[m.group(1)] = float(m.group(2))
+        return scores if scores else None
+
+    @staticmethod
+    def _to_float(val) -> float:
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, dict):
+            return float(val.get("score", val.get("overall", 0.0)))
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return 0.0
+
+
+class BenchmarkRunVerifier:
+    """Verifies benchmark_run (executable_eval.py) results.
+
+    Re-runs the benchmark independently and compares pass rates.
+    """
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        server_url: str | None = None,
+    ):
+        self.model_name = model_name
+        self.server_url = server_url
+
+    def verify(self, worker_result_json: str, manifest: dict) -> VerificationDecision:
+        """Verify a worker's benchmark_run result."""
+        try:
+            worker_result = json.loads(worker_result_json)
+        except (json.JSONDecodeError, TypeError):
+            return VerificationDecision(
+                result=VerificationResult.FAIL,
+                score=0.0,
+                verifier_type="hidden_benchmark",
+                details={"error": "Invalid result JSON"},
+            )
+
+        for field in ("overall_score", "challenges_run"):
+            if field not in worker_result:
+                return VerificationDecision(
+                    result=VerificationResult.FAIL,
+                    score=0.0,
+                    verifier_type="hidden_benchmark",
+                    details={"error": f"Missing required field: {field}"},
+                )
+
+        # Re-run benchmark independently
+        url = self.server_url or manifest.get("server_url", "http://localhost:11435")
+        language = manifest.get("language", "")
+
+        verifier_result = self._run_benchmark(url, language)
+        if verifier_result is None:
+            return VerificationDecision(
+                result=VerificationResult.SOFT_FAIL,
+                score=0.3,
+                verifier_type="hidden_benchmark",
+                details={"error": "Verifier benchmark execution failed"},
+                hidden_challenges_run=0,
+                hidden_challenges_matched=0,
+            )
+
+        # Compare pass rates
+        worker_pass_rate = float(worker_result.get("overall_score", 0.0))
+        verifier_pass_rate = float(verifier_result.get("pass_rate", 0.0))
+        deviation = abs(worker_pass_rate - verifier_pass_rate)
+
+        # Compare per-language if available
+        worker_by_lang = worker_result.get("scores", {})
+        verifier_by_lang = verifier_result.get("by_language", {})
+        lang_deviations = {}
+        lang_matched = 0
+        all_langs = set(worker_by_lang.keys()) | set(verifier_by_lang.keys())
+        for lang in all_langs:
+            w = self._extract_lang_score(worker_by_lang.get(lang, 0.0))
+            v = self._extract_lang_score(verifier_by_lang.get(lang, 0.0))
+            d = abs(w - v)
+            lang_deviations[lang] = round(d, 4)
+            if d <= MAX_SCORE_DEVIATION:
+                lang_matched += 1
+
+        match_rate = lang_matched / len(all_langs) if all_langs else (1.0 if deviation <= MAX_SCORE_DEVIATION else 0.0)
+
+        if deviation <= MAX_SCORE_DEVIATION and match_rate >= MIN_MATCH_RATE:
+            result = VerificationResult.PASS
+            score = min(1.0, (1.0 - deviation) * match_rate)
+        elif deviation <= MAX_SCORE_DEVIATION * 2:
+            result = VerificationResult.SOFT_FAIL
+            score = 0.4
+        else:
+            result = VerificationResult.FAIL
+            score = 0.0
+
+        return VerificationDecision(
+            result=result,
+            score=score,
+            verifier_type="hidden_benchmark",
+            verifier_version="1.0.0",
+            details={
+                "worker_pass_rate": worker_pass_rate,
+                "verifier_pass_rate": verifier_pass_rate,
+                "overall_deviation": round(deviation, 4),
+                "per_language_deviations": lang_deviations,
+                "match_rate": round(match_rate, 4),
+            },
+            hidden_challenges_run=len(all_langs) if all_langs else 1,
+            hidden_challenges_matched=lang_matched if all_langs else (1 if deviation <= MAX_SCORE_DEVIATION else 0),
+            score_deviation=deviation,
+        )
+
+    def _run_benchmark(self, server_url: str, language: str) -> dict | None:
+        """Run executable_eval.py with a job-scoped output file."""
+        bench_script = str(PROJECT_ROOT / "scripts" / "executable_eval.py")
+        if not Path(bench_script).exists():
+            logger.error(f"executable_eval.py not found at {bench_script}")
+            return None
+
+        # Job-scoped output file
+        with tempfile.NamedTemporaryFile(
+            prefix="verifier_bench_", suffix=".json", delete=False,
+            dir=str(PROJECT_ROOT / "evals"),
+        ) as f:
+            output_path = f.name
+
+        cmd = [
+            sys.executable, bench_script,
+            "--server-url", server_url,
+            "--output", output_path,
+        ]
+        if language:
+            cmd.extend(["--language", language])
+
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=str(PROJECT_ROOT), timeout=600,
+            )
+
+            if proc.returncode != 0:
+                logger.error(f"Verifier benchmark failed: {proc.stderr[-1000:]}")
+                return None
+
+            with open(output_path) as f:
+                return json.load(f)
+
+        except subprocess.TimeoutExpired:
+            logger.error("Verifier benchmark timed out")
+            return None
+        except Exception as e:
+            logger.error(f"Verifier benchmark error: {e}")
+            return None
+        finally:
+            try:
+                os.unlink(output_path)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _extract_lang_score(val) -> float:
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, dict):
+            return float(val.get("pass_rate", val.get("score", 0.0)))
         return 0.0
-
-
-class BenchmarkRunVerifier(EvalSweepVerifier):
-    """Verifies benchmark_run results. Same logic as eval_sweep for V1."""
-    pass
 
 
 def get_verifier(workload_type: str, **kwargs) -> EvalSweepVerifier | BenchmarkRunVerifier | None:

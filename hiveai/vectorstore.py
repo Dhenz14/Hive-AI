@@ -335,8 +335,17 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         if _is_code_query:
             meta = section_metadata.get(r["id"], {})
             if meta.get("source_type") == "solved_example":
-                # Small bonus (0.05) — enough to break ties, not enough to override relevance
-                r["hybrid_score"] += 0.05
+                # Base bonus (0.05) — enough to break ties, not enough to override relevance
+                bonus = 0.05
+                # Lexical title boost: if query terms overlap with the solved example header,
+                # add a small additional boost (targets paraphrase recall weakness from Gate 11)
+                header_text = r.get("header", "")
+                if header_text and query_terms_set:
+                    header_terms = {w.lower() for w in re.split(r'\W+', header_text) if len(w) > 2}
+                    title_overlap = len(query_terms_set & header_terms)
+                    if title_overlap >= 2:
+                        bonus += min(title_overlap * 0.02, 0.06)  # cap at +0.06
+                r["hybrid_score"] += bonus
                 r["is_solved_example"] = True
 
     # Step 5: Re-sort by fused score and return top results

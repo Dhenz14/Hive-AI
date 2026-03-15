@@ -82,14 +82,18 @@ class GPUWorker:
         logger.info(f"Registered as node {node.id} (rep={node.reputation_score})")
 
         logger.info(f"Worker loop started — polling every {self.poll_interval}s")
+        consecutive_errors = 0
         while self._running:
             try:
                 self._poll_and_execute()
+                consecutive_errors = 0
             except KeyboardInterrupt:
                 break
             except Exception as e:
-                logger.error(f"Worker loop error: {e}", exc_info=True)
-                time.sleep(self.poll_interval)
+                consecutive_errors += 1
+                backoff = min(self.poll_interval * (2 ** min(consecutive_errors, 5)), 300)
+                logger.error(f"Worker loop error (backoff {backoff}s): {e}", exc_info=True)
+                time.sleep(backoff)
 
         logger.info("Worker shutting down")
         try:
@@ -168,107 +172,204 @@ class GPUWorker:
     # ================================================================
 
     def _execute_eval_sweep(self, job) -> tuple[str, str, str]:
-        """Execute eval_sweep by running Hive-AI's run_eval.py."""
+        """Execute eval_sweep using Hive-AI's regression_eval.py (60-probe domain eval).
+
+        Manifest fields:
+            model_name: str — version label (e.g. "v5-think")
+            server_url: str — llama-server URL (default http://localhost:11435)
+            quick: bool — use 18 probes instead of 60 (default false)
+            threshold: float — max regression per domain (default 0.03)
+        """
         manifest = job.manifest
-        model_name = manifest.get("model_name", "qwen3:14b")
-        base_url = manifest.get("base_url")
-        category = manifest.get("category")
-        limit = manifest.get("limit", 0)
-        temperature = manifest.get("temperature", 0.3)
-        max_tokens = manifest.get("max_tokens", 4096)
-        workers = manifest.get("workers", 1)
+        model_name = manifest.get("model_name", "v5-think")
+        server_url = manifest.get("server_url", "http://localhost:11435")
+        quick = manifest.get("quick", False)
+        threshold = manifest.get("threshold", 0.03)
 
         self.client.report_progress(
             job.job_id, job.attempt_id, job.lease_token, 5, "preparing"
         )
 
-        # Build run_eval.py command
-        eval_script = str(PROJECT_ROOT / "scripts" / "run_eval.py")
-        cmd = [sys.executable, eval_script, "--model", model_name]
+        # Use explicit output file to avoid mtime-based discovery races
+        output_file = tempfile.NamedTemporaryFile(
+            prefix=f"eval_{job.job_id}_", suffix=".json", delete=False, dir=str(PROJECT_ROOT / "evals")
+        )
+        output_path = output_file.name
+        output_file.close()
 
-        if base_url:
-            cmd.extend(["--base-url", base_url])
-        if category:
-            cmd.extend(["--category", category])
-        if limit > 0:
-            cmd.extend(["--limit", str(limit)])
-        cmd.extend(["--temperature", str(temperature)])
-        cmd.extend(["--max-tokens", str(max_tokens)])
-        cmd.extend(["--workers", str(workers)])
+        eval_script = str(PROJECT_ROOT / "scripts" / "regression_eval.py")
+        if not Path(eval_script).exists():
+            raise RuntimeError(f"Eval script not found: {eval_script}")
+
+        cmd = [sys.executable, eval_script,
+               "--model-version", model_name,
+               "--server-url", server_url,
+               "--threshold", str(threshold)]
+        if quick:
+            cmd.append("--quick")
 
         self.client.report_progress(
             job.job_id, job.attempt_id, job.lease_token, 10, "running_eval"
         )
 
-        # Run eval — capture output
         start_time = time.time()
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(PROJECT_ROOT),
-            timeout=job.lease_seconds - 60,  # leave 60s buffer for upload
+        timeout = min(job.lease_seconds - 60, 1800)  # cap at 30 min, leave 60s buffer
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            cwd=str(PROJECT_ROOT), timeout=timeout,
         )
         elapsed = time.time() - start_time
 
-        if result.returncode != 0:
-            raise RuntimeError(f"run_eval.py failed (exit {result.returncode}): {result.stderr[-2000:]}")
+        # regression_eval.py writes to score_ledger.json and prints to stdout.
+        # Parse stdout for domain scores (format: "domain: X.XX")
+        scores = self._parse_regression_output(proc.stdout, model_name)
 
-        self.client.report_progress(
-            job.job_id, job.attempt_id, job.lease_token, 90, "collecting_results"
-        )
+        if not scores:
+            raise RuntimeError(
+                f"regression_eval.py produced no parseable scores "
+                f"(exit {proc.returncode}): {proc.stderr[-2000:]}"
+            )
 
-        # Find the most recent eval report
-        evals_dir = PROJECT_ROOT / "evals"
-        report_path = self._find_latest_eval_report(evals_dir, model_name)
+        overall = scores.get("overall", sum(scores.values()) / max(len(scores), 1))
+        passed = proc.returncode == 0
 
-        if not report_path:
-            raise RuntimeError("Eval completed but no report file found in evals/")
-
-        # Read and parse the report
-        with open(report_path) as f:
-            report = json.load(f)
-
-        # Build structured result
         result_data = {
-            "overall_score": report.get("overall_score", 0.0),
-            "challenges_run": report.get("challenges_run", 0),
-            "challenges_passed": report.get("challenges_passed", 0),
-            "scores": report.get("scores", {}),
-            "category_scores": report.get("category_scores", {}),
+            "overall_score": overall,
+            "challenges_run": 60 if not quick else 18,
+            "challenges_passed": int(overall * (60 if not quick else 18)),
+            "scores": scores,
+            "category_scores": {k: v for k, v in scores.items() if k != "overall"},
             "total_time_sec": elapsed,
             "model_name": model_name,
             "eval_harness_version": "1.0.0",
+            "regression_passed": passed,
         }
+
+        # Write explicit output file
+        with open(output_path, "w") as f:
+            json.dump(result_data, f, indent=2)
 
         metrics_data = {
             "wall_time_sec": elapsed,
             "worker_version": "1.0.0",
             "python_version": platform.python_version(),
+            "exit_code": proc.returncode,
         }
 
-        return json.dumps(result_data), json.dumps(metrics_data), str(report_path)
+        self.client.report_progress(
+            job.job_id, job.attempt_id, job.lease_token, 95, "submitting"
+        )
+
+        return json.dumps(result_data), json.dumps(metrics_data), output_path
 
     def _execute_benchmark_run(self, job) -> tuple[str, str, str]:
-        """Execute benchmark_run — same as eval_sweep but framed as benchmark."""
-        # For V1, benchmark_run uses the same eval harness
-        # The distinction is semantic: benchmarks are for comparison, evals are for gating
-        return self._execute_eval_sweep(job)
+        """Execute benchmark_run using executable_eval.py (sandbox-verified code gen).
+
+        Manifest fields:
+            model_name: str — version label
+            server_url: str — llama-server URL
+            language: str — filter ("python", "cpp", "javascript", "" for all)
+        """
+        manifest = job.manifest
+        model_name = manifest.get("model_name", "v5-think")
+        server_url = manifest.get("server_url", "http://localhost:11435")
+        language = manifest.get("language", "")
+
+        self.client.report_progress(
+            job.job_id, job.attempt_id, job.lease_token, 5, "preparing"
+        )
+
+        output_file = tempfile.NamedTemporaryFile(
+            prefix=f"bench_{job.job_id}_", suffix=".json", delete=False, dir=str(PROJECT_ROOT / "evals")
+        )
+        output_path = output_file.name
+        output_file.close()
+
+        bench_script = str(PROJECT_ROOT / "scripts" / "executable_eval.py")
+        if not Path(bench_script).exists():
+            raise RuntimeError(f"Benchmark script not found: {bench_script}")
+
+        cmd = [sys.executable, bench_script,
+               "--server-url", server_url,
+               "--output", output_path]
+        if language:
+            cmd.extend(["--language", language])
+
+        self.client.report_progress(
+            job.job_id, job.attempt_id, job.lease_token, 10, "running_benchmark"
+        )
+
+        start_time = time.time()
+        timeout = min(job.lease_seconds - 60, 1800)
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True,
+            cwd=str(PROJECT_ROOT), timeout=timeout,
+        )
+        elapsed = time.time() - start_time
+
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"executable_eval.py failed (exit {proc.returncode}): {proc.stderr[-2000:]}"
+            )
+
+        with open(output_path) as f:
+            report = json.load(f)
+
+        result_data = {
+            "overall_score": report.get("pass_rate", 0.0),
+            "challenges_run": report.get("total_prompts", 0),
+            "challenges_passed": report.get("prompts_passing", 0),
+            "scores": report.get("by_language", {}),
+            "category_scores": report.get("by_language", {}),
+            "total_time_sec": elapsed,
+            "model_name": model_name,
+            "eval_harness_version": "1.0.0",
+            "blocks_total": report.get("total_blocks", 0),
+            "blocks_passing": report.get("blocks_passing", 0),
+        }
+
+        # Overwrite with structured result
+        with open(output_path, "w") as f:
+            json.dump(result_data, f, indent=2)
+
+        metrics_data = {
+            "wall_time_sec": elapsed,
+            "worker_version": "1.0.0",
+            "python_version": platform.python_version(),
+            "exit_code": proc.returncode,
+        }
+
+        self.client.report_progress(
+            job.job_id, job.attempt_id, job.lease_token, 95, "submitting"
+        )
+
+        return json.dumps(result_data), json.dumps(metrics_data), output_path
+
+    def _parse_regression_output(self, stdout: str, model_name: str) -> dict:
+        """Parse regression_eval.py stdout or score_ledger.json for domain scores."""
+        # Try score_ledger.json first (most reliable)
+        ledger_path = PROJECT_ROOT / "score_ledger.json"
+        if ledger_path.exists():
+            try:
+                with open(ledger_path) as f:
+                    ledger = json.load(f)
+                if model_name in ledger:
+                    return ledger[model_name]
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        # Fallback: parse stdout lines like "python: 0.9342"
+        import re
+        scores = {}
+        for line in stdout.splitlines():
+            m = re.match(r'\s*(\w+)\s*:\s*([\d.]+)', line)
+            if m and m.group(1) in ("python", "rust", "go", "cpp", "js", "hive", "overall"):
+                scores[m.group(1)] = float(m.group(2))
+        return scores
 
     # ================================================================
     # Helpers
     # ================================================================
-
-    def _find_latest_eval_report(self, evals_dir: Path, model_name: str) -> Path | None:
-        """Find the most recently created eval report JSON."""
-        if not evals_dir.exists():
-            return None
-        reports = sorted(evals_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        # Prefer reports matching the model name
-        for r in reports:
-            if model_name.replace(":", "-") in r.name or model_name.replace(":", "_") in r.name:
-                return r
-        return reports[0] if reports else None
 
     def _file_sha256(self, path: str) -> str:
         sha = hashlib.sha256()
@@ -279,12 +380,15 @@ class GPUWorker:
 
     def _start_heartbeat(self, job) -> None:
         """Background thread that sends heartbeats during job execution."""
+        job_id = job.job_id
+
         def _heartbeat_loop():
             while self._current_job and self._running:
                 try:
-                    self.client.heartbeat(self.node_instance_id, jobs_in_progress=1)
+                    in_progress = 1 if self._current_job else 0
+                    self.client.heartbeat(self.node_instance_id, jobs_in_progress=in_progress)
                 except Exception as e:
-                    logger.warning(f"Heartbeat failed: {e}")
+                    logger.warning(f"Heartbeat failed for job {job_id}: {e}")
                 time.sleep(self.heartbeat_interval)
 
         self._heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
