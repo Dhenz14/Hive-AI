@@ -302,7 +302,7 @@ class TrainingPair(Base):
     __tablename__ = "training_pairs"
 
     id = Column(Integer, primary_key=True)
-    source = Column(String(50), nullable=False)     # "self_distill" | "web_crawl" | "human_verified"
+    source = Column(String(50), nullable=False)     # "self_distill" | "web_crawl" | "human_verified" | "auto_verified"
     topic = Column(String(500), nullable=True)
     instruction = Column(Text, nullable=False)
     response = Column(Text, nullable=False)
@@ -312,6 +312,10 @@ class TrainingPair(Base):
     lora_version = Column(Integer, nullable=True)   # set when used in a training run
     metadata_json = Column(Text, nullable=True)     # JSON blob for refinement trajectories, DPO data, etc.
     created_at = Column(DateTime, default=utcnow)
+
+    # Recurrence tracking (v1 skill buffer)
+    recurrence_count = Column(Integer, default=1)     # how many times similar question seen
+    last_seen_at = Column(DateTime, nullable=True)    # last time a similar question was asked
 
     __table_args__ = (
         Index("ix_training_pairs_source", "source"),
@@ -460,6 +464,9 @@ def _migrate_add_columns(engine):
         ("chat_feedback", "verification_json", "TEXT"),
         ("chat_feedback", "auto_staged", "BOOLEAN DEFAULT 0"),
         ("book_sections", "keywords_json", "TEXT"),
+        # v1 recurrence tracking for skill buffer
+        ("training_pairs", "recurrence_count", "INTEGER DEFAULT 1"),
+        ("training_pairs", "last_seen_at", "DATETIME"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

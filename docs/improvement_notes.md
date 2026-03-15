@@ -1463,3 +1463,67 @@ Files: `run_full_cycle.sh` (1 line)
 - Reasoning-specific evaluation probes (multi-step coding challenges)
 
 **Risk**: Low — tiny rank means minimal forgetting risk. Can be tested as a bolt-on experiment without touching the golden chain.
+
+---
+
+## 18. v1 Orchestration + Memory Reuse System (LIVE — 2026-03-15)
+
+### Orchestration Layer
+
+Rule-based request classifier (`hiveai/orchestrator.py`) routes every chat request:
+- **Classification**: intent (code_question, explain, debug, general), language detection, retrieval mode (preinject/hybrid/agent), verification gate
+- **Bounded revision**: if verification fails with fixable errors, retry once automatically
+- **Recurrence tracking**: detects repeated similar queries for future skill-family grouping
+
+### Memory Reuse — Promotion Bridge (Gate 6 + Gate 10 PROVEN)
+
+Verified chat responses are promoted from training sink → retrieval path:
+
+**Pipeline**: Generate → Verify (sandbox) → Stage (TrainingPair) → Promote (BookSection) → Retrieve → Reuse
+
+**Architecture**:
+- `promote_candidate_to_knowledge()` in `app.py` converts verified TrainingPairs into BookSections
+- Synthetic GoldenBook "Solved Examples :: Verified Code" holds all promoted examples
+- Same BGE-M3 embedding space — no separate index needed
+- Gated by: quality ≥ 0.82, code lines ≥ 5, prompt complexity ≥ 8 words
+- Content-hash exact dedupe (SHA256 over normalized prompt + sorted code)
+
+**Verified floor tightening**:
+- Code complexity guards: min lines, branches, assertions
+- Verifier strength weighting: compile-only (+0.02), assertions (+0.04), multi-block (+0.02 each)
+- Tiered scoring based on code size and prompt complexity
+
+**Retrieval bonus**: +0.05 hybrid_score for solved examples on code queries (vectorstore.py)
+
+**Reuse tracking scoreboard** (`GET /api/memory/scoreboard`):
+- Per-example: times_retrieved, verified_pass/fail/no_verdict, rank history
+- Aggregate: hit_rate, total_retrievals, total_verified_pass/fail
+- Trace fields on every chat response: `solved_example_retrieved`, `solved_example_count`, `solved_example_ids`
+
+### Gate Results
+
+**Gate 6 — Memory Reuse: PASS**
+- Full loop proven end-to-end
+- Solved example retrieved at rank #1 on similar queries
+
+**Gate 10 — A/B Memory Proof: PASS**
+- Phase A (memory ON): 3/3 queries retrieved solved examples at rank #1
+- Phase B (memory OFF, examples deleted + Flask restarted): 0/3 retrieved (clean control)
+- Verification: A=1 pass, B=0 passes
+- Test 3 strongest signal: shorter answer (1206 vs 2740 chars), verified (1p vs 0p) with memory
+
+**Key bugs fixed**:
+- Unclosed code fences: LLM often omits closing ``` — added fallback extraction in `sandbox.py`
+- Missing db.commit() in promotion — BookSection created but lost on transaction end
+- keywords_json format mismatch — vectorstore now handles both array and dict formats
+- RAG/LLM cache contamination in A/B — Flask restart between phases for clean caches
+
+### Files changed
+- `hiveai/app.py` — orchestrated chat endpoint, promotion bridge, reuse tracker, scoreboard API
+- `hiveai/orchestrator.py` — NEW: rule-based classifier, revision logic, recurrence tracking
+- `hiveai/sandbox.py` — unclosed code fence extraction fix
+- `hiveai/vectorstore.py` — solved-example retrieval bonus, metadata loading
+- `hiveai/config.py` — AUTO_PROMOTE_VERIFIED, AUTO_PROMOTE_MIN_QUALITY, AUTO_PROMOTE_MIN_CODE_LINES
+- `hiveai/chat.py` — deep retrieval, cross-encoder reranking improvements
+- `hiveai/templates/chat.html` — streaming SSE chat UI with verification display
+- `hiveai/templates/candidates.html` — NEW: training candidates review page

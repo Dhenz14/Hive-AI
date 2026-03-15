@@ -86,7 +86,7 @@ def _pg_vector_search_grouped(db, query_embedding, max_distance, min_count):
     return [{"book_id": row.book_id, "match_count": row.match_count} for row in results]
 
 
-def _cosine_distance(a, b):
+def cosine_distance(a, b):
     a = np.array(a, dtype=np.float32)
     b = np.array(b, dtype=np.float32)
     norm_a = np.linalg.norm(a)
@@ -115,7 +115,7 @@ def _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filt
             emb = json.loads(section.embedding_json) if isinstance(section.embedding_json, str) else section.embedding_json
             if emb is None:
                 continue
-            dist = _cosine_distance(query_embedding, emb)
+            dist = cosine_distance(query_embedding, emb)
             if dist < max_distance:
                 scored.append({
                     "id": section.id,
@@ -146,7 +146,7 @@ def _sqlite_vector_search_grouped(db, query_embedding, max_distance, min_count):
             emb = json.loads(section.embedding_json) if isinstance(section.embedding_json, str) else section.embedding_json
             if emb is None:
                 continue
-            dist = _cosine_distance(query_embedding, emb)
+            dist = cosine_distance(query_embedding, emb)
             if dist < max_distance:
                 book_matches[section.book_id] += 1
         except (json.JSONDecodeError, TypeError, ValueError) as e:
@@ -214,9 +214,34 @@ def _load_section_keywords(db, section_ids: list[int]) -> dict[int, list[str]]:
     result = {}
     for sid, kw_json in rows:
         try:
-            result[sid] = json.loads(kw_json) if kw_json else []
+            parsed = json.loads(kw_json) if kw_json else []
+            # Support both plain array and structured format (solved examples)
+            if isinstance(parsed, dict):
+                result[sid] = parsed.get("keywords", [])
+            else:
+                result[sid] = parsed
         except (json.JSONDecodeError, TypeError):
             result[sid] = []
+    return result
+
+
+def _load_section_metadata(db, section_ids: list[int]) -> dict[int, dict]:
+    """Load full keywords_json metadata for sections. Returns {id: parsed_dict_or_empty}."""
+    if not section_ids:
+        return {}
+    from hiveai.models import BookSection
+    import json
+    rows = db.query(BookSection.id, BookSection.keywords_json).filter(
+        BookSection.id.in_(section_ids),
+        BookSection.keywords_json.isnot(None),
+    ).all()
+    result = {}
+    for sid, kw_json in rows:
+        try:
+            parsed = json.loads(kw_json) if kw_json else {}
+            result[sid] = parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            result[sid] = {}
     return result
 
 
@@ -290,17 +315,55 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         for r in vec_results:
             r["bm25_score"] = 0.0
 
-    # Step 4: Fuse scores
+    # Step 4: Fuse scores + solved-example bonus for code queries
+    # Detect if query looks like a code task (code keywords, function names, etc.)
+    _code_indicators = {"function", "implement", "write", "code", "class", "method",
+                        "algorithm", "error", "bug", "fix", "debug", "refactor",
+                        "python", "javascript", "typescript", "rust", "cpp", "golang"}
+    _query_lower = query.lower()
+    _is_code_query = bool(query_terms_set & _code_indicators) or \
+                     any(c in _query_lower for c in ['()', '{}', '[]', 'def ', 'fn ', 'func '])
+
+    # Load metadata to identify solved examples
+    section_metadata = _load_section_metadata(db, section_ids) if _is_code_query else {}
+
     for r in vec_results:
         r["hybrid_score"] = alpha * r["vec_score"] + (1 - alpha) * r["bm25_score"]
+
+        # Solved-example rank bonus: when similarity is close, prefer proven solutions
+        # Only for code queries — docs/general chat should prefer golden book content
+        if _is_code_query:
+            meta = section_metadata.get(r["id"], {})
+            if meta.get("source_type") == "solved_example":
+                # Small bonus (0.05) — enough to break ties, not enough to override relevance
+                r["hybrid_score"] += 0.05
+                r["is_solved_example"] = True
 
     # Step 5: Re-sort by fused score and return top results
     vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
-    # Clean up intermediate scores from output
+    # Step 6: Quality filtering — drop weak/duplicate chunks
+    min_score = 0.15  # below this, chunk is noise
+    max_per_book = 3  # prevent one book from dominating results
+    book_counts: dict[int, int] = {}
+    filtered = []
     for r in vec_results:
+        if r["hybrid_score"] < min_score:
+            continue
+        bid = r.get("book_id")
+        if bid is not None:
+            if book_counts.get(bid, 0) >= max_per_book:
+                continue
+            book_counts[bid] = book_counts.get(bid, 0) + 1
+        filtered.append(r)
+        if len(filtered) >= limit:
+            break
+
+    # Keep scores in output for trace/observability (budget_context uses them)
+    for r in filtered:
+        r["relevance_score"] = round(r.get("hybrid_score", 0), 3)
         r.pop("vec_score", None)
         r.pop("bm25_score", None)
         r.pop("hybrid_score", None)
 
-    return vec_results[:limit]
+    return filtered

@@ -94,6 +94,24 @@ DOMAINS = {
         "adapter_path": "loras/domains/go/",
         "weight": 1.0,
     },
+    # --- Specialist sub-domain adapters (v6.0 layer-selective) ---
+    # These are narrow slices that override broader domains when matched.
+    # Higher weight ensures they beat the parent domain on specific queries.
+    "ts-generics": {
+        "keywords": [
+            "generic function", "generic type", "generic constraint",
+            "conditional type", "mapped type", "utility type",
+            "infer keyword", "extends constraint", "type parameter",
+            "generic pipe", "generic compose", "variadic tuple",
+            "higher-kinded", "type guard", "type narrowing",
+            "typescript generic", "ts generic",
+        ],
+        "extensions": [],
+        "ollama_model": "hiveai-v5",  # base model — adapter loaded via llama-server --lora
+        "adapter_path": "loras/domains/ts-generics/",
+        "adapter_gguf": "loras/domains/ts-generics/adapter.gguf",
+        "weight": 2.0,  # high weight — needs 1 keyword match (2.0 >= MIN_DOMAIN_SCORE)
+    },
     "general": {
         "keywords": [],
         "extensions": [],
@@ -140,6 +158,17 @@ def classify_domain(query: str) -> str:
     best_domain = max(scores, key=scores.get)
     if scores[best_domain] < MIN_DOMAIN_SCORE:
         return "general"
+
+    # Prefer specialist sub-domains over broad domains when both match.
+    # e.g., ts-generics (weight 2.0) beats javascript (weight 1.0) on TS generics queries.
+    SPECIALIST_OVERRIDES = {
+        "javascript": "ts-generics",  # TS generics specialist overrides broad JS
+    }
+    if best_domain in SPECIALIST_OVERRIDES:
+        specialist = SPECIALIST_OVERRIDES[best_domain]
+        if specialist in scores and scores[specialist] >= MIN_DOMAIN_SCORE:
+            logger.info(f"MoLoRA: specialist override {best_domain} -> {specialist}")
+            return specialist
 
     return best_domain
 

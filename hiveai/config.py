@@ -114,6 +114,9 @@ CRAWL_CACHE_TTL_HOURS = int(os.environ.get("CRAWL_CACHE_TTL_HOURS", "168"))
 # before returning to the user. Adds 0-15s latency but catches runtime errors.
 CHAT_VERIFY_CODE = os.environ.get("CHAT_VERIFY_CODE", "true").lower() in ("1", "true", "yes")
 
+# --- Retrieval tuning ---
+ENABLE_MULTI_HOP_RAG = os.environ.get("ENABLE_MULTI_HOP_RAG", "true").lower() in ("1", "true", "yes")
+
 # --- MoLoRA (Mixture of LoRA Experts) ---
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
 MOLORA_DEFAULT_DOMAIN = os.environ.get("MOLORA_DEFAULT_DOMAIN", "general")
@@ -124,6 +127,16 @@ AUTO_IMPROVE_MIN_BLOCKS = int(os.environ.get("AUTO_IMPROVE_MIN_BLOCKS", "1"))
 AUTO_IMPROVE_QUALITY_BONUS = float(os.environ.get("AUTO_IMPROVE_QUALITY_BONUS", "0.05"))
 AUTO_IMPROVE_CHECK_INTERVAL = int(os.environ.get("AUTO_IMPROVE_CHECK_INTERVAL", "300"))
 AUTO_IMPROVE_MIN_PAIRS = int(os.environ.get("AUTO_IMPROVE_MIN_PAIRS", "20"))
+
+# --- Solved Example Promotion (verified candidates → retrievable knowledge) ---
+# When enabled, verified candidates that pass complexity gates are also stored as
+# BookSection records in a synthetic "Solved Examples" book, making them retrievable
+# by the RAG pipeline for future similar queries.
+AUTO_PROMOTE_VERIFIED = os.environ.get("AUTO_PROMOTE_VERIFIED", "true").lower() in ("1", "true", "yes")
+# Minimum verified_floor to promote (stricter than staging gate)
+AUTO_PROMOTE_MIN_QUALITY = float(os.environ.get("AUTO_PROMOTE_MIN_QUALITY", "0.82"))
+# Minimum code lines to promote (prevents trivial solutions entering knowledge base)
+AUTO_PROMOTE_MIN_CODE_LINES = int(os.environ.get("AUTO_PROMOTE_MIN_CODE_LINES", "5"))
 
 # --- Multi-Source Miner (mine training pairs from free AI APIs) ---
 MULTI_MINER_ENABLED = os.environ.get("MULTI_MINER_ENABLED", "false").lower() in ("1", "true", "yes")

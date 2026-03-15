@@ -362,7 +362,7 @@ def _expand_short_query(question, history=None):
     return expanded
 
 
-def search_knowledge_sections(question, db, history=None):
+def search_knowledge_sections(question, db, history=None, retrieval_mode="preinject"):
     # Check RAG cache for repeated questions
     cache_key = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
     with _rag_cache_lock:
@@ -373,6 +373,7 @@ def search_knowledge_sections(question, db, history=None):
                 return cached_sections, cached_books, cached_all
 
     try:
+        _t0 = _time.perf_counter()
         query_str = _expand_short_query(question, history)
 
         # Also add general history context
@@ -386,12 +387,21 @@ def search_knowledge_sections(question, db, history=None):
             if history_words:
                 query_str = query_str + " " + " ".join(history_words[:10])
 
+        _t1 = _time.perf_counter()
         query_embedding = embed_text(query_str)
 
+        _t2 = _time.perf_counter()
         from hiveai.vectorstore import vector_search, hybrid_search
         top_sections = hybrid_search(db, query_str, query_embedding, limit=12, max_distance=0.8)
+        _t3 = _time.perf_counter()
 
-        if top_sections and len(top_sections) >= 2:
+        # Deep retrieval (multi-hop, book refs, reranking, community) only for hybrid mode
+        from hiveai.config import ENABLE_MULTI_HOP_RAG
+        use_deep_retrieval = ENABLE_MULTI_HOP_RAG and retrieval_mode == "hybrid"
+        _hop2_added = 0
+        _ref_added = 0
+
+        if use_deep_retrieval and top_sections and len(top_sections) >= 2:
             try:
                 entities = _extract_key_entities(top_sections)
                 if entities:
@@ -402,17 +412,16 @@ def search_knowledge_sections(question, db, history=None):
 
                     hop2_results = vector_search(db, entity_embedding, limit=8, max_distance=0.7)
 
-                    hop2_new = 0
                     for row in hop2_results:
                         if row["id"] not in found_ids:
                             top_sections.append(row)
                             found_ids.add(row["id"])
-                            hop2_new += 1
-                            if hop2_new >= 4:
+                            _hop2_added += 1
+                            if _hop2_added >= 4:
                                 break
 
-                    if hop2_new > 0:
-                        logging.getLogger(__name__).info(f"Multi-hop RAG: {len(entities)} entities → {hop2_new} additional sections")
+                    if _hop2_added > 0:
+                        logging.getLogger(__name__).info(f"Multi-hop RAG: {len(entities)} entities → {_hop2_added} additional sections")
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Multi-hop search failed (non-critical): {e}")
 
@@ -420,26 +429,26 @@ def search_knowledge_sections(question, db, history=None):
             book_ids = list(set(section['book_id'] for section in top_sections))
             logging.getLogger(__name__).info(f"Vector search found sections from {len(book_ids)} books")
 
-            try:
-                from hiveai.models import BookReference
-                refs = db.query(BookReference).filter(
-                    BookReference.from_book_id.in_(book_ids)
-                ).all()
-                ref_book_ids = [r.to_book_id for r in refs if r.to_book_id not in set(book_ids)]
-                if ref_book_ids:
-                    found_ids = set(s.get("id") for s in top_sections if s.get("id"))
-                    ref_results = vector_search(db, query_embedding, limit=4, max_distance=0.7, book_id_filter=ref_book_ids)
-                    ref_added = 0
-                    for row in ref_results:
-                        if row["id"] not in found_ids:
-                            row["book_title"] = f"{row['book_title']} (referenced)"
-                            top_sections.append(row)
-                            found_ids.add(row["id"])
-                            ref_added += 1
-                    if ref_added > 0:
-                        logging.getLogger(__name__).info(f"Book references: added {ref_added} sections from {len(ref_book_ids)} referenced books")
-            except Exception as e:
-                logging.getLogger(__name__).warning(f"Book reference lookup failed (non-critical): {e}")
+            if use_deep_retrieval:
+                try:
+                    from hiveai.models import BookReference
+                    refs = db.query(BookReference).filter(
+                        BookReference.from_book_id.in_(book_ids)
+                    ).all()
+                    ref_book_ids = [r.to_book_id for r in refs if r.to_book_id not in set(book_ids)]
+                    if ref_book_ids:
+                        found_ids = set(s.get("id") for s in top_sections if s.get("id"))
+                        ref_results = vector_search(db, query_embedding, limit=4, max_distance=0.7, book_id_filter=ref_book_ids)
+                        for row in ref_results:
+                            if row["id"] not in found_ids:
+                                row["book_title"] = f"{row['book_title']} (referenced)"
+                                top_sections.append(row)
+                                found_ids.add(row["id"])
+                                _ref_added += 1
+                        if _ref_added > 0:
+                            logging.getLogger(__name__).info(f"Book references: added {_ref_added} sections from {len(ref_book_ids)} referenced books")
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Book reference lookup failed (non-critical): {e}")
 
             try:
                 top_sections = rerank_sections(question, top_sections)
@@ -447,25 +456,35 @@ def search_knowledge_sections(question, db, history=None):
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Reranking failed (non-critical): {e}")
 
-            try:
-                if len(top_sections) < 5:
-                    from hiveai.pipeline.communities import get_community_summaries
-                    community_summaries = get_community_summaries(question, db)
-                    if community_summaries:
-                        for cs in community_summaries[:3]:
-                            top_sections.append({
-                                "header": "Community Knowledge Summary",
-                                "content": cs,
-                                "book_title": "Community Analysis",
-                                "book_id": None,
-                            })
-                        logging.getLogger(__name__).info(f"Added {min(len(community_summaries), 3)} community summaries for broad question")
-            except Exception as e:
-                logging.getLogger(__name__).warning(f"Community summary lookup failed (non-critical): {e}")
+            if use_deep_retrieval:
+                try:
+                    if len(top_sections) < 5:
+                        from hiveai.pipeline.communities import get_community_summaries
+                        community_summaries = get_community_summaries(question, db)
+                        if community_summaries:
+                            for cs in community_summaries[:3]:
+                                top_sections.append({
+                                    "header": "Community Knowledge Summary",
+                                    "content": cs,
+                                    "book_title": "Community Analysis",
+                                    "book_id": None,
+                                })
+                            logging.getLogger(__name__).info(f"Added {min(len(community_summaries), 3)} community summaries for broad question")
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Community summary lookup failed (non-critical): {e}")
 
             source_books = list(set(s["book_title"] for s in top_sections))
             books = db.query(GoldenBook).all()
             _rag_cache_store(cache_key, top_sections, source_books, books)
+
+            # Retrieval subphase timing
+            _t4 = _time.perf_counter()
+            _deep_tag = f" [deep: hop2={_hop2_added} refs={_ref_added}]" if use_deep_retrieval else " [shallow]"
+            logging.getLogger(__name__).info(
+                f"Retrieval breakdown: expand={(_t1-_t0)*1000:.1f}ms embed={(_t2-_t1)*1000:.1f}ms "
+                f"search={(_t3-_t2)*1000:.1f}ms postprocess={(_t4-_t3)*1000:.1f}ms "
+                f"total={(_t4-_t0)*1000:.1f}ms sections={len(top_sections)}{_deep_tag}"
+            )
             return top_sections, source_books, books
 
     except Exception as e:
@@ -1078,7 +1097,12 @@ def budget_context(sections, query, max_tokens=4000):
             content = " ".join(content.split()[:words_to_keep])
             section_tokens = remaining
 
-        block = f"\n\n--- From '{book}' > {header} ---\n{content}\n"
+        # Label chunks with source + relevance score for transparency
+        score_label = ""
+        rel_score = section.get("relevance_score")
+        if rel_score is not None:
+            score_label = f" (relevance: {rel_score})"
+        block = f"\n\n=== [{book} > {header}]{score_label} ===\n{content}\n"
         budgeted.append(block)
         total_tokens += section_tokens
 

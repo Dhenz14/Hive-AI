@@ -1316,6 +1316,9 @@
             let verificationData = null;
             let domainData = null;
             let autoStagedData = null;
+            let classifyData = null;
+            let revisionData = null;
+            let traceData = null;
             let nextEventType = null;
             streamEl = createStreamingMessage();
 
@@ -1375,12 +1378,48 @@
                                 continue;
                             }
 
+                            // Orchestration events (v1)
+                            if (evType === 'classify') {
+                                classifyData = payload;
+                                continue;
+                            }
+                            if (evType === 'sources') {
+                                streamSources = payload.sources || [];
+                                continue;
+                            }
+                            if (evType === 'verification') {
+                                verificationData = payload;
+                                continue;
+                            }
+                            if (evType === 'revision') {
+                                revisionData = payload;
+                                // Show revision status inline while streaming
+                                if (streamEl && payload.status === 'retrying') {
+                                    const revNote = document.createElement('div');
+                                    revNote.className = 'revision-indicator';
+                                    revNote.style.cssText = 'margin:8px 0;padding:4px 10px;border-radius:6px;font-size:0.75em;background:rgba(245,158,11,0.08);color:#f59e0b;border:1px solid rgba(245,158,11,0.15);font-family:"JetBrains Mono",monospace;';
+                                    revNote.textContent = '\u21bb Fixing ' + (payload.fixable_errors || '') + ' code error(s)...';
+                                    streamEl.contentDiv.appendChild(revNote);
+                                    scrollToBottom();
+                                }
+                                continue;
+                            }
+                            if (evType === 'auto_staged') {
+                                autoStagedData = payload;
+                                continue;
+                            }
+                            if (evType === 'domain') {
+                                domainData = payload.domain || payload;
+                                continue;
+                            }
+
                             // Standard events
                             if (evType === 'error') {
                                 throw new Error(payload.error || 'Unknown error');
                             }
                             if (evType === 'done') {
                                 if (payload.full_response) rawText = payload.full_response;
+                                if (payload.trace) traceData = payload.trace;
                                 continue;
                             }
 
@@ -1444,39 +1483,86 @@
                     });
                     streamEl.msgDiv.appendChild(sourcesDiv);
                 }
+                // Remove revision progress indicators (they're ephemeral)
+                streamEl.contentDiv.querySelectorAll('.revision-indicator').forEach(function(el) { el.remove(); });
+
+                // --- Badge bar: classification + verification + revision + domain + auto-staged ---
+                const badgeBar = document.createElement('div');
+                badgeBar.style.cssText = 'margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;';
+
+                // Classification tag
+                if (classifyData && classifyData.intent && classifyData.intent !== 'general_chat') {
+                    const cBadge = document.createElement('span');
+                    cBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(139,92,246,0.08);color:#a78bfa;border:1px solid rgba(139,92,246,0.15);';
+                    let label = classifyData.intent.replace(/_/g, ' ');
+                    if (classifyData.language) label += ' \u00b7 ' + classifyData.language;
+                    if (classifyData.retrieval_mode === 'agent') label += ' \u00b7 agent';
+                    cBadge.textContent = label;
+                    badgeBar.appendChild(cBadge);
+                }
+
+                // Verification badge
                 if (verificationData) {
-                    const vBadge = document.createElement('div');
-                    vBadge.style.cssText = 'margin-top:6px;padding:4px 10px;border-radius:6px;font-size:0.78em;display:inline-block;font-family:"JetBrains Mono",monospace;';
+                    const vBadge = document.createElement('span');
+                    vBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;';
                     if (verificationData.failed === 0 && verificationData.passed > 0) {
                         vBadge.style.background = 'rgba(34,197,94,0.1)';
                         vBadge.style.color = '#22c55e';
                         vBadge.style.border = '1px solid rgba(34,197,94,0.2)';
-                        vBadge.textContent = '\u2713 Code verified (' + verificationData.passed + '/' + verificationData.blocks + ' blocks pass)';
+                        vBadge.textContent = '\u2713 ' + verificationData.passed + '/' + verificationData.blocks + ' pass';
                     } else if (verificationData.passed > 0) {
                         vBadge.style.background = 'rgba(245,158,11,0.1)';
                         vBadge.style.color = '#f59e0b';
                         vBadge.style.border = '1px solid rgba(245,158,11,0.2)';
-                        vBadge.textContent = '\u26a0 ' + verificationData.passed + '/' + verificationData.blocks + ' code blocks pass';
+                        vBadge.textContent = '\u26a0 ' + verificationData.passed + '/' + verificationData.blocks + ' pass';
                     } else {
                         vBadge.style.background = 'rgba(239,68,68,0.1)';
                         vBadge.style.color = '#ef4444';
                         vBadge.style.border = '1px solid rgba(239,68,68,0.2)';
-                        vBadge.textContent = '\u2717 Code blocks have issues (' + verificationData.failed + ' failed)';
+                        vBadge.textContent = '\u2717 ' + verificationData.failed + ' failed';
                     }
-                    streamEl.msgDiv.appendChild(vBadge);
-                    if (autoStagedData) {
-                        const aBadge = document.createElement('span');
-                        aBadge.style.cssText = 'margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.7em;display:inline-block;background:rgba(34,197,94,0.08);color:#6ee7b7;border:1px solid rgba(34,197,94,0.15);';
-                        aBadge.textContent = 'Auto-learned';
-                        vBadge.style.display = 'inline-block';
-                        vBadge.appendChild(aBadge);
+                    badgeBar.appendChild(vBadge);
+
+                    // Revision badge (if code was auto-revised)
+                    if (verificationData.revised || (revisionData && revisionData.status === 'improved')) {
+                        const rBadge = document.createElement('span');
+                        rBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(245,158,11,0.08);color:#fbbf24;border:1px solid rgba(245,158,11,0.15);';
+                        rBadge.textContent = '\u21bb auto-revised';
+                        badgeBar.appendChild(rBadge);
                     }
                 }
+
+                // Auto-staged badge
+                if (autoStagedData) {
+                    const aBadge = document.createElement('span');
+                    aBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(34,197,94,0.08);color:#6ee7b7;border:1px solid rgba(34,197,94,0.15);';
+                    if (autoStagedData.action === 'recurrence_bump') {
+                        aBadge.textContent = '\u21bb seen ' + autoStagedData.recurrence_count + 'x';
+                    } else {
+                        aBadge.textContent = '\u2713 staged';
+                    }
+                    badgeBar.appendChild(aBadge);
+                }
+
+                // Domain badge
                 if (domainData) {
                     const dBadge = document.createElement('span');
-                    dBadge.style.cssText = 'margin-top:6px;margin-left:8px;padding:2px 8px;border-radius:4px;font-size:0.72em;display:inline-block;background:rgba(6,182,212,0.08);color:#06b6d4;border:1px solid rgba(6,182,212,0.15);font-family:"JetBrains Mono",monospace;';
+                    dBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(6,182,212,0.08);color:#06b6d4;border:1px solid rgba(6,182,212,0.15);';
                     dBadge.textContent = domainData;
-                    streamEl.msgDiv.appendChild(dBadge);
+                    badgeBar.appendChild(dBadge);
+                }
+
+                // Latency trace (subtle, only if trace data present)
+                if (traceData && traceData.latency_ms) {
+                    const tBadge = document.createElement('span');
+                    tBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.65em;font-family:"JetBrains Mono",monospace;color:var(--text-muted);opacity:0.6;';
+                    tBadge.textContent = Math.round(traceData.latency_ms.total) + 'ms';
+                    tBadge.title = 'Retrieval: ' + (traceData.latency_ms.retrieval || 0) + 'ms, Gen: ' + (traceData.latency_ms.generation || 0) + 'ms, Verify: ' + (traceData.latency_ms.verification || 0) + 'ms';
+                    badgeBar.appendChild(tBadge);
+                }
+
+                if (badgeBar.children.length > 0) {
+                    streamEl.msgDiv.appendChild(badgeBar);
                 }
                 streamEl.msgDiv.appendChild(createFeedbackBar(text, rawText, streamEl.msgDiv));
             }

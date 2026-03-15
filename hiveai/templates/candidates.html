@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block title %}Skill Candidates | HiveAI{% endblock %}
+
+{% block extra_css %}
+<style>
+    .candidates-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    }
+    .candidates-header h1 {
+        font-family: 'Space Grotesk', sans-serif;
+        font-size: 1.6em;
+        color: var(--amber);
+    }
+    .candidates-header .stats {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85em;
+        color: var(--text-muted);
+    }
+    .filter-bar {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+    .filter-bar select, .filter-bar input {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.85em;
+    }
+    .filter-bar button {
+        background: var(--amber-deep);
+        color: var(--text-primary);
+        border: 1px solid var(--amber-dim);
+        padding: 6px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.85em;
+    }
+    .filter-bar button:hover { background: var(--amber-dim); }
+    .candidate-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+        transition: border-color 0.2s;
+    }
+    .candidate-card:hover { border-color: var(--border-bright); }
+    .candidate-meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+        align-items: center;
+    }
+    .meta-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.72em;
+        font-family: 'JetBrains Mono', monospace;
+    }
+    .meta-badge.quality {
+        background: rgba(34,197,94,0.08);
+        color: #6ee7b7;
+        border: 1px solid rgba(34,197,94,0.15);
+    }
+    .meta-badge.quality.low {
+        background: rgba(239,68,68,0.08);
+        color: #fca5a5;
+        border: 1px solid rgba(239,68,68,0.15);
+    }
+    .meta-badge.recurrence {
+        background: rgba(245,158,11,0.08);
+        color: #fbbf24;
+        border: 1px solid rgba(245,158,11,0.15);
+    }
+    .meta-badge.source {
+        background: rgba(139,92,246,0.08);
+        color: #a78bfa;
+        border: 1px solid rgba(139,92,246,0.15);
+    }
+    .meta-badge.time {
+        color: var(--text-muted);
+        font-size: 0.68em;
+    }
+    .candidate-instruction {
+        font-size: 0.9em;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+        line-height: 1.4;
+    }
+    .candidate-instruction strong { color: var(--text-primary); }
+    .candidate-response {
+        font-size: 0.82em;
+        color: var(--text-muted);
+        max-height: 120px;
+        overflow: hidden;
+        position: relative;
+        cursor: pointer;
+        transition: max-height 0.3s;
+    }
+    .candidate-response.expanded { max-height: none; }
+    .candidate-response::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 40px;
+        background: linear-gradient(transparent, var(--bg-card));
+        pointer-events: none;
+    }
+    .candidate-response.expanded::after { display: none; }
+    .candidate-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+    }
+    .candidate-actions button {
+        padding: 4px 14px;
+        border-radius: 5px;
+        font-size: 0.78em;
+        cursor: pointer;
+        border: 1px solid;
+    }
+    .btn-approve {
+        background: rgba(34,197,94,0.1);
+        color: #22c55e;
+        border-color: rgba(34,197,94,0.2);
+    }
+    .btn-approve:hover { background: rgba(34,197,94,0.2); }
+    .btn-reject {
+        background: rgba(239,68,68,0.08);
+        color: #ef4444;
+        border-color: rgba(239,68,68,0.15);
+    }
+    .btn-reject:hover { background: rgba(239,68,68,0.15); }
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+    .empty-state h2 { color: var(--text-secondary); margin-bottom: 8px; }
+    .export-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+    .export-bar button {
+        background: var(--cyan);
+        color: #000;
+        border: none;
+        padding: 6px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.85em;
+    }
+    .export-bar button:hover { opacity: 0.85; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="candidates-header">
+    <h1>Skill Candidates</h1>
+    <div class="export-bar">
+        <span class="stats" id="stats-text">Loading...</span>
+        <button onclick="exportCandidates()">Export JSONL</button>
+    </div>
+</div>
+
+<div class="filter-bar">
+    <select id="filter-source">
+        <option value="">All sources</option>
+        <option value="auto_verified">Auto-verified</option>
+        <option value="human_verified">Human-verified</option>
+        <option value="human_correction">Corrections</option>
+    </select>
+    <select id="filter-sort">
+        <option value="recurrence">Most recurring</option>
+        <option value="quality">Highest quality</option>
+        <option value="recent">Most recent</option>
+    </select>
+    <input type="number" id="filter-min-recurrence" placeholder="Min recurrence" min="1" value="" style="width:130px;">
+    <button onclick="loadCandidates()">Filter</button>
+</div>
+
+<div id="candidates-list"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let candidates = [];
+
+async function loadCandidates() {
+    const source = document.getElementById('filter-source').value;
+    const sort = document.getElementById('filter-sort').value;
+    const minRec = document.getElementById('filter-min-recurrence').value;
+
+    let url = '/api/candidates?sort=' + sort;
+    if (source) url += '&source=' + source;
+    if (minRec) url += '&min_recurrence=' + minRec;
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        candidates = data.candidates || [];
+        renderCandidates(candidates);
+        document.getElementById('stats-text').textContent =
+            data.total + ' candidates, ' + data.high_recurrence + ' recurring (3+)';
+    } catch (err) {
+        document.getElementById('candidates-list').innerHTML =
+            '<div class="empty-state"><h2>Error loading candidates</h2><p>' + err.message + '</p></div>';
+    }
+}
+
+function renderCandidates(items) {
+    const list = document.getElementById('candidates-list');
+    if (!items.length) {
+        list.innerHTML = '<div class="empty-state"><h2>No candidates yet</h2><p>Candidates are auto-staged from verified chat responses.</p></div>';
+        return;
+    }
+    list.innerHTML = items.map(function(c) {
+        const qualClass = c.quality >= 0.8 ? 'quality' : 'quality low';
+        const instrPreview = c.instruction.length > 200 ? c.instruction.slice(0, 200) + '...' : c.instruction;
+        const respPreview = c.response.length > 400 ? c.response.slice(0, 400) + '...' : c.response;
+        const recBadge = c.recurrence_count > 1
+            ? '<span class="meta-badge recurrence">' + c.recurrence_count + 'x seen</span>'
+            : '';
+        const timeAgo = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+        return '<div class="candidate-card" data-id="' + c.id + '">' +
+            '<div class="candidate-meta">' +
+                '<span class="meta-badge source">' + c.source + '</span>' +
+                '<span class="meta-badge ' + qualClass + '">q=' + (c.quality * 100).toFixed(0) + '%</span>' +
+                recBadge +
+                '<span class="meta-badge time">' + timeAgo + '</span>' +
+            '</div>' +
+            '<div class="candidate-instruction"><strong>Q:</strong> ' + escapeHtml(instrPreview) + '</div>' +
+            '<div class="candidate-response" onclick="this.classList.toggle(\'expanded\')">' + escapeHtml(respPreview) + '</div>' +
+            '<div class="candidate-actions">' +
+                '<button class="btn-approve" onclick="updateCandidate(' + c.id + ', \'approve\')">Approve</button>' +
+                '<button class="btn-reject" onclick="updateCandidate(' + c.id + ', \'reject\')">Reject</button>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+async function updateCandidate(id, action) {
+    try {
+        const resp = await fetch('/api/candidates/' + id + '/' + action, { method: 'POST' });
+        if (resp.ok) {
+            // Remove card with animation
+            const card = document.querySelector('[data-id="' + id + '"]');
+            if (card) {
+                card.style.opacity = '0';
+                card.style.transform = 'translateX(20px)';
+                card.style.transition = 'all 0.3s';
+                setTimeout(function() { card.remove(); }, 300);
+            }
+        }
+    } catch (err) {
+        console.error('Failed to ' + action + ' candidate:', err);
+    }
+}
+
+async function exportCandidates() {
+    try {
+        const minRec = document.getElementById('filter-min-recurrence').value || '1';
+        const resp = await fetch('/api/candidates/export', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ min_recurrence: parseInt(minRec) || 1, min_quality: 0.8 })
+        });
+        if (resp.ok) {
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'candidates_export.jsonl';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    } catch (err) {
+        alert('Export failed: ' + err.message);
+    }
+}
+
+// Load on page load
+loadCandidates();
+</script>
+{% endblock %}

@@ -43,7 +43,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Configuration
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
-TEMPERATURE = 0.1
+TEMPERATURE = 0.0  # Deterministic decoding — no sampling variance between runs
 MAX_TOKENS = 2048  # Thinking disabled via system prompt; reasoning fallback if needed
 TIMEOUT = 120  # seconds per probe
 
@@ -125,6 +125,8 @@ def run_probe(probe: Probe, server_url: str, max_retries: int = 2) -> tuple[floa
                     ],
                     "temperature": TEMPERATURE,
                     "max_tokens": MAX_TOKENS,
+                    "top_k": 1,
+                    "seed": 42,
                 },
                 timeout=TIMEOUT,
             )

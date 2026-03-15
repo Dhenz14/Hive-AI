@@ -340,6 +340,13 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     # lifetimes, which breaks CUDA graph recording/replay.
     os.environ.setdefault("TORCHINDUCTOR_USE_CUDAGRAPHS", "0")
 
+    # Fix Transformers v5 regression (issue #43032): the new async loader in
+    # core_model_loading.py materializes bf16 tensors to GPU BEFORE quantization,
+    # causing OOM on 16GB GPUs when loading 14B+ models with load_in_4bit=True.
+    # Force sync loading to prevent the VRAM spike during bf16→4bit quantization.
+    os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
+    os.environ.setdefault("HF_ENABLE_PARALLEL_LOADING", "false")
+
     # Persist Triton compilation cache so Unsloth kernels don't recompile every run
     os.environ.setdefault("TRITON_CACHE_DIR", os.path.join(PROJECT_ROOT, ".triton_cache"))
 
@@ -509,7 +516,20 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info(f"Loading tokenizer from {load_path}...")
         _tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
-        logger.info(f"Loading Qwen2.5-Coder-14B in 4-bit QLoRA (~8-9GB VRAM)...")
+        # Check if loading local bf16 weights that need on-the-fly 4-bit quantization.
+        # bf16→4bit quantization peaks above 16GB when device_map={"": 0} forces
+        # everything onto GPU. Use device_map="auto" with max_memory to let
+        # transformers quantize layers individually with CPU overflow.
+        is_local_bf16 = (os.path.isdir(load_path) and
+                         not os.path.exists(os.path.join(load_path, "quantization_config.json")))
+        if is_local_bf16:
+            dmap = "auto"
+            max_mem = {0: "12GiB", "cpu": "48GiB"}
+            logger.info(f"Loading local bf16 weights with CPU-offloaded 4-bit quantization...")
+        else:
+            dmap = {"": 0}
+            max_mem = None
+            logger.info(f"Loading pre-quantized 4-bit model (~8-9GB VRAM)...")
         # Use flash_attention_2 if available (standard attention, no hybrid issues)
         attn_impl = "eager"
         try:
@@ -520,10 +540,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         _model = AutoModelForCausalLM.from_pretrained(
             load_path,
             quantization_config=bnb_config,
-            device_map={"": 0},
+            device_map=dmap,
+            max_memory=max_mem,
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
             attn_implementation=attn_impl,
+            low_cpu_mem_usage=True,
         )
         logger.info(f"Model loaded via standard transformers in {time.time() - load_start:.0f}s")
         return _model, _tokenizer

@@ -42,7 +42,9 @@ def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
     cpp/c++/rust/rs/go/golang and untagged blocks that parse as valid Python.
     """
     # Match fenced code blocks with optional language tag
+    # Also handle unclosed fences (LLMs sometimes omit closing ```)
     pattern = re.compile(r"```(\w*)\s*\n(.*?)```", re.DOTALL)
+    unclosed_pattern = re.compile(r"```(\w+)\s*\n(.+)", re.DOTALL)
     blocks = []
 
     want_python = languages in ("all", "python")
@@ -79,6 +81,97 @@ def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
                 blocks.append({"code": code, "language": "python", "index": match.start()})
             except SyntaxError:
                 pass  # Not Python, skip
+
+    # Fallback: handle unclosed code fences (LLMs sometimes omit closing ```)
+    if not blocks:
+        for match in unclosed_pattern.finditer(text):
+            lang = match.group(1).lower()
+            raw_code = match.group(2).strip()
+            if not raw_code:
+                continue
+
+            # Trim trailing prose — scan lines from end, remove non-code lines
+            # (prose lines: start with capital letter, end with period, no code chars)
+            code_lines = raw_code.splitlines()
+            while code_lines:
+                last = code_lines[-1].strip()
+                if not last:
+                    code_lines.pop()  # remove trailing empty lines
+                    continue
+                # Detect prose: starts with letter, ends with punctuation, no code indicators
+                is_prose = (
+                    re.match(r'^[A-Z]', last) and
+                    re.search(r'[.!?:)]$', last) and
+                    '=' not in last and
+                    '(' not in last[:10] and
+                    not last.startswith('#') and
+                    not last.startswith('assert') and
+                    not last.startswith('def ') and
+                    not last.startswith('class ')
+                )
+                if is_prose:
+                    code_lines.pop()
+                else:
+                    break
+
+            code = '\n'.join(code_lines).strip()
+            if not code:
+                continue
+
+            # For Python: try to parse and trim until it compiles
+            if lang in ("python", "py", "python3"):
+                # Iteratively trim trailing lines if syntax is invalid
+                attempts = 0
+                parse_lines = code.splitlines()
+                while parse_lines and attempts < 5:
+                    try:
+                        ast.parse('\n'.join(parse_lines))
+                        break
+                    except SyntaxError:
+                        parse_lines.pop()
+                        attempts += 1
+                code = '\n'.join(parse_lines).strip()
+                if not code:
+                    continue
+
+            # Map language tag to our supported languages
+            lang_map = {
+                "python": "python", "py": "python", "python3": "python",
+                "javascript": "javascript", "js": "javascript",
+                "typescript": "javascript", "ts": "javascript",
+                "cpp": "cpp", "c++": "cpp", "cc": "cpp", "cxx": "cpp", "c": "cpp",
+                "rust": "rust", "rs": "rust",
+                "go": "go", "golang": "go",
+            }
+            mapped = lang_map.get(lang)
+            if mapped and languages in ("all", mapped):
+                blocks.append({"code": code, "language": mapped, "index": match.start(), "unclosed": True})
+
+    # Fallback: if no fenced blocks found, try to detect unfenced Python code
+    if not blocks and want_python:
+        # Look for lines starting with def/class/import/assert/from — likely Python
+        lines = text.strip().splitlines()
+        code_lines = []
+        in_code = False
+        for line in lines:
+            stripped = line.strip()
+            if not in_code and re.match(r'^(def |class |import |from |assert |#|@)', stripped):
+                in_code = True
+            if in_code:
+                # Stop at clearly non-code lines (but allow empty lines and comments)
+                if stripped and not stripped.startswith('#') and not stripped.startswith('//'):
+                    # Check if line looks like prose (no code chars)
+                    if re.match(r'^[A-Z][a-z].*[.!?]$', stripped) and '=' not in stripped:
+                        break
+                code_lines.append(line)
+
+        if code_lines:
+            candidate = '\n'.join(code_lines).strip()
+            try:
+                ast.parse(candidate)
+                blocks.append({"code": candidate, "language": "python", "index": 0, "unfenced": True})
+            except SyntaxError:
+                pass  # Not valid Python
 
     return blocks
 
@@ -190,11 +283,15 @@ def _classify_error(stderr: str) -> str:
     """Extract the error type from Python traceback stderr."""
     if not stderr:
         return "UnknownError"
-    # Look for the last line matching "ErrorType: message"
+    # Look for the last line matching "ErrorType: message" or bare "ErrorType"
     for line in reversed(stderr.strip().splitlines()):
         line = line.strip()
-        if "Error" in line and ":" in line:
-            return line.split(":")[0].strip()
+        if "Error" in line:
+            if ":" in line:
+                return line.split(":")[0].strip()
+            # Bare error name (e.g., "AssertionError" with no message)
+            if line.endswith("Error"):
+                return line.strip()
     return "RuntimeError"
 
 

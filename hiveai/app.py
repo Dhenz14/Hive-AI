@@ -11,6 +11,7 @@ from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
 from skills.skill_loader import load_skills_for_query
+from hiveai.orchestrator import classify_request, should_retry_verification, build_revision_prompt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 
@@ -891,6 +892,9 @@ def chat_page():
 
 @app.route("/api/chat", methods=["POST"])
 def chat_api():
+    import time as _time
+    t_start = _time.perf_counter()
+
     data = request.get_json()
     message = (data.get("message") or "").strip()
     history = data.get("history", [])
@@ -898,13 +902,13 @@ def chat_api():
     if not message:
         return jsonify({"error": "Message is required"}), 400
 
+    # --- Step 1: Classify request (zero GPU cost, <1ms) ---
+    classify = classify_request(message, history)
+    t_classify = _time.perf_counter()
+
     db = SessionLocal()
     try:
         books = db.query(GoldenBook).all()
-        topic_list = [
-            b.title.replace("Knowledge: ", "").strip()
-            for b in books if b.title
-        ]
 
         if not books:
             active_jobs = db.query(Job).filter(
@@ -935,66 +939,159 @@ def chat_api():
                 "learning": learning_info
             })
 
-        top_sections, source_books, all_books = search_knowledge_sections(message, db, history=history)
+        # --- Step 2: Retrieval (if needed) ---
+        top_sections = []
+        source_books = []
+        knowledge_context = ""
 
-        # RLM-inspired context budgeting: prioritize relevant content, drop noise
-        knowledge_context = budget_context(top_sections, message, max_tokens=4000)
+        if classify.needs_retrieval:
+            top_sections, source_books, all_books = search_knowledge_sections(
+                message, db, history=history, retrieval_mode=classify.retrieval_mode)
+            knowledge_context = budget_context(top_sections, message, max_tokens=4000)
 
-        book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
-        compressed = get_compressed_knowledge(book_ids, db)
-        if compressed:
-            knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+            book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
+            compressed = get_compressed_knowledge(book_ids, db)
+            if compressed:
+                knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
 
-        # Inject domain skills for Hive-related queries
+        t_retrieval = _time.perf_counter()
+
+        # --- Solved-example reuse detection ---
+        _solved_sections_retrieved = [
+            s for s in top_sections if s.get("is_solved_example")
+        ]
+
+        # --- Step 3: Build prompt ---
         skill_context = load_skills_for_query(message)
         skill_block = f"\n\n{skill_context}" if skill_context else ""
 
-        # Virtual Memory pattern: knowledge in system position for stronger attention
-        system_prompt = f"""{CHAT_SYSTEM_PROMPT}
+        if knowledge_context:
+            system_prompt = f"""{CHAT_SYSTEM_PROMPT}
 {skill_block}
 
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
+        else:
+            system_prompt = f"""{CHAT_SYSTEM_PROMPT}
+{skill_block}
 
-        # Build proper multi-turn ChatML message array
+Answer the question directly and helpfully."""
+
         chat_messages = build_message_array(system_prompt, history, user_message=message)
 
+        # --- Step 4: Generate ---
         response = smart_call("", question=message,
                              messages=chat_messages,
                              num_sections=len(top_sections), max_tokens=4096)
         response = clean_llm_response(response)
+        t_generation = _time.perf_counter()
 
-        # Self-verify: run code blocks in sandbox before returning to user
+        # --- Step 5: Verify + bounded revision ---
         verified_meta = None
+        was_revised = False
         try:
             from hiveai.config import CHAT_VERIFY_CODE
-            if CHAT_VERIFY_CODE:
+            _verify_logger = logging.getLogger("hiveai.verify")
+            _verify_logger.info(f"Verify gate: CHAT_VERIFY_CODE={CHAT_VERIFY_CODE}, needs_verification={classify.needs_verification}, response_len={len(response)}, has_fences={'```' in response}")
+            if CHAT_VERIFY_CODE and classify.needs_verification:
                 from hiveai.sandbox import verify_response_code
                 verification = verify_response_code(response, timeout=15)
+                _verify_logger.info(f"Verification result: blocks={verification['total_blocks']}, passed={verification['passed']}, failed={verification['failed']}")
                 if verification["total_blocks"] > 0:
                     verified_meta = {
                         "blocks": verification["total_blocks"],
                         "passed": verification["passed"],
                         "failed": verification["failed"],
                     }
-                    if verification["failed"] > 0 and verification["passed"] == 0:
+
+                    # Bounded revision: retry once for fixable errors
+                    if verification["failed"] > 0 and should_retry_verification(verification):
+                        revision_prompt = build_revision_prompt(verification)
+                        revision_messages = chat_messages + [
+                            {"role": "assistant", "content": response},
+                            {"role": "user", "content": revision_prompt},
+                        ]
+                        revised = smart_call("", messages=revision_messages, max_tokens=4096)
+                        revised = clean_llm_response(revised)
+                        reverify = verify_response_code(revised, timeout=15)  # clean no longer strips code fences
+
+                        # Accept revision only if it's actually better
+                        if reverify.get("failed", 999) < verification["failed"]:
+                            response = revised
+                            verification = reverify
+                            was_revised = True
+                            verified_meta = {
+                                "blocks": reverify["total_blocks"],
+                                "passed": reverify["passed"],
+                                "failed": reverify["failed"],
+                                "revised": True,
+                            }
+                            logging.getLogger(__name__).info(
+                                f"Revision improved: {verification['failed']}→{reverify['failed']} failures"
+                            )
+
+                    # Warn if still failing after revision attempt
+                    if verified_meta.get("failed", 0) > 0 and verified_meta.get("passed", 0) == 0:
                         response += (
                             "\n\n> **Note:** Automated code verification detected potential issues. "
                             "Please test the code carefully before using in production."
                         )
         except Exception as e:
-            logging.getLogger(__name__).debug(f"Code verification skipped: {e}")
+            logging.getLogger(__name__).error(f"Code verification failed: {type(e).__name__}: {e}", exc_info=True)
 
-        # Auto-improve: stage verified-working responses as training pairs
+        t_verify = _time.perf_counter()
+
+        # --- Step 6: Auto-stage verified pairs ---
         auto_staged = None
         if verified_meta and verified_meta.get("failed", 1) == 0 and verified_meta.get("passed", 0) > 0:
             try:
                 auto_staged = _auto_stage_verified_pair(message, response, verification, db)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.getLogger(__name__).error(f"Auto-stage failed: {type(e).__name__}: {e}", exc_info=True)
 
+        # --- Track solved-example reuse ---
+        if _solved_sections_retrieved:
+            try:
+                _reuse_logger = logging.getLogger("hiveai.reuse")
+                _verified_pass = bool(verified_meta and verified_meta.get("passed", 0) > 0
+                                      and verified_meta.get("failed", 0) == 0)
+                for _s in _solved_sections_retrieved:
+                    _sid = _s.get("id")
+                    if not _sid:
+                        continue
+                    _sec = db.query(BookSection).filter(BookSection.id == _sid).first()
+                    if not _sec or not _sec.keywords_json:
+                        continue
+                    _meta = json.loads(_sec.keywords_json) if isinstance(_sec.keywords_json, str) else {}
+                    _meta.setdefault("reuse", {"retrieved": 0, "verified_pass": 0, "verified_fail": 0, "no_verdict": 0})
+                    _meta["reuse"]["retrieved"] += 1
+                    # Only count pass/fail when verification actually ran assertions
+                    _had_verdict = verified_meta and (verified_meta.get("passed", 0) > 0 or verified_meta.get("failed", 0) > 0)
+                    if _had_verdict:
+                        if _verified_pass:
+                            _meta["reuse"]["verified_pass"] += 1
+                        else:
+                            _meta["reuse"]["verified_fail"] += 1
+                    elif verified_meta:
+                        _meta["reuse"]["no_verdict"] = _meta["reuse"].get("no_verdict", 0) + 1
+                    _rank = next((i + 1 for i, s in enumerate(top_sections) if s.get("id") == _sid), None)
+                    _meta["reuse"].setdefault("ranks", [])
+                    if _rank:
+                        _meta["reuse"]["ranks"].append(_rank)
+                        # Keep last 20 ranks
+                        _meta["reuse"]["ranks"] = _meta["reuse"]["ranks"][-20:]
+                    _sec.keywords_json = json.dumps(_meta)
+                db.commit()
+                _reuse_logger.info(
+                    f"Reuse tracked: {len(_solved_sections_retrieved)} solved example(s), "
+                    f"verified_pass={_verified_pass}, had_verdict={_had_verdict}"
+                )
+            except Exception as _e:
+                logging.getLogger(__name__).warning(f"Reuse tracking failed (non-critical): {_e}")
+
+        # --- Step 7: Knowledge gap detection ---
         learning_info = {"active": False, "topic": None, "job_id": None}
 
         if "KNOWLEDGE_GAP:" in response:
@@ -1030,6 +1127,9 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             except Exception:
                 pass
 
+        t_end = _time.perf_counter()
+
+        # --- Build response with trace ---
         result = {
             "reply": response,
             "sources": source_books,
@@ -1039,6 +1139,23 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             result["verified"] = verified_meta
         if auto_staged:
             result["auto_staged"] = auto_staged
+
+        # Request trace (for observability — visible in API response)
+        result["trace"] = {
+            "classification": classify.to_dict(),
+            "chunks_considered": len(top_sections),
+            "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
+            "solved_example_count": len(_solved_sections_retrieved),
+            "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+            "revised": was_revised,
+            "latency_ms": {
+                "classify": round((t_classify - t_start) * 1000, 1),
+                "retrieval": round((t_retrieval - t_classify) * 1000, 1),
+                "generation": round((t_generation - t_retrieval) * 1000, 1),
+                "verification": round((t_verify - t_generation) * 1000, 1),
+                "total": round((t_end - t_start) * 1000, 1),
+            },
+        }
 
         # MoLoRA domain info (if enabled)
         try:
@@ -1063,72 +1180,98 @@ def chat_stream():
     """
     Server-Sent Events streaming chat endpoint.
 
-    Phase 1 (sync): RAG search + context building (same as /api/chat)
-    Phase 2 (stream): Token-by-token Ollama response via SSE
+    Orchestrated flow:
+      1. Classify request (rule-based, <1ms)
+      2. Route: agent mode OR preinject/hybrid
+      3. RAG search + context building (if needed)
+      4. Stream LLM response
+      5. Verify + bounded revision (if needed)
+      6. Auto-stage verified pairs
 
     SSE events:
-      event: sources   — book sources metadata (sent first)
+      event: classify  — classification result (sent first)
+      event: sources   — book sources metadata
       data: {"token"}  — each streamed token
-      event: done      — {"full_response": "..."} for gap detection
+      event: verification — code verification results
+      event: revision  — revision attempt info
+      event: auto_staged — training pair staged
+      event: done      — {"full_response": "...", "trace": {...}}
       event: error     — on failure
     """
     data = request.get_json()
     message = (data.get("message") or "").strip()
     history = data.get("history", [])
-    agent_mode = data.get("agent_mode", False)
+    # Allow client to force agent mode, but classifier can also trigger it
+    force_agent = data.get("agent_mode", False)
     workspace = data.get("workspace", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
 
+    # Classify BEFORE entering the generator (sync, <1ms)
+    classify = classify_request(message, history)
+    use_agent = force_agent or classify.retrieval_mode == "agent"
+
     def generate():
+        import time as _time
+        t_start = _time.perf_counter()
+
         db = SessionLocal()
         try:
+            # Send classification as first event
+            yield f"event: classify\ndata: {json.dumps(classify.to_dict())}\n\n"
+
             books = db.query(GoldenBook).all()
-            topic_list = [
-                b.title.replace("Knowledge: ", "").strip()
-                for b in books if b.title
-            ]
 
             rich_system_prompt = CHAT_SYSTEM_PROMPT  # default; overridden when books exist
+            top_sections = []
             if not books:
-                # No Golden Books yet — stream direct Ollama response without RAG
+                # No Golden Books yet — stream direct response without RAG
                 yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
                 no_rag_system = "You are HiveAI, a helpful coding knowledge assistant.\n\nAnswer the question directly and helpfully. Note: The knowledge library is still being built, so this response comes from the base model without RAG context."
                 chat_messages = build_message_array(no_rag_system, history, user_message=message)
             else:
-                # Phase 1: RAG search (sync)
-                top_sections, source_books, all_books = search_knowledge_sections(message, db, history=history)
+                # Retrieval phase (if classifier says we need it)
+                source_books = []
+                if classify.needs_retrieval:
+                    top_sections, source_books, all_books = search_knowledge_sections(
+                        message, db, history=history, retrieval_mode=classify.retrieval_mode)
+                    yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
-                # Send sources first
-                yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
+                    knowledge_context = budget_context(top_sections, message, max_tokens=4000)
 
-                # RLM-inspired context budgeting: prioritize relevant content, drop noise
-                knowledge_context = budget_context(top_sections, message, max_tokens=4000)
+                    book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
+                    compressed = get_compressed_knowledge(book_ids, db)
+                    if compressed:
+                        knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
 
-                book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
-                compressed = get_compressed_knowledge(book_ids, db)
-                if compressed:
-                    knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+                    skill_context = load_skills_for_query(message)
+                    skill_block = f"\n\n{skill_context}" if skill_context else ""
 
-                # Inject domain skills for Hive-related queries
-                skill_context = load_skills_for_query(message)
-                skill_block = f"\n\n{skill_context}" if skill_context else ""
-
-                # Virtual Memory pattern: knowledge in system position for stronger attention
-                rich_system_prompt = f"""{CHAT_SYSTEM_PROMPT}
+                    rich_system_prompt = f"""{CHAT_SYSTEM_PROMPT}
 {skill_block}
 
 Your knowledge sections (from verified Golden Books):
 {knowledge_context}
 
 Answer using ONLY the knowledge sections above. If you lack knowledge, respond with KNOWLEDGE_GAP: <topic>"""
+                else:
+                    yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
+                    skill_context = load_skills_for_query(message)
+                    skill_block = f"\n\n{skill_context}" if skill_context else ""
+                    rich_system_prompt = f"{CHAT_SYSTEM_PROMPT}{skill_block}\n\nAnswer the question directly and helpfully."
 
-                # Build proper multi-turn ChatML message array
                 chat_messages = build_message_array(rich_system_prompt, history, user_message=message)
 
+            t_retrieval = _time.perf_counter()
+
+            # Solved-example reuse detection
+            _solved_sections_retrieved = [
+                s for s in top_sections if s.get("is_solved_example")
+            ]
+
             # ---- Agent mode: tool-use loop ----
-            if agent_mode:
+            if use_agent:
                 from hiveai.agent.runner import run_agent_stream
                 for event in run_agent_stream(chat_messages, workspace, base_system=rich_system_prompt):
                     if "token" in event:
@@ -1144,7 +1287,16 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                         return
                     elif event.get("done"):
                         full = clean_llm_response(event.get("full_response", ""))
-                        yield f"event: done\ndata: {json.dumps({'full_response': full})}\n\n"
+                        t_end = _time.perf_counter()
+                        done_data = {
+                            "full_response": full,
+                            "trace": {
+                                "classification": classify.to_dict(),
+                                "mode": "agent",
+                                "latency_ms": {"total": round((t_end - t_start) * 1000, 1)},
+                            },
+                        }
+                        yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
                 return
 
             # ---- Normal mode: single-shot stream ----
@@ -1156,10 +1308,14 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     yield f"data: {json.dumps({'token': chunk['token']})}\n\n"
                 if chunk.get("done"):
                     full = clean_llm_response(chunk.get("full_response", ""))
-                    # Self-verify code blocks before sending done event
+                    t_generation = _time.perf_counter()
+
+                    # Self-verify + bounded revision
+                    was_revised = False
+                    verification = None
                     try:
                         from hiveai.config import CHAT_VERIFY_CODE
-                        if CHAT_VERIFY_CODE:
+                        if CHAT_VERIFY_CODE and classify.needs_verification:
                             from hiveai.sandbox import verify_response_code
                             verification = verify_response_code(full, timeout=15)
                             if verification["total_blocks"] > 0:
@@ -1169,6 +1325,39 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                                     "failed": verification["failed"],
                                 }
                                 yield f"event: verification\ndata: {json.dumps(v_data)}\n\n"
+
+                                # Bounded revision: retry once for fixable errors
+                                if verification["failed"] > 0 and should_retry_verification(verification):
+                                    yield f"event: revision\ndata: {json.dumps({'status': 'retrying', 'fixable_errors': verification['failed']})}\n\n"
+                                    revision_prompt = build_revision_prompt(verification)
+                                    revision_messages = chat_messages + [
+                                        {"role": "assistant", "content": full},
+                                        {"role": "user", "content": revision_prompt},
+                                    ]
+                                    # Stream the revision
+                                    revised_parts = []
+                                    for rev_chunk in stream_llm_call("", messages=revision_messages, max_tokens=4096):
+                                        if "token" in rev_chunk:
+                                            revised_parts.append(rev_chunk["token"])
+                                            # Don't stream revision tokens — replace full response at done
+                                        if rev_chunk.get("done"):
+                                            revised = clean_llm_response(rev_chunk.get("full_response", ""))
+                                            reverify = verify_response_code(revised, timeout=15)
+                                            if reverify.get("failed", 999) < verification["failed"]:
+                                                full = revised
+                                                verification = reverify
+                                                was_revised = True
+                                                v_data = {
+                                                    "blocks": reverify["total_blocks"],
+                                                    "passed": reverify["passed"],
+                                                    "failed": reverify["failed"],
+                                                    "revised": True,
+                                                }
+                                                yield f"event: verification\ndata: {json.dumps(v_data)}\n\n"
+                                                yield f"event: revision\ndata: {json.dumps({'status': 'improved', 'new_failures': reverify['failed']})}\n\n"
+                                            else:
+                                                yield f"event: revision\ndata: {json.dumps({'status': 'no_improvement'})}\n\n"
+
                                 # Auto-improve: stage verified pairs
                                 if verification["failed"] == 0 and verification["passed"] > 0:
                                     try:
@@ -1179,6 +1368,44 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                                         pass
                     except Exception:
                         pass
+
+                    t_verify = _time.perf_counter()
+
+                    # Track solved-example reuse (streaming path)
+                    if _solved_sections_retrieved:
+                        try:
+                            _v_pass = bool(
+                                verification
+                                and verification.get("passed", 0) > 0
+                                and verification.get("failed", 0) == 0
+                            )
+                            for _s in _solved_sections_retrieved:
+                                _sid = _s.get("id")
+                                if not _sid:
+                                    continue
+                                _sec = db.query(BookSection).filter(BookSection.id == _sid).first()
+                                if not _sec or not _sec.keywords_json:
+                                    continue
+                                _meta = json.loads(_sec.keywords_json) if isinstance(_sec.keywords_json, str) else {}
+                                _meta.setdefault("reuse", {"retrieved": 0, "verified_pass": 0, "verified_fail": 0, "no_verdict": 0})
+                                _meta["reuse"]["retrieved"] += 1
+                                _had_verdict = verification and (verification.get("passed", 0) > 0 or verification.get("failed", 0) > 0)
+                                if _had_verdict:
+                                    if _v_pass:
+                                        _meta["reuse"]["verified_pass"] += 1
+                                    else:
+                                        _meta["reuse"]["verified_fail"] += 1
+                                elif verification:
+                                    _meta["reuse"]["no_verdict"] = _meta["reuse"].get("no_verdict", 0) + 1
+                                _rank = next((i + 1 for i, s in enumerate(top_sections) if s.get("id") == _sid), None)
+                                _meta["reuse"].setdefault("ranks", [])
+                                if _rank:
+                                    _meta["reuse"]["ranks"].append(_rank)
+                                    _meta["reuse"]["ranks"] = _meta["reuse"]["ranks"][-20:]
+                                _sec.keywords_json = json.dumps(_meta)
+                            db.commit()
+                        except Exception:
+                            pass
 
                     # MoLoRA domain info
                     try:
@@ -1191,7 +1418,25 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     except Exception:
                         pass
 
-                    yield f"event: done\ndata: {json.dumps({'full_response': full})}\n\n"
+                    t_end = _time.perf_counter()
+                    done_data = {
+                        "full_response": full,
+                        "trace": {
+                            "classification": classify.to_dict(),
+                            "mode": "agent" if use_agent else classify.retrieval_mode,
+                            "chunks_considered": len(top_sections),
+                            "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
+                            "solved_example_count": len(_solved_sections_retrieved),
+                            "revised": was_revised,
+                            "latency_ms": {
+                                "retrieval": round((t_retrieval - t_start) * 1000, 1),
+                                "generation": round((t_generation - t_retrieval) * 1000, 1),
+                                "verification": round((t_verify - t_generation) * 1000, 1),
+                                "total": round((t_end - t_start) * 1000, 1),
+                            },
+                        },
+                    }
+                    yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
         except Exception as e:
             logging.getLogger(__name__).error(f"Stream chat error: {e}")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -1200,6 +1445,175 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
     return Response(generate(), content_type="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ---------------------------------------------------------------------------
+# Solved Example Promotion — verified candidates → retrievable knowledge
+# ---------------------------------------------------------------------------
+
+_SOLVED_EXAMPLES_BOOK_TITLE = "Solved Examples :: Verified Code"
+_SOLVED_EXAMPLES_JOB_ID = -1  # Synthetic book, no real crawl job
+
+
+def _get_or_create_solved_examples_book(db):
+    """Get or create the synthetic 'Solved Examples' GoldenBook for promoted candidates."""
+    book = db.query(GoldenBook).filter(
+        GoldenBook.title == _SOLVED_EXAMPLES_BOOK_TITLE,
+    ).first()
+    if book:
+        return book
+
+    import hashlib
+    book = GoldenBook(
+        job_id=_SOLVED_EXAMPLES_JOB_ID,
+        title=_SOLVED_EXAMPLES_BOOK_TITLE,
+        content="Automatically promoted solved examples from verified chat responses.",
+        content_hash=hashlib.sha256(_SOLVED_EXAMPLES_BOOK_TITLE.encode()).hexdigest(),
+        source_count=0,
+        word_count=0,
+        status="published",
+    )
+    db.add(book)
+    db.flush()
+    logging.getLogger("hiveai.promote").info(
+        f"Created synthetic book '{_SOLVED_EXAMPLES_BOOK_TITLE}' id={book.id}"
+    )
+    return book
+
+
+def promote_candidate_to_knowledge(
+    user_message: str,
+    ai_response: str,
+    pair_id: int,
+    quality: float,
+    verification: dict,
+    code_complexity: dict,
+    content_hash: str,
+    db,
+):
+    """
+    Promote a verified training candidate into a retrievable BookSection.
+
+    Creates a distilled solved-example record in the synthetic 'Solved Examples'
+    book, embedded in the same BGE-M3 space as golden book sections so the RAG
+    pipeline can retrieve it for similar future queries.
+
+    Returns the BookSection id on success, or None if promotion was skipped/failed.
+    """
+    from hiveai.config import AUTO_PROMOTE_VERIFIED, AUTO_PROMOTE_MIN_QUALITY, AUTO_PROMOTE_MIN_CODE_LINES
+    logger = logging.getLogger("hiveai.promote")
+
+    if not AUTO_PROMOTE_VERIFIED:
+        return None
+
+    # Stricter gate than staging
+    if quality < AUTO_PROMOTE_MIN_QUALITY:
+        logger.debug(f"Promotion skipped: quality {quality:.3f} < {AUTO_PROMOTE_MIN_QUALITY}")
+        return None
+
+    if code_complexity.get("lines", 0) < AUTO_PROMOTE_MIN_CODE_LINES:
+        logger.debug(f"Promotion skipped: {code_complexity.get('lines', 0)} lines < {AUTO_PROMOTE_MIN_CODE_LINES}")
+        return None
+
+    try:
+        import re as _re
+
+        # --- Distill into structured solved-example format ---
+        # Extract code blocks from response
+        code_fences = _re.findall(r'```(\w*)\n(.*?)```', ai_response, _re.DOTALL)
+
+        # Detect primary language
+        languages = [lang for lang, _ in code_fences if lang]
+        primary_lang = languages[0] if languages else "python"
+
+        # Build code section (all blocks concatenated)
+        code_parts = []
+        for lang, code in code_fences:
+            code_parts.append(code.strip())
+        code_body = "\n\n".join(code_parts)
+
+        # Verifier result summary
+        v_passed = verification.get("passed", 0)
+        v_total = verification.get("total_blocks", 0)
+        has_asserts = code_complexity.get("has_assertions", False)
+        verifier_type = "assertions pass" if has_asserts else "execution pass"
+
+        # Distilled content — structured for good retrieval
+        header = f"Solved: {user_message[:200]}"
+        content = f"""Problem:
+{user_message}
+
+Verified solution ({primary_lang}):
+```{primary_lang}
+{code_body}
+```
+
+Verification: {verifier_type} ({v_passed}/{v_total} blocks)
+Quality: {quality:.2f} | Lines: {code_complexity.get('lines', 0)} | Branches: {code_complexity.get('branches', 0)}"""
+
+        # Keywords for BM25 hybrid search
+        # Extract meaningful terms from the problem + code
+        problem_terms = set()
+        for word in user_message.lower().split():
+            cleaned = _re.sub(r'[^a-z0-9_]', '', word)
+            if len(cleaned) > 2:
+                problem_terms.add(cleaned)
+        # Add language
+        problem_terms.add(primary_lang.lower())
+        keywords = list(problem_terms)[:20]
+
+        # Embed using same model as knowledge base
+        try:
+            embedding = embed_text(user_message + " " + header)
+        except Exception:
+            logger.warning("Promotion skipped: embedding failed")
+            return None
+
+        # Get or create the synthetic book
+        book = _get_or_create_solved_examples_book(db)
+
+        # Create BookSection
+        section = BookSection(
+            book_id=book.id,
+            header=header,
+            content=content,
+            token_count=len(content.split()),
+            keywords_json=json.dumps({
+                "keywords": keywords,
+                "source_type": "solved_example",
+                "training_pair_id": pair_id,
+                "content_hash": content_hash,
+                "verification_status": verifier_type,
+                "language": primary_lang,
+                "quality_score": quality,
+            }),
+        )
+        section.embedding = embedding
+
+        db.add(section)
+        db.flush()
+
+        # Update book stats
+        book.source_count = (book.source_count or 0) + 1
+        book.word_count = (book.word_count or 0) + len(content.split())
+
+        db.commit()
+
+        logger.info(
+            f"Promoted candidate pair_id={pair_id} → BookSection id={section.id} "
+            f"book='{_SOLVED_EXAMPLES_BOOK_TITLE}' lang={primary_lang} "
+            f"quality={quality:.3f} verifier={verifier_type}"
+        )
+
+        return section.id
+
+    except Exception as e:
+        logger.error(f"Promotion failed: {type(e).__name__}: {e}", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -1233,16 +1647,142 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
     logger = logging.getLogger("hiveai.auto_improve")
     try:
         from hiveai.lora.distiller import _score_quality
-        quality = _score_quality(user_message, ai_response)
+        base_quality = _score_quality(user_message, ai_response)
 
-        # Execution bonus: all code blocks passed sandbox verification
-        quality = min(quality + AUTO_IMPROVE_QUALITY_BONUS, 1.0)
+        # Sandbox-verified code gets a quality floor: passing all assertions IS quality
+        # The text-based scorer penalizes short responses, but verified code doesn't need
+        # verbose explanations to be high quality training data.
+        #
+        # Guards against garbage:
+        #   1. Code complexity — trivial one-liners don't get the floor
+        #   2. Verifier strength — compile-only < tests-pass < multi-assert
+        #   3. Prompt complexity — "hello world" prompts rejected
+        pass_count = verification.get("passed", 0)
+
+        # --- Guard 1: Code complexity ---
+        # Count nontrivial code lines across all passed blocks
+        total_code_lines = 0
+        total_branches = 0
+        has_assertions = False
+        for res in verification.get("results", []):
+            code = res.get("code_preview", "")
+            exec_info = res.get("execution", {})
+            if exec_info and exec_info.get("success"):
+                # Use full code from response if available, else preview
+                preview = code
+                total_code_lines += max(1, preview.count(" ") + 1)  # rough proxy from preview
+                if "assert" in preview.lower():
+                    has_assertions = True
+
+        # Use sandbox's extract_code_blocks (handles unclosed fences)
+        import re as _re
+        from hiveai.sandbox import extract_code_blocks as _extract_blocks
+        _extracted = _extract_blocks(ai_response)
+        total_code_lines = 0
+        total_branches = 0
+        has_assertions = False
+        _code_fences = [b["code"] for b in _extracted]  # for content-hash dedupe
+        for block_info in _extracted:
+            code = block_info["code"]
+            lines = [ln for ln in code.strip().splitlines() if ln.strip() and not ln.strip().startswith('#')]
+            total_code_lines += len(lines)
+            for ln in lines:
+                if _re.search(r'\b(if|for|while|match|try|except|catch)\b', ln):
+                    total_branches += 1
+                if 'assert' in ln.lower():
+                    has_assertions = True
+
+        # --- Guard 2: Verifier strength weighting ---
+        # compile-only (no assertions, no real test): +0.00
+        # execution pass (runs without error): +0.02
+        # has assertions: +0.04
+        # multiple blocks pass: +0.02 per additional block (max +0.08)
+        verifier_bonus = 0.0
+        if has_assertions:
+            verifier_bonus += 0.04
+        else:
+            verifier_bonus += 0.02  # execution-only pass
+        if pass_count > 1:
+            verifier_bonus += min((pass_count - 1) * 0.02, 0.08)
+
+        # --- Guard 3: Prompt complexity ---
+        prompt_words = len(user_message.split())
+        prompt_complex = prompt_words >= 8  # "hello world" type prompts are < 8 words
+
+        # --- Apply guards ---
+        # Minimum 5 nontrivial code lines AND 8+ word prompt to earn the floor
+        if total_code_lines >= 5 and prompt_complex:
+            verified_floor = 0.78 + verifier_bonus  # 0.80-0.90 depending on strength
+        elif total_code_lines >= 3:
+            verified_floor = 0.75 + verifier_bonus * 0.5  # reduced floor for simple code
+        else:
+            verified_floor = 0.0  # trivial code gets no floor — rely on base scorer
+
+        quality = max(base_quality + AUTO_IMPROVE_QUALITY_BONUS, verified_floor)
+        quality = min(quality, 1.0)
+
+        logger.info(
+            f"Auto-stage quality: base={base_quality:.3f}, verified_floor={verified_floor:.3f}, "
+            f"final={quality:.3f} (lines={total_code_lines}, branches={total_branches}, "
+            f"assertions={has_assertions}, verifier_bonus={verifier_bonus:.2f}, prompt_words={prompt_words})"
+        )
 
         if quality < MIN_TRAINING_QUALITY:
-            logger.debug(f"Auto-stage skipped: quality {quality:.3f} < {MIN_TRAINING_QUALITY}")
+            logger.info(f"Auto-stage skipped: quality {quality:.3f} < {MIN_TRAINING_QUALITY}")
             return None
 
-        # Dedup check
+        # --- Content-hash exact dedupe ---
+        # Normalized hash over instruction + code body + language to catch exact duplicates
+        # before the more expensive embedding-based similarity check
+        _code_body = "\n".join(sorted(_code_fences))  # reuse fences extracted above
+        _content_hash = hashlib.sha256(
+            (user_message.strip().lower() + "\n" + _code_body.strip()).encode()
+        ).hexdigest()
+
+        existing_hash = db.query(TrainingPair).filter(
+            TrainingPair.metadata_json.contains(_content_hash),
+        ).first()
+        if existing_hash:
+            logger.debug(f"Auto-stage skipped: exact content hash duplicate {_content_hash[:12]}")
+            return None
+
+        # Embed instruction for dedup + recurrence detection
+        try:
+            embedding = embed_text(user_message)
+        except Exception:
+            embedding = None
+
+        # Recurrence-aware dedup: if similar pair exists, bump recurrence instead of creating new
+        if embedding is not None:
+            from hiveai.vectorstore import cosine_distance
+            existing_pairs = db.query(TrainingPair).filter(
+                TrainingPair.source.in_(["auto_verified", "human_verified"]),
+                TrainingPair.embedding_json.isnot(None),
+            ).order_by(TrainingPair.created_at.desc()).limit(200).all()
+
+            for existing in existing_pairs:
+                if existing.embedding is not None:
+                    dist = cosine_distance(embedding, existing.embedding)
+                    if dist < 0.10:  # >0.90 similarity = same question
+                        existing.recurrence_count = (existing.recurrence_count or 1) + 1
+                        existing.last_seen_at = utcnow()
+                        # Update response if new answer is better quality
+                        if quality > (existing.quality or 0):
+                            existing.response = ai_response
+                            existing.quality = quality
+                        db.commit()
+                        logger.info(
+                            f"Recurrence bump: pair id={existing.id} "
+                            f"count={existing.recurrence_count} quality={existing.quality:.3f}"
+                        )
+                        return {
+                            "action": "recurrence_bump",
+                            "pair_id": existing.id,
+                            "recurrence_count": existing.recurrence_count,
+                            "quality": round(existing.quality, 3),
+                        }
+
+        # No existing match — check broader dedup and create new pair
         from hiveai.lora.dedup import is_duplicate, add_to_cache
         if is_duplicate(user_message, db, quality=quality):
             logger.debug("Auto-stage skipped: duplicate detected")
@@ -1256,6 +1796,8 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
             response=ai_response,
             quality=quality,
             is_eligible=True,
+            recurrence_count=1,
+            last_seen_at=utcnow(),
             metadata_json=json.dumps({
                 "verification": {
                     "total_blocks": verification["total_blocks"],
@@ -1263,14 +1805,16 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
                     "pass_rate": verification.get("overall_pass_rate", 1.0),
                 },
                 "source_type": "chat_auto_improve",
+                "content_hash": _content_hash,
+                "code_complexity": {
+                    "lines": total_code_lines,
+                    "branches": total_branches,
+                    "has_assertions": has_assertions,
+                },
             }),
         )
-        # Embed instruction for dedup cache
-        try:
-            embedding = embed_text(user_message)
+        if embedding is not None:
             pair.embedding = embedding
-        except Exception:
-            embedding = None
 
         db.add(pair)
         db.flush()
@@ -1296,13 +1840,33 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
         db.commit()
 
         # Update dedup cache
-        if embedding:
+        if embedding is not None:
             add_to_cache(embedding, quality=quality)
 
         logger.info(f"Auto-staged training pair id={pair.id} quality={quality:.3f} "
                      f"blocks={verification['total_blocks']} passed={verification['passed']}")
 
-        return {"pair_id": pair.id, "quality": round(quality, 3)}
+        # --- Promote to retrievable knowledge (if gates pass) ---
+        section_id = promote_candidate_to_knowledge(
+            user_message=user_message,
+            ai_response=ai_response,
+            pair_id=pair.id,
+            quality=quality,
+            verification=verification,
+            code_complexity={
+                "lines": total_code_lines,
+                "branches": total_branches,
+                "has_assertions": has_assertions,
+            },
+            content_hash=_content_hash,
+            db=db,
+        )
+
+        result = {"pair_id": pair.id, "quality": round(quality, 3)}
+        if section_id:
+            result["promoted"] = True
+            result["section_id"] = section_id
+        return result
 
     except Exception as e:
         logger.debug(f"Auto-staging skipped: {e}")
@@ -2511,6 +3075,132 @@ def eval_page():
     return render_template("eval.html")
 
 
+# ---------------------------------------------------------------------------
+# Skill Candidates — review, approve, reject, export staged training pairs
+# ---------------------------------------------------------------------------
+
+@app.route("/candidates")
+def candidates_page():
+    return render_template("candidates.html")
+
+
+@app.route("/api/candidates")
+def list_candidates():
+    """List staged training pair candidates with filters."""
+    db = SessionLocal()
+    try:
+        source = request.args.get("source", "")
+        sort = request.args.get("sort", "recurrence")
+        min_rec = request.args.get("min_recurrence", 1, type=int)
+
+        q = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.source.in_(["auto_verified", "human_verified", "human_correction"]),
+        )
+        if source:
+            q = q.filter(TrainingPair.source == source)
+        if min_rec > 1:
+            q = q.filter(TrainingPair.recurrence_count >= min_rec)
+
+        if sort == "recurrence":
+            q = q.order_by(TrainingPair.recurrence_count.desc(), TrainingPair.quality.desc())
+        elif sort == "quality":
+            q = q.order_by(TrainingPair.quality.desc())
+        else:
+            q = q.order_by(TrainingPair.created_at.desc())
+
+        pairs = q.limit(100).all()
+
+        # Stats
+        total = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.source.in_(["auto_verified", "human_verified", "human_correction"]),
+        ).count()
+        high_rec = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.recurrence_count >= 3,
+        ).count()
+
+        return jsonify({
+            "candidates": [{
+                "id": p.id,
+                "source": p.source,
+                "instruction": p.instruction[:500],
+                "response": p.response[:800],
+                "quality": round(p.quality or 0, 3),
+                "recurrence_count": p.recurrence_count or 1,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "last_seen_at": p.last_seen_at.isoformat() if p.last_seen_at else None,
+            } for p in pairs],
+            "total": total,
+            "high_recurrence": high_rec,
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/candidates/<int:pair_id>/approve", methods=["POST"])
+def approve_candidate(pair_id):
+    db = SessionLocal()
+    try:
+        pair = db.query(TrainingPair).get(pair_id)
+        if not pair:
+            return jsonify({"error": "Not found"}), 404
+        pair.source = "human_verified"
+        pair.is_eligible = True
+        db.commit()
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+@app.route("/api/candidates/<int:pair_id>/reject", methods=["POST"])
+def reject_candidate(pair_id):
+    db = SessionLocal()
+    try:
+        pair = db.query(TrainingPair).get(pair_id)
+        if not pair:
+            return jsonify({"error": "Not found"}), 404
+        pair.is_eligible = False
+        db.commit()
+        return jsonify({"ok": True})
+    finally:
+        db.close()
+
+
+@app.route("/api/candidates/export", methods=["POST"])
+def export_candidates():
+    """Export approved candidates as JSONL for training."""
+    db = SessionLocal()
+    try:
+        data = request.get_json() or {}
+        min_rec = data.get("min_recurrence", 1)
+        min_quality = data.get("min_quality", 0.8)
+
+        pairs = db.query(TrainingPair).filter(
+            TrainingPair.is_eligible == True,
+            TrainingPair.quality >= min_quality,
+            TrainingPair.recurrence_count >= min_rec,
+        ).order_by(TrainingPair.quality.desc()).all()
+
+        lines = []
+        for p in pairs:
+            lines.append(json.dumps({
+                "instruction": p.instruction,
+                "input": "",
+                "output": p.response,
+            }, ensure_ascii=False))
+
+        content = "\n".join(lines)
+        return Response(
+            content,
+            mimetype="application/jsonl",
+            headers={"Content-Disposition": f"attachment; filename=candidates_{len(pairs)}_pairs.jsonl"},
+        )
+    finally:
+        db.close()
+
+
 @app.route("/api/browse/communities")
 def browse_communities():
     """Browse community detection results."""
@@ -2571,6 +3261,63 @@ def browse_hive_known():
 
 
 logging.getLogger(__name__).info("Browse routes registered: /api/browse/communities, /api/browse/hive-known")
+
+
+# ---------------------------------------------------------------------------
+# Memory Scoreboard API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/memory/scoreboard")
+def memory_scoreboard():
+    """Return reuse stats for all promoted solved examples."""
+    db = SessionLocal()
+    try:
+        # Find all sections in the Solved Examples book
+        book = db.query(GoldenBook).filter(
+            GoldenBook.title == "Solved Examples :: Verified Code"
+        ).first()
+        if not book:
+            return jsonify({"examples": [], "total": 0})
+
+        sections = db.query(BookSection).filter(
+            BookSection.book_id == book.id
+        ).order_by(BookSection.created_at.desc()).all()
+
+        examples = []
+        for s in sections:
+            meta = json.loads(s.keywords_json) if s.keywords_json else {}
+            reuse = meta.get("reuse", {"retrieved": 0, "verified_pass": 0, "verified_fail": 0})
+            ranks = reuse.get("ranks", [])
+            examples.append({
+                "section_id": s.id,
+                "header": s.header,
+                "language": meta.get("language", "unknown"),
+                "quality_score": meta.get("quality_score"),
+                "training_pair_id": meta.get("training_pair_id"),
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "times_retrieved": reuse.get("retrieved", 0),
+                "verified_pass": reuse.get("verified_pass", 0),
+                "verified_fail": reuse.get("verified_fail", 0),
+                "avg_rank": round(sum(ranks) / len(ranks), 1) if ranks else None,
+                "best_rank": min(ranks) if ranks else None,
+            })
+
+        total_retrieved = sum(e["times_retrieved"] for e in examples)
+        total_pass = sum(e["verified_pass"] for e in examples)
+        total_fail = sum(e["verified_fail"] for e in examples)
+
+        return jsonify({
+            "examples": examples,
+            "total": len(examples),
+            "aggregate": {
+                "total_retrievals": total_retrieved,
+                "total_verified_pass": total_pass,
+                "total_verified_fail": total_fail,
+                "hit_rate": round(sum(1 for e in examples if e["times_retrieved"] > 0) / max(len(examples), 1), 2),
+            },
+        })
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
