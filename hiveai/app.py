@@ -8,7 +8,7 @@ from sqlalchemy import func
 from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, utcnow
 from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
-from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION
+from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION, EXECUTABLE_REPAIR_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
 from skills.skill_loader import load_skills_for_query
 from hiveai.orchestrator import classify_request, should_retry_verification, build_revision_prompt
@@ -995,6 +995,30 @@ Answer the question directly and helpfully."""
                              messages=chat_messages,
                              num_sections=len(top_sections), max_tokens=4096)
         response = clean_llm_response(response)
+
+        # --- Step 4b: One-shot repair for truncated executable JSON ---
+        _parse_status = "none"
+        if classify.response_contract == "executable_code" and '"code"' in response:
+            from hiveai.sandbox import _try_json_code_contract
+            _json_blocks, _ps = _try_json_code_contract(response)
+            _parse_status = _ps
+            if _ps == "truncated":
+                _repair_logger = logging.getLogger("hiveai.repair")
+                _repair_logger.info("Truncated JSON detected — attempting one-shot repair")
+                repair_messages = chat_messages + [
+                    {"role": "assistant", "content": response},
+                    {"role": "user", "content": EXECUTABLE_REPAIR_PROMPT},
+                ]
+                repaired = smart_call("", messages=repair_messages, max_tokens=2048)
+                repaired = clean_llm_response(repaired)
+                _repaired_blocks, _rps = _try_json_code_contract(repaired)
+                if _repaired_blocks and _rps == "complete":
+                    response = repaired
+                    _parse_status = "repaired"
+                    _repair_logger.info("Repair successful — using repaired response")
+                else:
+                    _repair_logger.info(f"Repair failed (status={_rps}) — keeping original")
+
         t_generation = _time.perf_counter()
 
         # --- Step 5: Verify + bounded revision ---
@@ -1195,6 +1219,7 @@ Answer the question directly and helpfully."""
             "contract_mode": _contract_mode,
             "verifier_mode": _verifier_mode,
             "harness_id": _harness_result.get("harness_id") if _harness_result else None,
+            "parse_status": _parse_status,
             "latency_ms": {
                 "classify": round((t_classify - t_start) * 1000, 1),
                 "retrieval": round((t_retrieval - t_classify) * 1000, 1),
@@ -1364,6 +1389,24 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     full = clean_llm_response(chunk.get("full_response", ""))
                     t_generation = _time.perf_counter()
 
+                    # One-shot repair for truncated JSON (streaming path)
+                    _parse_status = "none"
+                    if classify.response_contract == "executable_code" and '"code"' in full:
+                        from hiveai.sandbox import _try_json_code_contract
+                        _jb, _ps = _try_json_code_contract(full)
+                        _parse_status = _ps
+                        if _ps == "truncated":
+                            repair_msgs = chat_messages + [
+                                {"role": "assistant", "content": full},
+                                {"role": "user", "content": EXECUTABLE_REPAIR_PROMPT},
+                            ]
+                            repaired = smart_call("", messages=repair_msgs, max_tokens=2048)
+                            repaired = clean_llm_response(repaired)
+                            _rb, _rps = _try_json_code_contract(repaired)
+                            if _rb and _rps == "complete":
+                                full = repaired
+                                _parse_status = "repaired"
+
                     # Self-verify + bounded revision
                     was_revised = False
                     _contract_mode = "none"
@@ -1514,6 +1557,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "contract_mode": _contract_mode,
                             "verifier_mode": _verifier_mode,
                             "harness_id": _harness_result.get("harness_id") if _harness_result else None,
+                            "parse_status": _parse_status,
                             "latency_ms": {
                                 "retrieval": round((t_retrieval - t_start) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),

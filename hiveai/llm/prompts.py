@@ -240,24 +240,27 @@ Conversation rules:
 
 
 # Appended to system prompt when response_contract == "executable_code"
+# v2: tightened for compact output — reduce truncation risk
 EXECUTABLE_CODE_INSTRUCTION = """
 
-OUTPUT FORMAT — STRICT:
-When writing code, you MUST use this exact format:
+OUTPUT FORMAT — STRICT (machine-verified):
+Respond with ONLY a JSON object. No prose before or after. No markdown outside the JSON.
 
-```json
-{"language": "<lang>", "code": "<solution code>", "tests": "<test assertions>", "explanation": "<brief explanation>"}
-```
+{"language": "<lang>", "code": "<solution>", "tests": "<assertions>", "explanation": "<one line>"}
 
 Rules:
-- The JSON must be inside a single ```json fenced block.
-- "code" contains ONLY the solution (functions, classes, imports).
-- "tests" contains ONLY test assertions that verify the solution. Write the expected values carefully — double-check them.
-- "explanation" is a brief one-line description.
-- Escape newlines as \\n inside the JSON strings.
-- If you cannot produce valid JSON, fall back to a single ```<language> fenced code block with both solution and tests in one block.
-- NEVER split code across multiple fenced blocks.
-- ALWAYS close your code fences with ```."""
+- "code": solution only (functions, classes, imports). Be concise.
+- "tests": 3-5 assertions max. Double-check expected values.
+- "explanation": one sentence max.
+- Escape newlines as \\n in strings.
+- The JSON object must be COMPLETE — always close with }.
+- If the task is complex, keep the code tight. No verbose comments or docstrings.
+- Do NOT add prose, notes, or disclaimers outside the JSON object."""
+
+# One-shot repair prompt for incomplete/truncated JSON responses
+EXECUTABLE_REPAIR_PROMPT = """Your previous response was incomplete — the JSON was truncated.
+Return ONLY the complete JSON object. No explanation. No markdown. Just the JSON:
+{"language": "...", "code": "...", "tests": "...", "explanation": "..."}"""
 
 
 KNOWLEDGE_GAP_PROMPT = """Given the user's question and the available Golden Book topics, determine if we have sufficient knowledge to answer.

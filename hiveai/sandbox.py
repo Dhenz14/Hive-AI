@@ -28,14 +28,18 @@ logger = logging.getLogger(__name__)
 MAX_OUTPUT_BYTES = 10_000  # Cap stdout/stderr at 10KB
 
 
-def _try_json_code_contract(text: str) -> list[dict]:
+def _try_json_code_contract(text: str) -> tuple[list[dict], str]:
     """Try to extract code from executable output contract JSON.
 
     Checks in order:
     1. ```json fenced blocks containing {"language": ..., "code": ..., "tests": ...}
     2. Raw JSON object in the response (model sometimes omits the fence)
 
-    Returns parsed code blocks or empty list if not found/invalid.
+    Returns (parsed_blocks, parse_status) where parse_status is:
+    - "complete": valid JSON with code field
+    - "truncated": JSON started but incomplete (missing closing brace)
+    - "malformed": JSON-like content but unparseable
+    - "none": no JSON contract detected
     """
     import json as _json
 
@@ -44,12 +48,12 @@ def _try_json_code_contract(text: str) -> list[dict]:
     candidates = [m.group(1).strip() for m in json_pattern.finditer(text)]
 
     # Strategy 2: raw JSON object (starts with { and contains "code")
+    _truncated = False
     if not candidates and '"code"' in text:
-        # Find the outermost JSON object
         start = text.find('{')
         if start >= 0:
-            # Find matching closing brace
             depth = 0
+            found_close = False
             for i in range(start, len(text)):
                 if text[i] == '{':
                     depth += 1
@@ -57,7 +61,10 @@ def _try_json_code_contract(text: str) -> list[dict]:
                     depth -= 1
                     if depth == 0:
                         candidates.append(text[start:i+1])
+                        found_close = True
                         break
+            if not found_close and depth > 0:
+                _truncated = True
 
     results = []
     for idx, raw in enumerate(candidates):
@@ -85,7 +92,15 @@ def _try_json_code_contract(text: str) -> list[dict]:
             "code_only": code,
             "tests_only": tests,
         })
-    return results
+
+    if results:
+        return results, "complete"
+    elif _truncated:
+        return [], "truncated"
+    elif candidates:
+        return [], "malformed"
+    else:
+        return [], "none"
 
 
 def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
@@ -107,12 +122,15 @@ def extract_code_blocks(text: str, languages: str = "all") -> list[dict]:
     cpp/c++/rust/rs/go/golang and untagged blocks that parse as valid Python.
     """
     # Step 0: Try JSON executable contract first (preferred path)
-    json_blocks = _try_json_code_contract(text)
+    json_blocks, _json_parse_status = _try_json_code_contract(text)
     if json_blocks:
         # Filter by requested language
         if languages != "all":
             json_blocks = [b for b in json_blocks if b["language"] == languages]
         if json_blocks:
+            # Tag parse_status on blocks for trace propagation
+            for b in json_blocks:
+                b["parse_status"] = _json_parse_status
             return json_blocks
 
     # Step 1: Standard fenced code blocks
@@ -953,6 +971,15 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
     else:
         contract_mode = "none"
 
+    # Determine parse_status (truncation detection)
+    if blocks:
+        parse_statuses = set(b.get("parse_status", "complete") for b in blocks)
+        parse_status = "complete" if "complete" in parse_statuses else parse_statuses.pop()
+    else:
+        # No blocks — check if JSON was attempted but truncated
+        _, json_status = _try_json_code_contract(response)
+        parse_status = json_status
+
     return {
         "total_blocks": len(blocks),
         "python_blocks": python_blocks,
@@ -968,6 +995,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "results": results,
         "overall_pass_rate": passed / max(executed, 1),
         "contract_mode": contract_mode,
+        "parse_status": parse_status,
     }
 
 
