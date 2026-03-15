@@ -1001,15 +1001,47 @@ Answer the question directly and helpfully."""
         verified_meta = None
         was_revised = False
         _contract_mode = "none"
+        _verifier_mode = "generated_assertions"
+        _harness_result = None
         try:
             from hiveai.config import CHAT_VERIFY_CODE
             _verify_logger = logging.getLogger("hiveai.verify")
             _verify_logger.info(f"Verify gate: CHAT_VERIFY_CODE={CHAT_VERIFY_CODE}, needs_verification={classify.needs_verification}, response_len={len(response)}, has_fences={'```' in response}")
             if CHAT_VERIFY_CODE and classify.needs_verification:
-                from hiveai.sandbox import verify_response_code
-                verification = verify_response_code(response, timeout=15)
-                _contract_mode = verification.get("contract_mode", "none")
-                _verify_logger.info(f"Verification result: blocks={verification['total_blocks']}, passed={verification['passed']}, failed={verification['failed']}")
+                from hiveai.sandbox import verify_response_code, extract_code_blocks
+                from hiveai.canonical_harness import match_harness, run_harness
+
+                # Check for canonical harness FIRST
+                _harness_match = match_harness(message)
+                if _harness_match:
+                    _verifier_mode = _harness_match.mode
+                    if _harness_match.mode == "no_verdict":
+                        _verify_logger.info(f"Harness {_harness_match.harness_id}: no_verdict ({_harness_match.reason})")
+                        _contract_mode = "none"
+                        _harness_result = {"passed": None, "mode": "no_verdict", "harness_id": _harness_match.harness_id, "reason": _harness_match.reason}
+                    else:
+                        # Extract just the solution code (prefer code_only from JSON contract)
+                        blocks = extract_code_blocks(response)
+                        _contract_mode = blocks[0].get("contract", "fenced") if blocks else "none"
+                        if blocks:
+                            solution_code = blocks[0].get("code_only", blocks[0]["code"])
+                            _harness_result = run_harness(solution_code, _harness_match, timeout=15)
+                            _verify_logger.info(f"Harness {_harness_match.harness_id}: passed={_harness_result['passed']}, mode={_harness_result['mode']}")
+
+                # Fall back to model-authored verification if no harness or harness is no_verdict
+                if _harness_match and _harness_match.mode not in ("no_verdict",) and _harness_result:
+                    # Use harness result instead of model-authored verification
+                    verification = {
+                        "total_blocks": 1 if _harness_result.get("passed") is not None else 0,
+                        "passed": 1 if _harness_result.get("passed") else 0,
+                        "failed": 0 if _harness_result.get("passed") else 1,
+                        "contract_mode": _contract_mode,
+                    }
+                else:
+                    verification = verify_response_code(response, timeout=15)
+                    _contract_mode = verification.get("contract_mode", _contract_mode)
+
+                _verify_logger.info(f"Verification result: blocks={verification['total_blocks']}, passed={verification['passed']}, failed={verification['failed']}, verifier_mode={_verifier_mode}")
                 if verification["total_blocks"] > 0:
                     verified_meta = {
                         "blocks": verification["total_blocks"],
@@ -1161,6 +1193,8 @@ Answer the question directly and helpfully."""
             "revised": was_revised,
             "response_contract": classify.response_contract,
             "contract_mode": _contract_mode,
+            "verifier_mode": _verifier_mode,
+            "harness_id": _harness_result.get("harness_id") if _harness_result else None,
             "latency_ms": {
                 "classify": round((t_classify - t_start) * 1000, 1),
                 "retrieval": round((t_retrieval - t_classify) * 1000, 1),
@@ -1333,13 +1367,38 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     # Self-verify + bounded revision
                     was_revised = False
                     _contract_mode = "none"
+                    _verifier_mode = "generated_assertions"
+                    _harness_result = None
                     verification = None
                     try:
                         from hiveai.config import CHAT_VERIFY_CODE
                         if CHAT_VERIFY_CODE and classify.needs_verification:
-                            from hiveai.sandbox import verify_response_code
-                            verification = verify_response_code(full, timeout=15)
-                            _contract_mode = verification.get("contract_mode", "none")
+                            from hiveai.sandbox import verify_response_code, extract_code_blocks
+                            from hiveai.canonical_harness import match_harness, run_harness
+
+                            _harness_match = match_harness(message)
+                            if _harness_match:
+                                _verifier_mode = _harness_match.mode
+                                if _harness_match.mode == "no_verdict":
+                                    _contract_mode = "none"
+                                    _harness_result = {"passed": None, "mode": "no_verdict", "harness_id": _harness_match.harness_id, "reason": _harness_match.reason}
+                                else:
+                                    blocks = extract_code_blocks(full)
+                                    _contract_mode = blocks[0].get("contract", "fenced") if blocks else "none"
+                                    if blocks:
+                                        solution_code = blocks[0].get("code_only", blocks[0]["code"])
+                                        _harness_result = run_harness(solution_code, _harness_match, timeout=15)
+
+                            if _harness_match and _harness_match.mode not in ("no_verdict",) and _harness_result:
+                                verification = {
+                                    "total_blocks": 1 if _harness_result.get("passed") is not None else 0,
+                                    "passed": 1 if _harness_result.get("passed") else 0,
+                                    "failed": 0 if _harness_result.get("passed") else 1,
+                                    "contract_mode": _contract_mode,
+                                }
+                            else:
+                                verification = verify_response_code(full, timeout=15)
+                                _contract_mode = verification.get("contract_mode", _contract_mode)
                             if verification["total_blocks"] > 0:
                                 v_data = {
                                     "blocks": verification["total_blocks"],
@@ -1453,6 +1512,8 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "revised": was_revised,
                             "response_contract": classify.response_contract,
                             "contract_mode": _contract_mode,
+                            "verifier_mode": _verifier_mode,
+                            "harness_id": _harness_result.get("harness_id") if _harness_result else None,
                             "latency_ms": {
                                 "retrieval": round((t_retrieval - t_start) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),
