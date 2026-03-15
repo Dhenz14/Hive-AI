@@ -230,6 +230,36 @@ The Forge page (`/forge`) provides one-click training controls:
 - `POST /api/lora/prepare-batches` — Split JSONL into 500-pair micro-training batches
 - `GET /api/eval/ledger` — Return score_ledger.json for visualization
 
+## Memory Reuse System (Promotion Bridge) — LIVE
+
+**Status**: Proven (Gate 6 + Gate 10 PASS). Bridge is FROZEN — do not add features until Gate 11.
+
+**How it works**: Verified chat responses that pass quality + complexity gates get promoted from
+`TrainingPair` (training sink) → `BookSection` (retrieval-indexed, same BGE-M3 embedding space).
+Promoted examples live in a synthetic GoldenBook ("Solved Examples :: Verified Code") and are
+automatically retrieved by the RAG pipeline on similar future queries.
+
+**Promotion gates** (all must pass):
+- `AUTO_PROMOTE_MIN_QUALITY` ≥ 0.82
+- `AUTO_PROMOTE_MIN_CODE_LINES` ≥ 5
+- Verification must have run (compile/execute/assertions)
+- Content-hash dedupe (SHA256 of normalized prompt + sorted code)
+
+**Retrieval bonus**: +0.05 hybrid_score for `source_type == "solved_example"` on code queries.
+
+**Reuse tracking** (`GET /api/memory/scoreboard`):
+- Per-example: times_retrieved, verified_pass/fail, rank history, times_reused
+- Aggregate: hit_rate, total_retrievals, total_verified_pass/fail
+- Chat response trace fields: `solved_example_retrieved`, `solved_example_count`, `solved_example_ids`
+
+**Config flags** (env vars):
+- `AUTO_PROMOTE_VERIFIED=true` — Enable/disable promotion bridge
+- `AUTO_PROMOTE_MIN_QUALITY=0.82` — Minimum quality score for promotion
+- `AUTO_PROMOTE_MIN_CODE_LINES=5` — Minimum code lines for promotion
+
+**Gate 11 (next milestone)**: Collect 5-10 promoted examples organically, prove repeated reuse
+at scale (≥50% retrieved on relevant follow-ups, measurable verification wins, no noise explosion).
+
 ## Eval Protocol — Work Smart Not Hard
 
 **Base model evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
