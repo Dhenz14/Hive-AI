@@ -35,6 +35,29 @@ logger = logging.getLogger("weakness_hunter")
 EVALS_DIR = PROJECT_ROOT / "evals"
 OUTPUT_DIR = PROJECT_ROOT / "loras" / "training_data" / "weakness_patches"
 
+# Map eval categories to their primary programming language.
+# Used by _generate_via_miner() to generate language-correct pairs.
+CATEGORY_LANGUAGE = {
+    "python": "python",
+    "algorithms": "python",
+    "database": "python",
+    "javascript": "javascript",
+    "web": "javascript",
+    "systems": "python",
+    "design_patterns": "python",
+    "testing": "python",
+    "security": "python",
+    "hive_sdk": "python",
+    "hive_architecture": "python",
+    "hive_economics": "python",
+    "hive_security": "python",
+    "hive_layer2": "javascript",
+    "rust": "rust",
+    "go": "go",
+    "cpp": "cpp",
+    "devops": "python",
+}
+
 # Map eval categories to distiller topics for targeted pair generation.
 # Each category maps to a list of specific topics the distiller/miner can use.
 CATEGORY_TOPICS = {
@@ -341,7 +364,8 @@ def _generate_via_miner(category: str, topics: list, templates: list,
                 template = "implement"
 
             template_text = all_templates[template]
-            pair = miner._generate_one_pair(provider, topic, template, template_text, "python")
+            language = CATEGORY_LANGUAGE.get(category, "python")
+            pair = miner._generate_one_pair(provider, topic, template, template_text, language)
 
             if pair:
                 pair["metadata"] = pair.get("metadata", {})

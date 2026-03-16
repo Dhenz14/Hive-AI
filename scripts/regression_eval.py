@@ -61,20 +61,20 @@ QUICK_PROBE_IDS = {
 PROBES = ALL_PROBES
 
 
-def score_response(response: str, expected_keywords: list) -> float:
+def score_response(response: str, expected_keywords: list) -> dict:
     """Score a response based on keyword coverage + structural quality.
+
+    Returns a dict with combined score AND component breakdown:
+        {score, keyword_score, structure_score, keywords_found, keywords_total,
+         response_length, has_code_blocks}
 
     Combines keyword coverage (70%) with structural signals (30%) to avoid
     inflated scores from keyword-stuffed but low-quality responses.
-
-    Structural signals:
-    - Contains code blocks (fenced with ```)
-    - Has function/class definitions
-    - Has reasonable length (not trivially short)
-    - Has explanatory prose (not just code dumps)
     """
     if not response or not response.strip():
-        return 0.0
+        return {"score": 0.0, "keyword_score": 0.0, "structure_score": 0.0,
+                "keywords_found": 0, "keywords_total": len(expected_keywords),
+                "response_length": 0, "has_code_blocks": False}
     text = response.lower()
 
     # Keyword coverage (unique matches only — "buffer" counts once even if
@@ -107,12 +107,26 @@ def score_response(response: str, expected_keywords: list) -> float:
     structure_score = sum(structure_signals) / len(structure_signals)
 
     # Combined: 70% keyword coverage, 30% structural quality
-    return keyword_score * 0.7 + structure_score * 0.3
+    combined = keyword_score * 0.7 + structure_score * 0.3
+
+    return {
+        "score": combined,
+        "keyword_score": round(keyword_score, 4),
+        "structure_score": round(structure_score, 4),
+        "keywords_found": found,
+        "keywords_total": len(expected_keywords),
+        "response_length": len(response),
+        "has_code_blocks": has_code,
+    }
 
 
-def run_probe(probe: Probe, server_url: str, max_retries: int = 2) -> tuple[float, str]:
-    """Run a single probe against llama-server and return (score, response).
+def run_probe(probe: Probe, server_url: str, max_retries: int = 2) -> tuple[dict, str]:
+    """Run a single probe against llama-server and return (score_dict, response).
+    score_dict has: score, keyword_score, structure_score, keywords_found, etc.
     Retries on empty responses (llama-server intermittent issue)."""
+    _zero = {"score": 0.0, "keyword_score": 0.0, "structure_score": 0.0,
+             "keywords_found": 0, "keywords_total": len(probe.expected_keywords),
+             "response_length": 0, "has_code_blocks": False}
     for attempt in range(max_retries + 1):
         try:
             resp = requests.post(
@@ -144,33 +158,38 @@ def run_probe(probe: Probe, server_url: str, max_retries: int = 2) -> tuple[floa
                 score_text = content if content.strip() else reasoning
                 if score_text != content and score_text:
                     print(f"    NOTE: scoring from reasoning_content ({len(reasoning)} chars)")
-                score = score_response(score_text, probe.expected_keywords)
-                return score, score_text
+                result = score_response(score_text, probe.expected_keywords)
+                return result, score_text
             else:
                 print(f"    ERROR: {resp.status_code} — {resp.text[:200]}")
                 if attempt < max_retries:
                     time.sleep(2)
                     continue
-                return 0.0, f"HTTP {resp.status_code}"
+                return _zero, f"HTTP {resp.status_code}"
         except requests.RequestException as e:
             print(f"    ERROR: {e}")
             if attempt < max_retries:
                 time.sleep(2)
                 continue
-            return 0.0, str(e)
-    return 0.0, "max retries exceeded"
+            return _zero, str(e)
+    return _zero, "max retries exceeded"
 
 
-def run_all_probes(server_url: str, quick: bool = False) -> dict:
-    """Run domain probes, return {domain: score} dict.
+def run_all_probes(server_url: str, quick: bool = False) -> tuple[dict, dict]:
+    """Run domain probes, return (domain_averages, probe_details).
 
     Args:
         server_url: llama-server URL
         quick: If True, use original 18 probes only (backward compatible)
                If False, use all 60 probes (10 per domain)
+
+    Returns:
+        domain_averages: {domain: avg_score}
+        probe_details: {probe_id: {score, keyword_score, structure_score, ...}}
     """
     probes = [p for p in PROBES if p.id in QUICK_PROBE_IDS] if quick else PROBES
     domain_scores = defaultdict(list)
+    probe_details = {}
     total = len(probes)
 
     mode = "QUICK (18 probes)" if quick else "FULL (60 probes)"
@@ -179,10 +198,14 @@ def run_all_probes(server_url: str, quick: bool = False) -> dict:
 
     for i, probe in enumerate(probes):
         print(f"  [{i+1}/{total}] {probe.domain}: {probe.prompt[:60]}...")
-        score, response = run_probe(probe, server_url)
+        result, response = run_probe(probe, server_url)
+        score = result["score"]
         domain_scores[probe.domain].append(score)
-        kw_found = sum(1 for kw in probe.expected_keywords if kw.lower() in response.lower())
-        print(f"    Score: {score:.3f} ({kw_found}/{len(probe.expected_keywords)} keywords)"
+        probe_details[probe.id] = {
+            "domain": probe.domain,
+            **result,
+        }
+        print(f"    Score: {score:.3f} ({result['keywords_found']}/{result['keywords_total']} keywords)"
               f" [{probe.id}]")
 
     elapsed = time.time() - start
@@ -194,7 +217,7 @@ def run_all_probes(server_url: str, quick: bool = False) -> dict:
 
     print(f"\nProbes completed in {elapsed:.0f}s ({len(probes)} probes, "
           f"{len(avg_scores)} domains)")
-    return avg_scores
+    return avg_scores, probe_details
 
 
 def load_ledger(ledger_path: str) -> dict:
@@ -213,18 +236,33 @@ def save_ledger(ledger: dict, ledger_path: str):
 
 
 def check_regression(current_scores: dict, ledger: dict,
-                      threshold: float, warn_threshold: float) -> tuple[bool, list]:
+                      threshold: float, warn_threshold: float,
+                      eval_mode: str = "full") -> tuple[bool, list]:
     """Check for regression against historical best scores.
+    Only compares against same eval_mode baselines (quick vs full).
     Returns (passed, list_of_issues)."""
     if not ledger:
         return True, ["No historical data — baseline run"]
 
-    # Find best score per domain across all versions
+    # Find best score per domain across all PASSING versions (same eval_mode)
+    # Skip failed/ entries and legacy entries with "FAILED" in notes
     best_scores = {}
-    for version_data in ledger.values():
+    for version_key, version_data in ledger.items():
+        if version_key.startswith("failed/"):
+            continue
+        if isinstance(version_data, dict):
+            notes = version_data.get("notes", "")
+            if isinstance(notes, str) and "FAILED" in notes.upper():
+                continue
+            # Only compare against same eval_mode; entries without eval_mode
+            # are legacy and treated as "full" for backward compat
+            entry_mode = version_data.get("eval_mode", "full")
+            if entry_mode != eval_mode:
+                continue
         if isinstance(version_data, dict):
             for domain, score in version_data.items():
-                if domain in ("timestamp", "overall"):
+                if domain in ("timestamp", "overall", "eval_mode",
+                              "probe_count", "probe_scores", "notes"):
                     continue
                 if isinstance(score, (int, float)):
                     best_scores[domain] = max(best_scores.get(domain, 0), score)
@@ -294,7 +332,7 @@ def main():
         sys.exit(1)
 
     # Run probes
-    scores = run_all_probes(args.server_url, quick=args.quick)
+    scores, probe_details = run_all_probes(args.server_url, quick=args.quick)
 
     # Display results
     print("\n" + "=" * 60)
@@ -307,9 +345,11 @@ def main():
     print(f"  {'OVERALL':12s}: {overall:.4f}")
     print("=" * 60)
 
-    # Load ledger and check regression
+    # Load ledger and check regression (same eval_mode only)
+    current_mode = "quick" if args.quick else "full"
     ledger = load_ledger(args.ledger)
-    passed, issues = check_regression(scores, ledger, args.threshold, args.warn_threshold)
+    passed, issues = check_regression(scores, ledger, args.threshold, args.warn_threshold,
+                                       eval_mode=current_mode)
 
     if issues:
         print("\nRegression check:")
@@ -320,6 +360,11 @@ def main():
     scores_with_meta = dict(scores)
     scores_with_meta["overall"] = round(overall, 4)
     scores_with_meta["timestamp"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    scores_with_meta["eval_mode"] = "quick" if args.quick else "full"
+    scores_with_meta["probe_count"] = probe_count
+    scores_with_meta["probe_scores"] = {
+        pid: round(detail["score"], 4) for pid, detail in probe_details.items()
+    }
     if passed:
         ledger[args.model_version] = scores_with_meta
         save_ledger(ledger, args.ledger)
@@ -330,6 +375,33 @@ def main():
         ledger[f"failed/{args.model_version}"] = scores_with_meta
         save_ledger(ledger, args.ledger)
         print(f"\nLedger updated (marked as failed): {args.ledger}")
+
+    # Append per-probe trend entries (GEM 3: weakness trending)
+    try:
+        from weakness_trend import append_trend_entry
+        # Look up previous probe scores from ledger for delta computation
+        prev_probe_scores = {}
+        for vk, vd in ledger.items():
+            if vk.startswith("failed/") or vk == args.model_version:
+                continue
+            if isinstance(vd, dict) and vd.get("eval_mode", "full") == current_mode:
+                for pid, ps in vd.get("probe_scores", {}).items():
+                    prev_probe_scores[pid] = ps  # last wins = latest version
+
+        for pid, detail in probe_details.items():
+            append_trend_entry(
+                version=args.model_version,
+                domain=detail["domain"],
+                probe_id=pid,
+                score=detail["score"],
+                keyword_score=detail.get("keyword_score"),
+                structure_score=detail.get("structure_score"),
+                prev_score=prev_probe_scores.get(pid),
+                eval_mode=current_mode,
+            )
+        print(f"\n  Trend log updated: {len(probe_details)} probe entries appended")
+    except Exception as e:
+        print(f"  WARN: Trend logging failed: {e}")
 
     # Final verdict — determine exit code BEFORE any auto-mining that could
     # raise exceptions or otherwise interfere with the exit path
@@ -346,7 +418,7 @@ def main():
 
         # Auto-trigger failure mining for regressed domains
         try:
-            _auto_mine_failures(scores, issues, args.model_version)
+            _auto_mine_failures(scores, issues, args.model_version, probe_details)
         except Exception as e:
             print(f"  WARN: Auto-mining crashed: {e}")
 
@@ -355,8 +427,14 @@ def main():
     sys.exit(exit_code)
 
 
-def _auto_mine_failures(scores: dict, issues: list, version: str):
-    """Auto-generate targeted training pairs for regressed domains."""
+def _auto_mine_failures(scores: dict, issues: list, version: str,
+                        probe_details: dict = None):
+    """Auto-generate targeted training pairs for regressed domains.
+
+    Builds a richer eval payload including per-probe component scores
+    and trend classifications (if available) so weakness_hunter can
+    make probe-level decisions, not just category-level.
+    """
     regressed = []
     for issue in issues:
         # Parse "FAIL: <domain> dropped ..." format
@@ -374,11 +452,35 @@ def _auto_mine_failures(scores: dict, issues: list, version: str):
     weakness_script = PROJECT_ROOT / "scripts" / "weakness_hunter.py"
     if weakness_script.exists():
         try:
-            # Build a minimal eval dict for weakness_hunter
+            # Build eval dict with per-probe telemetry
             eval_data = {"by_category": {}}
             for domain, score in scores.items():
                 if isinstance(score, (int, float)):
                     eval_data["by_category"][domain] = {"score": score}
+
+            # Include per-probe breakdown if available
+            if probe_details:
+                eval_data["probe_details"] = {}
+                for pid, detail in probe_details.items():
+                    eval_data["probe_details"][pid] = {
+                        "domain": detail.get("domain", ""),
+                        "score": detail["score"],
+                        "keyword_score": detail.get("keyword_score", 0),
+                        "structure_score": detail.get("structure_score", 0),
+                    }
+
+            # Include trend classifications if available
+            try:
+                from weakness_trend import load_trend_log, classify_trends
+                entries = load_trend_log(eval_mode="full")
+                if entries:
+                    trends = classify_trends(entries)
+                    eval_data["trend_classifications"] = {
+                        k: {"trend": v.trend, "consecutive": v.consecutive}
+                        for k, v in trends.items()
+                    }
+            except Exception:
+                pass  # trends not available yet — degrade gracefully
 
             # Write temp eval file
             tmp_eval = PROJECT_ROOT / f"_tmp_eval_{version}.json"
