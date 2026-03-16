@@ -260,6 +260,45 @@ automatically retrieved by the RAG pipeline on similar future queries.
 **Gate 11 (next milestone)**: Collect 5-10 promoted examples organically, prove repeated reuse
 at scale (≥50% retrieved on relevant follow-ups, measurable verification wins, no noise explosion).
 
+## 3 Gems — Intelligence Layer (Phase 0-3) — STRUCTURALLY COMPLETE
+
+Three systems that make the training loop stateful. All structurally complete, all non-operative
+(behavior gates OFF). Empirical validation blocked on real closed critique data.
+
+**GEM 3 — Weakness Trending + Probe Telemetry** (Phase 0+1, commit d364136):
+- `scripts/weakness_trend.py` — Per-probe trend classification (declining/resistant/improving/stable)
+- `scripts/probe_library.py` — 60 probes, 6 domains, versioned classifier (`WEAKNESS_CLASSIFIER_VERSION=1`)
+- Fixes: failed-run baseline contamination, language hardcoding, eval_mode mixing
+
+**GEM 1 — Critique Pattern Memory** (Phase 2, commit 0830250):
+- `scripts/critique_memory.py` — Open/close/abandon lifecycle for training fix attempts
+- BookSection rows with `source_type="critique_pattern"`, `embedding=NULL` (no HNSW pollution)
+- Queried by book_id + metadata only (never semantic similarity)
+- `exclude_book_ids` enforced in ALL retrieval paths (primary, hop-2, book-ref, ref_book_ids)
+- Closure by exact `attempt_id` only. Success threshold: `delta > 0.01`
+- Attribution: `isolated`/`batched` stored for reporting, does NOT weight posteriors
+- **Config**: `CRITIQUE_MEMORY_ENABLED=true`, `CRITIQUE_MEMORY_INFLUENCE=false`
+
+**GEM 2 — Bayesian Confidence Calibration** (Phase 3, commit be04076):
+- `scripts/confidence_calibrator.py` — Pure Bernoulli-Beta posteriors per 5-tuple bucket
+- Bucket key: `(eval_mode, weakness_classifier_version, domain, weakness_type, template)`
+- Prior: Beta(1,1). Zero-evidence: `source="prior_only"`, `usable=false`
+- Time-based holdout + probe-level grouping prevents train/eval leakage
+- Empirical harness: reliability diagram, ECE, Brier score (Gates 5-6, need 20+ holdout)
+- Gate spec frozen: `docs/phase3_acceptance_gates.md`
+- **Config**: `BAYESIAN_CALIBRATION_ENABLED=false`
+
+**API endpoints** (all read-only inspection):
+- `GET /api/eval/critique-patterns` — Critique patterns, filterable
+- `GET /api/eval/critique-stats` — Summary counts
+- `GET /api/eval/effective-templates` — Template success rates per domain
+- `GET /api/eval/confidence` — Full calibration ledger with posteriors
+- `GET /api/eval/confidence/reliability` — Reliability diagram data
+
+**Phase 4+ (BLOCKED)**: Template weighting, pair allocation, prior injection — requires real closed
+critique data, empirical Gates 5-6 passing, and representative strata. Do not enable behavior gates
+until then.
+
 ## Eval Protocol — Work Smart Not Hard
 
 **Base model evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
