@@ -64,7 +64,7 @@ class TestContracts:
             overall_score=0.945,
             challenges_run=60,
             challenges_passed=57,
-            per_challenge=[],
+            scores={},
             category_scores={"python": 0.93, "rust": 0.96},
         )
         j = result_to_json(r)
@@ -195,44 +195,48 @@ class TestWorker:
 
 class TestVerifier:
     def test_get_verifier_eval(self):
-        v = get_verifier("eval_sweep", "v5-think", "http://localhost:11435")
+        v = get_verifier("eval_sweep", model_name="v5-think", server_url="http://localhost:11435")
         assert isinstance(v, EvalSweepVerifier)
 
     def test_get_verifier_benchmark(self):
-        v = get_verifier("benchmark_run", "v5-think", "http://localhost:11435")
+        v = get_verifier("benchmark_run", model_name="v5-think", server_url="http://localhost:11435")
         assert isinstance(v, BenchmarkRunVerifier)
 
     def test_verifier_rejects_empty_result(self):
         v = EvalSweepVerifier("v5-think", "http://localhost:11435")
-        decision = v.verify("{}")
+        manifest = {"model_name": "v5-think", "server_url": "http://localhost:11435"}
+        decision = v.verify("{}", manifest)
         assert decision.result == VerificationResult.FAIL
 
     def test_verifier_rejects_malformed_json(self):
         v = EvalSweepVerifier("v5-think", "http://localhost:11435")
-        decision = v.verify("not json at all")
+        manifest = {"model_name": "v5-think", "server_url": "http://localhost:11435"}
+        decision = v.verify("not json at all", manifest)
         assert decision.result == VerificationResult.FAIL
 
     def test_verifier_rejects_zero_challenges(self):
         v = EvalSweepVerifier("v5-think", "http://localhost:11435")
+        manifest = {"model_name": "v5-think", "server_url": "http://localhost:11435"}
         result = json.dumps({
             "overall_score": 0.95,
             "challenges_run": 0,
             "challenges_passed": 0,
             "scores": {},
         })
-        decision = v.verify(result)
+        decision = v.verify(result, manifest)
         assert decision.result == VerificationResult.FAIL
 
     def test_verifier_structural_validation(self):
         """Verifier should catch missing required fields."""
         v = EvalSweepVerifier("v5-think", "http://localhost:11435")
+        manifest = {"model_name": "v5-think", "server_url": "http://localhost:11435"}
         # Missing overall_score
         result = json.dumps({
             "challenges_run": 60,
             "challenges_passed": 55,
             "scores": {"python": 0.93},
         })
-        decision = v.verify(result)
+        decision = v.verify(result, manifest)
         assert decision.result == VerificationResult.FAIL
 
 
