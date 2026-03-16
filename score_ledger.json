@@ -1,12 +1,12 @@
 {
   "base-qwen2.5": {
-    "cpp": 0.9500,
-    "go": 0.9200,
-    "hive": 0.3500,
-    "js": 0.9300,
-    "python": 0.9500,
-    "rust": 0.9200,
-    "overall": 0.7660,
+    "cpp": 0.95,
+    "go": 0.92,
+    "hive": 0.35,
+    "js": 0.93,
+    "python": 0.95,
+    "rust": 0.92,
+    "overall": 0.766,
     "timestamp": "2026-03-07T00:00:00Z",
     "notes": "Vanilla Qwen2.5-Coder-14B-Instruct baseline (published benchmarks + quick_eval 0.978)"
   },
@@ -14,7 +14,7 @@
     "cpp": 0.8571,
     "go": 0.9524,
     "hive": 0.9524,
-    "js": 1.0000,
+    "js": 1.0,
     "python": 0.8968,
     "rust": 0.9524,
     "overall": 0.9352,
@@ -27,7 +27,7 @@
     "hive": 0.7883,
     "js": 0.7233,
     "python": 0.8678,
-    "rust": 0.8600,
+    "rust": 0.86,
     "overall": 0.8466,
     "timestamp": "2026-03-10T05:26:41Z",
     "notes": "First thinking pairs batch. Golden chain established. Some regression from aggressive training."
@@ -35,7 +35,7 @@
   "v3-think": {
     "cpp": 0.8083,
     "go": 0.9667,
-    "hive": 0.9800,
+    "hive": 0.98,
     "js": 0.9333,
     "python": 0.9278,
     "rust": 0.9667,
@@ -52,17 +52,27 @@
     "rust": 0.9667,
     "overall": 0.9329,
     "timestamp": "2026-03-10T13:55:00Z",
-    "notes": "C++ recovery cycle: C++ jumped 0.808→0.933 (+15%). Small drops in JS/Python/Go within noise. Overall 0.933 vs v3 0.930. Currently deployed."
+    "notes": "C++ recovery cycle: C++ jumped 0.808\u00e2\u2020\u20190.933 (+15%). Small drops in JS/Python/Go within noise. Overall 0.933 vs v3 0.930. Currently deployed."
   },
   "v5-agentic": {
     "cpp": 0.7417,
-    "go": 0.9000,
-    "hive": 0.9550,
-    "js": 0.8500,
+    "go": 0.9,
+    "hive": 0.955,
+    "js": 0.85,
     "python": 0.8889,
     "rust": 0.9667,
     "overall": 0.8837,
     "timestamp": "2026-03-10T22:00:00Z",
-    "notes": "FAILED — C++ -20.8%, JS -15%, Go -6.7%. Style contamination from agentic data. Not deployed. Led to v3.0 defense stack."
+    "notes": "FAILED \u00e2\u20ac\u201d C++ -20.8%, JS -15%, Go -6.7%. Style contamination from agentic data. Not deployed. Led to v3.0 defense stack."
+  },
+  "failed/canary-integrated": {
+    "cpp": 0.8417,
+    "go": 0.9667,
+    "hive": 1.0,
+    "js": 0.9133,
+    "python": 0.9278,
+    "rust": 0.9333,
+    "overall": 0.9305,
+    "timestamp": "2026-03-15T22:55:07Z"
   }
 }
