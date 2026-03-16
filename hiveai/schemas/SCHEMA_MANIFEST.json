@@ -1,0 +1,34 @@
+{
+  "source_repo": "HivePoA",
+  "source_commit": "10eb565",
+  "schema_version": 2,
+  "synced_at": "2026-03-16",
+  "files": {
+    "artifact_ref.json": "sha256:6cfd23ef7458fc1a01538297aabb03f43eac3f5dc4be7ac979b9490f83caca65",
+    "baseline_registry_entry.json": "sha256:f3f2038aeb69a14b53184d02373c938b3df88a870906a837729881ec72b97a62",
+    "error_codes.json": "sha256:96b8f9fcf5122ad6d6cbd13e63400a8dd77c3a00fe62f7a76da098b4afa47b70",
+    "manifest_data_generation.json": "sha256:50a0164d7bd7bd8991d23faa08338011f6525ad7343dc08b3fec4b6ff2b7702f",
+    "manifest_domain_lora_train.json": "sha256:edc166534423d6cd2b07044d9174d39b6b5f4c511b03c92acc0b84aef96547ac",
+    "manifest_eval_sweep.json": "sha256:6fd07baa871fe75214b3db66a1769501cafccf436a7dbf1ff43d37058a6d712a",
+    "provenance_v2.json": "sha256:711c9a13c7d973f97b08893b4b03ae57869ba09b0d0f123ca22304a4ee76a2fd",
+    "result_data_generation.json": "sha256:8c9ad311495ef123284d57ff4f08d812ce2f44c37ca0dce382758359196ba6e0",
+    "result_domain_lora_train.json": "sha256:df03bb546eb25cc19f8c5bb459cb6c2054f2c691a14fe7a08b5fbea109cfb233",
+    "result_eval_sweep.json": "sha256:a4815f3c94ec4cedb3da4214b62b202fb1b6c342c37e6ac97221f6db342150cd"
+  },
+  "fixtures": {
+    "manifest_data_generation_invalid.json": "sha256:06322ae3475d9b535dda6614923358681d8f3741836e0f505b3252f5ee286d82",
+    "manifest_data_generation_valid.json": "sha256:87c8dc9666d74f43820719058cfce1d49d5226d9ea54a341011c0f37891e506b",
+    "manifest_domain_lora_train_invalid.json": "sha256:0487051476c737408917562dc6131a8833a999bf1cf15b6ec6cbdc6d9ae8be86",
+    "manifest_domain_lora_train_valid.json": "sha256:9f011be54a25c4669c3fd5640cd319b0e0c90f8c876a24ff7067380082d35171",
+    "manifest_eval_sweep_invalid.json": "sha256:2026f024e32e0ac144e35c1e9aa4ba3f72e0553ac670ff18602e6de673ce6fb7",
+    "manifest_eval_sweep_valid.json": "sha256:292d6ee6b180ea8de51ac43b96e267981376bee7037fa2387e4415ce2a30872b",
+    "provenance_invalid.json": "sha256:2a703c593065cc6bb9b0d5f0c652df3cbb20844261dac2762eb72bd13c4f43ff",
+    "provenance_valid.json": "sha256:df2b2ed025c80adfff72f2033dc866c175adb4d21f7bf62e3fe89a63930c3be3",
+    "result_data_generation_invalid.json": "sha256:843faf3006130e1f131694b16fe25ac8186a22cb2ea62ba903a52eba8418aea9",
+    "result_data_generation_valid.json": "sha256:4bff1009f62e9d9620ff7cdcce9dd1095e7968d1552d2c45add6b821a8ae9405",
+    "result_domain_lora_train_invalid.json": "sha256:c3995df182ca47051f66f358bc18b353e4c3e8921162967f157f8af99a69014a",
+    "result_domain_lora_train_valid.json": "sha256:a4e2a7030ce6d02bfff76bc86dccdab95ce9e817b2e112c018d35b935ed20e82",
+    "result_eval_sweep_invalid.json": "sha256:3654cee2566e91aea186bef99cece418acd969639d79af7a7acbcc8d23bcdb83",
+    "result_eval_sweep_valid.json": "sha256:45e91e9ef155657a9e2e99707f775b61406adec3c8f4093b031b4f9665daaced"
+  }
+}
