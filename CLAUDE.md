@@ -69,7 +69,33 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - `~/AppData/Local/pip/cache/` — pip package cache
 - `~/AppData/Local/Temp/wsl-crashes/` — WSL crash dumps from segfaults
 
-## Continual Learning Pipeline v3.0 (Lossless Zero-Forgetting + Style Protection)
+## Daily Learning Architecture — 4 Layers (Strategic Pivot, 2026-03-14)
+
+**v5-think (94.65%) is FROZEN. Do not micro-train. Knowledge growth happens via RAG, not weights.**
+
+The golden chain (sequential LoRA merge) hit its architectural ceiling. Going from 94% → 96%+ via
+more SFT/merge cycles is the wrong tool. The product value is in the application layer.
+
+- **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core. Do not touch.
+- **Layer 1: RAG/Retrieval** — Where the system learns every day. Verified chat responses auto-promote
+  to retrievable BookSections. Skills, golden books, solved examples. No retraining needed.
+- **Layer 2: Skill Buffer** — Verified training pairs accumulate passively from chat. NOT immediate
+  training. Accumulate until repeated miss + verifiable + large headroom.
+- **Layer 3: Rare Promotion** — Event-driven training only. ALL 4 conditions must be met:
+  1. Repeated miss in real use (not one-off)
+  2. Retrieval is too slow or insufficient (RAG can't cover it)
+  3. Executable eval exists (compile/test/type-check, not keyword scoring)
+  4. Big expected gain (>3% domain improvement)
+  When Layer 3 fires, it uses community GPUs (HivePoA) for large-batch training, not local micro-cycles.
+
+**Training policy**: Do NOT train because the model saw something new once. Train only when all 4
+conditions align. The golden chain stays alive as a precision instrument, not the main roadmap.
+
+## Layer 3: Continual Learning Pipeline (Reserved for Rare Promotion Events)
+
+**WARNING: This pipeline is NOT the daily workflow. It executes only when Layer 3 criteria are met.
+v5-think is frozen. The micro-training flywheel below is historical context (how v5-think was built)
+and reference for the next Layer 3 event.**
 
 **Architecture**: Train small LoRA → merge permanently into base → consolidate → eval → promote.
 Knowledge stacks like legos — once merged, it can never be lost.
@@ -192,16 +218,16 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - Auto-computes and saves Fisher matrix after training (for next cycle's EWC)
 - Auto-detects previous LoRA and Fisher paths from prev_version
 
-**Folder layout**:
-- `models/deploy/current_base.gguf` — Active inference GGUF
-- `replay/*.jsonl` — Per-domain replay buffers (hive, cpp, rust, go, js, general_coding)
-- `datasets/*.jsonl` — Training data for new domains
+**Folder layout** (Layer 3 staging — NOT used daily, consulted only for rare promotion events):
+- `models/deploy/current_base.gguf` — Active inference GGUF (v5-think, frozen)
+- `replay/*.jsonl` — Per-domain replay buffers (Layer 3 staging)
+- `datasets/*.jsonl` — Training data (Layer 3 staging)
 - `score_ledger.json` — Historical scores across all versions
 - `logs/` — Per-cycle training logs with rich checkpoint state for resume
 - `loras/<version>/fisher.pt` — Fisher matrix for EWC (auto-generated)
 - `style_shift_history.json` — Historical style shift scores for threshold calibration (v3.0)
 
-**Fully automated**: No manual steps. Scripts auto-sync from Windows, CRLF auto-fixed, preflight auto-runs.
+**Fully automated when Layer 3 fires**: No manual steps. Scripts auto-sync from Windows, CRLF auto-fixed, preflight auto-runs.
 
 **Training data format**: Standard instruction/input/output JSONL (NO metadata field). Optional "style" field for v3.0 routing.
 
@@ -215,9 +241,10 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - Algo & Reasoning (50 pairs): DP, graphs, data structures, debugging, system design (100% `<think>` blocks)
 Individual files preserved as `new_pairs_*.jsonl` for traceability.
 
-## Training UI (Forge Mind Page)
+## Training UI (Forge Mind Page) — Layer 3 Only
 
-The Forge page (`/forge`) provides one-click training controls:
+The Forge page (`/forge`) provides training controls for **rare Layer 3 promotion events**.
+This is NOT for daily use. v5-think is frozen. Use only when all 4 Layer 3 criteria are met.
 - **Launch Micro-Training**: Domain selector, data path, version — launches `run_full_cycle.sh` in WSL tmux
 - **Training Monitor**: Live pipeline stage indicator (7 steps), progress bar, loss display, log tail, stop button
 - **Score Ledger**: Domain scores across all versions displayed in Eval Arena (`/eval`)
@@ -260,10 +287,11 @@ automatically retrieved by the RAG pipeline on similar future queries.
 **Gate 11 (next milestone)**: Collect 5-10 promoted examples organically, prove repeated reuse
 at scale (≥50% retrieved on relevant follow-ups, measurable verification wins, no noise explosion).
 
-## 3 Gems — Intelligence Layer (Phase 0-3) — STRUCTURALLY COMPLETE
+## 3 Gems — Layer 3 Intelligence (Phase 0-3) — STRUCTURALLY COMPLETE
 
-Three systems that make the training loop stateful. All structurally complete, all non-operative
-(behavior gates OFF). Empirical validation blocked on real closed critique data.
+Three systems that make the rare Layer 3 training loop smarter when it fires. They do NOT drive
+daily learning (that's Layer 1 RAG). All structurally complete, all non-operative (behavior gates
+OFF). Empirical validation blocked on real closed critique data from future Layer 3 events.
 
 **GEM 3 — Weakness Trending + Probe Telemetry** (Phase 0+1, commit d364136):
 - `scripts/weakness_trend.py` — Per-probe trend classification (declining/resistant/improving/stable)
