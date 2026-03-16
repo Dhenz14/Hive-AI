@@ -3435,6 +3435,69 @@ def api_effective_templates():
 logging.getLogger(__name__).info("Critique memory routes registered: /api/eval/critique-patterns, /api/eval/critique-stats, /api/eval/effective-templates")
 
 
+# ---------------------------------------------------------------------------
+# Bayesian Confidence Calibration — GEM 2 Phase 3 (read-only inspection)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/eval/confidence")
+def api_confidence_ledger():
+    """Full calibration ledger with posteriors, intervals, versioning. Read-only."""
+    from hiveai.config import BAYESIAN_CALIBRATION_ENABLED
+    if not BAYESIAN_CALIBRATION_ENABLED:
+        return jsonify({"error": "Bayesian calibration disabled", "hint": "Set BAYESIAN_CALIBRATION_ENABLED=true"}), 404
+    try:
+        from scripts.confidence_calibrator import compute_ledger_from_db
+        db = SessionLocal()
+        try:
+            ledger = compute_ledger_from_db(db)
+            # Filter by domain if requested
+            domain = request.args.get("domain")
+            if domain and ledger.get("buckets"):
+                ledger["buckets"] = {
+                    k: v for k, v in ledger["buckets"].items()
+                    if v.get("domain") == domain
+                }
+                ledger["total_buckets"] = len(ledger["buckets"])
+            return jsonify(ledger)
+        finally:
+            db.close()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Confidence ledger error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/eval/confidence/reliability")
+def api_confidence_reliability():
+    """Reliability diagram data for calibration validation. Read-only."""
+    from hiveai.config import BAYESIAN_CALIBRATION_ENABLED
+    if not BAYESIAN_CALIBRATION_ENABLED:
+        return jsonify({"error": "Bayesian calibration disabled"}), 404
+    try:
+        from scripts.confidence_calibrator import validate_from_db
+        from datetime import datetime, timezone
+        db = SessionLocal()
+        try:
+            # Use current time as cutoff (fit on all data, no holdout)
+            # For real validation, pass a proper cutoff
+            cutoff_str = request.args.get("fit_cutoff")
+            if cutoff_str:
+                cutoff = datetime.fromisoformat(cutoff_str)
+                if cutoff.tzinfo is None:
+                    cutoff = cutoff.replace(tzinfo=timezone.utc)
+            else:
+                cutoff = datetime.now(timezone.utc)
+            result = validate_from_db(db, fit_cutoff=cutoff)
+            return jsonify(result)
+        finally:
+            db.close()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Confidence reliability error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+logging.getLogger(__name__).info("Confidence calibration routes registered: /api/eval/confidence, /api/eval/confidence/reliability")
+
+
 @app.route("/eval")
 def eval_page():
     """Evaluation dashboard — run evals, view results, compare models."""

@@ -157,6 +157,9 @@ CRITIQUE_MEMORY_ENABLED = os.environ.get("CRITIQUE_MEMORY_ENABLED", "true").lowe
 # Hard gate: critique memory must NOT influence generation until lifecycle is validated end-to-end
 CRITIQUE_MEMORY_INFLUENCE = os.environ.get("CRITIQUE_MEMORY_INFLUENCE", "false").lower() in ("1", "true", "yes")
 
+# --- Bayesian Confidence Calibration (GEM 2 — Phase 3) ---
+BAYESIAN_CALIBRATION_ENABLED = os.environ.get("BAYESIAN_CALIBRATION_ENABLED", "false").lower() in ("1", "true", "yes")
+
 # --- Product Telemetry (3-arm holdout for memory experiment) ---
 TELEMETRY_ENABLED = os.environ.get("TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 # holdout_surface: memory injected, surface hidden (isolates UI effect)
