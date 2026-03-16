@@ -1,0 +1,199 @@
+{
+  "campaign": "evidence_campaign_v1",
+  "day": 1,
+  "timestamp": "2026-03-16T23:02:21Z",
+  "frozen_parameters": {
+    "base_model": "v5-think-consolidated",
+    "base_model_quant": "Q5_K_M",
+    "eval_mode": "full",
+    "weakness_classifier_version": 1,
+    "success_threshold": 0.01,
+    "attribution": "isolated",
+    "critique_memory_influence": false,
+    "bayesian_calibration_enabled": false,
+    "serving_checkpoint": "unchanged",
+    "shadow_data_usable_for_live_calibration": false
+  },
+  "hashes": {
+    "git_sha": "b4016303ff091dc5f406422ba4a9b70891e2643c",
+    "probe_library_sha256": "db5052a48ce93c9ba84bf3327114badddff70cdf083bf2ac2b72f1820138bbe6",
+    "regression_eval_sha256": "169c67997ac26cf5e627346a85488c14ed39c6bbb7b86467b65fe673c89b5703",
+    "weakness_trend_sha256": "0983739cb2322926dd4741fc0626a0ea15d48b684de2da72e5ed90d69bce7900",
+    "campaign_anchor_eval_sha256": "7d82c052ab7afb8072226cb458bf8894591c012b699babca736d0ebbb142f7be"
+  },
+  "anchor_probes": {
+    "B1": {
+      "probe_id": "js-generics",
+      "domain": "js",
+      "template": "implement",
+      "score": 0.7,
+      "keyword_score": 0.5714,
+      "structure_score": 1.0,
+      "keywords_hit": 4,
+      "keywords_total": 7,
+      "weakness_type": "keyword_only",
+      "elapsed_s": 7.1
+    },
+    "B2": {
+      "probe_id": "py-metaclass",
+      "domain": "python",
+      "template": "explain",
+      "score": 0.8833,
+      "keyword_score": 0.8333,
+      "structure_score": 1.0,
+      "keywords_hit": 5,
+      "keywords_total": 6,
+      "weakness_type": "none",
+      "elapsed_s": 11.9
+    },
+    "B3": {
+      "probe_id": "rs-ownership",
+      "domain": "rust",
+      "template": "debug_fix",
+      "score": 0.9,
+      "keyword_score": 0.8571,
+      "structure_score": 1.0,
+      "keywords_hit": 6,
+      "keywords_total": 7,
+      "weakness_type": "none",
+      "elapsed_s": 21.4
+    },
+    "B4": {
+      "probe_id": "cpp-variadic",
+      "domain": "cpp",
+      "template": "implement",
+      "score": 0.925,
+      "keyword_score": 1.0,
+      "structure_score": 0.75,
+      "keywords_hit": 7,
+      "keywords_total": 7,
+      "weakness_type": "none",
+      "elapsed_s": 16.1
+    },
+    "B5": {
+      "probe_id": "go-generics",
+      "domain": "go",
+      "template": "refactor",
+      "score": 0.9,
+      "keyword_score": 0.8571,
+      "structure_score": 1.0,
+      "keywords_hit": 6,
+      "keywords_total": 7,
+      "weakness_type": "none",
+      "elapsed_s": 22.4,
+      "promoted_from": "R1",
+      "replaces": "cpp-const (score=1.000, zero headroom)"
+    }
+  },
+  "diversity_check": {
+    "domains_count": 5,
+    "domains": [
+      "cpp",
+      "go",
+      "js",
+      "python",
+      "rust"
+    ],
+    "domains_pass": true,
+    "weakness_types_count": 2,
+    "weakness_types": [
+      "keyword_only",
+      "none"
+    ],
+    "weakness_types_pass": true,
+    "templates_count": 4,
+    "templates": [
+      "debug_fix",
+      "explain",
+      "implement",
+      "refactor"
+    ],
+    "templates_pass": true,
+    "all_pass": true
+  },
+  "baseline_variance": {
+    "per_bucket": {
+      "B1": {
+        "scores": [
+          0.7,
+          0.7
+        ],
+        "mean": 0.7,
+        "variance": 0.0,
+        "max_delta": 0.0
+      },
+      "B2": {
+        "scores": [
+          0.8833,
+          0.8833
+        ],
+        "mean": 0.8833,
+        "variance": 0.0,
+        "max_delta": 0.0
+      },
+      "B3": {
+        "scores": [
+          0.9,
+          0.9
+        ],
+        "mean": 0.9,
+        "variance": 0.0,
+        "max_delta": 0.0
+      },
+      "B4": {
+        "scores": [
+          0.9,
+          0.925
+        ],
+        "mean": 0.9125,
+        "variance": 0.000156,
+        "max_delta": 0.025
+      },
+      "B5": {
+        "scores": [
+          1.0,
+          1.0
+        ],
+        "mean": 1.0,
+        "variance": 0.0,
+        "max_delta": 0.0
+      },
+      "R1": {
+        "scores": [
+          0.9,
+          0.9
+        ],
+        "mean": 0.9,
+        "variance": 0.0,
+        "max_delta": 0.0
+      }
+    },
+    "max_variance": 0.000156,
+    "max_delta": 0.025,
+    "stable": true
+  },
+  "num_baseline_runs": 2,
+  "notes": [
+    "Day 1: Manifest frozen with anchor probe scores and weakness classifications.",
+    "Model is frozen v5-think. No serving-path changes for 30 days.",
+    "Weakness classifier v1: keyword<0.70=keyword_only, structure<0.50=structure_only, both=compound, neither=none.",
+    "B5 replaced: cpp-const scored 1.000 (zero headroom). Promoted R1 (go-generics, 0.900) to B5 with template=refactor.",
+    "B4 (cpp-variadic) showed 0.025 run-to-run delta on keyword_score (6/7 vs 7/7). Noted, within stable threshold.",
+    "Baseline variance includes pre-replacement B5/R1 runs for provenance. Post-replacement B5=go-generics baseline is 0.900 (stable, 0 delta)."
+  ],
+  "replaced_buckets": {
+    "original_B5": {
+      "probe_id": "cpp-const",
+      "domain": "cpp",
+      "template": "refactor",
+      "score": 1.0,
+      "keyword_score": 1.0,
+      "structure_score": 1.0,
+      "keywords_hit": 7,
+      "keywords_total": 7,
+      "weakness_type": "none",
+      "elapsed_s": 25.4,
+      "replaced_reason": "score=1.000, zero headroom for improvement"
+    }
+  }
+}
