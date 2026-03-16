@@ -418,6 +418,114 @@ class ChatMessage(Base):
     )
 
 
+class TelemetryEvent(Base):
+    """Product telemetry for 3-arm memory experiment.
+
+    Arms:
+      - treatment       — memory injected + surface shown
+      - holdout_surface — memory injected + surface hidden
+      - no_injection    — memory NOT injected + surface hidden
+
+    Identity graph:
+      - request_id  — one per HTTP request
+      - answer_id   — one per response (may differ from request if revised)
+      - attempt_id  — one per generation attempt (revised answers get new attempt)
+
+    Design invariants:
+      - memory_context_injected != memory_surface_emitted (independent)
+      - Writes happen async via background queue (fail-open, never blocks chat)
+      - Stack versions stamped on every event (model, git SHA, classifiers, frontend)
+      - Client outcome events use state-machine transitions, not blind first-write-wins
+      - Explicit acceptance separated from implicit proxies
+
+    Naming honesty:
+      - "no_injection" means retrieval still runs (for latent logging) but results
+        are stripped from the LLM prompt. It does NOT eliminate retrieval-side
+        effects (latency, cache warming, reranker load). This arm isolates
+        prompt-level injection effect, not full memory subsystem cost.
+    """
+    __tablename__ = "telemetry_events"
+
+    id = Column(Integer, primary_key=True)
+    request_id = Column(String(36), nullable=False)     # one per HTTP request
+    answer_id = Column(String(36), nullable=False)      # one per response
+    attempt_id = Column(String(36), nullable=True)      # one per generation attempt
+    session_id = Column(String(36), nullable=True)      # chat session if available
+    created_at = Column(DateTime, default=utcnow)
+
+    # 3-arm assignment (deterministic per session)
+    experiment_group = Column(String(30), nullable=False)  # treatment|holdout_surface|no_injection
+
+    # Revision lineage
+    parent_answer_id = Column(String(36), nullable=True)  # answer_id of pre-revision response
+    final_answer_id = Column(String(36), nullable=True)   # answer_id of terminal response
+    is_terminal_attempt = Column(Boolean, default=True)    # False if a revision superseded this
+
+    # Retrieval layer — logged even when context/surface is suppressed
+    memory_available = Column(Boolean, default=False)       # pattern match existed
+    memory_context_injected = Column(Boolean, default=False)  # memory data in LLM prompt
+    memory_surface_emitted = Column(Boolean, default=False)   # SSE event sent to client
+    solved_example_count = Column(Integer, default=0)
+    solved_example_ids_json = Column(Text, nullable=True)
+    confidence_band = Column(String(20), nullable=True)     # high/good/mixed/low
+
+    # Classification (with version tags)
+    workflow_class = Column(String(50), nullable=True)
+    language_detected = Column(String(20), nullable=True)
+    retrieval_mode = Column(String(30), nullable=True)
+    response_contract = Column(String(30), nullable=True)
+    workflow_classifier_version = Column(String(10), nullable=True)
+    language_detector_version = Column(String(10), nullable=True)
+
+    # Stack versions
+    model_id = Column(String(50), nullable=True)
+    git_sha = Column(String(12), nullable=True)
+    verifier_mode = Column(String(30), nullable=True)  # generated_assertions|harness|no_verdict
+    frontend_build = Column(String(50), nullable=True)  # client-reported build/version
+
+    # System outcome layer
+    verification_passed = Column(Integer, nullable=True)
+    verification_failed = Column(Integer, nullable=True)
+    verification_total = Column(Integer, nullable=True)
+    was_revised = Column(Boolean, default=False)
+    auto_staged = Column(Boolean, default=False)
+    auto_promoted = Column(Boolean, default=False)
+
+    # User outcome signals — explicit vs implicit (updated via client events)
+    # State machine: transitions allowed (retry→accept, accept→reject, etc.)
+    details_expanded = Column(Boolean, default=False)        # user opened memory details
+    pattern_clicked = Column(Boolean, default=False)         # user clicked matched pattern
+    explicit_accept = Column(Boolean, nullable=True)         # True=accept, False=reject, None=no signal
+    implicit_accept_proxy = Column(Boolean, nullable=True)   # True=no_followup/copy, None=no signal
+    user_retried = Column(Boolean, default=False)            # user retried or reformulated
+    outcome_sequence_json = Column(Text, nullable=True)      # ordered list of all outcome events with timestamps
+
+    # Latency (ms) — measured BEFORE telemetry write
+    latency_retrieval_ms = Column(Float, nullable=True)
+    latency_generation_ms = Column(Float, nullable=True)
+    latency_verification_ms = Column(Float, nullable=True)
+    latency_total_ms = Column(Float, nullable=True)
+
+    # Matched pattern details (latent — for holdout analysis)
+    matched_pattern_pass_rates_json = Column(Text, nullable=True)
+
+    # Traffic hygiene
+    is_internal = Column(Boolean, default=False)
+
+    __table_args__ = (
+        Index("ix_telemetry_group", "experiment_group"),
+        Index("ix_telemetry_session", "session_id"),
+        Index("ix_telemetry_created", "created_at"),
+        Index("ix_telemetry_workflow", "workflow_class"),
+        Index("ix_telemetry_answer", "answer_id"),
+        Index("ix_telemetry_request", "request_id"),
+        Index("ix_telemetry_band", "confidence_band"),
+        Index("ix_telemetry_lang", "language_detected"),
+        Index("ix_telemetry_group_band", "experiment_group", "confidence_band"),
+        Index("ix_telemetry_group_workflow", "experiment_group", "workflow_class"),
+    )
+
+
 class SystemConfig(Base):
     __tablename__ = "system_config"
     key = Column(String, primary_key=True)

@@ -3,9 +3,10 @@ import re
 import json
 import logging
 import threading
+import uuid
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from sqlalchemy import func
-from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, utcnow
+from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, TelemetryEvent, utcnow
 from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION, EXECUTABLE_REPAIR_PROMPT
@@ -911,6 +912,24 @@ def chat_api():
     classify = classify_request(message, history)
     t_classify = _time.perf_counter()
 
+    # --- Telemetry: 3-arm assignment ---
+    from hiveai.config import TELEMETRY_ENABLED, TELEMETRY_HOLDOUT_SURFACE_PCT, TELEMETRY_NO_INJECTION_PCT
+    from hiveai.telemetry import (
+        assign_experiment_group, generate_answer_id, generate_request_id, generate_attempt_id,
+        classify_workflow, detect_language, best_confidence_band,
+        log_telemetry_event, is_internal_traffic,
+        should_inject_memory, should_show_surface,
+    )
+    _telem_session_id = data.get("session_id") or str(uuid.uuid4())
+    _telem_request_id = generate_request_id()
+    _telem_answer_id = generate_answer_id()
+    _telem_attempt_id = generate_attempt_id()
+    _telem_group = assign_experiment_group(_telem_session_id, TELEMETRY_HOLDOUT_SURFACE_PCT, TELEMETRY_NO_INJECTION_PCT) if TELEMETRY_ENABLED else "treatment"
+    _telem_inject_memory = should_inject_memory(_telem_group)
+    _telem_user_agent = request.headers.get("User-Agent", "")
+    _telem_is_internal = is_internal_traffic(_telem_session_id, _telem_user_agent)
+    _telem_frontend_build = data.get("frontend_build") or request.headers.get("X-Frontend-Build")
+
     db = SessionLocal()
     try:
         books = db.query(GoldenBook).all()
@@ -952,8 +971,14 @@ def chat_api():
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
                 message, db, history=history, retrieval_mode=classify.retrieval_mode)
+
+            # 3-arm experiment: no_injection strips solved examples from context
+            _ctx_sections = top_sections
+            if not _telem_inject_memory:
+                _ctx_sections = [s for s in top_sections if not s.get("is_solved_example")]
+
             _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
-            knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
+            knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
             book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
             compressed = get_compressed_knowledge(book_ids, db)
@@ -1239,6 +1264,42 @@ Answer the question directly and helpfully."""
         except Exception:
             pass
 
+        # --- Telemetry: log event (async, never blocks chat) ---
+        if TELEMETRY_ENABLED:
+            _has_memory = len(_solved_sections_retrieved) > 0
+            log_telemetry_event(
+                request_id=_telem_request_id,
+                answer_id=_telem_answer_id,
+                attempt_id=_telem_attempt_id,
+                session_id=_telem_session_id,
+                experiment_group=_telem_group,
+                memory_available=_has_memory,
+                memory_context_injected=(_has_memory and _telem_inject_memory),
+                memory_surface_emitted=_has_memory,  # non-streaming always returns inline
+                solved_example_count=len(_solved_sections_retrieved),
+                solved_example_ids=[s.get("id") for s in _solved_sections_retrieved if s.get("id")] or None,
+                workflow_class=classify_workflow(message),
+                language_detected=detect_language(message),
+                retrieval_mode=classify.retrieval_mode,
+                response_contract=classify.response_contract,
+                verification_passed=verified_meta.get("passed") if verified_meta else None,
+                verification_failed=verified_meta.get("failed") if verified_meta else None,
+                verification_total=verified_meta.get("blocks") if verified_meta else None,
+                was_revised=was_revised,
+                auto_staged=bool(auto_staged),
+                auto_promoted=bool(auto_staged and auto_staged.get("promoted")),
+                latency_retrieval_ms=round((t_retrieval - t_classify) * 1000, 1),
+                latency_generation_ms=round((t_generation - t_retrieval) * 1000, 1),
+                latency_verification_ms=round((t_verify - t_generation) * 1000, 1),
+                latency_total_ms=round((t_end - t_start) * 1000, 1),
+                is_internal=_telem_is_internal,
+                verifier_mode=_verifier_mode,
+                frontend_build=_telem_frontend_build,
+            )
+
+        result["trace"]["request_id"] = _telem_request_id
+        result["trace"]["answer_id"] = _telem_answer_id
+        result["trace"]["experiment_group"] = _telem_group
         return jsonify(result)
     finally:
         db.close()
@@ -1285,6 +1346,25 @@ def chat_stream():
     classify = classify_request(message, history)
     use_agent = force_agent or classify.retrieval_mode == "agent"
 
+    # --- Telemetry: 3-arm assignment (session-level) ---
+    from hiveai.config import TELEMETRY_ENABLED, TELEMETRY_HOLDOUT_SURFACE_PCT, TELEMETRY_NO_INJECTION_PCT
+    from hiveai.telemetry import (
+        assign_experiment_group, generate_answer_id, generate_request_id, generate_attempt_id,
+        classify_workflow, detect_language, best_confidence_band,
+        log_telemetry_event, is_internal_traffic,
+        should_inject_memory, should_show_surface,
+    )
+    _telem_session_id = data.get("session_id") or str(uuid.uuid4())
+    _telem_request_id = generate_request_id()
+    _telem_answer_id = generate_answer_id()
+    _telem_attempt_id = generate_attempt_id()
+    _telem_group = assign_experiment_group(_telem_session_id, TELEMETRY_HOLDOUT_SURFACE_PCT, TELEMETRY_NO_INJECTION_PCT) if TELEMETRY_ENABLED else "treatment"
+    _telem_inject_memory = should_inject_memory(_telem_group)
+    _telem_show_surface = should_show_surface(_telem_group)
+    _telem_user_agent = request.headers.get("User-Agent", "")
+    _telem_is_internal = is_internal_traffic(_telem_session_id, _telem_user_agent)
+    _telem_frontend_build = data.get("frontend_build") or request.headers.get("X-Frontend-Build")
+
     def generate():
         import time as _time
         t_start = _time.perf_counter()
@@ -1311,8 +1391,14 @@ def chat_stream():
                         message, db, history=history, retrieval_mode=classify.retrieval_mode)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
+                    # 3-arm experiment: no_injection strips solved examples from context
+                    # (still retrieves them for latent logging, but withholds from LLM prompt)
+                    _ctx_sections = top_sections
+                    if not _telem_inject_memory:
+                        _ctx_sections = [s for s in top_sections if not s.get("is_solved_example")]
+
                     _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
-                    knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
+                    knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
                     book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
                     compressed = get_compressed_knowledge(book_ids, db)
@@ -1347,6 +1433,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             _solved_sections_retrieved = [
                 s for s in top_sections if s.get("is_solved_example")
             ]
+            _telem_se_details = []  # initialized for telemetry; populated below if examples found
             if _solved_sections_retrieved:
                 _se_ids = [s.get("id") for s in _solved_sections_retrieved if s.get("id")]
                 # Enrich with reuse stats for UX surfacing
@@ -1376,7 +1463,10 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "confidence": _confidence,
                             "times_retrieved": _reuse.get("retrieved", 0),
                         })
-                yield f"event: solved_examples\ndata: {json.dumps({'retrieved': True, 'count': len(_solved_sections_retrieved), 'ids': _se_ids, 'details': _se_details})}\n\n"
+                # Telemetry: capture latent match data before deciding whether to display
+                _telem_se_details = list(_se_details)  # saved for telemetry logging
+                if _telem_show_surface:
+                    yield f"event: solved_examples\ndata: {json.dumps({'retrieved': True, 'count': len(_solved_sections_retrieved), 'ids': _se_ids, 'details': _se_details})}\n\n"
 
             # ---- Agent mode: tool-use loop ----
             if use_agent:
@@ -1438,6 +1528,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
                     # Self-verify + bounded revision
                     was_revised = False
+                    staged = None
                     _contract_mode = "none"
                     _verifier_mode = "generated_assertions"
                     _harness_result = None
@@ -1572,6 +1663,43 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                         pass
 
                     t_end = _time.perf_counter()
+
+                    # --- Telemetry: log event (async, never blocks chat) ---
+                    if TELEMETRY_ENABLED:
+                        _telem_staged = staged  # may be None or dict
+                        _has_memory = len(_solved_sections_retrieved) > 0
+                        log_telemetry_event(
+                            request_id=_telem_request_id,
+                            answer_id=_telem_answer_id,
+                            attempt_id=_telem_attempt_id,
+                            session_id=_telem_session_id,
+                            experiment_group=_telem_group,
+                            memory_available=_has_memory,
+                            memory_context_injected=(_has_memory and _telem_inject_memory),
+                            memory_surface_emitted=(_has_memory and _telem_show_surface),
+                            solved_example_count=len(_solved_sections_retrieved),
+                            solved_example_ids=[s.get("id") for s in _solved_sections_retrieved if s.get("id")] or None,
+                            confidence_band=best_confidence_band(_telem_se_details) if _telem_se_details else None,
+                            workflow_class=classify_workflow(message),
+                            language_detected=detect_language(message),
+                            retrieval_mode=classify.retrieval_mode,
+                            response_contract=classify.response_contract,
+                            verification_passed=verification.get("passed") if verification else None,
+                            verification_failed=verification.get("failed") if verification else None,
+                            verification_total=verification.get("total_blocks") if verification else None,
+                            was_revised=was_revised,
+                            auto_staged=bool(_telem_staged),
+                            auto_promoted=bool(_telem_staged and _telem_staged.get("promoted")),
+                            latency_retrieval_ms=round((t_retrieval - t_start) * 1000, 1),
+                            latency_generation_ms=round((t_generation - t_retrieval) * 1000, 1),
+                            latency_verification_ms=round((t_verify - t_generation) * 1000, 1),
+                            latency_total_ms=round((t_end - t_start) * 1000, 1),
+                            matched_pattern_pass_rates=[d.get("pass_rate") for d in _telem_se_details] if _telem_se_details else None,
+                            is_internal=_telem_is_internal,
+                            verifier_mode=_verifier_mode,
+                            frontend_build=_telem_frontend_build,
+                        )
+
                     done_data = {
                         "full_response": full,
                         "trace": {
@@ -1587,6 +1715,9 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "verifier_mode": _verifier_mode,
                             "harness_id": _harness_result.get("harness_id") if _harness_result else None,
                             "parse_status": _parse_status,
+                            "request_id": _telem_request_id,
+                            "answer_id": _telem_answer_id,
+                            "experiment_group": _telem_group,
                             "latency_ms": {
                                 "retrieval": round((t_retrieval - t_start) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),
@@ -3465,6 +3596,28 @@ def memory_scoreboard():
         total_pass = sum(e["verified_pass"] for e in examples)
         total_fail = sum(e["verified_fail"] for e in examples)
 
+        # Telemetry summary (if any events exist)
+        telemetry_summary = None
+        try:
+            telem_count = db.query(TelemetryEvent).count()
+            if telem_count > 0:
+                treatment_count = db.query(TelemetryEvent).filter(TelemetryEvent.experiment_group == "treatment").count()
+                holdout_count = db.query(TelemetryEvent).filter(TelemetryEvent.experiment_group == "holdout").count()
+                memory_emitted = db.query(TelemetryEvent).filter(TelemetryEvent.memory_surface_emitted == True).count()  # noqa: E712
+                memory_injected = db.query(TelemetryEvent).filter(TelemetryEvent.memory_context_injected == True).count()  # noqa: E712
+                memory_avail = db.query(TelemetryEvent).filter(TelemetryEvent.memory_available == True).count()  # noqa: E712
+                telemetry_summary = {
+                    "total_events": telem_count,
+                    "treatment": treatment_count,
+                    "holdout": holdout_count,
+                    "memory_available": memory_avail,
+                    "memory_context_injected": memory_injected,
+                    "memory_surface_emitted": memory_emitted,
+                    "experiment_active": holdout_count > 0,
+                }
+        except Exception:
+            pass
+
         return jsonify({
             "examples": examples,
             "total": len(examples),
@@ -3474,7 +3627,172 @@ def memory_scoreboard():
                 "total_verified_fail": total_fail,
                 "hit_rate": round(sum(1 for e in examples if e["times_retrieved"] > 0) / max(len(examples), 1), 2),
             },
+            "telemetry": telemetry_summary,
         })
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Product Telemetry API
+# ---------------------------------------------------------------------------
+
+@app.route("/api/telemetry/product-review")
+def telemetry_product_review():
+    """Aggregate product telemetry into the A/B review scorecard.
+
+    Returns treatment vs holdout stats across all dimensions:
+    confidence band, workflow class, language, verification outcomes.
+    """
+    from hiveai.telemetry import aggregate_product_review
+    db = SessionLocal()
+    try:
+        return jsonify(aggregate_product_review(db))
+    finally:
+        db.close()
+
+
+@app.route("/api/telemetry/snapshot", methods=["POST"])
+def telemetry_snapshot():
+    """Append current review to product_telemetry_ledger.json (timestamped, append-only)."""
+    import os as _os
+    from hiveai.telemetry import aggregate_product_review
+    db = SessionLocal()
+    try:
+        review = aggregate_product_review(db)
+        if review.get("total_events", 0) == 0:
+            return jsonify({"error": "No telemetry data to snapshot"}), 400
+
+        ledger_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            "product_telemetry_ledger.json",
+        )
+        # Load existing ledger or start fresh
+        ledger = []
+        if _os.path.exists(ledger_path):
+            try:
+                with open(ledger_path, "r") as f:
+                    ledger = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                ledger = []
+
+        # Add notes if provided
+        body = request.get_json(silent=True) or {}
+        if body.get("notes"):
+            review["notes"] = body["notes"]
+
+        ledger.append(review)
+
+        with open(ledger_path, "w") as f:
+            json.dump(ledger, f, indent=2)
+
+        return jsonify({"status": "ok", "snapshots": len(ledger), "path": ledger_path})
+    finally:
+        db.close()
+
+
+@app.route("/api/telemetry/events")
+def telemetry_events():
+    """Return raw telemetry events (paginated). For debugging and export."""
+    limit = min(int(request.args.get("limit", 100)), 500)
+    offset = int(request.args.get("offset", 0))
+    group = request.args.get("group")  # optional filter: "treatment" or "holdout"
+
+    db = SessionLocal()
+    try:
+        q = db.query(TelemetryEvent).order_by(TelemetryEvent.created_at.desc())
+        if group:
+            q = q.filter(TelemetryEvent.experiment_group == group)
+        total = q.count()
+        events = q.offset(offset).limit(limit).all()
+
+        return jsonify({
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "events": [
+                {
+                    "id": e.id,
+                    "answer_id": e.answer_id,
+                    "session_id": e.session_id,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "experiment_group": e.experiment_group,
+                    "request_id": e.request_id,
+                    "attempt_id": e.attempt_id,
+                    "parent_answer_id": e.parent_answer_id,
+                    "final_answer_id": e.final_answer_id,
+                    "is_terminal_attempt": e.is_terminal_attempt,
+                    "memory_available": e.memory_available,
+                    "memory_context_injected": e.memory_context_injected,
+                    "memory_surface_emitted": e.memory_surface_emitted,
+                    "solved_example_count": e.solved_example_count,
+                    "confidence_band": e.confidence_band,
+                    "workflow_class": e.workflow_class,
+                    "language_detected": e.language_detected,
+                    "retrieval_mode": e.retrieval_mode,
+                    "response_contract": e.response_contract,
+                    "model_id": e.model_id,
+                    "git_sha": e.git_sha,
+                    "verifier_mode": e.verifier_mode,
+                    "frontend_build": e.frontend_build,
+                    "workflow_classifier_version": e.workflow_classifier_version,
+                    "language_detector_version": e.language_detector_version,
+                    "verification_passed": e.verification_passed,
+                    "verification_failed": e.verification_failed,
+                    "verification_total": e.verification_total,
+                    "was_revised": e.was_revised,
+                    "auto_staged": e.auto_staged,
+                    "auto_promoted": e.auto_promoted,
+                    "details_expanded": e.details_expanded,
+                    "pattern_clicked": e.pattern_clicked,
+                    "explicit_accept": e.explicit_accept,
+                    "implicit_accept_proxy": e.implicit_accept_proxy,
+                    "user_retried": e.user_retried,
+                    "latency_total_ms": e.latency_total_ms,
+                    "is_internal": e.is_internal,
+                }
+                for e in events
+            ],
+        })
+    finally:
+        db.close()
+
+
+@app.route("/api/telemetry/client-event", methods=["POST"])
+def telemetry_client_event():
+    """Record a client-side user interaction signal (idempotent).
+
+    Body (JSON):
+      answer_id    str  -- the answer_id from the trace (server-issued UUID)
+      event_type   str  -- one of the valid client event types (see below)
+
+    Event types:
+      Engagement:  details_expand, pattern_click
+      Explicit:    explicit_accept, thumbs_up, explicit_reject, thumbs_down, retry, reformulation
+      Implicit:    implicit_accept_no_followup, copy_code
+
+    Idempotent: each (answer_id, event_type) recorded at most once.
+    """
+    from hiveai.telemetry import record_client_event, ALL_CLIENT_EVENTS
+
+    body = request.get_json(silent=True) or {}
+    answer_id = (body.get("answer_id") or "").strip()
+    event_type = (body.get("event_type") or "").strip()
+
+    if not answer_id or not event_type:
+        return jsonify({"error": "answer_id and event_type are required"}), 400
+
+    if event_type not in ALL_CLIENT_EVENTS:
+        return jsonify({
+            "error": f"Invalid event_type. Must be one of: {', '.join(sorted(ALL_CLIENT_EVENTS))}",
+        }), 400
+
+    db = SessionLocal()
+    try:
+        result = record_client_event(db, answer_id, event_type)
+        status_code = {"ok": 200, "already_recorded": 200, "not_found": 404,
+                       "invalid_event_type": 400, "error": 500}.get(result["status"], 200)
+        return jsonify({"answer_id": answer_id, "event_type": event_type, **result}), status_code
     finally:
         db.close()
 

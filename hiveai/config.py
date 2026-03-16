@@ -152,6 +152,14 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 HF_API_KEY = os.environ.get("HF_API_KEY", "")
 
+# --- Product Telemetry (3-arm holdout for memory experiment) ---
+TELEMETRY_ENABLED = os.environ.get("TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
+# holdout_surface: memory injected, surface hidden (isolates UI effect)
+TELEMETRY_HOLDOUT_SURFACE_PCT = int(os.environ.get("TELEMETRY_HOLDOUT_SURFACE_PCT", "15"))
+# no_injection: memory NOT injected into prompt, surface hidden (isolates injection effect)
+# Note: retrieval still runs for latent logging; only prompt injection is withheld
+TELEMETRY_NO_INJECTION_PCT = int(os.environ.get("TELEMETRY_NO_INJECTION_PCT", "15"))
+
 # --- DBC (Decentralized Brain Collective) ---
 DBC_ENABLED = os.environ.get("DBC_ENABLED", "false").lower() in ("1", "true", "yes")
 DBC_ACCOUNT = os.environ.get("DBC_ACCOUNT", "")
