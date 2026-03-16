@@ -1022,15 +1022,16 @@ def _score_section_relevance(section: dict, query_words: list[str],
     return min(score, 1.0)
 
 
-def budget_context(sections, query, max_tokens=4000):
+def budget_context(sections, query, max_tokens=4000, executable_mode=False):
     """RLM-inspired context budgeting: score, rank, filter, then budget.
 
     Instead of dumping all sections in retrieval order, this:
     1. Scores each section for query relevance (term + header + bigram)
-    2. Sorts by relevance (best first)
-    3. Drops sections below relevance threshold
-    4. Filters large sections to only query-relevant paragraphs
-    5. Budgets tokens with best sections getting priority
+    2. In executable_mode: boost solved examples, penalize broad docs
+    3. Sorts by relevance (best first)
+    4. Drops sections below relevance threshold
+    5. Filters large sections to only query-relevant paragraphs
+    6. Budgets tokens with best sections getting priority
 
     This is the lightweight RLM pattern from improvement_notes.md §8:
     separate query from context, filter by relevance, prevent attention dilution.
@@ -1050,6 +1051,19 @@ def budget_context(sections, query, max_tokens=4000):
     scored = []
     for section in sections:
         rel = _score_section_relevance(section, query_words, query_bigrams)
+
+        # Executable mode: boost solved examples, penalize broad golden-book background
+        if executable_mode:
+            if section.get("is_solved_example"):
+                rel += 0.5  # strong boost — solved examples are highest priority
+            elif section.get("book_title", "").startswith("Solved Examples"):
+                rel += 0.5
+            else:
+                # Broad golden-book sections get penalized for executable tasks
+                content_len = len(section.get("content", ""))
+                if content_len > 1500:
+                    rel -= 0.2  # penalize verbose broad docs
+
         scored.append((rel, section))
 
     # Sort by relevance descending (best sections first)

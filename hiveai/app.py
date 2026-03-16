@@ -952,7 +952,8 @@ def chat_api():
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
                 message, db, history=history, retrieval_mode=classify.retrieval_mode)
-            knowledge_context = budget_context(top_sections, message, max_tokens=4000)
+            _ctx_budget = 2000 if classify.response_contract == "executable_code" else 4000
+            knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
             book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
             compressed = get_compressed_knowledge(book_ids, db)
@@ -1310,7 +1311,8 @@ def chat_stream():
                         message, db, history=history, retrieval_mode=classify.retrieval_mode)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
-                    knowledge_context = budget_context(top_sections, message, max_tokens=4000)
+                    _ctx_budget = 2000 if classify.response_contract == "executable_code" else 4000
+                    knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
                     book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
                     compressed = get_compressed_knowledge(book_ids, db)
