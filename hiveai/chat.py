@@ -392,7 +392,23 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
 
         _t2 = _time.perf_counter()
         from hiveai.vectorstore import vector_search, hybrid_search
-        top_sections = hybrid_search(db, query_str, query_embedding, limit=12, max_distance=0.8)
+
+        # Build exclusion set — critique patterns must never enter chat retrieval
+        _exclude_book_ids = set()
+        try:
+            from hiveai.config import CRITIQUE_MEMORY_ENABLED
+            if CRITIQUE_MEMORY_ENABLED:
+                from scripts.critique_memory import get_critique_book_id
+                _crit_bid = get_critique_book_id(db)
+                if _crit_bid and _crit_bid > 0:
+                    _exclude_book_ids.add(_crit_bid)
+        except Exception:
+            pass  # critique system not yet initialized — no exclusion needed
+
+        top_sections = hybrid_search(
+            db, query_str, query_embedding, limit=12, max_distance=0.8,
+            exclude_book_ids=_exclude_book_ids or None,
+        )
         _t3 = _time.perf_counter()
 
         # Deep retrieval (multi-hop, book refs, reranking, community) only for hybrid mode
@@ -410,7 +426,8 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
 
                     found_ids = set(s.get("id") for s in top_sections if s.get("id"))
 
-                    hop2_results = vector_search(db, entity_embedding, limit=8, max_distance=0.7)
+                    hop2_results = vector_search(db, entity_embedding, limit=8, max_distance=0.7,
+                                                    exclude_book_ids=_exclude_book_ids or None)
 
                     for row in hop2_results:
                         if row["id"] not in found_ids:
@@ -435,10 +452,13 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
                     refs = db.query(BookReference).filter(
                         BookReference.from_book_id.in_(book_ids)
                     ).all()
-                    ref_book_ids = [r.to_book_id for r in refs if r.to_book_id not in set(book_ids)]
+                    _existing = set(book_ids) | _exclude_book_ids
+                    ref_book_ids = [r.to_book_id for r in refs if r.to_book_id not in _existing]
                     if ref_book_ids:
                         found_ids = set(s.get("id") for s in top_sections if s.get("id"))
-                        ref_results = vector_search(db, query_embedding, limit=4, max_distance=0.7, book_id_filter=ref_book_ids)
+                        ref_results = vector_search(db, query_embedding, limit=4, max_distance=0.7,
+                                                       book_id_filter=ref_book_ids,
+                                                       exclude_book_ids=_exclude_book_ids or None)
                         for row in ref_results:
                             if row["id"] not in found_ids:
                                 row["book_title"] = f"{row['book_title']} (referenced)"

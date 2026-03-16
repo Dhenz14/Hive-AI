@@ -23,11 +23,12 @@ _BM25_STOP_WORDS = {
 }
 
 
-def vector_search(db, query_embedding, limit=12, max_distance=0.8, book_id_filter=None):
+def vector_search(db, query_embedding, limit=12, max_distance=0.8, book_id_filter=None,
+                   exclude_book_ids=None):
     if DB_BACKEND == "postgresql":
-        return _pg_vector_search(db, query_embedding, limit, max_distance, book_id_filter)
+        return _pg_vector_search(db, query_embedding, limit, max_distance, book_id_filter, exclude_book_ids)
     else:
-        return _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filter)
+        return _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filter, exclude_book_ids)
 
 
 def vector_search_grouped(db, query_embedding, max_distance=0.5, min_count=3):
@@ -37,14 +38,17 @@ def vector_search_grouped(db, query_embedding, max_distance=0.5, min_count=3):
         return _sqlite_vector_search_grouped(db, query_embedding, max_distance, min_count)
 
 
-def _pg_vector_search(db, query_embedding, limit, max_distance, book_id_filter):
+def _pg_vector_search(db, query_embedding, limit, max_distance, book_id_filter, exclude_book_ids=None):
     params = {"query_vec": str(query_embedding)}
-    
+
     where_clauses = ["bs.embedding IS NOT NULL"]
     if book_id_filter:
         where_clauses.append("bs.book_id = ANY(:book_ids)")
         params["book_ids"] = book_id_filter
-    
+    if exclude_book_ids:
+        where_clauses.append("bs.book_id != ALL(:exclude_ids)")
+        params["exclude_ids"] = list(exclude_book_ids)
+
     where_sql = " AND ".join(where_clauses)
     
     results = db.execute(sa_text(f"""
@@ -96,16 +100,18 @@ def cosine_distance(a, b):
     return 1.0 - float(np.dot(a, b) / (norm_a * norm_b))
 
 
-def _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filter):
+def _sqlite_vector_search(db, query_embedding, limit, max_distance, book_id_filter, exclude_book_ids=None):
     from hiveai.models import BookSection, GoldenBook
     import json
-    
+
     query = db.query(BookSection, GoldenBook).join(
         GoldenBook, BookSection.book_id == GoldenBook.id
     ).filter(BookSection.embedding_json.isnot(None))
-    
+
     if book_id_filter:
         query = query.filter(BookSection.book_id.in_(book_id_filter))
+    if exclude_book_ids:
+        query = query.filter(BookSection.book_id.notin_(list(exclude_book_ids)))
     
     sections = query.all()
     
@@ -247,7 +253,7 @@ def _load_section_metadata(db, section_ids: list[int]) -> dict[int, dict]:
 
 def hybrid_search(db, query: str, query_embedding, limit: int = 12,
                   max_distance: float = 0.8, alpha: float = 0.6,
-                  book_id_filter=None) -> list[dict]:
+                  book_id_filter=None, exclude_book_ids=None) -> list[dict]:
     """
     Fuse vector similarity and keyword matching for better recall.
 
@@ -260,13 +266,15 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         alpha: Weight for vector score (1-alpha = keyword weight).
                Default 0.6 favors semantic but gives keywords meaningful weight.
         book_id_filter: Optional list of book IDs to restrict search
+        exclude_book_ids: Optional set/list of book IDs to exclude (e.g. critique patterns)
 
     Returns:
         List of section dicts sorted by fused score, best first.
     """
     # Step 1: Get vector results (retrieve more than needed for fusion)
     vec_results = vector_search(db, query_embedding, limit=limit * 2,
-                                max_distance=max_distance, book_id_filter=book_id_filter)
+                                max_distance=max_distance, book_id_filter=book_id_filter,
+                                exclude_book_ids=exclude_book_ids)
 
     # Step 2: Extract query terms for BM25
     query_terms = [

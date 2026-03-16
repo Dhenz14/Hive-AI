@@ -3359,6 +3359,82 @@ def eval_reports():
 logging.getLogger(__name__).info("Sandbox + Eval routes registered: /api/sandbox/run, /api/eval/run, /api/eval/status, /api/eval/results, /api/eval/reports")
 
 
+# ---------------------------------------------------------------------------
+# Critique Pattern Memory — GEM 1 Phase 2 (read-only inspection endpoints)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/eval/critique-patterns")
+def api_critique_patterns():
+    """All critique patterns with outcomes, filterable by domain/probe/status."""
+    from hiveai.config import CRITIQUE_MEMORY_ENABLED
+    if not CRITIQUE_MEMORY_ENABLED:
+        return jsonify({"error": "Critique memory disabled"}), 404
+    try:
+        from scripts.critique_memory import retrieve_critique_patterns, abandon_stale_critiques
+        db = SessionLocal()
+        try:
+            # Auto-abandon stale critiques on read
+            abandon_stale_critiques(db)
+            db.commit()
+
+            domain = request.args.get("domain")
+            probe_id = request.args.get("probe_id")
+            status = request.args.get("status")
+            limit = int(request.args.get("limit", "50"))
+            patterns = retrieve_critique_patterns(db, domain=domain, probe_id=probe_id,
+                                                   status=status, limit=limit)
+            return jsonify(patterns)
+        finally:
+            db.close()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Critique patterns error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/eval/critique-stats")
+def api_critique_stats():
+    """Summary statistics for critique pattern memory."""
+    from hiveai.config import CRITIQUE_MEMORY_ENABLED
+    if not CRITIQUE_MEMORY_ENABLED:
+        return jsonify({"error": "Critique memory disabled"}), 404
+    try:
+        from scripts.critique_memory import get_critique_stats
+        db = SessionLocal()
+        try:
+            stats = get_critique_stats(db)
+            return jsonify(stats)
+        finally:
+            db.close()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Critique stats error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/eval/effective-templates")
+def api_effective_templates():
+    """Template success rates per domain from closed critique patterns."""
+    from hiveai.config import CRITIQUE_MEMORY_ENABLED
+    if not CRITIQUE_MEMORY_ENABLED:
+        return jsonify({"error": "Critique memory disabled"}), 404
+    try:
+        from scripts.critique_memory import get_effective_templates
+        domain = request.args.get("domain")
+        if not domain:
+            return jsonify({"error": "domain parameter required"}), 400
+        db = SessionLocal()
+        try:
+            templates = get_effective_templates(db, domain)
+            return jsonify(templates)
+        finally:
+            db.close()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Effective templates error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+logging.getLogger(__name__).info("Critique memory routes registered: /api/eval/critique-patterns, /api/eval/critique-stats, /api/eval/effective-templates")
+
+
 @app.route("/eval")
 def eval_page():
     """Evaluation dashboard — run evals, view results, compare models."""

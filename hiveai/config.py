@@ -152,6 +152,11 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 MISTRAL_API_KEY = os.environ.get("MISTRAL_API_KEY", "")
 HF_API_KEY = os.environ.get("HF_API_KEY", "")
 
+# --- Critique Pattern Memory (GEM 1 — Phase 2) ---
+CRITIQUE_MEMORY_ENABLED = os.environ.get("CRITIQUE_MEMORY_ENABLED", "true").lower() in ("1", "true", "yes")
+# Hard gate: critique memory must NOT influence generation until lifecycle is validated end-to-end
+CRITIQUE_MEMORY_INFLUENCE = os.environ.get("CRITIQUE_MEMORY_INFLUENCE", "false").lower() in ("1", "true", "yes")
+
 # --- Product Telemetry (3-arm holdout for memory experiment) ---
 TELEMETRY_ENABLED = os.environ.get("TELEMETRY_ENABLED", "true").lower() in ("1", "true", "yes")
 # holdout_surface: memory injected, surface hidden (isolates UI effect)
