@@ -136,9 +136,11 @@ No GPU needed.
 **What they do:** Everything else. Collect pairs, verify quality, train,
 evaluate, publish.
 
-**Eligibility:** HivePoA Web of Trust. A top-150 Hive witness vouches for
-exactly one trainer. Witness drops below 150 → vouch auto-revokes. Sybil
-resistance without a custom reputation system.
+**Eligibility:** HivePoA Generic Trusted-Role Registry (`dbc_trainer` role).
+A candidate needs 2+ vouches from top-150 Hive witnesses. Witnesses can vouch
+for multiple candidates. Vouch auto-revokes if the witness drops below rank 150.
+Eligibility is binary (eligible or not) — no HP weighting on the privileged path.
+Hive-AI checks eligibility via `GET /api/trust/check/:username/dbc_trainer`.
 
 **The epoch lifecycle:**
 
