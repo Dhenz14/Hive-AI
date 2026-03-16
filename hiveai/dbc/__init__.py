@@ -16,7 +16,7 @@ from hiveai.dbc.chain import (
     pre_submission_check,
     scan_for_secrets,
 )
-from hiveai.dbc.hivepoa import HivePoAClient
+from hiveai.dbc.hivepoa import HivePoAClient, TrustCheckResult
 from hiveai.dbc.node import DBCNode, NodeConfig
 from hiveai.dbc.compute_client import HivePoAComputeClient
 
@@ -28,6 +28,7 @@ __all__ = [
     "scan_for_secrets",
     "pre_submission_check",
     "HivePoAClient",
+    "TrustCheckResult",
     "HivePoAComputeClient",
     "DBCNode",
     "NodeConfig",

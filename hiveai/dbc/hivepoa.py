@@ -1,24 +1,46 @@
 """
 hiveai/dbc/hivepoa.py
 
-Adapter storage client for the DBC protocol.
+Adapter storage client + trust integration for the DBC protocol.
 
-Currently wraps IPFS (via ipfshttpclient) since HivePoA isn't live yet.
-When HivePoA launches, this module will be extended with their REST API
-while keeping the same public interface.
+Storage: IPFS (via ipfshttpclient) with GitHub Releases fallback.
+Trust:   Reads witness-rooted WoT eligibility from HivePoA trust registry.
 
 Fallback chain: HivePoA (future) → IPFS → GitHub Releases (bootstrap).
+Trust chain:    HivePoA trust registry → local cache → fail-closed.
 """
 
 import hashlib
 import logging
 import os
 import shutil
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Feature flag: set HIVEPOA_TRUST_ENABLED=true to activate trust checks
+TRUST_ENABLED = os.environ.get("HIVEPOA_TRUST_ENABLED", "false").lower() == "true"
+HIVEPOA_BASE_URL = os.environ.get("HIVEPOA_URL", "http://localhost:3000")
+TRUST_CHECK_TIMEOUT = 5  # seconds
+TRUST_CACHE_TTL = 300    # 5 minute cache
+
+
+@dataclass
+class TrustCheckResult:
+    """Result of a trust eligibility check from HivePoA."""
+    eligible: bool
+    eligibility_type: str  # "witness", "vouched", "none"
+    witness_rank: int | None
+    vouchers: list[str]
+    opted_in: bool
+    status: str
+    role: str
+    cached: bool = False
+    error: str | None = None
 
 
 def compute_file_hash(file_path: str) -> str:
@@ -232,3 +254,102 @@ class HivePoAClient:
             )
             return False
         return True
+
+    # ================================================================
+    # Trust Registry Integration
+    # ================================================================
+
+    # In-memory cache: (username, role) -> (TrustCheckResult, expiry_time)
+    _trust_cache: dict[tuple[str, str], tuple["TrustCheckResult", float]] = {}
+
+    def check_trust(self, username: str, role: str) -> TrustCheckResult:
+        """Check if a Hive account is trusted for a specific role.
+
+        Calls HivePoA's GET /api/trust/check/:username/:role.
+
+        Behavior:
+        - If HIVEPOA_TRUST_ENABLED=false: returns NOT eligible (fail-closed for privileged path)
+        - If HivePoA is unreachable: returns NOT eligible (fail-closed)
+        - Results cached for TRUST_CACHE_TTL seconds
+
+        This method is read-only. Hive-AI never writes trust state.
+        HivePoA decides who is trusted; Hive-AI consumes the yes/no.
+        """
+        if not TRUST_ENABLED:
+            return TrustCheckResult(
+                eligible=False, eligibility_type="none", witness_rank=None,
+                vouchers=[], opted_in=False, status="trust_disabled", role=role,
+                error="HIVEPOA_TRUST_ENABLED is false",
+            )
+
+        # Check cache
+        cache_key = (username, role)
+        if cache_key in self._trust_cache:
+            result, expiry = self._trust_cache[cache_key]
+            if time.time() < expiry:
+                result.cached = True
+                return result
+
+        # Call HivePoA
+        try:
+            url = f"{HIVEPOA_BASE_URL}/api/trust/check/{username}/{role}"
+            resp = requests.get(url, timeout=TRUST_CHECK_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+
+            result = TrustCheckResult(
+                eligible=data.get("eligible", False),
+                eligibility_type=data.get("eligibilityType", "none"),
+                witness_rank=data.get("witnessRank"),
+                vouchers=data.get("vouchers", []),
+                opted_in=data.get("optedIn", False),
+                status=data.get("status", "unknown"),
+                role=role,
+            )
+
+            # Cache the result
+            self._trust_cache[cache_key] = (result, time.time() + TRUST_CACHE_TTL)
+            return result
+
+        except requests.Timeout:
+            logger.warning(f"Trust check timed out for {username}/{role}")
+            return TrustCheckResult(
+                eligible=False, eligibility_type="none", witness_rank=None,
+                vouchers=[], opted_in=False, status="timeout", role=role,
+                error="HivePoA trust check timed out",
+            )
+        except requests.ConnectionError:
+            logger.warning(f"Trust check failed — HivePoA unreachable for {username}/{role}")
+            return TrustCheckResult(
+                eligible=False, eligibility_type="none", witness_rank=None,
+                vouchers=[], opted_in=False, status="unreachable", role=role,
+                error="HivePoA unreachable",
+            )
+        except Exception as e:
+            logger.error(f"Trust check error for {username}/{role}: {e}")
+            return TrustCheckResult(
+                eligible=False, eligibility_type="none", witness_rank=None,
+                vouchers=[], opted_in=False, status="error", role=role,
+                error=str(e),
+            )
+
+    def get_trusted_accounts(self, role: str) -> set[str]:
+        """Get the set of trusted usernames for a role.
+
+        Calls HivePoA's GET /api/trust/roles/:role/members.
+        Used to populate NodeConfig.wot_accounts for consensus evaluation.
+
+        Returns empty set if trust is disabled or HivePoA is unreachable.
+        """
+        if not TRUST_ENABLED:
+            return set()
+
+        try:
+            url = f"{HIVEPOA_BASE_URL}/api/trust/roles/{role}/members"
+            resp = requests.get(url, timeout=TRUST_CHECK_TIMEOUT)
+            resp.raise_for_status()
+            members = resp.json()
+            return {m["username"] for m in members if m.get("status") == "active"}
+        except Exception as e:
+            logger.warning(f"Failed to fetch trusted accounts for {role}: {e}")
+            return set()

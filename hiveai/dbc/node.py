@@ -163,6 +163,22 @@ class DBCNode:
             logger.warning("DBC node already running")
             return
 
+        # Populate WoT accounts from HivePoA trust registry if available.
+        # This replaces hardcoded wot_accounts with the live trusted set.
+        # If HivePoA is unreachable or trust is disabled, falls back to
+        # whatever was in config.wot_accounts (backward compatible).
+        try:
+            trusted = self.storage.get_trusted_accounts("dbc_trainer")
+            if trusted:
+                logger.info(f"Loaded {len(trusted)} trusted dbc_trainer accounts from HivePoA")
+                self.config.wot_accounts = trusted
+            elif self.config.wot_accounts:
+                logger.info(f"Using {len(self.config.wot_accounts)} pre-configured WoT accounts")
+            else:
+                logger.info("No WoT accounts configured — fast-track disabled")
+        except Exception as e:
+            logger.warning(f"Failed to load trust registry, using config.wot_accounts: {e}")
+
         self._running.set()
         self._thread = threading.Thread(
             target=self._run_loop,
