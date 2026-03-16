@@ -230,21 +230,33 @@ def main():
     # With only 5 events, we expect insufficient_data (not enough for arm balance)
     assert vg["verdict"] in ("insufficient_data", "fail")
     assert vg["gates"]["gate_1_arm_balance"]["eligible_turns"]["status"] == "insufficient_data"
+    # Gate 2 should report transport and behavioral separately
+    g2 = vg["gates"]["gate_2_client_events"]
+    assert "transport" in g2
+    assert "behavioral_engagement" in g2
     # Gate 4 (lineage) should pass — our lineage is clean
     assert vg["gates"]["gate_4_lineage_integrity"]["pass"] is True
     assert vg["gates"]["gate_4_lineage_integrity"]["failure_count"] == 0
     # Gate 5 (epoch) should pass — single git_sha and model_id
     assert vg["gates"]["gate_5_epoch_stability"]["pass"] is True
+    assert len(vg["gates"]["gate_5_epoch_stability"]["violations"]) == 0
+    assert vg["gate_version"] == "v2"
 
     print(f"  total_events: {review['total_events']}")
     print(f"  treatment: {review['treatment']['count']}")
     print(f"  holdout_surface: {review['holdout_surface']['count']}")
     print(f"  no_injection: {review['no_injection']['count']}")
     print(f"  SRM: {review['srm_checks']['global']['status']}")
-    print(f"  Validation gate verdict: {vg['verdict']}")
+    print(f"  Validation gate v{vg['gate_version']} verdict: {vg['verdict']}")
     for gn, gr in vg["gates"].items():
         status = gr.get("status", "pass" if gr["pass"] else "fail")
-        print(f"    {gn}: {status}")
+        extra = ""
+        if gn == "gate_2_client_events":
+            extra = f" (transport gated, behavioral informational)"
+        elif gn == "gate_5_epoch_stability":
+            violations = gr.get("violations", [])
+            extra = f" (violations: {violations})" if violations else " (all stable)"
+        print(f"    {gn}: {status}{extra}")
     print("  Aggregation + Gate: OK")
 
     db.close()

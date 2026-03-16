@@ -604,16 +604,22 @@ def _srm_by_dimension(events, dimension_fn,
 # ---------------------------------------------------------------------------
 
 # Hard thresholds — do not change without bumping GATE_VERSION
-GATE_VERSION = "v1"
+GATE_VERSION = "v2"
 GATE_THRESHOLDS = {
-    # Gate 1: arm balance
+    # Gate 1: arm balance (checked on multiple subpaths)
     "arm_balance_tolerance_pct": 5.0,        # each arm within ±5% of expected
     "min_eligible_turns": 50,                 # minimum memory-eligible turns total
     "min_retrieval_positive_turns": 20,       # minimum turns with solved examples found
+    "min_subpath_turns": 20,                  # minimum turns per subpath for balance check
 
-    # Gate 2: client event transport
-    "min_client_events_observed": 10,         # minimum client events to evaluate transport
-    "min_transport_health_rate": 0.80,        # 80% of treatment surface-emitted turns should have ANY client event
+    # Gate 2: client event observability
+    # NOTE: pure transport health requires a client heartbeat we do not have.
+    # This gate checks that client events are arriving at a usable rate.
+    # It reports behavioral engagement separately for interpretation.
+    "min_client_events_observed": 10,         # minimum client events to evaluate
+    "min_client_event_rate": 0.10,            # at least 10% of all turns produce any client event
+    # ^ This is intentionally low — it proves the pipe works, not that users are engaged.
+    # Behavioral engagement rates (expand, click) are reported but NOT gated.
 
     # Gate 3: drop budget
     "max_drop_rate": 0.02,                    # max 2% of events dropped
@@ -623,9 +629,11 @@ GATE_THRESHOLDS = {
     # Gate 4: lineage integrity
     "max_lineage_failures": 0,                # zero tolerance for lineage violations
 
-    # Gate 5: epoch stability
+    # Gate 5: epoch stability (ALL version dimensions enforced)
     "max_distinct_git_shas": 1,               # exactly one code version in the window
     "max_distinct_model_ids": 1,              # exactly one model in the window
+    "max_distinct_frontend_builds": 1,        # exactly one frontend version
+    "max_distinct_classifier_versions": 1,    # exactly one classifier version set
 }
 
 
@@ -642,14 +650,16 @@ def evaluate_validation_gate(db, real_events, arms, drops) -> dict:
     expected_pcts = {"treatment": 70, "holdout_surface": 15, "no_injection": 15}
     T = GATE_THRESHOLDS
 
-    # ── Gate 1: Arm balance on eligible and retrieval-positive turns ──
+    # ── Gate 1: Arm balance on eligible turns + subpaths ──
     eligible = [e for e in real_events if e.memory_available]
     retrieval_pos = [e for e in real_events if e.solved_example_count and e.solved_example_count > 0]
+    revised = [e for e in real_events if e.was_revised]
 
-    def _check_balance(events, label):
+    def _check_balance(events, label, min_n=None):
+        min_required = min_n or T["min_eligible_turns"]
         total = len(events)
-        if total < T["min_eligible_turns"]:
-            return {"status": "insufficient_data", "total": total, "min_required": T["min_eligible_turns"]}
+        if total < min_required:
+            return {"status": "insufficient_data", "total": total, "min_required": min_required}
         arm_counts = Counter(e.experiment_group for e in events)
         deviations = {}
         for arm, expected_pct in expected_pcts.items():
@@ -664,52 +674,75 @@ def evaluate_validation_gate(db, real_events, arms, drops) -> dict:
         all_balanced = all(d["within_tolerance"] for d in deviations.values())
         return {"status": "pass" if all_balanced else "fail", "total": total, "arms": deviations}
 
+    min_sub = T["min_subpath_turns"]
     balance_eligible = _check_balance(eligible, "eligible")
-    balance_retrieval = _check_balance(retrieval_pos, "retrieval_positive") if len(retrieval_pos) >= T["min_retrieval_positive_turns"] else {
-        "status": "insufficient_data", "total": len(retrieval_pos), "min_required": T["min_retrieval_positive_turns"]
-    }
+    balance_retrieval = _check_balance(retrieval_pos, "retrieval_positive", min_sub)
+    balance_revised = _check_balance(revised, "revised", min_sub)
 
+    # Primary gate: eligible must pass. Subpaths: pass or insufficient_data (not fail).
+    subpath_results = {
+        "retrieval_positive": balance_retrieval,
+        "revised": balance_revised,
+    }
     gate1_pass = (
         balance_eligible.get("status") == "pass"
-        and balance_retrieval.get("status") in ("pass", "insufficient_data")
+        and all(r.get("status") in ("pass", "insufficient_data") for r in subpath_results.values())
     )
     gates["gate_1_arm_balance"] = {
         "pass": gate1_pass,
         "eligible_turns": balance_eligible,
-        "retrieval_positive_turns": balance_retrieval,
+        "subpaths": subpath_results,
         "threshold": f"each arm within ±{T['arm_balance_tolerance_pct']}% of expected",
     }
 
-    # ── Gate 2: Client event transport health ──
-    # Measure against treatment turns where surface was emitted (mandatory path)
-    treatment_surface_emitted = [e for e in arms.get("treatment", []) if e.memory_surface_emitted]
-    treatment_with_any_client = [e for e in treatment_surface_emitted
-                                  if e.details_expanded or e.pattern_clicked
-                                  or e.explicit_accept is not None
-                                  or e.implicit_accept_proxy is not None
-                                  or e.user_retried]
-    total_client_events = sum(1 for e in real_events
-                               if e.details_expanded or e.pattern_clicked
-                               or e.explicit_accept is not None
-                               or e.implicit_accept_proxy is not None
-                               or e.user_retried)
+    # ── Gate 2: Client event observability ──
+    # Split into transport health (are events arriving?) vs behavioral engagement
+    # (are users interacting?). Gate on transport, report behavior.
+    #
+    # Transport proxy: what fraction of ALL turns have any client event?
+    # This proves the JS→server pipe works. A low rate means the pipe is broken,
+    # not that users are quiet (some turns always produce implicit_accept or retry).
+    #
+    # Behavioral engagement: expand/click rates on treatment surface-emitted turns.
+    # Reported but NOT gated — a quiet user base is not a transport bug.
 
-    if total_client_events < T["min_client_events_observed"]:
+    def _has_any_client_event(e):
+        return (e.details_expanded or e.pattern_clicked
+                or e.explicit_accept is not None
+                or e.implicit_accept_proxy is not None
+                or e.user_retried)
+
+    turns_with_client_event = sum(1 for e in real_events if _has_any_client_event(e))
+    total_turns = len(real_events)
+
+    if total_turns < T["min_client_events_observed"]:
         gate2_status = "insufficient_data"
-        transport_rate = None
+        client_event_rate = None
     else:
-        transport_rate = len(treatment_with_any_client) / max(len(treatment_surface_emitted), 1)
-        gate2_status = "pass" if transport_rate >= T["min_transport_health_rate"] else "fail"
+        client_event_rate = turns_with_client_event / max(total_turns, 1)
+        gate2_status = "pass" if client_event_rate >= T["min_client_event_rate"] else "fail"
 
-    gates["gate_2_client_transport"] = {
+    # Behavioral engagement (informational only, not gated)
+    treatment_surface = [e for e in arms.get("treatment", []) if e.memory_surface_emitted]
+    behavioral = {
+        "treatment_surface_emitted": len(treatment_surface),
+        "expanded": sum(1 for e in treatment_surface if e.details_expanded),
+        "clicked": sum(1 for e in treatment_surface if e.pattern_clicked),
+        "expand_rate": round(sum(1 for e in treatment_surface if e.details_expanded) / max(len(treatment_surface), 1), 3),
+        "click_rate": round(sum(1 for e in treatment_surface if e.pattern_clicked) / max(len(treatment_surface), 1), 3),
+    }
+
+    gates["gate_2_client_events"] = {
         "pass": gate2_status == "pass",
         "status": gate2_status,
-        "treatment_surface_emitted": len(treatment_surface_emitted),
-        "treatment_with_client_event": len(treatment_with_any_client),
-        "transport_rate": round(transport_rate, 3) if transport_rate is not None else None,
-        "total_client_events_observed": total_client_events,
-        "threshold": f"transport_rate >= {T['min_transport_health_rate']}",
-        "min_events_required": T["min_client_events_observed"],
+        "transport": {
+            "total_turns": total_turns,
+            "turns_with_any_client_event": turns_with_client_event,
+            "client_event_rate": round(client_event_rate, 3) if client_event_rate is not None else None,
+            "threshold": f">= {T['min_client_event_rate']}",
+        },
+        "behavioral_engagement": behavioral,
+        "note": "Transport is gated. Behavioral engagement is informational only.",
     }
 
     # ── Gate 3: Drop symmetry and budget ──
@@ -798,6 +831,8 @@ def evaluate_validation_gate(db, real_events, arms, drops) -> dict:
     gate5_pass = (
         len(git_shas) <= T["max_distinct_git_shas"]
         and len(model_ids) <= T["max_distinct_model_ids"]
+        and len(frontend_builds) <= T["max_distinct_frontend_builds"]
+        and len(classifier_versions) <= T["max_distinct_classifier_versions"]
     )
     gates["gate_5_epoch_stability"] = {
         "pass": gate5_pass,
@@ -805,8 +840,20 @@ def evaluate_validation_gate(db, real_events, arms, drops) -> dict:
         "distinct_model_ids": sorted(model_ids),
         "distinct_frontend_builds": sorted(frontend_builds),
         "distinct_classifier_versions": [list(cv) for cv in sorted(classifier_versions)],
-        "max_git_shas": T["max_distinct_git_shas"],
-        "max_model_ids": T["max_distinct_model_ids"],
+        "limits": {
+            "git_shas": T["max_distinct_git_shas"],
+            "model_ids": T["max_distinct_model_ids"],
+            "frontend_builds": T["max_distinct_frontend_builds"],
+            "classifier_versions": T["max_distinct_classifier_versions"],
+        },
+        "violations": [
+            dim for dim, (count, limit) in {
+                "git_shas": (len(git_shas), T["max_distinct_git_shas"]),
+                "model_ids": (len(model_ids), T["max_distinct_model_ids"]),
+                "frontend_builds": (len(frontend_builds), T["max_distinct_frontend_builds"]),
+                "classifier_versions": (len(classifier_versions), T["max_distinct_classifier_versions"]),
+            }.items() if count > limit
+        ],
     }
 
     # ── Overall verdict ──
