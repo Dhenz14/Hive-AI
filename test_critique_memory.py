@@ -318,6 +318,55 @@ def test_abandon_stale():
         db.close()
 
 
+def test_success_threshold():
+    """Check 9: Success requires delta > 0.01 (not just > 0)."""
+    db = setup()
+    try:
+        from scripts.critique_memory import store_critique_pattern, close_critique_loop
+
+        # Microscopic improvement (0.005) should NOT count as success
+        _, att_tiny = store_critique_pattern(
+            db, domain="go", probe_id="go-context",
+            weakness_type="keyword_only", template_used="implement",
+            pairs_generated=10, fix_version="v-test-thresh-a", pre_score=0.800,
+        )
+        # Clear improvement (0.05) SHOULD count as success
+        _, att_clear = store_critique_pattern(
+            db, domain="go", probe_id="go-goroutines",
+            weakness_type="keyword_only", template_used="implement",
+            pairs_generated=10, fix_version="v-test-thresh-b", pre_score=0.800,
+        )
+        # Just below threshold (0.009) should NOT count
+        _, att_edge = store_critique_pattern(
+            db, domain="go", probe_id="go-channels",
+            weakness_type="keyword_only", template_used="implement",
+            pairs_generated=10, fix_version="v-test-thresh-c", pre_score=0.800,
+        )
+        db.commit()
+
+        close_critique_loop(db, att_tiny, post_score=0.805)   # delta=0.005
+        close_critique_loop(db, att_clear, post_score=0.850)  # delta=0.050
+        close_critique_loop(db, att_edge, post_score=0.809)   # delta=0.009
+        db.commit()
+
+        from scripts.critique_memory import retrieve_critique_patterns
+        patterns = retrieve_critique_patterns(db, domain="go", status="closed")
+        tiny_p = [p for p in patterns if p["attempt_id"] == att_tiny][0]
+        clear_p = [p for p in patterns if p["attempt_id"] == att_clear][0]
+        edge_p = [p for p in patterns if p["attempt_id"] == att_edge][0]
+
+        assert tiny_p["fix_succeeded"] is False, \
+            f"delta=0.005 should be failure (below 0.01 threshold), got {tiny_p['fix_succeeded']}"
+        assert clear_p["fix_succeeded"] is True, \
+            f"delta=0.050 should be success, got {clear_p['fix_succeeded']}"
+        assert edge_p["fix_succeeded"] is False, \
+            f"delta=0.009 should be failure (below 0.01 threshold), got {edge_p['fix_succeeded']}"
+
+        print("PASS: test_success_threshold")
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("Phase 2 (GEM 1) Validation Tests")
@@ -332,6 +381,7 @@ if __name__ == "__main__":
         test_influence_flag_defaults_off,
         test_critique_stats,
         test_abandon_stale,
+        test_success_threshold,
     ]
 
     passed = 0

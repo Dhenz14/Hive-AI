@@ -209,7 +209,11 @@ def close_critique_loop(
         now = datetime.now(timezone.utc).isoformat()
         pre_score = meta.get("pre_score", 0)
         delta = post_score - pre_score if pre_score is not None else None
-        fix_succeeded = delta is not None and delta > 0
+        # Success threshold: >0.01 (one percentage point). Below that is
+        # measurement noise on 60-probe eval (~1.67% per probe per domain).
+        # Frozen in docs/phase3_acceptance_gates.md.
+        _SUCCESS_THRESHOLD = 0.01
+        fix_succeeded = delta is not None and delta > _SUCCESS_THRESHOLD
 
         meta["post_score"] = post_score
         meta["post_keyword_score"] = post_keyword_score
