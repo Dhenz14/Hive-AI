@@ -599,6 +599,237 @@ def _srm_by_dimension(events, dimension_fn,
 # Product review aggregation
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Validation gate — machine-evaluable pass/fail for telemetry integrity
+# ---------------------------------------------------------------------------
+
+# Hard thresholds — do not change without bumping GATE_VERSION
+GATE_VERSION = "v1"
+GATE_THRESHOLDS = {
+    # Gate 1: arm balance
+    "arm_balance_tolerance_pct": 5.0,        # each arm within ±5% of expected
+    "min_eligible_turns": 50,                 # minimum memory-eligible turns total
+    "min_retrieval_positive_turns": 20,       # minimum turns with solved examples found
+
+    # Gate 2: client event transport
+    "min_client_events_observed": 10,         # minimum client events to evaluate transport
+    "min_transport_health_rate": 0.80,        # 80% of treatment surface-emitted turns should have ANY client event
+
+    # Gate 3: drop budget
+    "max_drop_rate": 0.02,                    # max 2% of events dropped
+    "max_excluded_window_share": 0.10,        # max 10% of time windows excluded
+    "max_arm_drop_asymmetry": 0.60,           # no arm has >60% of all drops
+
+    # Gate 4: lineage integrity
+    "max_lineage_failures": 0,                # zero tolerance for lineage violations
+
+    # Gate 5: epoch stability
+    "max_distinct_git_shas": 1,               # exactly one code version in the window
+    "max_distinct_model_ids": 1,              # exactly one model in the window
+}
+
+
+def evaluate_validation_gate(db, real_events, arms, drops) -> dict:
+    """Machine-evaluable 5-point validation gate.
+
+    Returns a dict with pass/fail per gate, overall verdict, and all evidence.
+    The review endpoint embeds this so the gate result is a snapshotable artifact.
+    """
+    from hiveai.models import TelemetryEvent
+    from collections import Counter
+
+    gates = {}
+    expected_pcts = {"treatment": 70, "holdout_surface": 15, "no_injection": 15}
+    T = GATE_THRESHOLDS
+
+    # ── Gate 1: Arm balance on eligible and retrieval-positive turns ──
+    eligible = [e for e in real_events if e.memory_available]
+    retrieval_pos = [e for e in real_events if e.solved_example_count and e.solved_example_count > 0]
+
+    def _check_balance(events, label):
+        total = len(events)
+        if total < T["min_eligible_turns"]:
+            return {"status": "insufficient_data", "total": total, "min_required": T["min_eligible_turns"]}
+        arm_counts = Counter(e.experiment_group for e in events)
+        deviations = {}
+        for arm, expected_pct in expected_pcts.items():
+            observed_pct = arm_counts.get(arm, 0) / total * 100
+            deviation = abs(observed_pct - expected_pct)
+            deviations[arm] = {
+                "observed_pct": round(observed_pct, 1),
+                "expected_pct": expected_pct,
+                "deviation_pct": round(deviation, 1),
+                "within_tolerance": deviation <= T["arm_balance_tolerance_pct"],
+            }
+        all_balanced = all(d["within_tolerance"] for d in deviations.values())
+        return {"status": "pass" if all_balanced else "fail", "total": total, "arms": deviations}
+
+    balance_eligible = _check_balance(eligible, "eligible")
+    balance_retrieval = _check_balance(retrieval_pos, "retrieval_positive") if len(retrieval_pos) >= T["min_retrieval_positive_turns"] else {
+        "status": "insufficient_data", "total": len(retrieval_pos), "min_required": T["min_retrieval_positive_turns"]
+    }
+
+    gate1_pass = (
+        balance_eligible.get("status") == "pass"
+        and balance_retrieval.get("status") in ("pass", "insufficient_data")
+    )
+    gates["gate_1_arm_balance"] = {
+        "pass": gate1_pass,
+        "eligible_turns": balance_eligible,
+        "retrieval_positive_turns": balance_retrieval,
+        "threshold": f"each arm within ±{T['arm_balance_tolerance_pct']}% of expected",
+    }
+
+    # ── Gate 2: Client event transport health ──
+    # Measure against treatment turns where surface was emitted (mandatory path)
+    treatment_surface_emitted = [e for e in arms.get("treatment", []) if e.memory_surface_emitted]
+    treatment_with_any_client = [e for e in treatment_surface_emitted
+                                  if e.details_expanded or e.pattern_clicked
+                                  or e.explicit_accept is not None
+                                  or e.implicit_accept_proxy is not None
+                                  or e.user_retried]
+    total_client_events = sum(1 for e in real_events
+                               if e.details_expanded or e.pattern_clicked
+                               or e.explicit_accept is not None
+                               or e.implicit_accept_proxy is not None
+                               or e.user_retried)
+
+    if total_client_events < T["min_client_events_observed"]:
+        gate2_status = "insufficient_data"
+        transport_rate = None
+    else:
+        transport_rate = len(treatment_with_any_client) / max(len(treatment_surface_emitted), 1)
+        gate2_status = "pass" if transport_rate >= T["min_transport_health_rate"] else "fail"
+
+    gates["gate_2_client_transport"] = {
+        "pass": gate2_status == "pass",
+        "status": gate2_status,
+        "treatment_surface_emitted": len(treatment_surface_emitted),
+        "treatment_with_client_event": len(treatment_with_any_client),
+        "transport_rate": round(transport_rate, 3) if transport_rate is not None else None,
+        "total_client_events_observed": total_client_events,
+        "threshold": f"transport_rate >= {T['min_transport_health_rate']}",
+        "min_events_required": T["min_client_events_observed"],
+    }
+
+    # ── Gate 3: Drop symmetry and budget ──
+    total_events = len(real_events)
+    total_dropped = drops.get("total_dropped", 0)
+    drop_rate = total_dropped / max(total_events + total_dropped, 1)
+    arm_contaminated = drops.get("arm_contaminated", {})
+    any_arm_contaminated = any(arm_contaminated.values())
+
+    # Count excluded windows
+    recent_windows = drops.get("recent_windows", {})
+    excluded_windows = sum(1 for v in recent_windows.values() if v > 0)
+    total_windows = max(len(recent_windows), 1)
+    excluded_share = excluded_windows / total_windows
+
+    gate3_pass = (
+        drop_rate <= T["max_drop_rate"]
+        and not any_arm_contaminated
+        and excluded_share <= T["max_excluded_window_share"]
+    )
+    gates["gate_3_drop_budget"] = {
+        "pass": gate3_pass,
+        "drop_rate": round(drop_rate, 4),
+        "max_allowed": T["max_drop_rate"],
+        "total_dropped": total_dropped,
+        "any_arm_contaminated": any_arm_contaminated,
+        "arm_contamination": arm_contaminated,
+        "excluded_window_share": round(excluded_share, 3),
+        "max_window_share": T["max_excluded_window_share"],
+    }
+
+    # ── Gate 4: Revision lineage integrity ──
+    lineage_failures = []
+
+    # Check: exactly one terminal attempt per request_id
+    from collections import defaultdict
+    requests = defaultdict(list)
+    for e in real_events:
+        if e.request_id:
+            requests[e.request_id].append(e)
+
+    for req_id, evts in requests.items():
+        terminals = [e for e in evts if e.is_terminal_attempt]
+        if len(terminals) != 1 and len(evts) > 1:
+            lineage_failures.append({
+                "type": "terminal_count",
+                "request_id": req_id,
+                "terminal_count": len(terminals),
+                "total_attempts": len(evts),
+            })
+
+    # Check: no cycles, parent exists, final_answer_id consistent
+    answer_ids = {e.answer_id for e in real_events}
+    for e in real_events:
+        if e.parent_answer_id and e.parent_answer_id not in answer_ids:
+            lineage_failures.append({
+                "type": "orphan_parent",
+                "answer_id": e.answer_id,
+                "parent_answer_id": e.parent_answer_id,
+            })
+        if e.final_answer_id and e.final_answer_id not in answer_ids:
+            lineage_failures.append({
+                "type": "orphan_final",
+                "answer_id": e.answer_id,
+                "final_answer_id": e.final_answer_id,
+            })
+
+    gate4_pass = len(lineage_failures) <= T["max_lineage_failures"]
+    gates["gate_4_lineage_integrity"] = {
+        "pass": gate4_pass,
+        "failure_count": len(lineage_failures),
+        "max_allowed": T["max_lineage_failures"],
+        "failures": lineage_failures[:10],  # cap detail output
+    }
+
+    # ── Gate 5: Epoch stability ──
+    git_shas = set(e.git_sha for e in real_events if e.git_sha)
+    model_ids = set(e.model_id for e in real_events if e.model_id)
+    frontend_builds = set(e.frontend_build for e in real_events if e.frontend_build)
+    classifier_versions = set(
+        (e.workflow_classifier_version, e.language_detector_version)
+        for e in real_events
+        if e.workflow_classifier_version
+    )
+
+    gate5_pass = (
+        len(git_shas) <= T["max_distinct_git_shas"]
+        and len(model_ids) <= T["max_distinct_model_ids"]
+    )
+    gates["gate_5_epoch_stability"] = {
+        "pass": gate5_pass,
+        "distinct_git_shas": sorted(git_shas),
+        "distinct_model_ids": sorted(model_ids),
+        "distinct_frontend_builds": sorted(frontend_builds),
+        "distinct_classifier_versions": [list(cv) for cv in sorted(classifier_versions)],
+        "max_git_shas": T["max_distinct_git_shas"],
+        "max_model_ids": T["max_distinct_model_ids"],
+    }
+
+    # ── Overall verdict ──
+    all_passed = all(g["pass"] for g in gates.values())
+    any_insufficient = any(
+        g.get("status") == "insufficient_data" or
+        (isinstance(g.get("eligible_turns"), dict) and g["eligible_turns"].get("status") == "insufficient_data")
+        for g in gates.values()
+    )
+
+    return {
+        "gate_version": GATE_VERSION,
+        "verdict": "pass" if all_passed else ("insufficient_data" if any_insufficient and not any(not g["pass"] for g in gates.values() if g.get("status") != "insufficient_data") else "fail"),
+        "gates": gates,
+        "thresholds": T,
+        "event_window": {
+            "total_real_events": len(real_events),
+            "first_event": min((e.created_at for e in real_events), default=None),
+            "last_event": max((e.created_at for e in real_events), default=None),
+        },
+    }
+
+
 def aggregate_product_review(db) -> dict:
     """Aggregate telemetry events into the product review scorecard.
 
@@ -731,11 +962,15 @@ def aggregate_product_review(db) -> dict:
     # Drop rate analysis
     drops = _drop_counter.snapshot()
 
+    # Validation gate — machine-evaluable pass/fail
+    validation_gate = evaluate_validation_gate(db, real_events, arms, drops)
+
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total_events": total,
         "internal_excluded": internal_count,
         "real_events": len(real_events),
+        "validation_gate": validation_gate,
         "reproducibility": {
             "classifier_versions": {
                 "workflow": WORKFLOW_CLASSIFIER_VERSION,

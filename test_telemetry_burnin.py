@@ -217,12 +217,35 @@ def main():
     assert "reproducibility" in review
     assert review["treatment"]["user_outcomes"]["retried"] == 1
     assert review["treatment"]["user_outcomes"]["details_expanded"] == 1
+
+    # Validation gate present and structured
+    vg = review["validation_gate"]
+    assert "verdict" in vg
+    assert "gates" in vg
+    assert "gate_version" in vg
+    assert len(vg["gates"]) == 5
+    for gate_name, gate_result in vg["gates"].items():
+        assert "pass" in gate_result, f"Gate {gate_name} missing pass field"
+
+    # With only 5 events, we expect insufficient_data (not enough for arm balance)
+    assert vg["verdict"] in ("insufficient_data", "fail")
+    assert vg["gates"]["gate_1_arm_balance"]["eligible_turns"]["status"] == "insufficient_data"
+    # Gate 4 (lineage) should pass — our lineage is clean
+    assert vg["gates"]["gate_4_lineage_integrity"]["pass"] is True
+    assert vg["gates"]["gate_4_lineage_integrity"]["failure_count"] == 0
+    # Gate 5 (epoch) should pass — single git_sha and model_id
+    assert vg["gates"]["gate_5_epoch_stability"]["pass"] is True
+
     print(f"  total_events: {review['total_events']}")
     print(f"  treatment: {review['treatment']['count']}")
     print(f"  holdout_surface: {review['holdout_surface']['count']}")
     print(f"  no_injection: {review['no_injection']['count']}")
     print(f"  SRM: {review['srm_checks']['global']['status']}")
-    print("  Aggregation: OK")
+    print(f"  Validation gate verdict: {vg['verdict']}")
+    for gn, gr in vg["gates"].items():
+        status = gr.get("status", "pass" if gr["pass"] else "fail")
+        print(f"    {gn}: {status}")
+    print("  Aggregation + Gate: OK")
 
     db.close()
 
