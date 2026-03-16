@@ -33,10 +33,7 @@ from scripts.weakness_trend import classify_weakness_type, WEAKNESS_CLASSIFIER_V
 # Config
 # ---------------------------------------------------------------------------
 SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://localhost:11435")
-SYSTEM_PROMPT = (
-    "You are an expert coding assistant. Provide clear, accurate, well-structured "
-    "responses with working code examples."
-)
+SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
 
 # 6 anchor probes: 5 primary (B1-B5) + 1 reserve (R1)
 ANCHOR_IDS = {
@@ -103,27 +100,44 @@ def _call_llama(prompt: str, max_retries: int = 2) -> str:
 
 
 def score_response(response: str, expected_keywords: list) -> dict:
-    """Score a probe response (mirrors regression_eval.py scoring)."""
+    """Score a probe response — IDENTICAL to regression_eval.py scoring.
+
+    DO NOT modify this function without also updating regression_eval.py.
+    Any divergence invalidates campaign baselines.
+    """
+    if not response or not response.strip():
+        return {"score": 0.0, "keyword_score": 0.0, "structure_score": 0.0,
+                "keywords_hit": 0, "keywords_total": len(expected_keywords)}
     text = response.lower()
 
-    # Keyword score
+    # Keyword coverage (unique matches, case-insensitive substring)
     found = sum(1 for kw in expected_keywords if kw.lower() in text)
     keyword_score = found / len(expected_keywords) if expected_keywords else 0.0
 
-    # Structure score (4 signals)
-    signals = []
-    signals.append(1.0 if "```" in response else 0.0)
+    # Structural quality signals (4 binary signals)
+    structure_signals = []
 
-    def_patterns = ["def ", "fn ", "func ", "function ", "class ", "struct ", "impl ", "interface "]
-    signals.append(1.0 if any(p in text for p in def_patterns) else 0.0)
+    # Has fenced code blocks (regex: requires newline after opening fence)
+    has_code = bool(re.search(r"```\w*\n", response))
+    structure_signals.append(1.0 if has_code else 0.0)
 
-    signals.append(1.0 if len(response) > 200 else 0.3)
+    # Has function/class/struct definitions (word-boundary regex)
+    has_definitions = bool(re.search(
+        r"\b(def |fn |func |function |class |struct |impl |interface )\b",
+        response
+    ))
+    structure_signals.append(1.0 if has_definitions else 0.0)
 
-    prose = re.sub(r"```[\s\S]*?```", "", response)
-    signals.append(1.0 if len(prose.strip()) > 50 else 0.2)
+    # Reasonable length (>200 chars stripped)
+    structure_signals.append(1.0 if len(response.strip()) > 200 else 0.3)
 
-    structure_score = sum(signals) / len(signals)
+    # Has explanatory prose (not just a code dump)
+    prose_text = re.sub(r"```[\s\S]*?```", "", response).strip()
+    structure_signals.append(1.0 if len(prose_text) > 50 else 0.2)
 
+    structure_score = sum(structure_signals) / len(structure_signals)
+
+    # Combined: 70% keyword, 30% structure
     combined = keyword_score * 0.7 + structure_score * 0.3
 
     return {

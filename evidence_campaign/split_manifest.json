@@ -1,0 +1,271 @@
+{
+  "split_salt": "evidence_campaign_v1_2026-03-16",
+  "split_algorithm_version": 1,
+  "fit_ratio": 0.6,
+  "domains": {
+    "js": {
+      "anchors": [
+        "js-generics"
+      ],
+      "fit": [
+        "js-weakmap",
+        "js-decorators",
+        "js-proxy",
+        "js-promises",
+        "js-async-iter"
+      ],
+      "holdout": [
+        "js-mapped-types",
+        "js-closures",
+        "js-event-loop",
+        "js-modules"
+      ],
+      "hash_order": [
+        [
+          "js-weakmap",
+          "705986cf0a8e"
+        ],
+        [
+          "js-decorators",
+          "7b2298dbf3aa"
+        ],
+        [
+          "js-proxy",
+          "8498d5c8971a"
+        ],
+        [
+          "js-promises",
+          "98e73afe285b"
+        ],
+        [
+          "js-async-iter",
+          "bf8c7fda698b"
+        ],
+        [
+          "js-mapped-types",
+          "c427a561ff64"
+        ],
+        [
+          "js-closures",
+          "ca392733d185"
+        ],
+        [
+          "js-event-loop",
+          "d9cc44ae0f01"
+        ],
+        [
+          "js-modules",
+          "de6d0796ac89"
+        ]
+      ],
+      "checks": {
+        "fit_count": 5,
+        "holdout_count": 4,
+        "fit_min_2": true,
+        "holdout_min_1": true,
+        "any_below_ceiling": true,
+        "any_holdout_below_ceiling": true,
+        "anchor_near_ceiling": false,
+        "headroom_flag": false,
+        "low_sensitivity": false
+      }
+    },
+    "python": {
+      "anchors": [
+        "py-metaclass"
+      ],
+      "fit": [
+        "py-pathlib",
+        "py-itertools",
+        "py-context-mgr",
+        "py-async-gen",
+        "py-decorators"
+      ],
+      "holdout": [
+        "py-generators",
+        "py-walrus",
+        "py-typing",
+        "py-dataclasses"
+      ],
+      "hash_order": [
+        [
+          "py-pathlib",
+          "06b0bc2f4e6e"
+        ],
+        [
+          "py-itertools",
+          "2218b91f2e3e"
+        ],
+        [
+          "py-context-mgr",
+          "46a1847e5bf9"
+        ],
+        [
+          "py-async-gen",
+          "76baab14b771"
+        ],
+        [
+          "py-decorators",
+          "8cf212912f1e"
+        ],
+        [
+          "py-generators",
+          "bee682b73440"
+        ],
+        [
+          "py-walrus",
+          "ca2f9fef2d02"
+        ],
+        [
+          "py-typing",
+          "f510dd41484c"
+        ],
+        [
+          "py-dataclasses",
+          "fb6a7f377485"
+        ]
+      ],
+      "checks": {
+        "fit_count": 5,
+        "holdout_count": 4,
+        "fit_min_2": true,
+        "holdout_min_1": true,
+        "any_below_ceiling": true,
+        "any_holdout_below_ceiling": true,
+        "anchor_near_ceiling": false,
+        "headroom_flag": false,
+        "low_sensitivity": false
+      }
+    },
+    "rust": {
+      "anchors": [
+        "rs-ownership"
+      ],
+      "fit": [
+        "rs-errors",
+        "rs-patterns",
+        "rs-traits",
+        "rs-macros",
+        "rs-lifetimes"
+      ],
+      "holdout": [
+        "rs-concurrency",
+        "rs-tokio",
+        "rs-unsafe",
+        "rs-serde"
+      ],
+      "hash_order": [
+        [
+          "rs-errors",
+          "1dbd86eba8a1"
+        ],
+        [
+          "rs-patterns",
+          "3b414e9abf7f"
+        ],
+        [
+          "rs-traits",
+          "4c581446d94e"
+        ],
+        [
+          "rs-macros",
+          "56729f46f5db"
+        ],
+        [
+          "rs-lifetimes",
+          "5ddd9a20faf7"
+        ],
+        [
+          "rs-concurrency",
+          "6c6741cbf621"
+        ],
+        [
+          "rs-tokio",
+          "7534dc4d6d63"
+        ],
+        [
+          "rs-unsafe",
+          "ac434c54901d"
+        ],
+        [
+          "rs-serde",
+          "b1be2f380482"
+        ]
+      ],
+      "checks": {
+        "fit_count": 5,
+        "holdout_count": 4,
+        "fit_min_2": true,
+        "holdout_min_1": true,
+        "any_below_ceiling": true,
+        "any_holdout_below_ceiling": false,
+        "anchor_near_ceiling": false,
+        "headroom_flag": false,
+        "low_sensitivity": false
+      }
+    },
+    "cpp": {
+      "anchors": [
+        "cpp-variadic",
+        "cpp-const"
+      ],
+      "fit": [
+        "cpp-coroutines",
+        "cpp-raii",
+        "cpp-concepts",
+        "cpp-lambdas",
+        "cpp-constexpr"
+      ],
+      "holdout": [
+        "cpp-crtp",
+        "cpp-optional-variant",
+        "cpp-move"
+      ],
+      "hash_order": [
+        [
+          "cpp-coroutines",
+          "10b6a17f2ec3"
+        ],
+        [
+          "cpp-raii",
+          "1d339d7bbd84"
+        ],
+        [
+          "cpp-concepts",
+          "39e0a65df940"
+        ],
+        [
+          "cpp-lambdas",
+          "4e4a52b37507"
+        ],
+        [
+          "cpp-constexpr",
+          "520e20b26e7b"
+        ],
+        [
+          "cpp-crtp",
+          "589b8b0dd4b7"
+        ],
+        [
+          "cpp-optional-variant",
+          "66339e157866"
+        ],
+        [
+          "cpp-move",
+          "bfa77c6c5be6"
+        ]
+      ],
+      "checks": {
+        "fit_count": 5,
+        "holdout_count": 3,
+        "fit_min_2": true,
+        "holdout_min_1": true,
+        "any_below_ceiling": true,
+        "any_holdout_below_ceiling": true,
+        "anchor_near_ceiling": false,
+        "headroom_flag": false,
+        "low_sensitivity": false
+      }
+    }
+  }
+}
