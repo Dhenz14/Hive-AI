@@ -952,7 +952,7 @@ def chat_api():
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
                 message, db, history=history, retrieval_mode=classify.retrieval_mode)
-            _ctx_budget = 2000 if classify.response_contract == "executable_code" else 4000
+            _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
             knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
             book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
@@ -1311,7 +1311,7 @@ def chat_stream():
                         message, db, history=history, retrieval_mode=classify.retrieval_mode)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
-                    _ctx_budget = 2000 if classify.response_contract == "executable_code" else 4000
+                    _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
                     knowledge_context = budget_context(top_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
                     book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
@@ -1349,7 +1349,34 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             ]
             if _solved_sections_retrieved:
                 _se_ids = [s.get("id") for s in _solved_sections_retrieved if s.get("id")]
-                yield f"event: solved_examples\ndata: {json.dumps({'retrieved': True, 'count': len(_solved_sections_retrieved), 'ids': _se_ids})}\n\n"
+                # Enrich with reuse stats for UX surfacing
+                _se_details = []
+                for _s in _solved_sections_retrieved:
+                    _sid = _s.get("id")
+                    if not _sid:
+                        continue
+                    _sec = db.query(BookSection).get(_sid) if _sid else None
+                    if _sec and _sec.keywords_json:
+                        _meta = json.loads(_sec.keywords_json) if isinstance(_sec.keywords_json, str) else _sec.keywords_json
+                        _reuse = _meta.get("reuse", {})
+                        _vp = _reuse.get("verified_pass", 0)
+                        _vf = _reuse.get("verified_fail", 0)
+                        _total = _vp + _vf
+                        _pass_rate = round(_vp / max(_total, 1) * 100)
+                        _confidence = "high" if _pass_rate >= 85 else "good" if _pass_rate >= 70 else "mixed" if _pass_rate >= 50 else "low"
+                        # Extract short label from header
+                        _header = _sec.header or ""
+                        _label = _header.replace("Solved: ", "").replace("Write a Python function ", "").replace("Write a ", "")[:60]
+                        _se_details.append({
+                            "id": _sid,
+                            "label": _label,
+                            "language": _meta.get("language", "python"),
+                            "times_verified": _total,
+                            "pass_rate": _pass_rate,
+                            "confidence": _confidence,
+                            "times_retrieved": _reuse.get("retrieved", 0),
+                        })
+                yield f"event: solved_examples\ndata: {json.dumps({'retrieved': True, 'count': len(_solved_sections_retrieved), 'ids': _se_ids, 'details': _se_details})}\n\n"
 
             # ---- Agent mode: tool-use loop ----
             if use_agent:

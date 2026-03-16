@@ -1511,13 +1511,59 @@
                     badgeBar.appendChild(cBadge);
                 }
 
-                // Solved-example badge (memory reuse indicator)
+                // Solved-example badge (memory reuse indicator — P1-P4)
                 if (solvedExampleData && solvedExampleData.retrieved) {
+                    const details = solvedExampleData.details || [];
+                    const topExample = details.length > 0 ? details[0] : null;
+
+                    // P1: Reused example label
                     const seBadge = document.createElement('span');
-                    seBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(251,191,36,0.08);color:#fbbf24;border:1px solid rgba(251,191,36,0.15);';
-                    seBadge.textContent = '\u2728 memory \u00b7 ' + solvedExampleData.count + ' solved';
-                    if (solvedExampleData.ids && solvedExampleData.ids.length > 0) {
-                        seBadge.title = 'Solved example IDs: ' + solvedExampleData.ids.join(', ');
+                    seBadge.style.cssText = 'padding:2px 8px;border-radius:4px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:rgba(251,191,36,0.08);color:#fbbf24;border:1px solid rgba(251,191,36,0.15);cursor:pointer;';
+
+                    if (topExample) {
+                        // P3: Confidence color
+                        const confColors = {high: '#22c55e', good: '#fbbf24', mixed: '#f59e0b', low: '#94a3b8'};
+                        const confColor = confColors[topExample.confidence] || '#fbbf24';
+                        seBadge.style.color = confColor;
+                        seBadge.style.borderColor = confColor + '30';
+                        seBadge.style.background = confColor + '10';
+
+                        // P1: Label
+                        let label = topExample.label || ('solved #' + topExample.id);
+                        if (label.length > 40) label = label.substring(0, 38) + '..';
+                        seBadge.textContent = '\u2728 ' + label;
+
+                        // P2 + P3: Tooltip with verified count + confidence
+                        let tip = 'Reused verified pattern';
+                        tip += '\nVerified ' + topExample.times_verified + ' times';
+                        tip += '\nPass rate: ' + topExample.pass_rate + '% (' + topExample.confidence + ' confidence)';
+                        tip += '\nRetrieved ' + topExample.times_retrieved + ' times';
+                        if (topExample.language) tip += '\nLanguage: ' + topExample.language;
+                        if (details.length > 1) tip += '\n+ ' + (details.length - 1) + ' more solved examples';
+                        seBadge.title = tip;
+
+                        // Click to expand all details
+                        seBadge.addEventListener('click', function() {
+                            const existing = this.parentNode.querySelector('.se-detail-panel');
+                            if (existing) { existing.remove(); return; }
+                            const panel = document.createElement('div');
+                            panel.className = 'se-detail-panel';
+                            panel.style.cssText = 'margin-top:4px;padding:6px 10px;border-radius:6px;font-size:0.7em;font-family:"JetBrains Mono",monospace;background:var(--bg-secondary,#1a1a2e);border:1px solid rgba(251,191,36,0.1);width:100%;';
+                            let html = '<div style="color:#fbbf24;margin-bottom:4px;">Reused solved patterns:</div>';
+                            details.forEach(function(d) {
+                                const c = confColors[d.confidence] || '#94a3b8';
+                                let dlabel = d.label || ('solved #' + d.id);
+                                if (dlabel.length > 50) dlabel = dlabel.substring(0, 48) + '..';
+                                html += '<div style="margin:2px 0;color:' + c + ';">' +
+                                    dlabel + ' \u00b7 ' + d.pass_rate + '% \u00b7 ' + d.times_verified + 'x verified</div>';
+                            });
+                            panel.innerHTML = html;
+                            this.parentNode.appendChild(panel);
+                        });
+                    } else {
+                        // Fallback: no detail data (old format)
+                        seBadge.textContent = '\u2728 memory \u00b7 ' + solvedExampleData.count + ' solved';
+                        seBadge.title = 'Solved example IDs: ' + (solvedExampleData.ids || []).join(', ');
                     }
                     badgeBar.appendChild(seBadge);
                 }
