@@ -793,12 +793,15 @@ def clear_llm_cache():
 
 
 def clean_llm_response(text):
-    """Clean LLM response: strip thinking tags and wrapper fences (not code fences)."""
+    """Clean LLM response: strip thinking tags. Preserve ALL code fences."""
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = re.sub(r'<analysis>.*?</analysis>', '', text, flags=re.DOTALL)
-    # Only strip json/markdown wrapper fences — preserve code fences (```python, ```cpp, etc.)
-    text = re.sub(r'```(?:json|markdown|md)\s*\n?', '', text)
-    text = re.sub(r'```\s*$', '', text, flags=re.MULTILINE)
+    # Strip only wrapper markdown fences that wrap the ENTIRE response (not code fences)
+    # A wrapper fence is ```markdown or ```md at the very start, with ``` at the very end
+    text = text.strip()
+    if re.match(r'^```(?:markdown|md)\s*\n', text) and text.rstrip().endswith('```'):
+        text = re.sub(r'^```(?:markdown|md)\s*\n', '', text, count=1)
+        text = re.sub(r'```\s*$', '', text)
     return text.strip()
 
 

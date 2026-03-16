@@ -911,6 +911,8 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "go": execute_go,
     }
 
+    no_verdict_count = 0
+
     for block in blocks:
         lang = block.get("language", "python")
         entry = {
@@ -919,10 +921,13 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
             "code_preview": block["code"][:80].replace("\n", " "),
             "syntax_valid": None,
             "execution": None,
+            "execution_language": lang,
+            "verifier_backend": None,
         }
 
         if lang == "python":
             python_blocks += 1
+            entry["verifier_backend"] = "python_sandbox"
             syntax = validate_syntax(block["code"])
             entry["syntax_valid"] = syntax["valid"]
             if syntax["valid"]:
@@ -938,12 +943,16 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         elif lang in executors:
             if lang == "javascript":
                 js_blocks += 1
+                entry["verifier_backend"] = "node_sandbox"
             elif lang == "cpp":
                 cpp_blocks += 1
+                entry["verifier_backend"] = "gcc_sandbox"
             elif lang == "rust":
                 rust_blocks += 1
+                entry["verifier_backend"] = "rustc_sandbox"
             elif lang == "go":
                 go_blocks += 1
+                entry["verifier_backend"] = "go_sandbox"
             entry["syntax_valid"] = True  # Compilation validates syntax
             valid_syntax += 1
             result = executors[lang](block["code"], timeout)
@@ -954,6 +963,16 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
                 passed += 1
             else:
                 failed += 1
+        else:
+            # Unsupported language — no_verdict, not failure
+            entry["verifier_backend"] = "no_verdict"
+            entry["execution"] = {
+                "success": None,
+                "verdict": "no_verdict",
+                "reason": f"no executor for language '{lang}'",
+                "timed_out": False,
+            }
+            no_verdict_count += 1
 
         results.append(entry)
 
@@ -994,6 +1013,7 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
         "timed_out": timed_out,
         "results": results,
         "overall_pass_rate": passed / max(executed, 1),
+        "no_verdict": no_verdict_count,
         "contract_mode": contract_mode,
         "parse_status": parse_status,
     }

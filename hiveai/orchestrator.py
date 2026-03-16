@@ -39,7 +39,7 @@ class RequestClassification:
 
 _LANG_PATTERNS = {
     "cpp": [
-        r"\bc\+\+\b", r"\bcpp\b", r"unique_ptr|shared_ptr|weak_ptr",
+        r"c\+\+", r"\bcpp\b", r"unique_ptr|shared_ptr|weak_ptr",
         r"std::\w+", r"#include\s*<", r"\btemplate\s*<",
         r"\bconstexpr\b", r"\bRAAI\b|\braii\b", r"move\s*semantic",
         r"\.cpp\b|\.hpp\b|\.h\b",
@@ -115,7 +115,7 @@ _INTENT_RULES = [
         "intent": "code_question",
         "patterns": [
             r"```",                                    # contains code fence
-            r"write\s*(a|me|the)\s*\w*\s*(function|class|script|program|code)",
+            r"write\s*(a|me|the)\s*.{0,20}\s*(function|class|script|program|code)",
             r"implement\s", r"create\s*(a|an)\s*\w*\s*(function|class|api|endpoint)",
             r"how\s*(do|would|can|to)\s*I?\s*(write|implement|create|build|code)",
             r"convert\s*.+\s*to\s*",                   # convert X to Y
