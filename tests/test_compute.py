@@ -106,6 +106,7 @@ class MockClaimedJob:
         self.job_id = "test-job-1"
         self.attempt_id = "test-att-1"
         self.lease_token = "test-tok-1"
+        self.nonce = "test-nonce-1"  # Phase 0: server-issued nonce
         self.workload_type = workload_type
         self.manifest = manifest or {
             "model_name": "v5-think",
@@ -131,16 +132,16 @@ class TestWorker:
         client.drain_node.return_value = None
         return client
 
-    def test_worker_no_jobs_sleeps(self):
+    def test_worker_no_jobs_sleeps(self, tmp_path):
         client = self._make_mock_client(job=None)
-        worker = GPUWorker(client, "test-node", poll_interval=1)
+        worker = GPUWorker(client, "test-node", poll_interval=1, checkpoint_dir=str(tmp_path))
         worker._poll_and_execute()
         client.claim_next_job.assert_called_once()
 
-    def test_worker_rejects_unsupported_workload(self):
+    def test_worker_rejects_unsupported_workload(self, tmp_path):
         job = MockClaimedJob(workload_type="domain_lora_train")
         client = self._make_mock_client(job=job)
-        worker = GPUWorker(client, "test-node")
+        worker = GPUWorker(client, "test-node", checkpoint_dir=str(tmp_path))
         worker._poll_and_execute()
         # Should have called fail_job because workload is unsupported
         client.fail_job.assert_called_once()
@@ -148,7 +149,7 @@ class TestWorker:
         assert "Unsupported workload" in args.kwargs.get("reason", args[1] if len(args) > 1 else "")
 
     @patch("hiveai.compute.worker.subprocess.run")
-    def test_worker_eval_sweep_happy_path(self, mock_run):
+    def test_worker_eval_sweep_happy_path(self, mock_run, tmp_path):
         """Worker executes eval_sweep and submits result."""
         # Mock subprocess to simulate regression_eval.py completing
         mock_run.return_value = MagicMock(
@@ -166,7 +167,7 @@ class TestWorker:
         try:
             job = MockClaimedJob(workload_type="eval_sweep")
             client = self._make_mock_client(job=job)
-            worker = GPUWorker(client, "test-node")
+            worker = GPUWorker(client, "test-node", checkpoint_dir=str(tmp_path))
             worker._poll_and_execute()
 
             # Should have submitted
@@ -287,6 +288,7 @@ class TestComputeClientContract:
             mock_post.return_value = MagicMock(ok=True, json=lambda: {"status": "submitted"})
             client.submit_result(
                 job_id="j1", attempt_id="a1", lease_token="t1",
+                nonce="test-nonce",
                 output_cid=f"sha256:{sha}", output_sha256=sha,
                 result_json='{"test": true}',
             )
@@ -294,6 +296,135 @@ class TestComputeClientContract:
             payload = call_kwargs.kwargs.get("json", call_kwargs[1].get("json", {}))
             assert payload["outputSha256"] == sha
             assert len(payload["outputSha256"]) == 64
+            assert payload["nonce"] == "test-nonce"
+
+
+# ================================================================
+# Checkpoint Tests (Phase 0)
+# ================================================================
+
+class TestCheckpoint:
+    def test_checkpoint_save_and_load(self, tmp_path):
+        from hiveai.compute.checkpoint import CheckpointStore, WorkerCheckpoint
+        store = CheckpointStore(tmp_path)
+        cp = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="nonce-1",
+            lease_token="tok-1", workload_type="eval_sweep",
+        )
+        store.save(cp)
+        loaded = store.load("att-1")
+        assert loaded is not None
+        assert loaded.attempt_id == "att-1"
+        assert loaded.nonce == "nonce-1"
+        assert loaded.stage == "claimed"
+
+    def test_checkpoint_advance_forward_only(self, tmp_path):
+        from hiveai.compute.checkpoint import WorkerCheckpoint
+        cp = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="nonce-1",
+            lease_token="tok-1", workload_type="eval_sweep",
+        )
+        cp.advance_to("started")
+        assert cp.stage == "started"
+        cp.advance_to("executing")
+        assert cp.stage == "executing"
+        # Backward transition ignored
+        cp.advance_to("claimed")
+        assert cp.stage == "executing"
+
+    def test_checkpoint_list_active(self, tmp_path):
+        from hiveai.compute.checkpoint import CheckpointStore, WorkerCheckpoint
+        store = CheckpointStore(tmp_path)
+        cp1 = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="n1",
+            lease_token="t1", workload_type="eval_sweep", stage="executing",
+        )
+        cp2 = WorkerCheckpoint(
+            attempt_id="att-2", job_id="job-2", nonce="n2",
+            lease_token="t2", workload_type="eval_sweep", stage="terminal",
+        )
+        store.save(cp1)
+        store.save(cp2)
+        active = store.list_active()
+        assert len(active) == 1
+        assert active[0].attempt_id == "att-1"
+
+    def test_checkpoint_remove(self, tmp_path):
+        from hiveai.compute.checkpoint import CheckpointStore, WorkerCheckpoint
+        store = CheckpointStore(tmp_path)
+        cp = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="n1",
+            lease_token="t1", workload_type="eval_sweep",
+        )
+        store.save(cp)
+        assert store.load("att-1") is not None
+        store.remove("att-1")
+        assert store.load("att-1") is None
+
+    def test_recovery_incomplete_stage_fails_closed(self, tmp_path):
+        """Worker crash during 'executing' stage should fail the job on recovery."""
+        from hiveai.compute.checkpoint import CheckpointStore, WorkerCheckpoint
+        store = CheckpointStore(tmp_path)
+        cp = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="n1",
+            lease_token="tok-1", workload_type="eval_sweep", stage="executing",
+        )
+        store.save(cp)
+
+        client = MagicMock()
+        client.register_node.return_value = MagicMock(id="node-1", reputation_score=50)
+        client.fail_job.return_value = None
+
+        worker = GPUWorker(client, "test-node", checkpoint_dir=str(tmp_path))
+        worker._recover_checkpoints()
+
+        # Should have failed the job
+        client.fail_job.assert_called_once()
+        args = client.fail_job.call_args
+        assert "crash" in args.kwargs.get("reason", "").lower() or "executing" in args.kwargs.get("reason", "").lower()
+        # Checkpoint should be cleaned up
+        assert store.load("att-1") is None
+
+    def test_recovery_submit_sent_retries(self, tmp_path):
+        """Worker crash after submit_sent should retry submit on recovery."""
+        from hiveai.compute.checkpoint import CheckpointStore, WorkerCheckpoint
+        store = CheckpointStore(tmp_path)
+        cp = WorkerCheckpoint(
+            attempt_id="att-1", job_id="job-1", nonce="n1",
+            lease_token="tok-1", workload_type="eval_sweep", stage="submit_sent",
+            output_sha256="a" * 64, result_json='{"score": 0.95}',
+            metrics_json='{"wall_time": 10}',
+        )
+        store.save(cp)
+
+        client = MagicMock()
+        client.register_node.return_value = MagicMock(id="node-1", reputation_score=50)
+        client.submit_result.return_value = {"status": "submitted"}
+
+        worker = GPUWorker(client, "test-node", checkpoint_dir=str(tmp_path))
+        worker._recover_checkpoints()
+
+        # Should have retried submit with same nonce
+        client.submit_result.assert_called_once()
+        args = client.submit_result.call_args
+        assert args.kwargs["nonce"] == "n1"
+        assert args.kwargs["output_sha256"] == "a" * 64
+        # Checkpoint should be cleaned up
+        assert store.load("att-1") is None
+
+    def test_provenance_collection(self):
+        from hiveai.compute.checkpoint import collect_provenance
+        prov = collect_provenance(
+            nonce="test-nonce",
+            output_sha256="a" * 64,
+            output_cid="sha256:" + "a" * 64,
+            output_size_bytes=1234,
+        )
+        parsed = json.loads(prov)
+        assert parsed["schema_version"] == 1
+        assert parsed["identity"]["nonce"] == "test-nonce"
+        assert parsed["environment"]["platform"]
+        assert parsed["derivation"]["output_artifact_ref"]["sha256"] == "a" * 64
 
 
 if __name__ == "__main__":

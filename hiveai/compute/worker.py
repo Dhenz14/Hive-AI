@@ -29,13 +29,19 @@ import uuid
 from dataclasses import asdict
 from pathlib import Path
 
+from hiveai.compute.checkpoint import (
+    CheckpointStore,
+    WorkerCheckpoint,
+    collect_provenance,
+)
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class GPUWorker:
-    """Untrusted GPU worker runtime."""
+    """Untrusted GPU worker runtime with durable checkpoint recovery."""
 
     def __init__(
         self,
@@ -48,6 +54,7 @@ class GPUWorker:
         cuda_version: str | None = None,
         poll_interval: int = 30,
         heartbeat_interval: int = 20,
+        checkpoint_dir: str | None = None,
     ):
         self.client = compute_client
         self.node_instance_id = node_instance_id
@@ -58,6 +65,7 @@ class GPUWorker:
         self.cuda_version = cuda_version
         self.poll_interval = poll_interval
         self.heartbeat_interval = heartbeat_interval
+        self.checkpoints = CheckpointStore(checkpoint_dir)
 
         self._running = False
         self._current_job = None
@@ -80,6 +88,9 @@ class GPUWorker:
             worker_version="1.0.0",
         )
         logger.info(f"Registered as node {node.id} (rep={node.reputation_score})")
+
+        # Phase 0: Recover from any in-flight checkpoints (crash recovery)
+        self._recover_checkpoints()
 
         logger.info(f"Worker loop started — polling every {self.poll_interval}s")
         consecutive_errors = 0
@@ -105,8 +116,104 @@ class GPUWorker:
         logger.info("Shutdown signal received")
         self._running = False
 
+    def _recover_checkpoints(self) -> None:
+        """On startup, recover or fail-close any in-flight checkpoints from a previous crash."""
+        active = self.checkpoints.list_active()
+        if not active:
+            return
+
+        logger.info(f"Found {len(active)} active checkpoints from previous run")
+        for cp in active:
+            try:
+                self._recover_single(cp)
+            except Exception as e:
+                logger.error(f"Recovery failed for attempt {cp.attempt_id}: {e}")
+                # Fail-close: report failure to server
+                try:
+                    self.client.fail_job(
+                        job_id=cp.job_id, attempt_id=cp.attempt_id,
+                        lease_token=cp.lease_token,
+                        reason=f"Crash recovery failed: {str(e)[:500]}",
+                    )
+                except Exception:
+                    pass
+                cp.advance_to("terminal")
+                self.checkpoints.save(cp)
+                self.checkpoints.remove(cp.attempt_id)
+
+    def _recover_single(self, cp: WorkerCheckpoint) -> None:
+        """Recover a single checkpoint.
+
+        Decision tree:
+        - stage < submit_sent: output may be incomplete → fail the job
+        - stage == submit_sent: server may or may not have received → retry submit
+        - stage == acknowledged: nothing to do → clean up
+        """
+        logger.info(f"Recovering attempt {cp.attempt_id} from stage '{cp.stage}'")
+
+        if cp.stage in ("claimed", "started", "executing"):
+            # Output incomplete — fail closed
+            logger.info(f"Attempt {cp.attempt_id}: incomplete (stage={cp.stage}), failing")
+            try:
+                self.client.fail_job(
+                    job_id=cp.job_id, attempt_id=cp.attempt_id,
+                    lease_token=cp.lease_token,
+                    reason=f"Worker crash during {cp.stage}",
+                )
+            except Exception as e:
+                logger.warning(f"Fail report for {cp.attempt_id} failed: {e}")
+            cp.advance_to("terminal")
+            self.checkpoints.save(cp)
+            self.checkpoints.remove(cp.attempt_id)
+
+        elif cp.stage in ("output_ready", "submit_prepared", "submit_sent"):
+            # Output exists — retry submit with same nonce (server handles idempotency)
+            if not cp.output_sha256 or not cp.result_json:
+                logger.warning(f"Attempt {cp.attempt_id}: stage={cp.stage} but missing output, failing")
+                try:
+                    self.client.fail_job(
+                        job_id=cp.job_id, attempt_id=cp.attempt_id,
+                        lease_token=cp.lease_token,
+                        reason="Crash recovery: output data missing from checkpoint",
+                    )
+                except Exception:
+                    pass
+                cp.advance_to("terminal")
+                self.checkpoints.save(cp)
+                self.checkpoints.remove(cp.attempt_id)
+                return
+
+            logger.info(f"Attempt {cp.attempt_id}: retrying submit (nonce={cp.nonce})")
+            output_cid = f"sha256:{cp.output_sha256}"
+            try:
+                self.client.submit_result(
+                    job_id=cp.job_id,
+                    attempt_id=cp.attempt_id,
+                    lease_token=cp.lease_token,
+                    nonce=cp.nonce,
+                    output_cid=output_cid,
+                    output_sha256=cp.output_sha256,
+                    output_size_bytes=cp.output_size_bytes,
+                    metrics_json=cp.metrics_json,
+                    result_json=cp.result_json,
+                    provenance_json=cp.provenance_json,
+                )
+                logger.info(f"Attempt {cp.attempt_id}: recovery submit succeeded")
+            except Exception as e:
+                # Server may have already accepted or rejected — that's fine
+                logger.info(f"Attempt {cp.attempt_id}: recovery submit result: {e}")
+            cp.advance_to("terminal")
+            self.checkpoints.save(cp)
+            self.checkpoints.remove(cp.attempt_id)
+
+        elif cp.stage == "acknowledged":
+            # Already acknowledged — just clean up
+            cp.advance_to("terminal")
+            self.checkpoints.save(cp)
+            self.checkpoints.remove(cp.attempt_id)
+
     def _poll_and_execute(self) -> None:
-        """Poll for a job, execute it, report result."""
+        """Poll for a job, execute it with durable checkpoints, report result."""
         claimed = self.client.claim_next_job(self.node_instance_id)
         if not claimed:
             time.sleep(self.poll_interval)
@@ -115,14 +222,34 @@ class GPUWorker:
         self._current_job = claimed
         logger.info(f"Claimed job {claimed.job_id} ({claimed.workload_type})")
 
+        # Phase 0: Create durable checkpoint at claim
+        from datetime import datetime, timezone
+        cp = WorkerCheckpoint(
+            attempt_id=claimed.attempt_id,
+            job_id=claimed.job_id,
+            nonce=claimed.nonce,
+            lease_token=claimed.lease_token,
+            workload_type=claimed.workload_type,
+            stage="claimed",
+            node_instance_id=self.node_instance_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self.checkpoints.save(cp)
+
         # Start heartbeat thread
         self._start_heartbeat(claimed)
 
         try:
             # Signal job started
             self.client.start_job(claimed.job_id, claimed.attempt_id, claimed.lease_token)
+            cp.advance_to("started")
+            self.checkpoints.save(cp)
 
             # Execute based on workload type
+            cp.advance_to("executing")
+            self.checkpoints.save(cp)
+
             if claimed.workload_type == "eval_sweep":
                 result_json, metrics_json, output_path = self._execute_eval_sweep(claimed)
             elif claimed.workload_type == "benchmark_run":
@@ -133,23 +260,53 @@ class GPUWorker:
             # Compute artifact hash
             output_sha256 = self._file_sha256(output_path)
             output_size = os.path.getsize(output_path)
-
-            # For V1, output_cid is the sha256 (no IPFS pinning yet — the coordinator
-            # can fetch via transport URL or the result JSON contains the full data)
             output_cid = f"sha256:{output_sha256}"
 
-            # Submit result
+            # Checkpoint: output ready
+            cp.output_path = output_path
+            cp.output_sha256 = output_sha256
+            cp.output_size_bytes = output_size
+            cp.result_json = result_json
+            cp.metrics_json = metrics_json
+            cp.advance_to("output_ready")
+            self.checkpoints.save(cp)
+
+            # Collect provenance
+            provenance_json = collect_provenance(
+                nonce=claimed.nonce,
+                output_sha256=output_sha256,
+                output_cid=output_cid,
+                output_size_bytes=output_size,
+            )
+            cp.provenance_json = provenance_json
+            cp.advance_to("submit_prepared")
+            self.checkpoints.save(cp)
+
+            # Submit result — checkpoint before and after
+            cp.advance_to("submit_sent")
+            self.checkpoints.save(cp)
+
             self.client.submit_result(
                 job_id=claimed.job_id,
                 attempt_id=claimed.attempt_id,
                 lease_token=claimed.lease_token,
+                nonce=claimed.nonce,
                 output_cid=output_cid,
                 output_sha256=output_sha256,
                 output_size_bytes=output_size,
                 metrics_json=metrics_json,
                 result_json=result_json,
+                provenance_json=provenance_json,
             )
+
+            cp.advance_to("acknowledged")
+            self.checkpoints.save(cp)
             logger.info(f"Job {claimed.job_id} submitted successfully")
+
+            # Terminal — clean up checkpoint
+            cp.advance_to("terminal")
+            self.checkpoints.save(cp)
+            self.checkpoints.remove(cp.attempt_id)
 
         except Exception as e:
             logger.error(f"Job {claimed.job_id} failed: {e}", exc_info=True)
@@ -163,6 +320,10 @@ class GPUWorker:
                 )
             except Exception as report_err:
                 logger.error(f"Failed to report failure: {report_err}")
+            # Terminal — clean up checkpoint
+            cp.advance_to("terminal")
+            self.checkpoints.save(cp)
+            self.checkpoints.remove(cp.attempt_id)
         finally:
             self._stop_heartbeat()
             self._current_job = None

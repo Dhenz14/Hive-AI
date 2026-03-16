@@ -42,6 +42,7 @@ class ClaimedJob:
     job_id: str
     attempt_id: str
     lease_token: str
+    nonce: str  # Phase 0: server-issued, must echo back on submit
     workload_type: str
     manifest: dict
     manifest_sha256: str
@@ -179,6 +180,7 @@ class HivePoAComputeClient:
             job_id=job["id"],
             attempt_id=attempt["id"],
             lease_token=attempt["leaseToken"],
+            nonce=attempt.get("nonce", ""),  # Phase 0: server-issued nonce
             workload_type=job["workloadType"],
             manifest=json.loads(job["manifestJson"]) if isinstance(job["manifestJson"], str) else job["manifestJson"],
             manifest_sha256=job["manifestSha256"],
@@ -218,16 +220,19 @@ class HivePoAComputeClient:
 
     def submit_result(
         self, job_id: str, attempt_id: str, lease_token: str,
+        nonce: str,  # Phase 0: echo back server-issued nonce
         output_cid: str, output_sha256: str,
         output_size_bytes: int | None = None,
         output_transport_url: str | None = None,
         metrics_json: str | None = None,
         result_json: str | None = None,
+        provenance_json: str | None = None,  # Phase 0: structured provenance
     ) -> dict:
         """Submit completed job result for verification."""
         payload: dict[str, Any] = {
             "attemptId": attempt_id,
             "leaseToken": lease_token,
+            "nonce": nonce,
             "outputCid": output_cid,
             "outputSha256": output_sha256,
         }
@@ -239,6 +244,8 @@ class HivePoAComputeClient:
             payload["metricsJson"] = metrics_json
         if result_json:
             payload["resultJson"] = result_json
+        if provenance_json:
+            payload["provenanceJson"] = provenance_json
 
         return self._check(
             self._session.post(
