@@ -1,8 +1,12 @@
 {
   "source_repo": "HivePoA",
-  "source_commit": "10eb565",
+  "source_commit": "724a881",
+  "source_commit_full": "724a8812f51afb9e1adebdac48e4668f28dd4b95",
   "schema_version": 2,
   "synced_at": "2026-03-16",
+  "fixture_set_digest": "sha256:a0b7e00c46dfe85bc9bc3cc536e935d218f8aaff83517a42998896bd98d3e669",
+  "schema_count": 10,
+  "fixture_count": 14,
   "files": {
     "artifact_ref.json": "sha256:6cfd23ef7458fc1a01538297aabb03f43eac3f5dc4be7ac979b9490f83caca65",
     "baseline_registry_entry.json": "sha256:f3f2038aeb69a14b53184d02373c938b3df88a870906a837729881ec72b97a62",

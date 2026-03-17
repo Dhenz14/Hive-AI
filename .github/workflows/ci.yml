@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install "jsonschema[format]>=4.21,<5.0" pytest
+
+      - name: Read pinned HivePoA SHA from manifest
+        id: schema-pin
+        run: |
+          SHA=$(python -c "import json; print(json.load(open('hiveai/schemas/SCHEMA_MANIFEST.json'))['source_commit_full'])")
+          echo "hivepoa_sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Pinned HivePoA SHA: $SHA"
+
+      - name: Clone HivePoA at pinned immutable SHA
+        run: |
+          git clone --no-checkout https://github.com/SPK-Network/HivePoA.git /tmp/hivepoa
+          cd /tmp/hivepoa
+          git checkout ${{ steps.schema-pin.outputs.hivepoa_sha }}
+          echo "HivePoA checked out at $(git rev-parse HEAD)"
+
+      - name: Verify vendored schemas match canonical source
+        run: |
+          python scripts/sync_schemas.py /tmp/hivepoa \
+            --commit ${{ steps.schema-pin.outputs.hivepoa_sha }} \
+            --verify-only
+
+      - name: Run all tests
+        run: python -m pytest tests/ -v
+
+  schema-contract:
+    runs-on: ubuntu-latest
+    name: Schema Contract Enforcement
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install "jsonschema[format]>=4.21,<5.0" pytest
+
+      - name: Run contract enforcement tests
+        run: python -m pytest tests/test_schema_contract.py tests/test_schema_conformance.py -v
+
+      - name: Verify fixture-set digest
+        run: |
+          python -c "
+          import hashlib, json
+          from pathlib import Path
+
+          manifest = json.loads(Path('hiveai/schemas/SCHEMA_MANIFEST.json').read_text())
+          expected = manifest['fixture_set_digest']
+
+          h = hashlib.sha256()
+          schemas_dir = Path('hiveai/schemas')
+          for f in sorted(schemas_dir.glob('*.json')):
+              if f.name == 'SCHEMA_MANIFEST.json':
+                  continue
+              h.update(f.name.encode())
+              h.update(f.read_bytes())
+          for f in sorted((schemas_dir / 'fixtures').glob('*.json')):
+              h.update(f.name.encode())
+              h.update(f.read_bytes())
+          actual = f'sha256:{h.hexdigest()}'
+
+          assert actual == expected, f'Digest mismatch: {actual} != {expected}'
+          print(f'Fixture-set digest verified: {actual}')
+          "
