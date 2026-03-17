@@ -13,6 +13,11 @@ import hashlib
 import json
 from pathlib import Path
 
+
+def _read_normalized(path: Path) -> bytes:
+    """Read file bytes with line endings normalized to LF (platform-independent hashing)."""
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -217,7 +222,7 @@ class TestSchemaManifestIntegrity:
         for filename, expected_sha in manifest.get("files", {}).items():
             file_path = SCHEMAS_DIR / filename
             assert file_path.exists(), f"Schema {filename} missing"
-            actual = "sha256:" + hashlib.sha256(file_path.read_bytes()).hexdigest()
+            actual = "sha256:" + hashlib.sha256(_read_normalized(file_path)).hexdigest()
             assert actual == expected_sha, (
                 f"{filename} drifted from manifest "
                 f"(expected {expected_sha[:30]}..., got {actual[:30]}...)"
@@ -228,7 +233,7 @@ class TestSchemaManifestIntegrity:
         for filename, expected_sha in manifest.get("fixtures", {}).items():
             file_path = FIXTURES_DIR / filename
             assert file_path.exists(), f"Fixture {filename} missing"
-            actual = "sha256:" + hashlib.sha256(file_path.read_bytes()).hexdigest()
+            actual = "sha256:" + hashlib.sha256(_read_normalized(file_path)).hexdigest()
             assert actual == expected_sha, (
                 f"Fixture {filename} drifted from manifest"
             )

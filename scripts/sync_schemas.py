@@ -34,16 +34,27 @@ import sys
 from pathlib import Path
 
 
+def _read_normalized(path: Path) -> bytes:
+    """Read file bytes with line endings normalized to LF.
+
+    JSON files committed on Windows may have CRLF in the working copy,
+    while Linux checkouts have LF. Normalizing before hashing ensures
+    the digest is platform-independent.
+    """
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 def sha256_file(path: Path) -> str:
-    h = hashlib.sha256(path.read_bytes()).hexdigest()
+    h = hashlib.sha256(_read_normalized(path)).hexdigest()
     return f"sha256:{h}"
 
 
 def compute_fixture_set_digest(schemas_dir: Path) -> str:
     """Compute a single SHA-256 digest over all schema and fixture files.
 
-    Deterministic: sorted filenames, filename + content concatenated, single hash.
+    Deterministic: sorted filenames, filename + LF-normalized content, single hash.
     This changes if ANY schema or fixture file changes (content or set membership).
+    Platform-independent: CRLF and LF produce the same digest.
     """
     h = hashlib.sha256()
     # Schema files (sorted, exclude SCHEMA_MANIFEST.json)
@@ -51,13 +62,13 @@ def compute_fixture_set_digest(schemas_dir: Path) -> str:
         if f.name == "SCHEMA_MANIFEST.json":
             continue
         h.update(f.name.encode())
-        h.update(f.read_bytes())
+        h.update(_read_normalized(f))
     # Fixture files (sorted)
     fixtures_dir = schemas_dir / "fixtures"
     if fixtures_dir.is_dir():
         for f in sorted(fixtures_dir.glob("*.json")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
     return f"sha256:{h.hexdigest()}"
 
 
@@ -97,7 +108,7 @@ def checkout_commit(repo_path: Path, commit_sha: str) -> None:
 
 
 def verify_parity(source_dir: Path, dest_dir: Path) -> list[str]:
-    """Compare source and dest files byte-for-byte. Returns list of mismatches."""
+    """Compare source and dest files after LF normalization. Returns list of mismatches."""
     mismatches = []
 
     # Check schema files
@@ -105,7 +116,7 @@ def verify_parity(source_dir: Path, dest_dir: Path) -> list[str]:
         dest = dest_dir / src.name
         if not dest.exists():
             mismatches.append(f"MISSING: {src.name} (in source but not vendored)")
-        elif dest.read_bytes() != src.read_bytes():
+        elif _read_normalized(dest) != _read_normalized(src):
             mismatches.append(f"DIVERGED: {src.name}")
 
     # Check fixture files
@@ -116,7 +127,7 @@ def verify_parity(source_dir: Path, dest_dir: Path) -> list[str]:
             dest = dest_fixtures / src.name
             if not dest.exists():
                 mismatches.append(f"MISSING: fixtures/{src.name}")
-            elif dest.read_bytes() != src.read_bytes():
+            elif _read_normalized(dest) != _read_normalized(src):
                 mismatches.append(f"DIVERGED: fixtures/{src.name}")
 
     # Check for extra vendored files not in source
@@ -243,7 +254,7 @@ def main():
             dest = dest_fixtures / src.name
         else:
             dest = dest_root / src.name
-        if dest.exists() and dest.read_bytes() != src.read_bytes():
+        if dest.exists() and _read_normalized(dest) != _read_normalized(src):
             changed.append(dest.name)
 
     if changed and not args.force:

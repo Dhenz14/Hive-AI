@@ -18,6 +18,11 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
+
+def _read_normalized(path: Path) -> bytes:
+    """Read file bytes with line endings normalized to LF (platform-independent hashing)."""
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
 SCHEMAS_DIR = Path(__file__).parent.parent / "hiveai" / "schemas"
 FIXTURES_DIR = SCHEMAS_DIR / "fixtures"
 MANIFEST_PATH = SCHEMAS_DIR / "SCHEMA_MANIFEST.json"
@@ -194,13 +199,13 @@ class TestProtocolDriftDetection:
         actual_hash = (
             "sha256:"
             + hashlib.sha256(
-                (SCHEMAS_DIR / schema_name).read_bytes()
+                _read_normalized(SCHEMAS_DIR / schema_name)
             ).hexdigest()
         )
         assert actual_hash == expected_hash, "Baseline hash mismatch before mutation test"
 
         # Now simulate what a mutated file's hash would look like
-        original_bytes = (SCHEMAS_DIR / schema_name).read_bytes()
+        original_bytes = _read_normalized(SCHEMAS_DIR / schema_name)
         mutated_bytes = original_bytes + b"\n"  # Even a single byte changes the hash
         mutated_hash = "sha256:" + hashlib.sha256(mutated_bytes).hexdigest()
         assert mutated_hash != expected_hash, (
@@ -214,16 +219,19 @@ class TestProtocolDriftDetection:
 
 
 def _compute_fixture_set_digest() -> str:
-    """Compute fixture-set digest from vendored files (same algorithm as sync_schemas.py)."""
+    """Compute fixture-set digest from vendored files (same algorithm as sync_schemas.py).
+
+    Uses LF-normalized bytes for platform independence.
+    """
     h = hashlib.sha256()
     for f in sorted(SCHEMAS_DIR.glob("*.json")):
         if f.name == "SCHEMA_MANIFEST.json":
             continue
         h.update(f.name.encode())
-        h.update(f.read_bytes())
+        h.update(_read_normalized(f))
     for f in sorted(FIXTURES_DIR.glob("*.json")):
         h.update(f.name.encode())
-        h.update(f.read_bytes())
+        h.update(_read_normalized(f))
     return f"sha256:{h.hexdigest()}"
 
 
@@ -264,13 +272,13 @@ class TestFixtureSetDigest:
             if f.name == "SCHEMA_MANIFEST.json":
                 continue
             h.update(f.name.encode())
-            content = f.read_bytes()
+            content = _read_normalized(f)
             if f.name == "manifest_eval_sweep.json":
                 content = content + b" "  # mutate one file
             h.update(content)
         for f in sorted(FIXTURES_DIR.glob("*.json")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         mutated = f"sha256:{h.hexdigest()}"
 
         assert mutated != baseline, (
@@ -299,10 +307,10 @@ class TestFixtureSetDigest:
             if name == "phantom.json":
                 h.update(b'{"phantom": true}')
             else:
-                h.update((SCHEMAS_DIR / name).read_bytes())
+                h.update(_read_normalized(SCHEMAS_DIR / name))
         for f in sorted(FIXTURES_DIR.glob("*.json")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         with_extra = f"sha256:{h.hexdigest()}"
 
         assert with_extra != baseline, (
@@ -326,10 +334,10 @@ class TestFixtureSetDigest:
             if f.name == "manifest_eval_sweep.json":
                 continue  # skip this file
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         for f in sorted(FIXTURES_DIR.glob("*.json")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         without_file = f"sha256:{h.hexdigest()}"
 
         assert without_file != baseline, (
@@ -350,10 +358,10 @@ class TestFixtureSetDigest:
             if name == "manifest_eval_sweep.json":
                 name = "manifest_eval_sweep_v2.json"
             h.update(name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         for f in sorted(FIXTURES_DIR.glob("*.json")):
             h.update(f.name.encode())
-            h.update(f.read_bytes())
+            h.update(_read_normalized(f))
         renamed = f"sha256:{h.hexdigest()}"
 
         assert renamed != baseline, (

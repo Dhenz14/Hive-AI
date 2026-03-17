@@ -73,16 +73,19 @@ jobs:
           manifest = json.loads(Path('hiveai/schemas/SCHEMA_MANIFEST.json').read_text())
           expected = manifest['fixture_set_digest']
 
+          def norm(p):
+              return p.read_bytes().replace(b'\r\n', b'\n')
+
           h = hashlib.sha256()
           schemas_dir = Path('hiveai/schemas')
           for f in sorted(schemas_dir.glob('*.json')):
               if f.name == 'SCHEMA_MANIFEST.json':
                   continue
               h.update(f.name.encode())
-              h.update(f.read_bytes())
+              h.update(norm(f))
           for f in sorted((schemas_dir / 'fixtures').glob('*.json')):
               h.update(f.name.encode())
-              h.update(f.read_bytes())
+              h.update(norm(f))
           actual = f'sha256:{h.hexdigest()}'
 
           assert actual == expected, f'Digest mismatch: {actual} != {expected}'
