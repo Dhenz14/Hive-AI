@@ -1,0 +1,78 @@
+{
+  "protocol_version": 1,
+  "purpose": "Machine-readable session admission gate. A llama-server session must be admitted before any campaign measurement counts.",
+
+  "server_identity": {
+    "model_hash": "6f96c8466758aca9e3a21dbcc6cafceaaf0cf3f8b1e09c871fdaafa432d2c27d",
+    "model_file": "/opt/hiveai/project/models/deploy/current_base.gguf",
+    "server_binary": "/opt/hiveai/llama-cpp-build/build/bin/llama-server",
+    "startup_flags": "-m <model> --port 11435 -ngl 99 --ctx-size 4096 --flash-attn on -t 12",
+    "scorer": "campaign_anchor_eval.py score_response (byte-identical to regression_eval.py)"
+  },
+
+  "warmup_procedure": {
+    "step_1": "After server reports healthy (/health returns ok), run 3 throwaway generic inference calls (discarded). Flushes CUDA initialization.",
+    "step_1b": "Run 1 throwaway round of all 5 anchor probes (results discarded). Primes KV cache with probe-like content. Without this, the first real anchor call may produce different output due to GPU memory layout effects.",
+    "step_2": "Wait 3 seconds for GPU state to stabilize.",
+    "step_3": "Run all 5 anchor probes (B1-B5) with frozen parameters (temp=0, seed=42, top_k=1, max_tokens=2048).",
+    "step_4": "Run the same 5 anchors a second time. If any score differs between step 3 and step 4, the session has not stabilized — repeat steps 1-4 up to 2 more times.",
+    "step_5": "If step 4 scores match step 3, proceed to admission check."
+  },
+
+  "admission_check": {
+    "anchor_probes": ["js-generics", "py-metaclass", "rs-ownership", "cpp-variadic", "rs-errors"],
+    "reference_baseline": {
+      "note": "The design baseline from the initial warm session (commit 4b4b083). This is the reference, not the only valid operating point.",
+      "B1_js_generics": {"score": 0.900, "weakness_type": "none"},
+      "B2_py_metaclass": {"score": 0.767, "weakness_type": "keyword_only"},
+      "B3_rs_ownership": {"score": 0.740, "weakness_type": "none"},
+      "B4_cpp_variadic": {"score": 0.925, "weakness_type": "none"},
+      "B5_rs_errors": {"score": 0.525, "weakness_type": "keyword_only"}
+    },
+
+    "hard_fail_rules": [
+      "Any anchor weakness_type label differs from reference → SESSION REJECTED. The model is generating materially different responses. Campaign measurements would not be comparable.",
+      "Mean absolute score deviation across 5 anchors > 0.05 → SESSION REJECTED. Systematic drift too large for delta=0.01 success threshold.",
+      "Any single anchor score deviation > 0.15 → SESSION REJECTED. Individual probe too far from reference to be interpretable."
+    ],
+
+    "soft_warn_rules": [
+      "Any single anchor score deviation > 0.03 → LOG WARNING. Session is admitted but the affected anchor's measurements carry a noted drift caveat.",
+      "Mean absolute score deviation > 0.02 → LOG WARNING. Session is within tolerance but not pristine."
+    ],
+
+    "if_rejected": "Do not proceed with campaign work. Investigate cause (model file integrity, server flags, GPU state). If irrecoverable, establish a new reference baseline with full 5-run validation and document the baseline shift in the campaign log.",
+
+    "if_admitted": "Log the session admission result (timestamp, anchor scores, deviations, warnings). All campaign measurements in this session are valid until server restart."
+  },
+
+  "non_anchor_sentinels": {
+    "purpose": "Anchor admission is necessary but not proven sufficient. Spot-check a fixed set of non-anchor probes to verify broader stability.",
+    "sentinel_probes": ["rs-patterns", "py-context-mgr", "cpp-raii", "js-proxy"],
+    "rationale": "One per campaign domain, chosen from fit pools (not holdout — holdout must remain untouched until holdout phase). Scores between 0.840-0.900, sensitive to drift.",
+    "check": "Run after anchor admission. Log scores. If any sentinel deviates > 0.10 from full_baseline.json reference, log as WARNING but do not reject session (anchors are the binding gate)."
+  },
+
+  "session_log_format": {
+    "fields": [
+      "session_id (timestamp of server start)",
+      "admission_timestamp",
+      "warmup_rounds (how many warmup cycles needed)",
+      "anchor_scores (all 5)",
+      "anchor_deviations (vs reference)",
+      "mean_absolute_deviation",
+      "max_deviation",
+      "weakness_labels_match (boolean)",
+      "sentinel_scores (4 probes)",
+      "sentinel_deviations",
+      "admission_result (admitted / rejected / admitted_with_warnings)",
+      "warnings (list)"
+    ]
+  },
+
+  "campaign_limitation": {
+    "statement": "The measurement instrument (llama-server + CUDA + KV cache) has session-dependent behavior. Cold-start drift up to 0.116 was observed on keyword-boundary probes. Evidence is valid within a controlled warm-session operating envelope, not across arbitrary server restarts.",
+    "containment": "Single-session discipline with explicit admission gate.",
+    "post_campaign_target": "Investigate and eliminate session-dependent inference variance. Possible approaches: deterministic CUDA mode, fixed KV cache initialization, model warm-start checkpoint."
+  }
+}
