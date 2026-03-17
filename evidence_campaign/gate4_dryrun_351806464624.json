@@ -1,0 +1,36 @@
+{
+  "attempt_id": "351806464624",
+  "bucket_id": "B2",
+  "seed": 1,
+  "started_at": "2026-03-17T03:32:36Z",
+  "checks": {
+    "pack_determinism": true,
+    "holdout_exclusion": true,
+    "attribution_isolated": true,
+    "child_checkpoint_created": true,
+    "eval_completed": true,
+    "critique_closure_emitted": true,
+    "child_destroyed": true,
+    "metrics_emitted": true,
+    "no_parameter_changes": true
+  },
+  "domain_distribution": {
+    "python": 240,
+    "general_coding": 120,
+    "go": 11,
+    "js": 15,
+    "cpp": 3,
+    "hive": 7,
+    "rust": 4
+  },
+  "metrics": {
+    "pre_score": 0.7667,
+    "post_score": 0.7667,
+    "delta": 0.0,
+    "success": false,
+    "headroom_closed": 0.0,
+    "note": "skip-train mode, no actual training performed"
+  },
+  "completed_at": "2026-03-17T03:32:44Z",
+  "verdict": "PASS"
+}

@@ -1,0 +1,415 @@
+{
+  "session_id": "20260317T031724Z",
+  "captured_at": "2026-03-17T03:30:29Z",
+  "elapsed_s": 719.4,
+  "domains": {
+    "js": [
+      {
+        "probe_id": "js-event-loop",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-promises",
+        "score": 0.94,
+        "keyword_score": 1.0,
+        "structure_score": 0.8,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-generics",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-closures",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-weakmap",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-proxy",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-async-iter",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-modules",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-mapped-types",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      },
+      {
+        "probe_id": "js-decorators",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "js"
+      }
+    ],
+    "python": [
+      {
+        "probe_id": "py-decorators",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-async-gen",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-metaclass",
+        "score": 0.7667,
+        "keyword_score": 0.6667,
+        "structure_score": 1.0,
+        "keywords_hit": 4,
+        "keywords_total": 6,
+        "weakness_type": "keyword_only",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-generators",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-context-mgr",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-dataclasses",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-typing",
+        "score": 0.925,
+        "keyword_score": 1.0,
+        "structure_score": 0.75,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-pathlib",
+        "score": 0.925,
+        "keyword_score": 1.0,
+        "structure_score": 0.75,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-itertools",
+        "score": 0.925,
+        "keyword_score": 1.0,
+        "structure_score": 0.75,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      },
+      {
+        "probe_id": "py-walrus",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "python"
+      }
+    ],
+    "rust": [
+      {
+        "probe_id": "rs-ownership",
+        "score": 0.74,
+        "keyword_score": 0.7143,
+        "structure_score": 0.8,
+        "keywords_hit": 5,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-tokio",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-traits",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-lifetimes",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-errors",
+        "score": 0.525,
+        "keyword_score": 0.4286,
+        "structure_score": 0.75,
+        "keywords_hit": 3,
+        "keywords_total": 7,
+        "weakness_type": "keyword_only",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-patterns",
+        "score": 0.84,
+        "keyword_score": 0.8571,
+        "structure_score": 0.8,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-concurrency",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-serde",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-macros",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      },
+      {
+        "probe_id": "rs-unsafe",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "rust"
+      }
+    ],
+    "cpp": [
+      {
+        "probe_id": "cpp-raii",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-variadic",
+        "score": 0.725,
+        "keyword_score": 0.7143,
+        "structure_score": 0.75,
+        "keywords_hit": 5,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-move",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-const",
+        "score": 0.84,
+        "keyword_score": 0.8571,
+        "structure_score": 0.8,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-concepts",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-lambdas",
+        "score": 0.825,
+        "keyword_score": 0.8571,
+        "structure_score": 0.75,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-optional-variant",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-crtp",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-constexpr",
+        "score": 0.9,
+        "keyword_score": 0.8571,
+        "structure_score": 1.0,
+        "keywords_hit": 6,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      },
+      {
+        "probe_id": "cpp-coroutines",
+        "score": 1.0,
+        "keyword_score": 1.0,
+        "structure_score": 1.0,
+        "keywords_hit": 7,
+        "keywords_total": 7,
+        "weakness_type": "none",
+        "domain": "cpp"
+      }
+    ]
+  }
+}

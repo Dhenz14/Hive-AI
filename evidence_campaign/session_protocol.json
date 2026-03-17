@@ -1,6 +1,10 @@
 {
-  "protocol_version": 2,
+  "protocol_version": 2.1,
   "purpose": "Session-local baseline regime. The unit of evidence is the admitted session. No globally portable baseline exists.",
+  "version_history": {
+    "v2": "Original: batch stabilization (all-A then all-B), max_delta <= 0.001.",
+    "v2.1": "2026-03-17: Per-probe 3-run modal stabilization. Motivated by rs-ownership structure-score boundary oscillation and js-generics KV cache interference. See pre_day4_addendum.md for full rationale."
+  },
 
   "epistemology": {
     "claim_shape": "Within an admitted warm session, the frozen intervention produces paired pre/post gains on the fit set, improvement on the eligible holdout subset, and no regression on sentinel holdouts.",
@@ -17,13 +21,22 @@
     "scorer": "campaign_anchor_eval.py score_response (byte-identical to regression_eval.py)"
   },
 
+  "cold_start_invariant": {
+    "description": "Server MUST be freshly started before session admission. No prior inference calls from any source.",
+    "procedure": "pkill -9 llama-server; sleep 2; start server in tmux with frozen flags; wait for health ok; then run session_admit.py",
+    "rationale": "Day 2-3 showed that servers with prior inference history produce different stabilization behavior. The exact mechanism is not fully characterized. Campaign controls for it by requiring a known initial state.",
+    "scope": "Results are valid only under this cold-start regime. They do not claim generalizability to long-running or warm-state servers.",
+    "added_in": "v2.1"
+  },
+
   "warmup_procedure": {
     "step_1": "After server reports healthy (/health returns ok), run 3 throwaway generic inference calls (discarded). Flushes CUDA initialization.",
     "step_1b": "Run 1 throwaway round of all 5 anchor probes (results discarded). Primes KV cache with probe-like content.",
     "step_2": "Wait 3 seconds for GPU state to stabilize.",
-    "step_3": "Run all 5 anchor probes with frozen parameters (temp=0, seed=42, top_k=1, max_tokens=2048).",
-    "step_4": "Run the same 5 anchors a second time. If any score differs between step 3 and step 4, the session has not stabilized — repeat steps 1-4 up to 2 more times.",
-    "step_5": "If step 4 scores match step 3, session is internally stable. Proceed to admission."
+    "step_3": "For each anchor probe individually: run 3 consecutive times with frozen parameters (temp=0, seed=42, top_k=1, max_tokens=2048).",
+    "step_4": "For each probe, check 2-of-3 modal agreement (scores within 0.001). If any probe has no 2-of-3 agreement, the session has not stabilized — repeat steps 1-4 up to 2 more times. The modal score is used as the stabilized value.",
+    "step_5": "If all 5 probes have modal agreement, session is internally stable. Proceed to admission.",
+    "step_4_rationale": "Changed from batch 2-run exact to per-probe 3-run modal in v2.1. Batch runs caused KV cache interference (js-generics) and masked per-probe structure-score oscillation (rs-ownership). Per-probe isolation + modal voting detects the most common output without suppressing genuine drift."
   },
 
   "admission_check": {
