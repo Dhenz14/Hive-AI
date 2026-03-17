@@ -1,6 +1,13 @@
 {
-  "protocol_version": 1,
-  "purpose": "Machine-readable session admission gate. A llama-server session must be admitted before any campaign measurement counts.",
+  "protocol_version": 2,
+  "purpose": "Session-local baseline regime. The unit of evidence is the admitted session. No globally portable baseline exists.",
+
+  "epistemology": {
+    "claim_shape": "Within an admitted warm session, the frozen intervention produces paired pre/post improvement without holdout regression.",
+    "not_claimed": "The system improved by X against a canonical baseline across the month.",
+    "unit_of_analysis": "The admitted session, not the repo commit and not the design baseline.",
+    "design_baseline_role": "Diagnostic artifact only (commit 4b4b083). Not used for pass/fail. Logged for drift monitoring."
+  },
 
   "server_identity": {
     "model_hash": "6f96c8466758aca9e3a21dbcc6cafceaaf0cf3f8b1e09c871fdaafa432d2c27d",
@@ -12,67 +19,74 @@
 
   "warmup_procedure": {
     "step_1": "After server reports healthy (/health returns ok), run 3 throwaway generic inference calls (discarded). Flushes CUDA initialization.",
-    "step_1b": "Run 1 throwaway round of all 5 anchor probes (results discarded). Primes KV cache with probe-like content. Without this, the first real anchor call may produce different output due to GPU memory layout effects.",
+    "step_1b": "Run 1 throwaway round of all 5 anchor probes (results discarded). Primes KV cache with probe-like content.",
     "step_2": "Wait 3 seconds for GPU state to stabilize.",
-    "step_3": "Run all 5 anchor probes (B1-B5) with frozen parameters (temp=0, seed=42, top_k=1, max_tokens=2048).",
+    "step_3": "Run all 5 anchor probes with frozen parameters (temp=0, seed=42, top_k=1, max_tokens=2048).",
     "step_4": "Run the same 5 anchors a second time. If any score differs between step 3 and step 4, the session has not stabilized — repeat steps 1-4 up to 2 more times.",
-    "step_5": "If step 4 scores match step 3, proceed to admission check."
+    "step_5": "If step 4 scores match step 3, session is internally stable. Proceed to admission."
   },
 
   "admission_check": {
+    "description": "Admission proves intra-session determinism. It does NOT compare to a fixed reference.",
     "anchor_probes": ["js-generics", "py-metaclass", "rs-ownership", "cpp-variadic", "rs-errors"],
-    "reference_baseline": {
-      "note": "The design baseline from the initial warm session (commit 4b4b083). This is the reference, not the only valid operating point.",
-      "B1_js_generics": {"score": 0.900, "weakness_type": "none"},
-      "B2_py_metaclass": {"score": 0.767, "weakness_type": "keyword_only"},
-      "B3_rs_ownership": {"score": 0.740, "weakness_type": "none"},
-      "B4_cpp_variadic": {"score": 0.925, "weakness_type": "none"},
-      "B5_rs_errors": {"score": 0.525, "weakness_type": "keyword_only"}
-    },
-
     "hard_fail_rules": [
-      "Any anchor weakness_type label differs from reference → SESSION REJECTED. The model is generating materially different responses. Campaign measurements would not be comparable.",
-      "Mean absolute score deviation across 5 anchors > 0.05 → SESSION REJECTED. Systematic drift too large for delta=0.01 success threshold.",
-      "Any single anchor score deviation > 0.15 → SESSION REJECTED. Individual probe too far from reference to be interpretable."
+      "Stabilization failed after 3 warmup cycles → SESSION REJECTED. Server is non-deterministic.",
+      "Any anchor returns empty response → SESSION REJECTED. Server malfunction."
     ],
+    "if_rejected": "Do not proceed. Investigate server state, restart, retry.",
+    "if_admitted": "The stabilized anchor scores become this session's local baseline. Proceed to full baseline capture."
+  },
 
-    "soft_warn_rules": [
-      "Any single anchor score deviation > 0.03 → LOG WARNING. Session is admitted but the affected anchor's measurements carry a noted drift caveat.",
-      "Mean absolute score deviation > 0.02 → LOG WARNING. Session is within tolerance but not pristine."
-    ],
+  "session_baseline_capture": {
+    "description": "After admission, run ALL 40 campaign probes once. This is the session's pre-intervention baseline.",
+    "probes": "All probes in campaign_full_baseline.py (JS=10, Python=10, Rust=10, C++=10).",
+    "output": "session_baseline_{session_id}.json — frozen for this session.",
+    "timing": "Must complete before any training attempt in this session.",
+    "role_labels_computed": "weakness_type and holdout_role are computed from session-local scores, not from the design baseline."
+  },
 
-    "if_rejected": "Do not proceed with campaign work. Investigate cause (model file integrity, server flags, GPU state). If irrecoverable, establish a new reference baseline with full 5-run validation and document the baseline shift in the campaign log.",
-
-    "if_admitted": "Log the session admission result (timestamp, anchor scores, deviations, warnings). All campaign measurements in this session are valid until server restart."
+  "diagnostic_comparison": {
+    "description": "After baseline capture, compare session-local scores to the design baseline (commit 4b4b083). This is informational only — it does not gate anything.",
+    "design_baseline": {
+      "B1_js_generics": 0.900,
+      "B2_py_metaclass": 0.767,
+      "B3_rs_ownership": 0.740,
+      "B4_cpp_variadic": 0.925,
+      "B5_rs_errors": 0.525
+    },
+    "logged_fields": ["per_anchor_deviation", "mean_deviation", "weakness_label_changes"],
+    "action": "Log only. Do not reject session. Do not modify campaign design."
   },
 
   "non_anchor_sentinels": {
-    "purpose": "Anchor admission is necessary but not proven sufficient. Spot-check a fixed set of non-anchor probes to verify broader stability.",
+    "purpose": "Spot-check non-anchor fit probes after admission. Informational only.",
     "sentinel_probes": ["rs-patterns", "py-context-mgr", "cpp-raii", "js-proxy"],
-    "rationale": "One per campaign domain, chosen from fit pools (not holdout — holdout must remain untouched until holdout phase). Scores between 0.840-0.900, sensitive to drift.",
-    "check": "Run after anchor admission. Log scores. If any sentinel deviates > 0.10 from full_baseline.json reference, log as WARNING but do not reject session (anchors are the binding gate)."
+    "action": "Log scores and deviations from design baseline. No gate effect."
+  },
+
+  "hard_rules": {
+    "rule_1_session_container": "Each campaign run must have a session_id and a frozen session manifest. No result counts unless attached to an admitted session.",
+    "rule_2_paired_deltas_only": "For every fit or holdout evaluation, compute effect against the pre-intervention baseline from the SAME admitted session. Never compare to the design baseline or any other session.",
+    "rule_3_no_cross_session_raw_scores": "Raw scores across restarts are not comparable. Aggregate only on: closure/non-closure, signed delta, normalized headroom closed, regression/non-regression.",
+    "rule_4_restart_new_epoch": "Any restart opens a new measurement epoch. New admission, new baseline, new session_id. Never splice pre-restart and post-restart raw scores into one series."
   },
 
   "session_log_format": {
     "fields": [
-      "session_id (timestamp of server start)",
-      "admission_timestamp",
-      "warmup_rounds (how many warmup cycles needed)",
-      "anchor_scores (all 5)",
-      "anchor_deviations (vs reference)",
-      "mean_absolute_deviation",
-      "max_deviation",
-      "weakness_labels_match (boolean)",
-      "sentinel_scores (4 probes)",
-      "sentinel_deviations",
-      "admission_result (admitted / rejected / admitted_with_warnings)",
-      "warnings (list)"
+      "session_id (UTC timestamp of admission)",
+      "warmup_rounds (how many cycles needed for stability)",
+      "anchor_scores (all 5, from stabilized run)",
+      "anchor_weakness_types (computed from session-local scores)",
+      "diagnostic_deviations (vs design baseline, informational only)",
+      "sentinel_scores (4 probes, informational)",
+      "admission_result (admitted / rejected)",
+      "full_baseline_file (path to session_baseline_{id}.json)"
     ]
   },
 
   "campaign_limitation": {
-    "statement": "The measurement instrument (llama-server + CUDA + KV cache) has session-dependent behavior. Cold-start drift up to 0.116 was observed on keyword-boundary probes. Evidence is valid within a controlled warm-session operating envelope, not across arbitrary server restarts.",
-    "containment": "Single-session discipline with explicit admission gate.",
-    "post_campaign_target": "Investigate and eliminate session-dependent inference variance. Possible approaches: deterministic CUDA mode, fixed KV cache initialization, model warm-start checkpoint."
+    "statement": "The measurement instrument is session-dependent. Cold-start drift up to 0.116 was observed. Evidence is valid only as paired within-session deltas under a controlled admission protocol.",
+    "containment": "Session-local baselines with explicit admission gate.",
+    "post_campaign_target": "Eliminate session-dependent variance (deterministic CUDA mode, fixed KV cache init, warm-start checkpoint)."
   }
 }
