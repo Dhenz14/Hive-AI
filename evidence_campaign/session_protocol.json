@@ -3,7 +3,7 @@
   "purpose": "Session-local baseline regime. The unit of evidence is the admitted session. No globally portable baseline exists.",
 
   "epistemology": {
-    "claim_shape": "Within an admitted warm session, the frozen intervention produces paired pre/post improvement without holdout regression.",
+    "claim_shape": "Within an admitted warm session, the frozen intervention produces paired pre/post gains on the fit set, improvement on the eligible holdout subset, and no regression on sentinel holdouts.",
     "not_claimed": "The system improved by X against a canonical baseline across the month.",
     "unit_of_analysis": "The admitted session, not the repo commit and not the design baseline.",
     "design_baseline_role": "Diagnostic artifact only (commit 4b4b083). Not used for pass/fail. Logged for drift monitoring."
@@ -64,6 +64,12 @@
     "tolerance": 0.05,
     "recheck_cadence": "before_every_attempt",
     "recheck_rule": "Run all 4 sentinels before each counted campaign attempt. Compare to session baseline (not design baseline). If any sentinel deviates > tolerance from its session baseline score, the attempt is PAUSED and anchors are re-verified. If anchors also drifted, the epoch is INVALIDATED.",
+    "failure_disposition": {
+      "in_flight_attempt": "DISCARD. The attempt was started under uncertain measurement state.",
+      "most_recent_completed_attempt": "VALID if it preceded the last passing sentinel check. QUARANTINED if sentinel check was not run between it and the failing check.",
+      "artifacts_since_last_pass": "QUARANTINED until re-admission. If re-admitted session produces matching sentinel scores, quarantined results may be reinstated. Otherwise discarded.",
+      "rule": "strict-with-quarantine: nothing after the last clean check counts until re-admission resolves the ambiguity."
+    },
     "rationale": "Anchors alone are not proven sufficient to predict broader probe stability. Sentinels catch intra-session drift that anchors might miss."
   },
 
@@ -94,10 +100,27 @@
     "rule_5_sentinel_recheck": "Run sentinel spot-check before every counted attempt. Sentinel drift + anchor confirmation = epoch invalidated."
   },
 
+  "reporting_rules": {
+    "description": "How results are reported. Raw delta alone is not sufficient because +0.10 from 0.90 closes all remaining headroom while +0.10 from 0.50 closes only part.",
+    "required_metrics_per_attempt": [
+      "raw_delta (post_score - pre_score within session)",
+      "binary_closure (delta > success_threshold → 1, else 0)",
+      "headroom_closed_fraction ((post - pre) / (1.0 - pre)) — normalized by available headroom)",
+      "regression_sentinel_outcome (sentinel holdout: regressed / stable)"
+    ],
+    "aggregation": "Stratify by starting-score band (below 0.70, 0.70-0.90, above 0.90) when reporting across buckets. Do not mix high-headroom and low-headroom bucket deltas into one unstratified mean.",
+    "final_report_channels": [
+      "Fit-phase: per-bucket raw delta + headroom-closed + closure binary",
+      "Improvement-sensitive holdout: same metrics, only eligible probes",
+      "Regression-sentinel holdout: regressed/stable only, no improvement claim"
+    ]
+  },
+
   "post_gate4_change_rules": {
     "description": "After Gate 4 (dry-run) passes, only operational bug fixes are allowed.",
     "allowed": ["Bug fixes to scripts that do not change measurement semantics", "Infrastructure fixes (OOM, timeout, disk)"],
-    "forbidden": ["Bucket changes", "Split changes", "Count changes", "Analysis rule changes", "Pack mix changes", "Session protocol semantic changes", "Threshold changes", "Informational audit findings reshaping the dataset"]
+    "forbidden": ["Bucket changes", "Split changes", "Count changes", "Analysis rule changes", "Pack mix changes", "Session protocol semantic changes", "Threshold changes", "Informational audit findings reshaping the dataset"],
+    "enforcement": "After any post-Gate-4 fix, run an automatic sealed-artifact check proving no change to: canonical_buckets.json hash, split_manifest.json hash, canonical_counts.json hash, session_protocol.json semantics (protocol_version field), weakness_classifier_version. If any hash changed, the fix is not operational — it is a design change and must be escalated."
   },
 
   "session_log_format": {

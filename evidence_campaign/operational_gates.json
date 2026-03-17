@@ -63,7 +63,20 @@
         "status": "PENDING (pack builder not yet built)"
       }
     },
-    "note": "The pack builder must accept a seed parameter and produce byte-identical output. It must be committed before Gate 2 runs."
+    "input_snapshot_requirement": {
+      "description": "Deterministic transform over mutable inputs is not experimental control. The builder must snapshot its inputs and record content-addressed hashes before packing.",
+      "frozen_input_manifest_fields": [
+        "Source file list (sorted, absolute paths)",
+        "Content SHA256 of each source file",
+        "Ordering rule (how files are traversed)",
+        "Fresh / historical / control membership BEFORE packing",
+        "Holdout exclusion list (probe IDs and prompt hashes)",
+        "Builder seed value",
+        "Builder script hash"
+      ],
+      "rule": "If any input file changes between builds, Gate 2 is not testing determinism — it is testing a different experiment. The input manifest must be frozen before the first build and verified unchanged before the second."
+    },
+    "note": "The pack builder must accept a seed parameter, snapshot inputs, and produce byte-identical output. It must be committed before Gate 2 runs."
   },
 
   "gate_3_leakage_closure": {
