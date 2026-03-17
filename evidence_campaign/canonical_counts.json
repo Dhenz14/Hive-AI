@@ -1,0 +1,88 @@
+{
+  "note": "Canonical probe counts for the evidence campaign. No prose inference — these numbers are the truth.",
+
+  "probe_universe": {
+    "total_in_probe_library": 60,
+    "domains_in_library": ["python", "rust", "go", "cpp", "js", "hive"],
+    "probes_per_domain": 10
+  },
+
+  "campaign_scope": {
+    "campaign_domains": ["js", "python", "rust", "cpp"],
+    "non_campaign_domains": ["go", "hive"],
+    "total_campaign_probes": 40,
+    "total_non_campaign_probes": 20,
+    "baseline_file": "full_baseline.json covers 40 campaign probes only",
+    "60_probe_reruns": "regression_eval.py runs all 60 probes (6 domains). The 20 non-campaign probes (go, hive) are measured for regression monitoring but do not participate in campaign evidence."
+  },
+
+  "role_assignment": {
+    "anchors": {
+      "count": 5,
+      "probes": ["js-generics", "py-metaclass", "rs-ownership", "cpp-variadic", "rs-errors"],
+      "note": "Anchors are measurement targets. They are NOT in fit or holdout pools."
+    },
+    "fit": {
+      "count": 20,
+      "by_domain": {
+        "js": 5,
+        "python": 5,
+        "rust": 5,
+        "cpp": 5
+      },
+      "note": "Fit probes are measured during fit phase (Days 8-21) alongside anchors."
+    },
+    "holdout": {
+      "count": 15,
+      "by_domain": {
+        "js": 4,
+        "python": 4,
+        "rust": 3,
+        "cpp": 4
+      },
+      "note": "Holdout probes are measured during holdout phase (Days 23-29) only."
+    },
+    "total_assigned": "5 anchors + 20 fit + 15 holdout = 40 (matches campaign_scope.total_campaign_probes)"
+  },
+
+  "holdout_reporting_denominators": {
+    "improvement_sensitive": {
+      "count": 7,
+      "probes": [
+        {"probe": "js-mapped-types", "domain": "js", "score": 0.940},
+        {"probe": "js-modules", "domain": "js", "score": 0.925},
+        {"probe": "py-typing", "domain": "python", "score": 0.925},
+        {"probe": "py-dataclasses", "domain": "python", "score": 0.900},
+        {"probe": "cpp-optional-variant", "domain": "cpp", "score": 0.900},
+        {"probe": "cpp-move", "domain": "cpp", "score": 0.900},
+        {"probe": "cpp-const", "domain": "cpp", "score": 0.940}
+      ],
+      "source_buckets": ["B1", "B2", "B4"],
+      "use": "Primary denominator for holdout improvement claims."
+    },
+    "regression_sentinel": {
+      "count": 8,
+      "probes": [
+        {"probe": "js-closures", "domain": "js", "score": 1.000},
+        {"probe": "js-event-loop", "domain": "js", "score": 1.000},
+        {"probe": "py-generators", "domain": "python", "score": 1.000},
+        {"probe": "py-walrus", "domain": "python", "score": 1.000},
+        {"probe": "rs-tokio", "domain": "rust", "score": 1.000},
+        {"probe": "rs-unsafe", "domain": "rust", "score": 1.000},
+        {"probe": "rs-serde", "domain": "rust", "score": 1.000},
+        {"probe": "cpp-crtp", "domain": "cpp", "score": 1.000}
+      ],
+      "source_buckets": ["B1", "B2", "B3", "B4", "B5"],
+      "use": "Non-regression confirmation only. NOT counted as improvement evidence."
+    },
+    "total_holdout": "7 improvement-sensitive + 8 regression-sentinel = 15 (matches role_assignment.holdout.count)"
+  },
+
+  "categories_do_not_overlap": {
+    "anchor_vs_fit": "disjoint — no probe is both anchor and fit",
+    "anchor_vs_holdout": "disjoint — no probe is both anchor and holdout",
+    "fit_vs_holdout": "disjoint — no probe is both fit and holdout",
+    "improvement_vs_sentinel": "disjoint — every holdout probe is exactly one",
+    "campaign_vs_non_campaign": "disjoint — go and hive probes are not in any campaign role"
+  }
+}
