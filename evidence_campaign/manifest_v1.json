@@ -19,11 +19,11 @@
     "fit_ratio": 0.6
   },
   "hashes": {
-    "git_sha": "PENDING_FINAL_COMMIT",
+    "git_sha": "1f1d089",
     "probe_library_sha256": "db5052a48ce93c9ba84bf3327114badddff70cdf083bf2ac2b72f1820138bbe6",
     "regression_eval_sha256": "169c67997ac26cf5e627346a85488c14ed39c6bbb7b86467b65fe673c89b5703",
     "weakness_trend_sha256": "0983739cb2322926dd4741fc0626a0ea15d48b684de2da72e5ed90d69bce7900",
-    "campaign_anchor_eval_sha256": "PENDING_FINAL_COMMIT"
+    "campaign_anchor_eval_sha256": "141e3c913f8f86e1a9601d02c6a80ad6e386106065c94887064298c4f39ff89b"
   },
   "anchor_probes": {
     "B1": {
