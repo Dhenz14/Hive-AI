@@ -278,6 +278,89 @@ class TestFixtureSetDigest:
             "digest algorithm is insensitive to content changes"
         )
 
+    def test_digest_changes_on_extra_file(self):
+        """Adding a phantom file to the schema set must change the digest.
+
+        This proves the digest domain is "exact canonical tree" (all files
+        in the directory), not "known file blobs" (only files listed in the
+        manifest). An extra file that isn't in the manifest but IS in the
+        directory will still change the digest and break CI.
+        """
+        baseline = _compute_fixture_set_digest()
+
+        # Simulate: what if an extra file "phantom.json" existed?
+        h = hashlib.sha256()
+        files = sorted(SCHEMAS_DIR.glob("*.json"))
+        files_filtered = [f for f in files if f.name != "SCHEMA_MANIFEST.json"]
+        # Insert phantom file in sorted position
+        all_names = sorted([f.name for f in files_filtered] + ["phantom.json"])
+        for name in all_names:
+            h.update(name.encode())
+            if name == "phantom.json":
+                h.update(b'{"phantom": true}')
+            else:
+                h.update((SCHEMAS_DIR / name).read_bytes())
+        for f in sorted(FIXTURES_DIR.glob("*.json")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        with_extra = f"sha256:{h.hexdigest()}"
+
+        assert with_extra != baseline, (
+            "Adding an extra file did not change the digest — "
+            "digest domain does not cover the full path set"
+        )
+
+    def test_digest_changes_on_missing_file(self):
+        """Removing a file from the schema set must change the digest.
+
+        The digest includes filename + content for every file. Removing
+        a file removes its (filename, content) pair from the hash input.
+        """
+        baseline = _compute_fixture_set_digest()
+
+        # Simulate: what if manifest_eval_sweep.json was missing?
+        h = hashlib.sha256()
+        for f in sorted(SCHEMAS_DIR.glob("*.json")):
+            if f.name == "SCHEMA_MANIFEST.json":
+                continue
+            if f.name == "manifest_eval_sweep.json":
+                continue  # skip this file
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        for f in sorted(FIXTURES_DIR.glob("*.json")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        without_file = f"sha256:{h.hexdigest()}"
+
+        assert without_file != baseline, (
+            "Removing a file did not change the digest — "
+            "digest does not cover file set membership"
+        )
+
+    def test_digest_changes_on_rename(self):
+        """Renaming a file must change the digest (filename is part of hash input)."""
+        baseline = _compute_fixture_set_digest()
+
+        # Simulate: what if "manifest_eval_sweep.json" was renamed to "manifest_eval_sweep_v2.json"?
+        h = hashlib.sha256()
+        for f in sorted(SCHEMAS_DIR.glob("*.json")):
+            if f.name == "SCHEMA_MANIFEST.json":
+                continue
+            name = f.name
+            if name == "manifest_eval_sweep.json":
+                name = "manifest_eval_sweep_v2.json"
+            h.update(name.encode())
+            h.update(f.read_bytes())
+        for f in sorted(FIXTURES_DIR.glob("*.json")):
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+        renamed = f"sha256:{h.hexdigest()}"
+
+        assert renamed != baseline, (
+            "Renaming a file did not change the digest — "
+            "filename is not part of the hash input"
+        )
+
     def test_schema_and_fixture_counts_match(self):
         """Manifest records expected counts — catch added/removed files."""
         manifest = _load(MANIFEST_PATH)
