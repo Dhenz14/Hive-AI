@@ -41,33 +41,48 @@
   },
 
   "gate_2_pack_builder_determinism": {
-    "description": "Verify that the pair-pack builder produces identical output from identical inputs.",
+    "description": "Verify that the pair-pack builder produces identical output from identical inputs. The builder is part of the experimental apparatus.",
     "tests": {
       "double_build": {
-        "what": "Run pack builder twice with same inputs, compare output hashes.",
-        "pass_criteria": "Identical pack count, membership, and SHA256 hashes.",
-        "inputs_frozen": "240 fresh + 120 historical + 40 control per pack. Source corpus, selection seed, and dedup rules frozen in pack builder script.",
+        "what": "Run pack builder twice with identical inputs (same seed, same corpus, same config). Compare outputs.",
+        "pass_criteria_all_must_match": [
+          "Pack manifest SHA256 hash",
+          "Pack count (number of packs)",
+          "Pack membership (exactly which pairs in each pack)",
+          "Pack ordering (if consumed in order downstream)",
+          "Content hashes (SHA256 of each pack file)",
+          "Fresh/historical/control counts per pack (240/120/40)"
+        ],
+        "common_determinism_failures": [
+          "Unordered filesystem traversal (glob without sort)",
+          "Nondeterministic JSON serialization (dict key order)",
+          "Locale/timezone dependence in timestamps",
+          "Unstable tie-breaking in sort",
+          "Hash input not fully normalized (whitespace, encoding)"
+        ],
         "status": "PENDING (pack builder not yet built)"
       }
     },
-    "note": "The pack builder script must be committed before Gate 2 can run. It must accept a seed parameter and produce deterministic output."
+    "note": "The pack builder must accept a seed parameter and produce byte-identical output. It must be committed before Gate 2 runs."
   },
 
   "gate_3_leakage_closure": {
-    "description": "Verify no holdout probe content appears in training packs.",
+    "description": "Verify no holdout probe content appears in training packs. Two outputs, strictly separated.",
     "tests": {
-      "preregistered_audit": {
-        "what": "Exact text match: no holdout probe prompt or expected answer substring appears in any pack.",
+      "binding_audit": {
+        "what": "Exact text match: no holdout probe prompt substring or expected keyword cluster appears in any pack.",
         "pass_criteria": "Zero matches across all packs.",
         "is_binding": true,
-        "status": "PENDING (runs after packs are built)"
+        "can_stop_campaign": true,
+        "status": "PENDING"
       },
       "informational_audit": {
-        "what": "Secondary, non-binding check for normalized similarity: code skeleton overlap, renamed-identifier near-duplicates, historical exemplar collision.",
-        "pass_criteria": "Log residual risk. Does NOT gate campaign execution unless preregistered abort conditions are met.",
+        "what": "Secondary check for normalized similarity: code skeleton overlap, renamed-identifier near-duplicates, same-signature variants, historical exemplar collision.",
+        "pass_criteria": "Log residual risk report. Does NOT gate campaign.",
         "is_binding": false,
-        "note": "This audit documents what 'leakage clean' does and does not mean. It does not change the campaign — it qualifies the claim.",
-        "status": "PENDING"
+        "can_stop_campaign": false,
+        "can_reshape_dataset": false,
+        "note": "This audit documents what 'leakage clean' does and does not mean. If informational findings reveal leakage, they annotate residual risk — they do NOT trigger pack changes unless a predeclared abort condition in the binding audit was hit."
       }
     }
   },

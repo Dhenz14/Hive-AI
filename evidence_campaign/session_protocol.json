@@ -59,16 +59,45 @@
   },
 
   "non_anchor_sentinels": {
-    "purpose": "Spot-check non-anchor fit probes after admission. Informational only.",
+    "purpose": "Spot-check non-anchor fit probes to verify broader stability beyond anchors.",
     "sentinel_probes": ["rs-patterns", "py-context-mgr", "cpp-raii", "js-proxy"],
-    "action": "Log scores and deviations from design baseline. No gate effect."
+    "tolerance": 0.05,
+    "recheck_cadence": "before_every_attempt",
+    "recheck_rule": "Run all 4 sentinels before each counted campaign attempt. Compare to session baseline (not design baseline). If any sentinel deviates > tolerance from its session baseline score, the attempt is PAUSED and anchors are re-verified. If anchors also drifted, the epoch is INVALIDATED.",
+    "rationale": "Anchors alone are not proven sufficient to predict broader probe stability. Sentinels catch intra-session drift that anchors might miss."
+  },
+
+  "epoch_validity": {
+    "description": "An admitted session (measurement epoch) remains valid until an invalidation event occurs. This section defines those events explicitly.",
+    "valid_until": [
+      "llama-server process restart (any reason)",
+      "model file change (different hash)",
+      "server startup flags change",
+      "checkpoint lineage change (any model swap)",
+      "failed sentinel re-check (sentinel drifted AND anchors confirm drift)",
+      "manual invalidation by operator"
+    ],
+    "not_invalidated_by": [
+      "wall-clock time alone (no automatic expiry)",
+      "number of attempts alone (no count-based expiry)",
+      "informational audit findings (only binding audit gates)",
+      "sentinel drift that anchors do not confirm (log warning, continue)"
+    ],
+    "on_invalidation": "Stop all campaign work. Open a new epoch: re-warmup, re-admit, re-capture full baseline. Results from the invalidated epoch remain valid up to the last clean sentinel check. Results after the invalidating event are discarded."
   },
 
   "hard_rules": {
     "rule_1_session_container": "Each campaign run must have a session_id and a frozen session manifest. No result counts unless attached to an admitted session.",
     "rule_2_paired_deltas_only": "For every fit or holdout evaluation, compute effect against the pre-intervention baseline from the SAME admitted session. Never compare to the design baseline or any other session.",
     "rule_3_no_cross_session_raw_scores": "Raw scores across restarts are not comparable. Aggregate only on: closure/non-closure, signed delta, normalized headroom closed, regression/non-regression.",
-    "rule_4_restart_new_epoch": "Any restart opens a new measurement epoch. New admission, new baseline, new session_id. Never splice pre-restart and post-restart raw scores into one series."
+    "rule_4_restart_new_epoch": "Any restart opens a new measurement epoch. New admission, new baseline, new session_id. Never splice pre-restart and post-restart raw scores into one series.",
+    "rule_5_sentinel_recheck": "Run sentinel spot-check before every counted attempt. Sentinel drift + anchor confirmation = epoch invalidated."
+  },
+
+  "post_gate4_change_rules": {
+    "description": "After Gate 4 (dry-run) passes, only operational bug fixes are allowed.",
+    "allowed": ["Bug fixes to scripts that do not change measurement semantics", "Infrastructure fixes (OOM, timeout, disk)"],
+    "forbidden": ["Bucket changes", "Split changes", "Count changes", "Analysis rule changes", "Pack mix changes", "Session protocol semantic changes", "Threshold changes", "Informational audit findings reshaping the dataset"]
   },
 
   "session_log_format": {
