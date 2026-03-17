@@ -43,7 +43,7 @@ jobs:
             --verify-only
 
       - name: Install project dependencies
-        run: pip install requests pydantic
+        run: pip install requests pydantic python-dotenv
 
       - name: Run all tests
         run: python -m pytest tests/ -v
