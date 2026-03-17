@@ -2,7 +2,7 @@
 """
 Evidence Campaign v1 — Day 1 Anchor Probe Evaluation
 
-Runs the 6 anchor probes (5 primary + 1 reserve) against v5-think via llama-server,
+Runs the 5 anchor probes (B1-B5) against v5-think via llama-server,
 scores each, classifies weakness_type, and outputs the frozen anchor manifest.
 
 Usage:
@@ -35,7 +35,7 @@ from scripts.weakness_trend import classify_weakness_type, WEAKNESS_CLASSIFIER_V
 SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://localhost:11435")
 SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
 
-# 5 primary anchors + dead reserves (canonical_buckets.json is source of truth)
+# 5 live anchors B1-B5 (canonical_buckets.json is source of truth)
 ANCHOR_IDS = {
     "B1": "js-generics",
     "B2": "py-metaclass",
@@ -148,7 +148,7 @@ def score_response(response: str, expected_keywords: list) -> dict:
 
 
 def run_anchor_eval(run_id: int = 1) -> dict:
-    """Run all 6 anchor probes and return results."""
+    """Run all 5 anchor probes and return results."""
     results = {}
 
     for bucket, probe_id in ANCHOR_IDS.items():
@@ -347,7 +347,7 @@ def main():
         print(f"\n{'Bucket':>6} {'Probe':>16} {'Domain':>8} {'Template':>10} "
               f"{'Score':>6} {'KW':>6} {'Str':>6} {'Weakness':>14}")
         print("-" * 80)
-        for bucket in ["B1", "B2", "B3", "B4", "B5", "R1"]:
+        for bucket in ["B1", "B2", "B3", "B4", "B5"]:
             r = canonical.get(bucket, {})
             print(f"  {bucket:>4} {r.get('probe_id',''):>16} {r.get('domain',''):>8} "
                   f"{r.get('template',''):>10} {r.get('score',0):6.3f} "
@@ -378,7 +378,7 @@ def main():
         print(f"\n{'='*65}")
         print(f"  CAMPAIGN MANIFEST v1 — FROZEN")
         print(f"{'='*65}")
-        for bucket in ["B1", "B2", "B3", "B4", "B5", "R1"]:
+        for bucket in ["B1", "B2", "B3", "B4", "B5"]:
             r = canonical.get(bucket, {})
             wt = r.get("weakness_type", "?")
             marker = " *" if wt != "none" else ""

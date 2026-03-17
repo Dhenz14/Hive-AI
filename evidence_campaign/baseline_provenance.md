@@ -47,6 +47,10 @@ check. The corrected scorer was validated with 5 consecutive runs showing zero v
 | cpp-const | 0.840 | 0.940 | +0.100 |
 | go-generics | 0.840 | 1.000 | +0.160 |
 
+Note: cpp-const is now a C++ holdout probe (not an anchor). go-generics is a
+dead reserve (zero headroom). Both rows are historical — measured before final
+bucket assignments were decided.
+
 py-metaclass matches exactly. The remaining deltas (especially js-generics +0.300,
 go-generics +0.160) cannot be explained by scorer differences since the scorer is
 now identical. Possible causes:
