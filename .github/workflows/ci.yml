@@ -46,6 +46,8 @@ jobs:
         run: pip install requests pydantic python-dotenv
 
       - name: Run all tests
+        env:
+          DATABASE_URL: "postgresql://unused:unused@localhost:5432/unused"
         run: python -m pytest tests/ -v
 
   schema-contract:
