@@ -31,7 +31,7 @@ jobs:
 
       - name: Clone HivePoA at pinned immutable SHA
         run: |
-          git clone --no-checkout https://github.com/SPK-Network/HivePoA.git /tmp/hivepoa
+          git clone --no-checkout https://github.com/Dhenz14/HivePoA.git /tmp/hivepoa
           cd /tmp/hivepoa
           git checkout ${{ steps.schema-pin.outputs.hivepoa_sha }}
           echo "HivePoA checked out at $(git rev-parse HEAD)"
