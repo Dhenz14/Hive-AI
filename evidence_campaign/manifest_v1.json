@@ -1,7 +1,8 @@
 {
   "campaign": "evidence_campaign_v1",
-  "day": 1,
-  "timestamp": "2026-03-16T23:23:38Z",
+  "status": "preregistration_final",
+  "timestamp": "2026-03-16T23:50:00Z",
+  "canonical_source_of_truth": "canonical_buckets.json",
   "frozen_parameters": {
     "base_model": "v5-think-consolidated",
     "base_model_quant": "Q5_K_M",
@@ -12,51 +13,57 @@
     "critique_memory_influence": false,
     "bayesian_calibration_enabled": false,
     "serving_checkpoint": "unchanged",
-    "shadow_data_usable_for_live_calibration": false
+    "shadow_data_usable_for_live_calibration": false,
+    "split_salt": "evidence_campaign_v1_2026-03-16",
+    "split_algorithm_version": 1,
+    "fit_ratio": 0.6
   },
   "hashes": {
-    "git_sha": "b4016303ff091dc5f406422ba4a9b70891e2643c",
+    "git_sha": "PENDING_FINAL_COMMIT",
     "probe_library_sha256": "db5052a48ce93c9ba84bf3327114badddff70cdf083bf2ac2b72f1820138bbe6",
     "regression_eval_sha256": "169c67997ac26cf5e627346a85488c14ed39c6bbb7b86467b65fe673c89b5703",
     "weakness_trend_sha256": "0983739cb2322926dd4741fc0626a0ea15d48b684de2da72e5ed90d69bce7900",
-    "campaign_anchor_eval_sha256": "0853ccfca6bc236e8c834355d2db919ab2efd7d53a8fce655d1fcd61d7237b6b"
+    "campaign_anchor_eval_sha256": "PENDING_FINAL_COMMIT"
   },
   "anchor_probes": {
     "B1": {
       "probe_id": "js-generics",
       "domain": "js",
       "template": "implement",
-      "score": 0.9,
+      "score": 0.900,
       "keyword_score": 0.8571,
       "structure_score": 1.0,
       "keywords_hit": 6,
       "keywords_total": 7,
       "weakness_type": "none",
-      "elapsed_s": 6.3
+      "bucket_role": "mixed",
+      "holdout_role": "improvement_sensitive"
     },
     "B2": {
       "probe_id": "py-metaclass",
       "domain": "python",
       "template": "explain",
-      "score": 0.7667,
+      "score": 0.767,
       "keyword_score": 0.6667,
       "structure_score": 1.0,
       "keywords_hit": 4,
       "keywords_total": 6,
       "weakness_type": "keyword_only",
-      "elapsed_s": 6.9
+      "bucket_role": "improvement",
+      "holdout_role": "improvement_sensitive"
     },
     "B3": {
       "probe_id": "rs-ownership",
       "domain": "rust",
       "template": "debug_fix",
-      "score": 0.74,
+      "score": 0.740,
       "keyword_score": 0.7143,
-      "structure_score": 0.8,
+      "structure_score": 0.800,
       "keywords_hit": 5,
       "keywords_total": 7,
       "weakness_type": "none",
-      "elapsed_s": 5.6
+      "bucket_role": "mixed",
+      "holdout_role": "regression_sentinel_only"
     },
     "B4": {
       "probe_id": "cpp-variadic",
@@ -64,134 +71,72 @@
       "template": "implement",
       "score": 0.925,
       "keyword_score": 1.0,
-      "structure_score": 0.75,
+      "structure_score": 0.750,
       "keywords_hit": 7,
       "keywords_total": 7,
       "weakness_type": "none",
-      "elapsed_s": 11.5
+      "bucket_role": "regression_sentinel",
+      "holdout_role": "improvement_sensitive"
     },
     "B5": {
-      "probe_id": "cpp-const",
-      "domain": "cpp",
-      "template": "refactor",
-      "score": 0.94,
-      "keyword_score": 1.0,
-      "structure_score": 0.8,
-      "keywords_hit": 7,
+      "probe_id": "rs-errors",
+      "domain": "rust",
+      "template": "debug_fix",
+      "score": 0.525,
+      "keyword_score": 0.4286,
+      "structure_score": 0.750,
+      "keywords_hit": 3,
       "keywords_total": 7,
-      "weakness_type": "none",
-      "elapsed_s": 25.8
-    },
-    "R1": {
-      "probe_id": "go-generics",
-      "domain": "go",
-      "template": "explain",
-      "score": 1.0,
-      "keyword_score": 1.0,
-      "structure_score": 1.0,
-      "keywords_hit": 7,
-      "keywords_total": 7,
-      "weakness_type": "none",
-      "elapsed_s": 25.6,
-      "status": "dead_anchor",
-      "dead_reason": "score=1.000, zero headroom"
+      "weakness_type": "keyword_only",
+      "bucket_role": "mixed",
+      "holdout_role": "regression_sentinel_only",
+      "promoted_from": "full_baseline discovery",
+      "replaces": "cpp-const (0.940, 6% headroom, redundant 2nd C++ bucket)"
     }
   },
   "diversity_check": {
+    "domains": ["cpp", "js", "python", "rust"],
     "domains_count": 4,
-    "domains": [
-      "cpp",
-      "js",
-      "python",
-      "rust"
-    ],
     "domains_pass": true,
+    "weakness_types": ["keyword_only", "none"],
     "weakness_types_count": 2,
-    "weakness_types": [
-      "keyword_only",
-      "none"
-    ],
     "weakness_types_pass": true,
-    "templates_count": 4,
-    "templates": [
-      "debug_fix",
-      "explain",
-      "implement",
-      "refactor"
-    ],
+    "templates": ["debug_fix", "explain", "implement"],
+    "templates_count": 3,
     "templates_pass": true,
     "all_pass": true
   },
-  "baseline_variance": {
-    "per_bucket": {
-      "B1": {
-        "scores": [
-          0.9,
-          0.9
-        ],
-        "mean": 0.9,
-        "variance": 0.0,
-        "max_delta": 0.0
-      },
-      "B2": {
-        "scores": [
-          0.7667,
-          0.7667
-        ],
-        "mean": 0.7667,
-        "variance": 0.0,
-        "max_delta": 0.0
-      },
-      "B3": {
-        "scores": [
-          0.74,
-          0.74
-        ],
-        "mean": 0.74,
-        "variance": 0.0,
-        "max_delta": 0.0
-      },
-      "B4": {
-        "scores": [
-          0.925,
-          0.925
-        ],
-        "mean": 0.925,
-        "variance": 0.0,
-        "max_delta": 0.0
-      },
-      "B5": {
-        "scores": [
-          0.94,
-          0.94
-        ],
-        "mean": 0.94,
-        "variance": 0.0,
-        "max_delta": 0.0
-      },
-      "R1": {
-        "scores": [
-          1.0,
-          1.0
-        ],
-        "mean": 1.0,
-        "variance": 0.0,
-        "max_delta": 0.0
-      }
-    },
+  "baseline_stability": {
+    "method": "5 consecutive runs, corrected scorer (identical to regression_eval.py)",
     "max_variance": 0.0,
     "max_delta": 0.0,
-    "stable": true
+    "verdict": "perfectly_deterministic"
   },
-  "num_baseline_runs": 2,
-  "notes": [
-    "Day 1: Manifest frozen with anchor probe scores and weakness classifications.",
-    "Model is frozen v5-think. No serving-path changes for 30 days.",
-    "Weakness classifier v1: keyword<0.70=keyword_only, structure<0.50=structure_only, both=compound, neither=none.",
-    "SCORER FIX: Initial scorer had 4 differences from regression_eval.py (system prompt, code block regex, definition regex, length check). Fixed to be byte-identical. All prior measurements invalidated.",
-    "R1 (go-generics) scores 1.000 — dead anchor, zero headroom. Not available as replacement.",
-    "weakness_type diversity passed minimally (2 types). Current classifier is low-entropy on anchors: 4/5 are none, only B2 is keyword_only.",
-    "Baseline stable: 5-run validation showed zero variance (max_delta=0.0000). See baseline_provenance.md for drift analysis.",
-    "Headroom concern: B4 (7.5%) and B5 (6%) near ceiling. B1 (10%) marginal. Only B2 (23.3%) and B3 (26%) have substantial room."
-  ]
+  "analysis_rules": {
+    "primary_improvement_holdout": {
+      "description": "Only holdout probes with holdout_role=improvement_sensitive count toward the primary holdout improvement denominator.",
+      "eligible_buckets": ["B1", "B2", "B4"],
+      "probe_count": 7
+    },
+    "regression_sentinel_holdout": {
+      "description": "Holdout probes with holdout_role=regression_sentinel are reported separately. They confirm non-regression but are not positive evidence of improvement.",
+      "all_buckets_contribute": true,
+      "probe_count": 11
+    },
+    "option_c_rejection": "Manual override of the deterministic split was considered and rejected. Once the SHA256 assignment is computed, no probe may be moved between fit and holdout regardless of ceiling status. The split algorithm is the law.",
+    "weakness_type_note": "weakness_type met minimum diversity (2 types) but is low-entropy on this corpus: 3/5 anchors are none, 2/5 are keyword_only. Do not over-interpret as a high-resolution semantic stratifier."
+  },
+  "provenance": {
+    "scorer_fix": "Initial scorer (commit 11af1af) had 4 differences from regression_eval.py. Fixed to byte-identical. See baseline_provenance.md.",
+    "2_day_old_baseline": "formally non-comparable, excluded from campaign evidence",
+    "canonical_baseline": "corrected scorer, this session, zero variance verified",
+    "session_restart_rule": "Any llama-server restart requires baseline re-verification before continuing. Drift >0.02 on any anchor pauses the campaign."
+  },
+  "files": {
+    "canonical_buckets": "canonical_buckets.json",
+    "split_manifest": "split_manifest.json",
+    "full_baseline": "full_baseline.json",
+    "baseline_provenance": "baseline_provenance.md",
+    "split_algorithm": "split_algorithm.md"
+  }
 }

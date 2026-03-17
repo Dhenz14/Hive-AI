@@ -27,11 +27,16 @@ SPLIT_SALT = "evidence_campaign_v1_2026-03-16"
 SPLIT_ALGORITHM_VERSION = 1
 
 # Anchor assignments (B1-B5)
+# Decision: rs-errors replaces cpp-const (B5). Rationale:
+#   cpp-const (0.940, 6% headroom, none) is a low-sensitivity canary.
+#   rs-errors (0.525, 47.5% headroom, keyword_only) is a strong improvement target.
+#   One low-headroom C++ bucket (B4) is kept for breadth/regression.
+#   Two is expensive in a 5-bucket campaign.
 ANCHORS = {
-    "js": ["js-generics"],       # B1
-    "python": ["py-metaclass"],  # B2
-    "rust": ["rs-ownership"],    # B3
-    "cpp": ["cpp-variadic", "cpp-const"],  # B4, B5
+    "js": ["js-generics"],                  # B1
+    "python": ["py-metaclass"],             # B2
+    "rust": ["rs-ownership", "rs-errors"],  # B3, B5
+    "cpp": ["cpp-variadic"],                # B4
 }
 
 BUCKET_MAP = {
@@ -39,8 +44,19 @@ BUCKET_MAP = {
     "py-metaclass": "B2",
     "rs-ownership": "B3",
     "cpp-variadic": "B4",
-    "cpp-const": "B5",
+    "rs-errors": "B5",
 }
+
+# Template assignment per bucket
+BUCKET_TEMPLATES = {
+    "B1": "implement",
+    "B2": "explain",
+    "B3": "debug_fix",
+    "B4": "implement",
+    "B5": "debug_fix",  # rs-errors: error handling weakness → debug_fix template
+}
+
+CEILING_THRESHOLD = 0.95
 
 # Fit/holdout ratio: 60% fit, 40% holdout
 FIT_RATIO = 0.6
@@ -102,34 +118,58 @@ def compute_split(scores: dict) -> dict:
                 "difficulty": s.get("difficulty", "unknown"),
             }
 
-        # Headroom checks
+        # Gather probe info
         anchor_infos = [_probe_info(pid) for pid in anchor_ids]
         fit_infos = [_probe_info(pid) for pid in fit_probes]
         holdout_infos = [_probe_info(pid) for pid in holdout_probes]
 
-        all_non_anchor = fit_infos + holdout_infos
-        any_below_ceiling = any(p["score"] < 0.95 for p in all_non_anchor)
-        any_holdout_below_ceiling = any(p["score"] < 0.95 for p in holdout_infos)
-        anchor_near_ceiling = all(p["score"] >= 0.95 for p in anchor_infos)
+        # Classify each holdout probe's role
+        for h in holdout_infos:
+            h["holdout_role"] = ("regression_sentinel" if h["score"] >= CEILING_THRESHOLD
+                                 else "improvement_sensitive")
 
-        headroom_flag = anchor_near_ceiling and not any_holdout_below_ceiling
-        low_sensitivity = anchor_near_ceiling
+        # Domain-level checks
+        any_holdout_improvement = any(
+            h["holdout_role"] == "improvement_sensitive" for h in holdout_infos)
+        any_fit_below_ceiling = any(p["score"] < CEILING_THRESHOLD for p in fit_infos)
+        anchor_near_ceiling = all(p["score"] >= CEILING_THRESHOLD for p in anchor_infos)
+        min_anchor_headroom = min(1.0 - a["score"] for a in anchor_infos)
+        max_anchor_headroom = max(1.0 - a["score"] for a in anchor_infos)
+
+        # Bucket role classification
+        #   improvement:  anchor has >15% headroom, holdout has improvement-sensitive probes
+        #   mixed:        anchor has some headroom, holdout is regression-only
+        #   sentinel:     anchor near ceiling, mostly regression detection
+        if max_anchor_headroom >= 0.15 and any_holdout_improvement:
+            bucket_role = "improvement"
+        elif max_anchor_headroom >= 0.08:
+            bucket_role = "mixed"
+        else:
+            bucket_role = "regression_sentinel"
+
+        # Holdout reporting role
+        if any_holdout_improvement:
+            holdout_role = "improvement_sensitive"
+        else:
+            holdout_role = "regression_sentinel_only"
 
         result[domain] = {
             "anchors": anchor_infos,
             "fit": fit_infos,
             "holdout": holdout_infos,
             "hash_order": hash_order,
+            "bucket_role": bucket_role,
+            "holdout_role": holdout_role,
             "checks": {
                 "fit_count": len(fit_probes),
                 "holdout_count": len(holdout_probes),
                 "fit_min_2": len(fit_probes) >= 2,
                 "holdout_min_1": len(holdout_probes) >= 1,
-                "any_below_ceiling": any_below_ceiling,
-                "any_holdout_below_ceiling": any_holdout_below_ceiling,
+                "any_fit_below_ceiling": any_fit_below_ceiling,
+                "any_holdout_improvement": any_holdout_improvement,
                 "anchor_near_ceiling": anchor_near_ceiling,
-                "headroom_flag": headroom_flag,
-                "low_sensitivity": low_sensitivity,
+                "min_anchor_headroom": round(min_anchor_headroom, 3),
+                "max_anchor_headroom": round(max_anchor_headroom, 3),
             },
         }
 
@@ -148,25 +188,30 @@ def print_split(split: dict):
 
     for domain, data in split.items():
         checks = data["checks"]
-        print(f"--- {domain.upper()} ---")
+        role = data["bucket_role"].upper()
+        ho_role = data["holdout_role"]
+        print(f"--- {domain.upper()} [{role}] holdout={ho_role} ---")
 
         # Anchors
         for a in data["anchors"]:
             bucket = BUCKET_MAP.get(a["probe_id"], "?")
+            hdroom = 1.0 - a["score"]
             print(f"  ANCHOR [{bucket}]: {a['probe_id']:22s} score={a['score']:.3f} "
-                  f"wt={a['weakness_type']}")
+                  f"wt={a['weakness_type']} headroom={hdroom:.1%}")
 
         # Fit
         print(f"  FIT ({checks['fit_count']}):")
         for p in data["fit"]:
+            tag = " CEILING" if p["score"] >= CEILING_THRESHOLD else ""
             print(f"    {p['probe_id']:22s} score={p['score']:.3f} "
-                  f"wt={p['weakness_type']} diff={p['difficulty']}")
+                  f"wt={p['weakness_type']}{tag}")
 
         # Holdout
         print(f"  HOLDOUT ({checks['holdout_count']}):")
         for p in data["holdout"]:
+            hr = p.get("holdout_role", "?")
             print(f"    {p['probe_id']:22s} score={p['score']:.3f} "
-                  f"wt={p['weakness_type']} diff={p['difficulty']}")
+                  f"wt={p['weakness_type']} role={hr}")
 
         # Checks
         status_parts = []
@@ -176,10 +221,10 @@ def print_split(split: dict):
         if not checks["holdout_min_1"]:
             status_parts.append("FAIL: <1 holdout")
             all_pass = False
-        if checks["headroom_flag"]:
-            status_parts.append("WARNING: low headroom (anchor+holdout all >=0.95)")
-        if checks["low_sensitivity"]:
-            status_parts.append("NOTE: anchor near ceiling (>=0.95)")
+        if not checks["any_holdout_improvement"]:
+            status_parts.append("NOTE: holdout is regression-sentinel-only")
+        if checks["anchor_near_ceiling"]:
+            status_parts.append("NOTE: all anchors near ceiling")
         if not status_parts:
             status_parts.append("PASS")
 
@@ -187,7 +232,7 @@ def print_split(split: dict):
         print()
 
     print(f"{'='*75}")
-    print(f"  Overall: {'ALL CHECKS PASS' if all_pass else 'SOME CHECKS FAILED'}")
+    print(f"  Overall: {'ALL STRUCTURAL CHECKS PASS' if all_pass else 'SOME CHECKS FAILED'}")
     print(f"{'='*75}")
 
 
@@ -198,13 +243,34 @@ def write_split_manifest(split: dict):
         "split_algorithm_version": SPLIT_ALGORITHM_VERSION,
         "fit_ratio": FIT_RATIO,
         "domains": {},
+        "analysis_rules": {
+            "primary_improvement_holdout": (
+                "Only holdout probes with holdout_role=improvement_sensitive "
+                "count toward the primary improvement-sensitive holdout denominator."
+            ),
+            "regression_sentinel_holdout": (
+                "Holdout probes with holdout_role=regression_sentinel are reported "
+                "separately. They can confirm non-regression but do not constitute "
+                "positive evidence of improvement."
+            ),
+            "option_c_rejection": (
+                "Manual override of the deterministic split was considered and rejected. "
+                "Once the assignment is computed, no probe may be moved between fit and "
+                "holdout regardless of ceiling status. The split algorithm is the law."
+            ),
+        },
     }
 
     for domain, data in split.items():
         manifest["domains"][domain] = {
             "anchors": [a["probe_id"] for a in data["anchors"]],
             "fit": [p["probe_id"] for p in data["fit"]],
-            "holdout": [p["probe_id"] for p in data["holdout"]],
+            "holdout": [
+                {"probe_id": p["probe_id"], "holdout_role": p.get("holdout_role", "unknown")}
+                for p in data["holdout"]
+            ],
+            "bucket_role": data["bucket_role"],
+            "holdout_role": data["holdout_role"],
             "hash_order": data["hash_order"],
             "checks": data["checks"],
         }
@@ -226,30 +292,24 @@ def headroom_report(split: dict, scores: dict):
         for anchor in data["anchors"]:
             bucket = BUCKET_MAP.get(anchor["probe_id"], "?")
             headroom = 1.0 - anchor["score"]
+            role = data["bucket_role"]
 
-            holdout_scores = [p["score"] for p in data["holdout"]]
-            fit_scores = [p["score"] for p in data["fit"]]
-            all_scores = holdout_scores + fit_scores
-
-            min_sibling = min(all_scores) if all_scores else 1.0
-            max_sibling = max(all_scores) if all_scores else 0.0
-            avg_sibling = sum(all_scores) / len(all_scores) if all_scores else 0.0
-
-            # Count probes with keyword_only weakness
-            kw_only_count = sum(1 for p in data["fit"] + data["holdout"]
-                               if p["weakness_type"] == "keyword_only")
-
-            print(f"  {bucket} ({anchor['probe_id']}):")
+            print(f"  {bucket} ({anchor['probe_id']}) — {role}:")
             print(f"    Anchor:  score={anchor['score']:.3f}  headroom={headroom:.1%}  "
                   f"wt={anchor['weakness_type']}")
-            print(f"    Siblings: min={min_sibling:.3f} max={max_sibling:.3f} "
-                  f"avg={avg_sibling:.3f}")
-            print(f"    Keyword-only siblings: {kw_only_count}")
+
+            # Holdout breakdown
+            ho_imp = [h for h in data["holdout"]
+                      if h.get("holdout_role") == "improvement_sensitive"]
+            ho_reg = [h for h in data["holdout"]
+                      if h.get("holdout_role") == "regression_sentinel"]
+            print(f"    Holdout: {len(ho_imp)} improvement-sensitive, "
+                  f"{len(ho_reg)} regression-sentinel")
 
             if headroom < 0.08:
                 print(f"    ** LOW HEADROOM: anchor within 8% of ceiling")
-            if min_sibling >= 0.95:
-                print(f"    ** ALL SIBLINGS AT CEILING: no sensitivity to regression")
+            if not ho_imp:
+                print(f"    ** HOLDOUT REGRESSION-ONLY: cannot confirm improvement")
             print()
 
 

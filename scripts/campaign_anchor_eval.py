@@ -35,24 +35,22 @@ from scripts.weakness_trend import classify_weakness_type, WEAKNESS_CLASSIFIER_V
 SERVER_URL = os.environ.get("LLAMA_SERVER_URL", "http://localhost:11435")
 SYSTEM_PROMPT = "You are HiveAI, an expert coding assistant. Answer directly without chain-of-thought reasoning."
 
-# 6 anchor probes: 5 primary (B1-B5) + 1 reserve (R1)
+# 5 primary anchors + dead reserves (canonical_buckets.json is source of truth)
 ANCHOR_IDS = {
     "B1": "js-generics",
     "B2": "py-metaclass",
     "B3": "rs-ownership",
     "B4": "cpp-variadic",
-    "B5": "cpp-const",
-    "R1": "go-generics",
+    "B5": "rs-errors",
 }
 
-# Template assignment per bucket (from campaign plan)
+# Template assignment per bucket
 BUCKET_TEMPLATES = {
     "B1": "implement",
     "B2": "explain",
     "B3": "debug_fix",
     "B4": "implement",
-    "B5": "refactor",
-    "R1": "explain",
+    "B5": "debug_fix",
 }
 
 

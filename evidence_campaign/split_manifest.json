@@ -15,11 +15,25 @@
         "js-async-iter"
       ],
       "holdout": [
-        "js-mapped-types",
-        "js-closures",
-        "js-event-loop",
-        "js-modules"
+        {
+          "probe_id": "js-mapped-types",
+          "holdout_role": "improvement_sensitive"
+        },
+        {
+          "probe_id": "js-closures",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "js-event-loop",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "js-modules",
+          "holdout_role": "improvement_sensitive"
+        }
       ],
+      "bucket_role": "mixed",
+      "holdout_role": "improvement_sensitive",
       "hash_order": [
         [
           "js-weakmap",
@@ -63,11 +77,11 @@
         "holdout_count": 4,
         "fit_min_2": true,
         "holdout_min_1": true,
-        "any_below_ceiling": true,
-        "any_holdout_below_ceiling": true,
+        "any_fit_below_ceiling": true,
+        "any_holdout_improvement": true,
         "anchor_near_ceiling": false,
-        "headroom_flag": false,
-        "low_sensitivity": false
+        "min_anchor_headroom": 0.1,
+        "max_anchor_headroom": 0.1
       }
     },
     "python": {
@@ -82,11 +96,25 @@
         "py-decorators"
       ],
       "holdout": [
-        "py-generators",
-        "py-walrus",
-        "py-typing",
-        "py-dataclasses"
+        {
+          "probe_id": "py-generators",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "py-walrus",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "py-typing",
+          "holdout_role": "improvement_sensitive"
+        },
+        {
+          "probe_id": "py-dataclasses",
+          "holdout_role": "improvement_sensitive"
+        }
       ],
+      "bucket_role": "improvement",
+      "holdout_role": "improvement_sensitive",
       "hash_order": [
         [
           "py-pathlib",
@@ -130,35 +158,42 @@
         "holdout_count": 4,
         "fit_min_2": true,
         "holdout_min_1": true,
-        "any_below_ceiling": true,
-        "any_holdout_below_ceiling": true,
+        "any_fit_below_ceiling": true,
+        "any_holdout_improvement": true,
         "anchor_near_ceiling": false,
-        "headroom_flag": false,
-        "low_sensitivity": false
+        "min_anchor_headroom": 0.233,
+        "max_anchor_headroom": 0.233
       }
     },
     "rust": {
       "anchors": [
-        "rs-ownership"
+        "rs-ownership",
+        "rs-errors"
       ],
       "fit": [
-        "rs-errors",
         "rs-patterns",
         "rs-traits",
         "rs-macros",
-        "rs-lifetimes"
+        "rs-lifetimes",
+        "rs-concurrency"
       ],
       "holdout": [
-        "rs-concurrency",
-        "rs-tokio",
-        "rs-unsafe",
-        "rs-serde"
+        {
+          "probe_id": "rs-tokio",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "rs-unsafe",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "rs-serde",
+          "holdout_role": "regression_sentinel"
+        }
       ],
+      "bucket_role": "mixed",
+      "holdout_role": "regression_sentinel_only",
       "hash_order": [
-        [
-          "rs-errors",
-          "1dbd86eba8a1"
-        ],
         [
           "rs-patterns",
           "3b414e9abf7f"
@@ -194,20 +229,19 @@
       ],
       "checks": {
         "fit_count": 5,
-        "holdout_count": 4,
+        "holdout_count": 3,
         "fit_min_2": true,
         "holdout_min_1": true,
-        "any_below_ceiling": true,
-        "any_holdout_below_ceiling": false,
+        "any_fit_below_ceiling": true,
+        "any_holdout_improvement": false,
         "anchor_near_ceiling": false,
-        "headroom_flag": false,
-        "low_sensitivity": false
+        "min_anchor_headroom": 0.26,
+        "max_anchor_headroom": 0.475
       }
     },
     "cpp": {
       "anchors": [
-        "cpp-variadic",
-        "cpp-const"
+        "cpp-variadic"
       ],
       "fit": [
         "cpp-coroutines",
@@ -217,10 +251,25 @@
         "cpp-constexpr"
       ],
       "holdout": [
-        "cpp-crtp",
-        "cpp-optional-variant",
-        "cpp-move"
+        {
+          "probe_id": "cpp-crtp",
+          "holdout_role": "regression_sentinel"
+        },
+        {
+          "probe_id": "cpp-optional-variant",
+          "holdout_role": "improvement_sensitive"
+        },
+        {
+          "probe_id": "cpp-move",
+          "holdout_role": "improvement_sensitive"
+        },
+        {
+          "probe_id": "cpp-const",
+          "holdout_role": "improvement_sensitive"
+        }
       ],
+      "bucket_role": "regression_sentinel",
+      "holdout_role": "improvement_sensitive",
       "hash_order": [
         [
           "cpp-coroutines",
@@ -253,19 +302,28 @@
         [
           "cpp-move",
           "bfa77c6c5be6"
+        ],
+        [
+          "cpp-const",
+          "db21fcbe4a6b"
         ]
       ],
       "checks": {
         "fit_count": 5,
-        "holdout_count": 3,
+        "holdout_count": 4,
         "fit_min_2": true,
         "holdout_min_1": true,
-        "any_below_ceiling": true,
-        "any_holdout_below_ceiling": true,
+        "any_fit_below_ceiling": true,
+        "any_holdout_improvement": true,
         "anchor_near_ceiling": false,
-        "headroom_flag": false,
-        "low_sensitivity": false
+        "min_anchor_headroom": 0.075,
+        "max_anchor_headroom": 0.075
       }
     }
+  },
+  "analysis_rules": {
+    "primary_improvement_holdout": "Only holdout probes with holdout_role=improvement_sensitive count toward the primary improvement-sensitive holdout denominator.",
+    "regression_sentinel_holdout": "Holdout probes with holdout_role=regression_sentinel are reported separately. They can confirm non-regression but do not constitute positive evidence of improvement.",
+    "option_c_rejection": "Manual override of the deterministic split was considered and rejected. Once the assignment is computed, no probe may be moved between fit and holdout regardless of ceiling status. The split algorithm is the law."
   }
 }

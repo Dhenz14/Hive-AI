@@ -1,0 +1,91 @@
+{
+  "version": "evidence_campaign_v1_final",
+  "frozen_at": "2026-03-16",
+  "note": "This is the SOLE source of truth for bucket assignments. No prose overrides this table.",
+  "buckets": [
+    {
+      "bucket_id": "B1",
+      "anchor_probe": "js-generics",
+      "domain": "js",
+      "template": "implement",
+      "weakness_type": "none",
+      "baseline_score": 0.900,
+      "headroom": 0.100,
+      "headroom_class": "marginal",
+      "bucket_role": "mixed",
+      "holdout_role": "improvement_sensitive"
+    },
+    {
+      "bucket_id": "B2",
+      "anchor_probe": "py-metaclass",
+      "domain": "python",
+      "template": "explain",
+      "weakness_type": "keyword_only",
+      "baseline_score": 0.767,
+      "headroom": 0.233,
+      "headroom_class": "substantial",
+      "bucket_role": "improvement",
+      "holdout_role": "improvement_sensitive"
+    },
+    {
+      "bucket_id": "B3",
+      "anchor_probe": "rs-ownership",
+      "domain": "rust",
+      "template": "debug_fix",
+      "weakness_type": "none",
+      "baseline_score": 0.740,
+      "headroom": 0.260,
+      "headroom_class": "substantial",
+      "bucket_role": "mixed",
+      "holdout_role": "regression_sentinel_only"
+    },
+    {
+      "bucket_id": "B4",
+      "anchor_probe": "cpp-variadic",
+      "domain": "cpp",
+      "template": "implement",
+      "weakness_type": "none",
+      "baseline_score": 0.925,
+      "headroom": 0.075,
+      "headroom_class": "low",
+      "bucket_role": "regression_sentinel",
+      "holdout_role": "improvement_sensitive"
+    },
+    {
+      "bucket_id": "B5",
+      "anchor_probe": "rs-errors",
+      "domain": "rust",
+      "template": "debug_fix",
+      "weakness_type": "keyword_only",
+      "baseline_score": 0.525,
+      "headroom": 0.475,
+      "headroom_class": "substantial",
+      "bucket_role": "mixed",
+      "holdout_role": "regression_sentinel_only"
+    }
+  ],
+  "dead_reserves": [
+    {
+      "reserve_id": "R1",
+      "probe": "go-generics",
+      "domain": "go",
+      "baseline_score": 1.000,
+      "reason": "zero headroom"
+    }
+  ],
+  "replaced": [
+    {
+      "original_bucket": "B5",
+      "original_probe": "cpp-const",
+      "original_score": 0.940,
+      "replaced_by": "rs-errors",
+      "reason": "Low headroom (6%) + redundant second C++ bucket. rs-errors provides 47.5% headroom, keyword_only weakness, stronger improvement detection."
+    }
+  ],
+  "analysis_denominators": {
+    "primary_improvement_holdout": "Only holdout probes with holdout_role=improvement_sensitive count. Buckets: B1 (2 probes), B2 (2 probes), B4 (3 probes). Total: 7 probes.",
+    "regression_sentinel_holdout": "Holdout probes with holdout_role=regression_sentinel reported separately. Buckets: B1 (2), B2 (2), B3 (3), B4 (1), B5 (3). Total: 11 probes.",
+    "note": "Rust (B3, B5) holdout is all-ceiling due to structural domain distribution. This is disclosed, not a split defect. No manual override applied (Option C rejected)."
+  },
+  "weakness_type_note": "weakness_type met minimum diversity rules (2 types: keyword_only, none) but is low-entropy on this corpus. 3/5 anchors are none. Analyses should not over-interpret weakness_type as a high-resolution semantic stratifier."
+}
