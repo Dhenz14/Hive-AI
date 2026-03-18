@@ -122,6 +122,7 @@ def _restore_parent_server(poll_timeout_s: int = 120) -> dict:
         [LLAMA_SERVER_BIN, "-m", CURRENT_BASE_GGUF] + SERVER_FLAGS,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        start_new_session=True,  # detach from parent process group so SIGHUP on exit doesn't kill it
     )
     deadline = t0 + poll_timeout_s
     while time.time() < deadline:

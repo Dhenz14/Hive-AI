@@ -38,10 +38,11 @@ LOGS_DIR.mkdir(exist_ok=True)
 RUN_LOG = LOGS_DIR / "overnight_run_log.jsonl"
 
 # Gate 0 constants
-# Both hashes are valid canonical scripts with --flash-attn auto in SERVER_FLAGS:
+# All valid canonical scripts with --flash-attn auto in SERVER_FLAGS:
 #   35772e8bf1d68f43 — pre-variant_flags (commits up to 6ce47aa)
 #   63eee86b0e975cc6 — post-variant_flags (commit e9b0a7f, adds --extra-train-flags)
-VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6"}
+#   368a2f1c40573625 — post-sighup-fix (commit d39f529, start_new_session=True in restore)
+VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6", "368a2f1c40573625"}
 EXPECTED_PROPS_HASH = "c32cf0bf17b2"
 
 # ---------------------------------------------------------------------------
