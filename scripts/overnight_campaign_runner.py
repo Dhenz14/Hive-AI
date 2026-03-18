@@ -43,7 +43,8 @@ RUN_LOG = LOGS_DIR / "overnight_run_log.jsonl"
 #   63eee86b0e975cc6 — post-variant_flags (commit e9b0a7f, adds --extra-train-flags)
 #   368a2f1c40573625 — post-sighup-fix (commit d39f529, start_new_session=True in restore)
 #   40b91b2a41606157 — post-timeout-fix (training timeout 3600→7200 for probe-aware sauce runs)
-VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6", "368a2f1c40573625", "40b91b2a41606157"}
+#   c119a3751d8b55d0 — post-server-log-fix (child server stderr→logfile, health check 60→120s)
+VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6", "368a2f1c40573625", "40b91b2a41606157", "c119a3751d8b55d0"}
 EXPECTED_PROPS_HASH = "c32cf0bf17b2"
 
 # ---------------------------------------------------------------------------

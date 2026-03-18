@@ -465,14 +465,16 @@ def run_gate4(
 
             # Start child server with freshly quantized Q5 (identical path to real_train)
             print(f"\n--- A/A: Starting child server (freshly quantized, base weights) ---")
+            child_server_log = Path(f"/tmp/child_server_{attempt_id}.log")
+            child_server_log_f = open(child_server_log, "w")
             child_server_proc = subprocess.Popen(
                 [LLAMA_SERVER_BIN, "-m", str(child_gguf_q5)]
                 + SERVER_FLAGS,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL)
+                stdout=child_server_log_f,
+                stderr=child_server_log_f)
 
             server_healthy = False
-            for _ in range(40):  # 80s max — fresh load after quantize
+            for _ in range(60):  # 120s max — fresh load after quantize
                 time.sleep(2)
                 try:
                     resp = urllib.request.urlopen(
@@ -482,8 +484,14 @@ def run_gate4(
                         break
                 except Exception:
                     continue
+            child_server_log_f.flush()
             print(f"  Child server: {'HEALTHY' if server_healthy else 'FAILED'}")
             if not server_healthy:
+                try:
+                    log_tail = child_server_log.read_text()[-1500:]
+                    print(f"  Child server log tail:\n{log_tail}")
+                except Exception:
+                    pass
                 raise RuntimeError("Child server failed to start")
 
             # Full 60-probe eval — identical path to real_train
@@ -717,6 +725,7 @@ def run_gate4(
         child_ledger = child_dir / "eval_ledger.json"
         child_version = f"campaign_child_{bucket_id}_{attempt_id}"
         child_server_proc = None
+        child_server_log_f = None
         v5_server_stopped = False
 
         # Stop v5-think server to free GPU VRAM for training
@@ -852,14 +861,16 @@ def run_gate4(
             print(f"\n--- Check 5d: Starting child server ---")
             # v5-think already stopped before training
 
+            child_server_log = Path(f"/tmp/child_server_{attempt_id}.log")
+            child_server_log_f = open(child_server_log, "w")
             child_server_proc = subprocess.Popen(
                 [LLAMA_SERVER_BIN, "-m", str(child_gguf_q5)]
                 + SERVER_FLAGS,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL)
+                stdout=child_server_log_f,
+                stderr=child_server_log_f)
 
             server_healthy = False
-            for _ in range(30):  # 60s max
+            for _ in range(60):  # 120s max
                 time.sleep(2)
                 try:
                     resp = urllib.request.urlopen(
@@ -869,9 +880,15 @@ def run_gate4(
                         break
                 except Exception:
                     continue
+            child_server_log_f.flush()
             print(f"  Child server: "
                   f"{'HEALTHY' if server_healthy else 'FAILED'}")
             if not server_healthy:
+                try:
+                    log_tail = child_server_log.read_text()[-1500:]
+                    print(f"  Child server log tail:\n{log_tail}")
+                except Exception:
+                    pass
                 raise RuntimeError(
                     "Child llama-server failed to start")
 
@@ -1013,6 +1030,11 @@ def run_gate4(
                     child_server_proc.wait(timeout=10)
                 except Exception:
                     pass
+                if child_server_log_f:
+                    try:
+                        child_server_log_f.close()
+                    except Exception:
+                        pass
                 subprocess.run(
                     ["pkill", "-f", "llama-server"],
                     capture_output=True)
