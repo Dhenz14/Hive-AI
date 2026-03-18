@@ -768,6 +768,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             bias=LORA_CONFIG["bias"],
             task_type=TaskType.CAUSAL_LM,
             use_dora=LORA_CONFIG["use_dora"],
+            use_rslora=LORA_CONFIG.get("use_rslora", True),
         )
         if "layers_to_transform" in LORA_CONFIG:
             lora_config_kwargs["layers_to_transform"] = LORA_CONFIG["layers_to_transform"]
@@ -777,10 +778,11 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     model.print_trainable_parameters()
 
-    # v6.0: Verify layer-selective config was applied correctly
-    if "layers_to_transform" in LORA_CONFIG:
-        pcfg = model.peft_config.get("default", None) if hasattr(model, "peft_config") else None
-        if pcfg:
+    # v6.0: Verify LoRA config was applied correctly (layers, modules, rslora)
+    pcfg = model.peft_config.get("default", None) if hasattr(model, "peft_config") else None
+    if pcfg:
+        # Layers check (only when layer-selective)
+        if "layers_to_transform" in LORA_CONFIG:
             expected_layers = LORA_CONFIG["layers_to_transform"]
             actual_layers = list(pcfg.layers_to_transform) if pcfg.layers_to_transform else None
             if actual_layers != expected_layers:
@@ -789,6 +791,19 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                 raise ValueError("layers_to_transform was not applied correctly — check Unsloth/PEFT version")
             logger.info(f"Verified: layers_to_transform={actual_layers[0]}-{actual_layers[-1]} "
                         f"({len(actual_layers)} of 48 layers)")
+        # use_rslora check
+        expected_rslora = LORA_CONFIG.get("use_rslora", True)
+        actual_rslora = getattr(pcfg, "use_rslora", None)
+        if actual_rslora is not None and actual_rslora != expected_rslora:
+            logger.error(f"RSLORA MISMATCH! Expected use_rslora={expected_rslora}, got {actual_rslora}")
+            raise ValueError("use_rslora was not applied correctly")
+        # target_modules check
+        expected_mods = sorted(LORA_CONFIG["target_modules"])
+        actual_mods = sorted(list(pcfg.target_modules)) if pcfg.target_modules else []
+        if actual_mods and actual_mods != expected_mods:
+            logger.error(f"MODULE MISMATCH! Expected {expected_mods}, got {actual_mods}")
+            raise ValueError("target_modules was not applied correctly")
+        logger.info(f"LoRA config verified: rslora={actual_rslora}, modules={actual_mods}")
 
     # ── CURLoRA Initialization (v3.0 — data-aware subspace selection) ──
     # Uses CUR matrix decomposition to initialize LoRA in a non-interfering manifold.
@@ -2822,7 +2837,12 @@ if __name__ == "__main__":
             logger.info(f"Target modules override: {LORA_CONFIG['target_modules']}")
         if args.target_layers:
             parts = args.target_layers.split("-")
-            start, end = int(parts[0]), int(parts[1])
+            if len(parts) == 1:
+                start = end = int(parts[0])
+            elif len(parts) == 2:
+                start, end = int(parts[0]), int(parts[1])
+            else:
+                raise ValueError(f"--target-layers must be 'N' or 'N-M', got: {args.target_layers!r}")
             LORA_CONFIG["layers_to_transform"] = list(range(start, end + 1))
             logger.info(f"Target layers override: {start}-{end} ({end - start + 1} layers)")
 

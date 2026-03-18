@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "note": "Index of domain adapters in loras/domains/. One entry per adapter directory. Used by Bridge A (HivePoA training jobs) to enumerate adapters without filesystem scanning. Update this file whenever an adapter is added, promoted, or archived.",
+  "convention": {
+    "directory_name": "<domain>-<descriptor>",
+    "required_files": ["adapter_model.safetensors", "adapter_config.json", "training_meta.json"],
+    "checkpoint_dirs": "checkpoint-N/ subdirs are intermediate TRL checkpoints, not separate adapters"
+  },
+  "adapters": [
+    {
+      "name": "cpp-lifetime",
+      "domain": "cpp",
+      "adapter_template": "cpp",
+      "base_model": "v5-think",
+      "rank": 4,
+      "layers": "24-39",
+      "modules": ["gate_proj", "up_proj", "down_proj"],
+      "pair_count": 150,
+      "status": "shelved",
+      "notes": "3 runs inconclusive. Variant damage is structural, not capacity-related. 150 pairs insufficient for broad lift. See cpp_lifetime_adapter_experiments.md."
+    },
+    {
+      "name": "ts-generics",
+      "domain": "js",
+      "adapter_template": "generic",
+      "base_model": "v5-think",
+      "rank": 8,
+      "layers": "16-31",
+      "modules": ["v_proj", "o_proj", "down_proj"],
+      "pair_count": 66,
+      "status": "shelved",
+      "notes": "+3.3% avg improvement, only 1/5 prompts improved. Pipeline validation only — adapter shelved. See ts_generics_experiment.md."
+    }
+  ]
+}

@@ -83,6 +83,7 @@ loras/v*/hiveai-*.gguf
 loras/v*/gguf/
 loras/v*/merged_gguf/
 loras/domains/
+!loras/domains/domains.json
 *.safetensors
 *.gguf
 *.pt
