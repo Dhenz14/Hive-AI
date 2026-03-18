@@ -1,0 +1,78 @@
+{
+  "attempt_id": "6d3d1fd20ba6",
+  "bucket_id": "B2",
+  "seed": 1,
+  "started_at": "2026-03-17T06:39:48Z",
+  "governance": {
+    "campaign_id": "evidence_campaign_v1",
+    "protocol_version": "2.1",
+    "addendum_file": "pre_day4_addendum.md",
+    "addendum_hash": "0aae71aeb86bbd34",
+    "session_id": "20260317T062615Z",
+    "cold_start_confirmed": true,
+    "no_restart_confirmed": true,
+    "campaign_eligible": false,
+    "server_identity": {
+      "status": "ok",
+      "pid": 8279,
+      "proc_start": 7499210,
+      "boot_key": "pid:8279",
+      "props_hash": "c32cf0bf17b2"
+    },
+    "provenance": {
+      "git_sha": "ec49c4ec2bad",
+      "git_dirty": true,
+      "governance_hash": "9d651438865b80c5",
+      "session_admit_hash": "ae706e4f53abf089",
+      "pack_builder_hash": "260e8014a2fe8c35",
+      "dry_run_hash": "7a6addc884e1bbdf",
+      "probe_library_hash": "db5052a48ce93c9b"
+    },
+    "gate_interpretations": {
+      "gate_2": "PASS: byte-identical output on double-build under frozen inputs and seed.",
+      "gate_3_binding": "PASS: no detected leakage under frozen audit logic (>=86% keyword cluster threshold).",
+      "gate_3_informational": "No findings under current lens. Residual risk nonzero by construction.",
+      "gate_4": "PASS (orchestration only): skip-train. Training lifecycle unproven."
+    },
+    "bucket_id": "B2",
+    "attempt_id": "6d3d1fd20ba6",
+    "effective_pack_size": 400,
+    "actual_pack_size": 400,
+    "pack_size_validated": true,
+    "power_class": "full"
+  },
+  "evidence_mass": "Bucket B2 (python)\n  Effective pack size: 400/400\n  Power class: full",
+  "checks": {
+    "pack_determinism": true,
+    "holdout_exclusion": true,
+    "attribution_isolated": true,
+    "child_checkpoint_created": false,
+    "eval_completed": false,
+    "critique_closure_emitted": false,
+    "metrics_emitted": false,
+    "child_destroyed": true,
+    "no_parameter_changes": true
+  },
+  "domain_distribution": {
+    "python": 240,
+    "general_coding": 120,
+    "go": 11,
+    "js": 15,
+    "cpp": 3,
+    "hive": 7,
+    "rust": 4
+  },
+  "metrics": {
+    "pre_score": 0.8833,
+    "post_score": null,
+    "delta": null,
+    "success": null,
+    "note": "Lifecycle aborted: Training failed"
+  },
+  "completed_at": "2026-03-17T06:43:16Z",
+  "verdict": "FAIL",
+  "governance_self_check": [
+    "NOT_CAMPAIGN_ELIGIBLE: artifact was produced in exploratory mode or from a dirty working tree. Ineligible for campaign evidence.",
+    "DIRTY_TREE: produced from uncommitted code. Campaign evidence requires clean working tree."
+  ]
+}
