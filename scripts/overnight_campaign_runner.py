@@ -42,7 +42,8 @@ RUN_LOG = LOGS_DIR / "overnight_run_log.jsonl"
 #   35772e8bf1d68f43 — pre-variant_flags (commits up to 6ce47aa)
 #   63eee86b0e975cc6 — post-variant_flags (commit e9b0a7f, adds --extra-train-flags)
 #   368a2f1c40573625 — post-sighup-fix (commit d39f529, start_new_session=True in restore)
-VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6", "368a2f1c40573625"}
+#   40b91b2a41606157 — post-timeout-fix (training timeout 3600→7200 for probe-aware sauce runs)
+VALID_DRY_RUN_HASHES = {"35772e8bf1d68f43", "63eee86b0e975cc6", "368a2f1c40573625", "40b91b2a41606157"}
 EXPECTED_PROPS_HASH = "c32cf0bf17b2"
 
 # ---------------------------------------------------------------------------
@@ -265,9 +266,14 @@ def main():
         log(f"  verdict:      {g0['verdict']}")
         m = g0.get("metrics", {})
         if m.get("pre_score") is not None:
+            pre = m['pre_score']
+            post = m['post_score']
+            delta = m['delta']
+            post_str = f"{post:.3f}" if post is not None else "FAIL"
+            delta_str = f"{delta:+.4f}" if delta is not None else "N/A"
             log(f"  Anchor ({g0['bucket_id']}): "
-                f"{m['pre_score']:.3f} → {m['post_score']:.3f} "
-                f"(Δ={m['delta']:+.4f})  child_overall={m.get('child_overall','?')}")
+                f"{pre:.3f} → {post_str} "
+                f"(Δ={delta_str})  child_overall={m.get('child_overall','?')}")
             dd = m.get("domain_deltas", {})
             if dd:
                 log(f"  Domain deltas: {dd}")

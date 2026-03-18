@@ -745,13 +745,13 @@ def run_gate4(
             try:
                 train_result = subprocess.run(
                     train_cmd, capture_output=True, text=True,
-                    timeout=3600, cwd=str(PROJECT_ROOT))
+                    timeout=7200, cwd=str(PROJECT_ROOT))
                 train_ok = (train_result.returncode == 0
                             and child_dir.exists())
             except subprocess.TimeoutExpired:
                 train_result = None
                 train_ok = False
-                print(f"  TRAIN TIMEOUT (1h)")
+                print(f"  TRAIN TIMEOUT (2h)")
             results["checks"]["child_checkpoint_created"] = train_ok
             if not train_ok:
                 print(f"  TRAIN FAILED")
