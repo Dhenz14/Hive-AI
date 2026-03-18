@@ -200,6 +200,7 @@ def run_gate4(
     session_baseline_path: str,
     skip_train: bool = False,
     aa_control: bool = False,
+    extra_train_flags: list = None,
 ):
     """Run a complete Gate 4 dry-run attempt."""
 
@@ -218,12 +219,15 @@ def run_gate4(
         run_type = "skip_train"
     elif aa_control:
         run_type = "aa_control"
+    elif extra_train_flags:
+        run_type = "variant_train"
     else:
         run_type = "real_train"
 
     # --- Load and validate session baseline governance ---
     # aa-control is not campaign-eligible (no training = no training evidence)
     campaign_mode = (run_type == "real_train")
+    variant_flags_list = extra_train_flags or []
     try:
         session_data = require_governed_baseline(
             session_baseline_path, campaign_mode=campaign_mode)
@@ -254,6 +258,7 @@ def run_gate4(
         "bucket_id": bucket_id,
         "seed": seed,
         "run_type": run_type,
+        "variant_flags": variant_flags_list if variant_flags_list else None,
         "measurement_protocol": "v2.1",  # warm-modal pre / cold-single-pass post
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "governance": attempt_stamp(
@@ -264,7 +269,7 @@ def run_gate4(
             no_restart_confirmed=no_restart,
             server_identity=admission_server_id,
             actual_pack_size=None,  # filled after pack build
-            campaign_eligible=(run_type == "real_train"),
+            campaign_eligible=(run_type == "real_train"),  # variant_train is NOT eligible
         ),
         "evidence_mass": reporting_header(bucket_id),
         "checks": {},
@@ -734,7 +739,7 @@ def run_gate4(
                 "--lr", "5e-5",
                 "--epochs", "1",
                 "--stm", "--sdft", "--no-ewc",
-            ]
+            ] + variant_flags_list
             print(f"  Command: {' '.join(train_cmd)}")
             try:
                 train_result = subprocess.run(
@@ -1097,6 +1102,10 @@ def main():
     parser.add_argument("--aa-control", action="store_true",
                         help="A/A noise-floor run: real child lifecycle, no training. "
                              "Measures warm-pre vs cold-post asymmetry. Not campaign-eligible.")
+    parser.add_argument("--extra-train-flags", type=str, default="",
+                        help="Space-separated extra flags for train_v5.py. "
+                             "Triggers run_type=variant_train, campaign_eligible=False. "
+                             "Example: --extra-train-flags '--probe-aware --probe-weight 0.2'")
     args = parser.parse_args()
 
     if args.skip_train and args.aa_control:
@@ -1107,10 +1116,12 @@ def main():
         print(f"ERROR: session baseline not found: {args.session_baseline}")
         sys.exit(1)
 
+    extra_flags = args.extra_train_flags.split() if args.extra_train_flags.strip() else None
     results = run_gate4(
         args.bucket, args.seed, args.session_baseline,
         skip_train=args.skip_train,
         aa_control=args.aa_control,
+        extra_train_flags=extra_flags,
     )
 
     sys.exit(0 if results["verdict"] == "PASS" else 1)
