@@ -45,7 +45,10 @@ GATE_INTERPRETATIONS = {
     "gate_2": "PASS: byte-identical output on double-build under frozen inputs and seed.",
     "gate_3_binding": "PASS: no detected leakage under frozen audit logic (>=86% keyword cluster threshold).",
     "gate_3_informational": "No findings under current lens. Residual risk nonzero by construction.",
-    "gate_4": "PASS (orchestration only): skip-train. Training lifecycle unproven.",
+    "gate_4": "PASS: real training lifecycle proven (B2/seed=1, attempt 9cf93fce48ad). "
+              "Behavioral interpretation requires measurement protocol repair: warm/modal "
+              "pre-score vs cold/single-pass post-score creates confound up to 0.12 on "
+              "keyword-boundary probes. A/A child-path control needed before interpreting deltas.",
 }
 
 # Bucket evidence mass (frozen pack sizes from seed=1 build)

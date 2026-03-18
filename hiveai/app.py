@@ -2079,6 +2079,13 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
             return None
 
         # Create training pair
+        _contract_fmt = verification.get("contract_mode")
+        _exec_langs = json.dumps(sorted(set(
+            b.get("execution_language") or b.get("language")
+            for b in verification.get("results", [])
+            if b.get("execution_language") or b.get("language")
+        )))
+
         pair = TrainingPair(
             source="auto_verified",
             topic="chat_auto_improve",
@@ -2088,6 +2095,8 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
             is_eligible=True,
             recurrence_count=1,
             last_seen_at=utcnow(),
+            contract_format=_contract_fmt,
+            execution_languages=_exec_langs,
             metadata_json=json.dumps({
                 "verification": {
                     "total_blocks": verification["total_blocks"],

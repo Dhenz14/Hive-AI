@@ -311,6 +311,8 @@ class TrainingPair(Base):
     is_eligible = Column(Boolean, default=False)
     lora_version = Column(Integer, nullable=True)   # set when used in a training run
     metadata_json = Column(Text, nullable=True)     # JSON blob for refinement trajectories, DPO data, etc.
+    contract_format = Column(String(20), nullable=True)      # "json" | "fenced" | "fallback" | "none"
+    execution_languages = Column(String(100), nullable=True) # JSON array e.g. ["python", "go"] sorted + deduped
     created_at = Column(DateTime, default=utcnow)
 
     # Recurrence tracking (v1 skill buffer)
@@ -575,6 +577,9 @@ def _migrate_add_columns(engine):
         # v1 recurrence tracking for skill buffer
         ("training_pairs", "recurrence_count", "INTEGER DEFAULT 1"),
         ("training_pairs", "last_seen_at", "DATETIME"),
+        # v1.1 execution metadata — separate contract format from execution language
+        ("training_pairs", "contract_format", "VARCHAR(20)"),
+        ("training_pairs", "execution_languages", "VARCHAR(100)"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:

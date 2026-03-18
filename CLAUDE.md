@@ -327,6 +327,25 @@ OFF). Empirical validation blocked on real closed critique data from future Laye
 critique data, empirical Gates 5-6 passing, and representative strata. Do not enable behavior gates
 until then.
 
+## CATEGORY_LANGUAGE Mapping (Policy — Do Not Change Without Version Bump)
+
+`CATEGORY_LANGUAGE` in `scripts/weakness_hunter.py` maps eval categories to their primary execution language.
+This is **policy**, not heuristic — changes affect pair generation, replay composition, and domain targeting.
+
+```text
+python, algorithms, database, systems, design_patterns,
+testing, security, hive_sdk, hive_architecture,
+hive_economics, hive_security    → python
+
+javascript, web, hive_layer2     → javascript
+
+rust                             → rust
+go                               → go
+cpp                              → cpp
+```
+
+**Rule**: Do not add or change mappings without bumping `WEAKNESS_CLASSIFIER_VERSION` and updating this table.
+
 ## Eval Protocol — Work Smart Not Hard
 
 **Base model evals are PUBLIC KNOWLEDGE** — hardcoded, never re-run. That's our floor.
