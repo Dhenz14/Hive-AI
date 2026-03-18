@@ -1601,11 +1601,19 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
         ctx = torch.enable_grad() if with_grad else torch.no_grad()
         with ctx:
-            hidden_out = backbone(
-                input_ids=inputs.get("input_ids"),
-                attention_mask=inputs.get("attention_mask"),
-                use_cache=False,
-            )
+            # Packed training: attention_mask is removed by Unsloth; packed_seq_lengths
+            # replaces it. Pass it through so flash-attn varlen kernel handles sequence
+            # boundary isolation. Without this, backbone uses full cross-sequence attention
+            # (all-ones fallback), contaminating log-prob values at packed boundaries.
+            backbone_kwargs = {
+                "input_ids": inputs.get("input_ids"),
+                "use_cache": False,
+            }
+            if inputs.get("attention_mask") is not None:
+                backbone_kwargs["attention_mask"] = inputs["attention_mask"]
+            if inputs.get("packed_seq_lengths") is not None:
+                backbone_kwargs["packed_seq_lengths"] = inputs["packed_seq_lengths"]
+            hidden_out = backbone(**backbone_kwargs)
             # Slice BEFORE lm_head: kl_slice × 4096 → kl_slice × 248K
             hidden_slice = hidden_out.last_hidden_state[:, -kl_slice:, :].contiguous()
             del hidden_out
@@ -2239,7 +2247,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             save_total_limit=3,
             skip_memory_metrics=True,
             max_length=seq_length,
-            packing=False,
+            packing=getattr(args, "packing", False),
             dataset_text_field="text",        # Pre-formatted text (chat template already applied)
             neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
             torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
@@ -2372,12 +2380,22 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     if labels is not None and input_ids is not None:
                         completion_mask = (labels != -100)  # only process completion tokens
                         if completion_mask.any():
-                            attn = inputs.get("attention_mask", torch.ones_like(input_ids))
+                            # Packed training: attention_mask removed by Unsloth; pass
+                            # packed_seq_lengths so flash-attn varlen kernel isolates sequences.
+                            # Falls back to explicit mask (non-packed) or all-ones (no packing).
+                            attn = inputs.get("attention_mask")
+                            packed_seq_len = inputs.get("packed_seq_lengths")
                             with torch.no_grad():
                                 model_arg.disable_adapter_layers()
                                 try:
-                                    base_out = model_arg(input_ids=input_ids,
-                                                        attention_mask=attn)
+                                    base_kwargs = {"input_ids": input_ids, "use_cache": False}
+                                    if attn is not None:
+                                        base_kwargs["attention_mask"] = attn
+                                    elif packed_seq_len is None:
+                                        base_kwargs["attention_mask"] = torch.ones_like(input_ids)
+                                    if packed_seq_len is not None:
+                                        base_kwargs["packed_seq_lengths"] = packed_seq_len
+                                    base_out = model_arg(**base_kwargs)
                                     logits = base_out.logits
                                     # Per-token CE: logits[t] predicts input_ids[t+1]
                                     shift_logits = logits[:, :-1, :].contiguous()
@@ -2765,6 +2783,11 @@ if __name__ == "__main__":
     parser.add_argument("--curlora-init", action="store_true",
                         help="Use CURLoRA initialization (replaces orthogonal SVD init)")
     # v5.0 Continual Learning: STM + SDFT (NeurIPS 2025 / MIT Jan 2026)
+    parser.add_argument("--packing", action="store_true",
+                        help="Enable Unsloth padding-free sequence packing (3x speed, 30% VRAM). "
+                             "STM and SDFT pass packed_seq_lengths through to base model for correct "
+                             "flash-attn varlen boundary isolation. Validate STM mask density matches "
+                             "non-packed baseline before using in campaign runs.")
     parser.add_argument("--stm", action="store_true",
                         help="STM: mask high-PPL tokens in training loss (prevents keyword probe collapse)")
     parser.add_argument("--stm-threshold", type=float, default=2.5,
