@@ -145,13 +145,32 @@ def _git_sha() -> str:
 
 
 def _git_dirty() -> bool:
-    """True if working tree has uncommitted changes."""
+    """True if working tree has uncommitted changes to tracked code files.
+
+    Uses git status --porcelain and filters:
+    - Untracked files (??) — do not affect code reproducibility
+    - evidence_campaign/session_log.jsonl — intentionally modified during
+      normal campaign operation (session_admit appends to it). Data file,
+      not code.
+    """
     try:
         result = subprocess.run(
-            ["git", "diff", "--quiet", "HEAD"],
-            capture_output=True, timeout=5,
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5,
             cwd=str(PROJECT_ROOT))
-        return result.returncode != 0
+        if result.returncode != 0:
+            return True
+        _DATA_ALLOWLIST = {"evidence_campaign/session_log.jsonl"}
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            status_code = line[:2].strip()
+            filepath = line[3:].strip()
+            if status_code == "??":
+                continue  # untracked files don't affect reproducibility
+            if filepath not in _DATA_ALLOWLIST:
+                return True
+        return False
     except Exception:
         return True  # assume dirty if can't check
 
