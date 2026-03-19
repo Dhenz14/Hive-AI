@@ -79,8 +79,10 @@ more SFT/merge cycles is the wrong tool. The product value is in the application
 - **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core. Do not touch.
 - **Layer 1: RAG/Retrieval** — Where the system learns every day. 928 BookSections enriched with
   contextual retrieval prefixes (Anthropic technique, 35-67% fewer retrieval failures). Hybrid search
-  (BM25+semantic) with MMR diversity reranking (λ=0.7). Verified chat responses auto-promote to
-  retrievable BookSections. Skills, golden books, solved examples. No retraining needed.
+  (BM25+semantic) with MMR diversity reranking (λ=0.7). Cross-encoder reranker (bge-reranker-v2-m3)
+  actively filters low-confidence sections (suppress < 0.02) and boosts high-confidence ones (> 0.20).
+  Verified chat responses auto-promote to retrievable BookSections. Skills, golden books, solved
+  examples. No retraining needed.
 - **Layer 2: Skill Buffer** — Verified training pairs accumulate passively from chat. NOT immediate
   training. Accumulate until repeated miss + verifiable + large headroom.
 - **Layer 3: Rare Promotion** — Event-driven training only. ALL 4 conditions must be met:

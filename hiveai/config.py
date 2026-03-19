@@ -146,12 +146,22 @@ RETRIEVAL_REWRITE_THRESHOLD = float(os.environ.get("RETRIEVAL_REWRITE_THRESHOLD"
 # Suppress threshold: if best score is still below this after rewrite, don't inject context at all
 RETRIEVAL_SUPPRESS_THRESHOLD = float(os.environ.get("RETRIEVAL_SUPPRESS_THRESHOLD", "0.25"))
 
-# --- Shadow Reranker (observation only, no enforcement) ---
-# Runs cross-encoder scoring on all retrieval results, logs to trace for calibration
+# --- Shadow Reranker (calibrated 2026-03-19, benchmark: 64 pos / 72 neg) ---
+# Cross-encoder scoring on all retrieval results. Two-tier thresholds from benchmark.
+# Model separates relevant (mean=0.406) from irrelevant (mean=0.085) with gap=0.321.
+# Overlap zone: 0.05-0.30 (some false positives from semantic keyword collisions).
 RERANKER_SHADOW_ENABLED = os.environ.get("RERANKER_SHADOW_ENABLED", "true").lower() in ("1", "true", "yes")
 RERANKER_SHADOW_MODEL = os.environ.get("RERANKER_SHADOW_MODEL", "BAAI/bge-reranker-v2-m3")
-# Candidate threshold for would_suppress signal (calibration target, NOT enforced)
-RERANKER_SHADOW_CANDIDATE_THRESHOLD = float(os.environ.get("RERANKER_SHADOW_CANDIDATE_THRESHOLD", "0.075"))
+# Suppress: best_score < this → sections are confidently irrelevant (precision 0.93 at 0.50)
+RERANKER_SHADOW_SUPPRESS_THRESHOLD = float(os.environ.get("RERANKER_SHADOW_SUPPRESS_THRESHOLD", "0.02"))
+# Boost: best_score >= this → sections are likely relevant, boost ranking (precision 0.81 at 0.20)
+RERANKER_SHADOW_BOOST_THRESHOLD = float(os.environ.get("RERANKER_SHADOW_BOOST_THRESHOLD", "0.20"))
+# Legacy single threshold (kept for backward compat with trace logging)
+RERANKER_SHADOW_CANDIDATE_THRESHOLD = float(os.environ.get("RERANKER_SHADOW_CANDIDATE_THRESHOLD", "0.05"))
+# Active mode: promote shadow reranker suppress tier to actually filter sections
+RERANKER_ACTIVE_SUPPRESS = os.environ.get("RERANKER_ACTIVE_SUPPRESS", "true").lower() in ("1", "true", "yes")
+# Active mode: promote shadow reranker boost tier to rerank sections by cross-encoder score
+RERANKER_ACTIVE_BOOST = os.environ.get("RERANKER_ACTIVE_BOOST", "true").lower() in ("1", "true", "yes")
 
 # --- Entity Memory Lane (cross-session pattern persistence) ---
 # Extracts reusable procedure/preference/concept entities from verified Q&A pairs

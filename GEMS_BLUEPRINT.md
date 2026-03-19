@@ -301,8 +301,7 @@ These are NOT coming back unless explicitly triggered. Do not work on them.
 ## EXECUTION PRIORITY (Updated 2026-03-19)
 
 **Completed**: Beam 1 (structural), Beam 2 (structural), Beam 3 (all items + contextual retrieval + MMR + DoRA + routing + classifier), Beam 5 (implementation)
-**Blocked on data**: Beam 4 (telemetry volume + shadow reranker not separating), GEM 1+2 empirical gates (real training cycles)
+**Blocked on data**: Beam 4 (telemetry volume), GEM 1+2 empirical gates (real training cycles)
+**Shadow reranker CALIBRATED (2026-03-19)**: Old labels were wrong (CoSQA relevance ≠ section relevance). Corrected benchmark (64 pos / 72 neg): gap=+0.321, 63/64 controls pass. Two-tier thresholds: suppress=0.02, boost=0.20. Ready for suppress-tier promotion.
 **Next actionable**: Gate 11 organic reuse validation (50+ promoted examples needed), then Bridge A (HivePoA V1.1 training jobs)
-
-Shadow reranker: 154 data points, NOT ready to promote (labeled overlap). Continue accumulating data.
 After Gate 11: Bridge A → Bridge B (distributed weakness hunter).

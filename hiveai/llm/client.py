@@ -674,9 +674,18 @@ def _get_shadow_reranker():
 
 
 def compute_shadow_reranker_scores(query: str, sections: list[dict]) -> dict:
-    """Score sections with shadow cross-encoder. Returns trace dict fields only — no reordering."""
-    from hiveai.config import RERANKER_SHADOW_CANDIDATE_THRESHOLD
-    threshold = RERANKER_SHADOW_CANDIDATE_THRESHOLD
+    """Score sections with shadow cross-encoder. Returns trace dict fields only — no reordering.
+
+    Two-tier threshold system (calibrated 2026-03-19, 64 pos / 72 neg benchmark):
+      - suppress: best_score < suppress_threshold → sections confidently irrelevant
+      - boost: best_score >= boost_threshold → sections likely relevant, boost ranking
+      - between: ambiguous zone, keep as-is
+    """
+    from hiveai.config import (
+        RERANKER_SHADOW_CANDIDATE_THRESHOLD,
+        RERANKER_SHADOW_SUPPRESS_THRESHOLD,
+        RERANKER_SHADOW_BOOST_THRESHOLD,
+    )
 
     if not sections:
         return {"reranker_shadow_applied": False, "reranker_shadow_reason": "no_sections"}
@@ -692,17 +701,30 @@ def compute_shadow_reranker_scores(query: str, sections: list[dict]) -> dict:
         key=lambda x: -x["score"],
     )
     sorted_scores = [x["score"] for x in scored]
+    best = sorted_scores[0]
+
+    # Two-tier classification
+    if best < RERANKER_SHADOW_SUPPRESS_THRESHOLD:
+        reranker_verdict = "suppress"
+    elif best >= RERANKER_SHADOW_BOOST_THRESHOLD:
+        reranker_verdict = "boost"
+    else:
+        reranker_verdict = "neutral"
 
     return {
         "reranker_shadow_applied": True,
-        "reranker_best_score": sorted_scores[0],
+        "reranker_best_score": best,
         "reranker_score_count": len(sorted_scores),
         "reranker_top_scores": sorted_scores[:3],
         "reranker_per_section": scored[:10],
-        "reranker_candidate_threshold": threshold,
-        "would_suppress_reranker": sorted_scores[0] < threshold,
+        "reranker_candidate_threshold": RERANKER_SHADOW_CANDIDATE_THRESHOLD,
+        "reranker_suppress_threshold": RERANKER_SHADOW_SUPPRESS_THRESHOLD,
+        "reranker_boost_threshold": RERANKER_SHADOW_BOOST_THRESHOLD,
+        "reranker_verdict": reranker_verdict,
+        "would_suppress_reranker": best < RERANKER_SHADOW_SUPPRESS_THRESHOLD,
+        "would_boost_reranker": best >= RERANKER_SHADOW_BOOST_THRESHOLD,
         "would_filter_sections_reranker": [
-            x["section_id"] for x in scored if x["score"] < threshold
+            x["section_id"] for x in scored if x["score"] < RERANKER_SHADOW_SUPPRESS_THRESHOLD
         ],
     }
 

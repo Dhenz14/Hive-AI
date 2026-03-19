@@ -1011,8 +1011,9 @@ def chat_api():
                 message, db, history=history, retrieval_mode=classify.retrieval_mode,
                 trace=_retrieval_trace)
 
-            # Shadow reranker: score all retrieved sections (log only, no enforcement)
+            # Cross-encoder reranker: score sections, optionally filter/boost
             from hiveai.config import RERANKER_SHADOW_ENABLED
+            _shadow_result = {}
             if RERANKER_SHADOW_ENABLED and top_sections:
                 try:
                     from hiveai.llm.client import compute_shadow_reranker_scores
@@ -1022,6 +1023,23 @@ def chat_api():
                     _shadow_t1 = _shadow_time.perf_counter()
                     _shadow_result["reranker_shadow_latency_ms"] = round((_shadow_t1 - _shadow_t0) * 1000, 1)
                     _retrieval_trace.update(_shadow_result)
+
+                    # Active suppress: remove sections below suppress threshold
+                    from hiveai.config import RERANKER_ACTIVE_SUPPRESS, RERANKER_ACTIVE_BOOST
+                    if RERANKER_ACTIVE_SUPPRESS and _shadow_result.get("reranker_verdict") == "suppress":
+                        _pre_count = len(top_sections)
+                        suppress_ids = set(_shadow_result.get("would_filter_sections_reranker", []))
+                        top_sections = [s for s in top_sections if s.get("id") not in suppress_ids]
+                        _retrieval_trace["reranker_active_suppressed"] = _pre_count - len(top_sections)
+                        logging.getLogger(__name__).info(
+                            f"Reranker active suppress: removed {_pre_count - len(top_sections)}/{_pre_count} sections")
+
+                    # Active boost: reorder sections by cross-encoder score (highest first)
+                    if RERANKER_ACTIVE_BOOST and _shadow_result.get("reranker_verdict") == "boost":
+                        _score_map = {x["section_id"]: x["score"] for x in _shadow_result.get("reranker_per_section", [])}
+                        top_sections.sort(key=lambda s: _score_map.get(s.get("id"), 0), reverse=True)
+                        _retrieval_trace["reranker_active_boosted"] = True
+
                 except Exception as _shadow_err:
                     logging.getLogger(__name__).debug(f"Shadow reranker skipped: {_shadow_err}")
                     _retrieval_trace["reranker_shadow_applied"] = False
@@ -1610,8 +1628,9 @@ def chat_stream():
                         trace=_retrieval_trace)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
-                    # Shadow reranker: score all retrieved sections (log only)
+                    # Cross-encoder reranker: score sections, optionally filter/boost
                     from hiveai.config import RERANKER_SHADOW_ENABLED
+                    _shadow_result = {}
                     if RERANKER_SHADOW_ENABLED and top_sections:
                         try:
                             from hiveai.llm.client import compute_shadow_reranker_scores
@@ -1621,6 +1640,23 @@ def chat_stream():
                             _shadow_t1 = _shadow_time.perf_counter()
                             _shadow_result["reranker_shadow_latency_ms"] = round((_shadow_t1 - _shadow_t0) * 1000, 1)
                             _retrieval_trace.update(_shadow_result)
+
+                            # Active suppress: remove sections below suppress threshold
+                            from hiveai.config import RERANKER_ACTIVE_SUPPRESS, RERANKER_ACTIVE_BOOST
+                            if RERANKER_ACTIVE_SUPPRESS and _shadow_result.get("reranker_verdict") == "suppress":
+                                _pre_count = len(top_sections)
+                                suppress_ids = set(_shadow_result.get("would_filter_sections_reranker", []))
+                                top_sections = [s for s in top_sections if s.get("id") not in suppress_ids]
+                                _retrieval_trace["reranker_active_suppressed"] = _pre_count - len(top_sections)
+                                logging.getLogger(__name__).info(
+                                    f"Reranker active suppress (stream): removed {_pre_count - len(top_sections)}/{_pre_count} sections")
+
+                            # Active boost: reorder sections by cross-encoder score (highest first)
+                            if RERANKER_ACTIVE_BOOST and _shadow_result.get("reranker_verdict") == "boost":
+                                _score_map = {x["section_id"]: x["score"] for x in _shadow_result.get("reranker_per_section", [])}
+                                top_sections.sort(key=lambda s: _score_map.get(s.get("id"), 0), reverse=True)
+                                _retrieval_trace["reranker_active_boosted"] = True
+
                         except Exception as _shadow_err:
                             logging.getLogger(__name__).debug(f"Shadow reranker skipped: {_shadow_err}")
                             _retrieval_trace["reranker_shadow_applied"] = False
