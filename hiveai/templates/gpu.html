@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}GPU Power — Spirit Bomb{% endblock %}
+{% block content %}
+<style>
+    .gpu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin: 1.5rem 0; }
+    .gpu-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+    .gpu-card h3 { color: var(--amber); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+    .gpu-card .value { font-size: 2rem; font-weight: 700; color: var(--text-primary); }
+    .gpu-card .sub { color: var(--text-muted); font-size: 0.8rem; margin-top: 0.25rem; }
+
+    .tier-bar { height: 12px; background: var(--bg-elevated); border-radius: 6px; overflow: hidden; margin: 0.5rem 0; }
+    .tier-fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--cyan)); border-radius: 6px; transition: width 0.5s; }
+    .tier-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); }
+
+    .mode-card { background: var(--bg-card); border: 2px solid var(--border); border-radius: 12px; padding: 1.5rem; cursor: pointer; transition: all 0.2s; }
+    .mode-card:hover { border-color: var(--amber-dim); }
+    .mode-card.active { border-color: var(--amber); background: rgba(245, 158, 11, 0.05); }
+    .mode-card h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
+    .mode-card p { color: var(--text-secondary); font-size: 0.85rem; }
+    .mode-card .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+    .badge-free { background: var(--success); color: #000; }
+    .badge-hbd { background: var(--amber); color: #000; }
+    .badge-offline { background: var(--text-muted); color: #fff; }
+
+    .rent-btn { background: linear-gradient(135deg, var(--amber), var(--amber-dim)); color: #000; border: none; padding: 12px 32px; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: transform 0.1s; }
+    .rent-btn:hover { transform: scale(1.02); }
+    .rent-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .contribute-section { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-top: 2rem; }
+    .cmd-box { background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--cyan); display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
+    .cmd-box button { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; }
+
+    .cluster-list { margin-top: 1rem; }
+    .cluster-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.5rem; }
+    .cluster-item .name { font-weight: 600; }
+    .cluster-item .meta { color: var(--text-muted); font-size: 0.8rem; }
+
+    .earnings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+    .earn-card { text-align: center; padding: 1rem; background: var(--bg-card); border-radius: 8px; }
+    .earn-card .amount { font-size: 1.5rem; font-weight: 700; color: var(--amber); }
+    .earn-card .gpu-name { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem; }
+    .earn-card .period { font-size: 0.7rem; color: var(--text-muted); }
+</style>
+
+<h1 style="font-family: 'Space Grotesk'; font-size: 1.8rem; margin-bottom: 0.5rem;">
+    ⚡ GPU Power <span style="color: var(--text-muted); font-size: 1rem;">Spirit Bomb Community Cloud</span>
+</h1>
+<p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+    Pool community GPUs for more powerful AI. The more people share, the smarter the AI gets.
+</p>
+
+<!-- Stats -->
+<div class="gpu-grid" id="stats-grid">
+    <div class="gpu-card">
+        <h3>Community GPUs</h3>
+        <div class="value" id="total-gpus">-</div>
+        <div class="sub">sharing right now</div>
+    </div>
+    <div class="gpu-card">
+        <h3>Contributors</h3>
+        <div class="value" id="contributors">-</div>
+        <div class="sub">people sharing GPUs</div>
+    </div>
+    <div class="gpu-card">
+        <h3>AI Words Generated</h3>
+        <div class="value" id="tokens">-</div>
+        <div class="sub">by the community</div>
+    </div>
+    <div class="gpu-card">
+        <h3>Rewards Paid</h3>
+        <div class="value" id="rewards">-</div>
+        <div class="sub">HBD to contributors</div>
+    </div>
+</div>
+
+<!-- Tier Progress -->
+<div class="gpu-card" style="margin: 1.5rem 0;">
+    <h3>Community Level</h3>
+    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
+        <span class="value" style="font-size: 1.5rem;" id="tier-name">Tier 1</span>
+        <span id="tier-desc" style="color: var(--text-secondary);"></span>
+    </div>
+    <div class="tier-bar"><div class="tier-fill" id="tier-fill" style="width: 0%;"></div></div>
+    <div class="tier-labels">
+        <span>Tier 1 (0 GPUs)</span>
+        <span>Tier 2 (15 GPUs)</span>
+        <span>Tier 3 (40 GPUs)</span>
+    </div>
+</div>
+
+<!-- Inference Modes -->
+<h2 style="font-family: 'Space Grotesk'; margin-top: 2rem;">Choose Your AI Power Level</h2>
+<div class="gpu-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+    <div class="mode-card active" id="mode-local" onclick="selectMode('local')">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>🖥️ Local AI</h3>
+            <span class="badge badge-free">FREE</span>
+        </div>
+        <p>Runs on your computer. Private, offline-capable. Uses Hive-AI's smart routing with RAG and LoRA adapters.</p>
+        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+            <span id="local-status">Checking...</span>
+        </div>
+    </div>
+
+    <div class="mode-card" id="mode-cluster" onclick="selectMode('cluster')">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>🌐 Community Pool</h3>
+            <span class="badge badge-hbd">HBD TIP</span>
+        </div>
+        <p>Use the community GPU cluster for bigger models and faster responses. Optional HBD tip to contributors.</p>
+        <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+            <span id="cluster-status">Checking...</span>
+        </div>
+    </div>
+</div>
+
+<div style="margin-top: 1rem; text-align: center;">
+    <button class="rent-btn" id="use-btn" onclick="useSelectedMode()">
+        Use Local AI (Free)
+    </button>
+</div>
+
+<!-- Active Clusters -->
+<div id="clusters-section" style="display: none; margin-top: 2rem;">
+    <h2 style="font-family: 'Space Grotesk';">Active GPU Clusters</h2>
+    <div class="cluster-list" id="cluster-list"></div>
+</div>
+
+<!-- Contribute Section -->
+<div class="contribute-section">
+    <h2 style="font-family: 'Space Grotesk'; margin-bottom: 0.5rem;">💰 Share Your GPU & Earn</h2>
+    <p style="color: var(--text-secondary);">
+        Got a gaming PC? Your graphics card can earn you money while it's idle.
+        Run one command and start earning HBD (each worth ~$1 USD).
+    </p>
+
+    <div class="cmd-box">
+        <code>python scripts/start_spiritbomb.py</code>
+        <button onclick="navigator.clipboard.writeText('python scripts/start_spiritbomb.py'); this.textContent='Copied!'">Copy</button>
+    </div>
+
+    <div class="earnings-grid">
+        <div class="earn-card">
+            <div class="amount">~$0.50</div>
+            <div class="gpu-name">8 GB GPU (GTX 1070)</div>
+            <div class="period">per day (8 hrs)</div>
+        </div>
+        <div class="earn-card">
+            <div class="amount">~$1.20</div>
+            <div class="gpu-name">16 GB GPU (RTX 4070)</div>
+            <div class="period">per day (8 hrs)</div>
+        </div>
+        <div class="earn-card">
+            <div class="amount">~$2.00</div>
+            <div class="gpu-name">24 GB GPU (RTX 4090)</div>
+            <div class="period">per day (8 hrs)</div>
+        </div>
+    </div>
+
+    <p style="font-size: 0.8rem; color: var(--text-muted);">
+        Requirements: NVIDIA GPU (8+ GB VRAM), Python 3.10+,
+        <a href="https://signup.hive.io" target="_blank" style="color: var(--amber);">Hive account</a> for rewards.
+        Earnings increase at higher tiers (Tier 2: 1.5x, Tier 3: 2x).
+    </p>
+</div>
+
+<script>
+let selectedMode = 'local';
+
+function selectMode(mode) {
+    selectedMode = mode;
+    document.getElementById('mode-local').classList.toggle('active', mode === 'local');
+    document.getElementById('mode-cluster').classList.toggle('active', mode === 'cluster');
+    document.getElementById('use-btn').textContent = mode === 'local' ? 'Use Local AI (Free)' : 'Use Community Pool (HBD Tip)';
+}
+
+function useSelectedMode() {
+    // Navigate to chat with mode parameter
+    window.location.href = '/chat?gpu_mode=' + selectedMode;
+}
+
+async function loadGpuData() {
+    try {
+        // Pool status
+        const poolRes = await fetch('/api/gpu/pool');
+        const pool = await poolRes.json();
+
+        const tier = pool.tier?.tier || 1;
+        const gpus = pool.tier?.totalGpus || 0;
+        const contribs = pool.inference?.contributions || {};
+
+        document.getElementById('total-gpus').textContent = gpus;
+        document.getElementById('contributors').textContent = contribs.activeContributors || 0;
+        document.getElementById('tokens').textContent = ((contribs.totalTokens || 0) / 1000).toFixed(0) + 'K';
+        document.getElementById('rewards').textContent = '$' + (contribs.totalHbdEarned || 0).toFixed(2);
+
+        // Tier
+        const tierNames = {1: 'Base', 2: 'Enhanced', 3: 'Full Power'};
+        const tierDescs = {1: 'Local AI only', 2: 'Community cluster available', 3: 'Full community brain active'};
+        document.getElementById('tier-name').textContent = 'Tier ' + tier + ': ' + (tierNames[tier] || 'Base');
+        document.getElementById('tier-desc').textContent = tierDescs[tier] || '';
+        document.getElementById('tier-fill').style.width = Math.min(100, (gpus / 40) * 100) + '%';
+
+        // Clusters
+        const clusters = pool.clusters?.clusters || [];
+        if (clusters.length > 0) {
+            document.getElementById('clusters-section').style.display = 'block';
+            document.getElementById('cluster-list').innerHTML = clusters.map(c =>
+                `<div class="cluster-item">
+                    <div><span class="name">${c.name || 'GPU Group'}</span>
+                    <span class="meta"> — ${c.region || 'unknown'}</span></div>
+                    <div>${c.totalGpus} GPUs, ${c.totalVramGb} GB</div>
+                </div>`
+            ).join('');
+        }
+
+        // Modes
+        const modesRes = await fetch('/api/gpu/modes');
+        const modes = await modesRes.json();
+
+        document.getElementById('local-status').textContent = modes.local?.available
+            ? '✅ ' + (modes.local.backend || 'Ready')
+            : '❌ Not available — install Ollama';
+        document.getElementById('local-status').style.color = modes.local?.available ? 'var(--success)' : 'var(--error)';
+
+        document.getElementById('cluster-status').textContent = modes.cluster?.available
+            ? '✅ ' + modes.cluster.gpus + ' GPUs ready'
+            : '⏳ No cluster yet — need 2+ GPUs';
+        document.getElementById('cluster-status').style.color = modes.cluster?.available ? 'var(--success)' : 'var(--text-muted)';
+
+        if (!modes.cluster?.available) {
+            document.getElementById('mode-cluster').style.opacity = '0.5';
+        }
+    } catch (e) {
+        console.error('GPU data load failed:', e);
+        document.getElementById('total-gpus').textContent = '?';
+    }
+}
+
+loadGpuData();
+setInterval(loadGpuData, 15000);
+</script>
+{% endblock %}

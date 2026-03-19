@@ -689,6 +689,12 @@ def rewrite_book_api(book_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/gpu")
+def gpu_power_page():
+    """GPU Power — rent/pool community GPUs for more powerful AI."""
+    return render_template("gpu.html")
+
+
 @app.route("/graph")
 def graph_explorer():
     db = SessionLocal()
