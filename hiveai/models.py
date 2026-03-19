@@ -583,6 +583,8 @@ def _migrate_add_columns(engine):
         # v1.1 execution metadata — separate contract format from execution language
         ("training_pairs", "contract_format", "VARCHAR(20)"),
         ("training_pairs", "execution_languages", "VARCHAR(100)"),
+        # retrieval trace persistence (added with trace schema v3)
+        ("telemetry_events", "retrieval_trace_json", "TEXT"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:
