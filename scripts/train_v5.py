@@ -66,7 +66,7 @@ LORA_CONFIG = {
     ],
     "lora_dropout": 0.1,             # Regularization — prevents adapter memorization (was 0.0)
     "bias": "none",
-    "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
+    "use_dora": True,                 # DoRA: weight-decomposed LoRA (+1-4% over standard LoRA, PEFT 0.18+)
     "use_rslora": True,               # Rank-stabilized LoRA — better scaling at any rank
 }
 
