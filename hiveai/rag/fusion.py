@@ -50,7 +50,7 @@ def rrf_merge(result_lists: list[list[dict]], k: int = _RRF_K,
 
     merged = []
     for sid in ranked[:limit]:
-        section = sections[sid]
+        section = dict(sections[sid])  # shallow copy — don't mutate originals (may be cached)
         section["rrf_score"] = round(scores[sid], 4)
         merged.append(section)
 

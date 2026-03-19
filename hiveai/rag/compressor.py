@@ -72,17 +72,18 @@ def compress_section(query: str, content: str) -> str:
 
 def compress_sections(query: str, sections: list[dict], max_compress: int = 3) -> list[dict]:
     """
-    Compress up to max_compress long sections in-place.
-    Returns the same list with compressed content where applicable.
+    Compress up to max_compress long sections.
+    Returns a NEW list with shallow-copied dicts — originals (and RAG cache) are never mutated.
     """
+    result = []
     compressed_count = 0
     for section in sections:
-        if compressed_count >= max_compress:
-            break
         content = section.get("content", "")
-        if len(content.split()) >= _MIN_WORDS_TO_COMPRESS:
+        if compressed_count < max_compress and len(content.split()) >= _MIN_WORDS_TO_COMPRESS:
+            section = dict(section)  # shallow copy before mutation
             section["content"] = compress_section(query, content)
             compressed_count += 1
+        result.append(section)
     if compressed_count:
         logger.info(f"Compressed {compressed_count}/{len(sections)} sections for query: {query[:50]}")
-    return sections
+    return result

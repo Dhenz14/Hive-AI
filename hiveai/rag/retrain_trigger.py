@@ -60,6 +60,18 @@ def trigger_retrain(domain: str, data_path: str, version: str = None,
     if not auto_start:
         return result
 
+    # Layer 3 policy guard: v5-think is FROZEN. Auto-training requires ALL 4 conditions:
+    # 1. Repeated miss in real use (not one-off)
+    # 2. Retrieval is too slow or insufficient (RAG can't cover it)
+    # 3. Executable eval exists (compile/test/type-check, not keyword scoring)
+    # 4. Big expected gain (>3% domain improvement)
+    # auto_start=True from API should NEVER bypass this — log and refuse.
+    logger.warning(f"Auto-retrain requested for {domain} but v5-think is FROZEN. "
+                   f"Layer 3 requires human approval. Returning prepared-only.")
+    result["status"] = "blocked"
+    result["blocked_reason"] = "layer3_policy: v5-think frozen, auto_start requires human approval"
+    return result
+
     # Launch training via WSL tmux (same pattern as /api/lora/micro-train)
     try:
         cycle_cmd = (
@@ -86,18 +98,19 @@ def trigger_retrain(domain: str, data_path: str, version: str = None,
 
 
 def _windows_to_wsl_path(win_path: str) -> str | None:
-    """Convert a Windows path to a WSL path."""
+    """Convert a Windows path to the canonical WSL training path.
+
+    Training data must live at /opt/hiveai/project/datasets/ (WSL canonical).
+    Windows git repo datasets/ maps to this path via the sync step in run_full_cycle.sh.
+    We return the WSL canonical path directly — training scripts never read from /mnt/c/.
+    """
     try:
-        # Normalize separators
         path = win_path.replace("\\", "/")
-        # C:/Users/... → /mnt/c/Users/...
-        if len(path) >= 2 and path[1] == ":":
-            drive = path[0].lower()
-            return f"/mnt/{drive}{path[2:]}"
-        # Already a Unix path
-        if path.startswith("/"):
-            return path
-        return None
+        # Extract just the filename from the full path
+        filename = os.path.basename(path)
+        if not filename:
+            return None
+        return f"/opt/hiveai/project/datasets/{filename}"
     except Exception:
         return None
 

@@ -84,13 +84,18 @@ def record_query(domain: str = "general", crag_verdict: str = "correct",
 
         _counters_dirty = True
 
-    # Auto-flush every 50 queries
-    if c["total_queries"] % 50 == 0:
+        # Auto-flush every 50 queries (inside lock to avoid race)
+        _should_flush = c["total_queries"] % 50 == 0
+
+    if _should_flush:
         flush_metrics()
 
 
+_last_flushed: dict[str, dict] = {}  # snapshot of counters at last flush
+
+
 def flush_metrics():
-    """Write in-memory counters to disk."""
+    """Write in-memory counters to disk, adding deltas since last flush."""
     global _counters_dirty
     with _metrics_lock:
         if not _counters_dirty:
@@ -98,12 +103,17 @@ def flush_metrics():
         try:
             existing = _load_metrics_file()
             for key, counters in _daily_counters.items():
-                if key in existing:
-                    # Merge: take max of each counter (idempotent)
-                    for field, val in counters.items():
-                        existing[key][field] = max(existing[key].get(field, 0), val)
-                else:
+                if key not in existing:
                     existing[key] = dict(counters)
+                else:
+                    # Add only the delta since last flush (not max — avoids post-restart data loss)
+                    last = _last_flushed.get(key, {})
+                    for field, val in counters.items():
+                        delta = val - last.get(field, 0)
+                        if delta > 0:
+                            existing[key][field] = existing[key].get(field, 0) + delta
+                # Snapshot current state for next delta computation
+                _last_flushed[key] = dict(counters)
 
             with open(_METRICS_FILE, "w") as f:
                 json.dump(existing, f, indent=2)
