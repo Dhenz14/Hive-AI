@@ -34,6 +34,11 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None  # type: ignore
+
 # Eligibility thresholds
 TP_BANDWIDTH_THRESHOLD_GBPS = 10.0  # 10 GB/s for tensor parallel
 PP_BANDWIDTH_THRESHOLD_GBPS = 1.0   # 1 GB/s for pipeline parallel

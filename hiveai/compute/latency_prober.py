@@ -166,11 +166,13 @@ class LatencyProber:
                 pass
 
         if rtts:
-            result.rtt_min_ms = min(rtts)
-            result.rtt_median_ms = statistics.median(rtts)
-            result.rtt_max_ms = max(rtts)
-            result.rtt_p95_ms = rtts[int(len(rtts) * 0.95)] if len(rtts) > 1 else rtts[0]
-            result.rtt_stddev_ms = statistics.stdev(rtts) if len(rtts) > 1 else 0.0
+            sorted_rtts = sorted(rtts)
+            result.rtt_min_ms = sorted_rtts[0]
+            result.rtt_median_ms = statistics.median(sorted_rtts)
+            result.rtt_max_ms = sorted_rtts[-1]
+            p95_idx = min(len(sorted_rtts) - 1, int(len(sorted_rtts) * 0.95 + 0.5))  # ceil
+            result.rtt_p95_ms = sorted_rtts[p95_idx]
+            result.rtt_stddev_ms = statistics.stdev(sorted_rtts) if len(sorted_rtts) > 1 else 0.0
         else:
             result.error = "All probes failed"
 

@@ -89,10 +89,10 @@ class GpuClusterState:
 
     @property
     def can_tensor_parallel(self) -> bool:
-        """TP requires all pairs <10ms RTT."""
+        """TP requires all pairs <10ms one-way (<20ms RTT)."""
         if self.total_gpus < 2:
             return False
-        return self.max_latency_ms < TP_LATENCY_THRESHOLD_MS * 2  # RTT
+        return self.max_latency_ms < TP_LATENCY_THRESHOLD_MS * 2  # threshold is one-way, max_latency is RTT
 
     @property
     def can_pipeline_parallel(self) -> bool:

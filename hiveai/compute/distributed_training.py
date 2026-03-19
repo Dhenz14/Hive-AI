@@ -33,8 +33,6 @@ Architecture:
   Local LoRA    → MergeKit → Merged Model → IPFS → Community
 """
 
-import hashlib
-import json
 import logging
 import time
 from dataclasses import dataclass, field
