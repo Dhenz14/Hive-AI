@@ -1438,6 +1438,22 @@ Answer the question directly and helpfully."""
                 retrieval_confidence_score=_retrieval_confidence.get("score"),
             )
 
+        # --- Phase 4: Record RAG metrics for smart retrain targets ---
+        try:
+            from hiveai.rag.metrics import record_query as _record_rag_query
+            _detected_lang = detect_language(message) or "general"
+            _record_rag_query(
+                domain=_detected_lang,
+                crag_verdict=_crag_verdict,
+                confidence_band=_retrieval_confidence.get("band", "none"),
+                verification_passed=verified_meta.get("passed", 0) > 0 if verified_meta else None,
+                solved_example_retrieved=len(_solved_sections_retrieved) > 0,
+                auto_staged=bool(auto_staged),
+                auto_promoted=bool(auto_staged and auto_staged.get("promoted")),
+            )
+        except Exception:
+            pass  # metrics recording never blocks chat
+
         result["trace"]["request_id"] = _telem_request_id
         result["trace"]["answer_id"] = _telem_answer_id
         result["trace"]["experiment_group"] = _telem_group
@@ -1975,6 +1991,22 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             retrieval_confidence_band=_retrieval_confidence_s.get("band"),
                             retrieval_confidence_score=_retrieval_confidence_s.get("score"),
                         )
+
+                    # --- Phase 4: Record RAG metrics for smart retrain targets ---
+                    try:
+                        from hiveai.rag.metrics import record_query as _record_rag_query
+                        _detected_lang_s = detect_language(message) or "general"
+                        _record_rag_query(
+                            domain=_detected_lang_s,
+                            crag_verdict=_crag_verdict_s,
+                            confidence_band=_retrieval_confidence_s.get("band", "none"),
+                            verification_passed=verification.get("passed", 0) > 0 if verification else None,
+                            solved_example_retrieved=len(_solved_sections_retrieved) > 0,
+                            auto_staged=bool(staged),
+                            auto_promoted=bool(staged and staged.get("promoted")),
+                        )
+                    except Exception:
+                        pass
 
                     done_data = {
                         "full_response": full,
@@ -3588,6 +3620,60 @@ def eval_ledger():
 
 
 logging.getLogger(__name__).info("Training pipeline routes registered: /api/lora/micro-train, /api/lora/training-status, /api/eval/ledger")
+
+
+# ---------------------------------------------------------------------------
+# RAG Smart Retrain API (Phase 4)
+# ---------------------------------------------------------------------------
+
+@app.route("/api/rag/metrics")
+def rag_metrics_api():
+    """Return per-domain RAG quality metrics (rolling 7-day window)."""
+    try:
+        from hiveai.rag.metrics import get_all_domain_metrics
+        days = request.args.get("days", 7, type=int)
+        metrics = get_all_domain_metrics(days=min(days, 30))
+        return jsonify({"metrics": metrics, "window_days": days})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rag/smart-targets")
+def rag_smart_targets_api():
+    """Evaluate smart retrain targets for all domains."""
+    db = SessionLocal()
+    try:
+        from hiveai.rag.smart_targets import evaluate_smart_targets
+        targets = evaluate_smart_targets(db)
+        return jsonify({"targets": targets})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+@app.route("/api/rag/check-retrain", methods=["POST"])
+def rag_check_retrain_api():
+    """
+    Evaluate smart targets, export data for triggered domains,
+    and optionally launch retraining.
+
+    Body: {"auto_start": false}  — set true to auto-launch WSL training
+    """
+    db = SessionLocal()
+    try:
+        from hiveai.rag.retrain_trigger import check_and_trigger
+        data = request.get_json() or {}
+        auto_start = data.get("auto_start", False)
+        result = check_and_trigger(db, auto_start=auto_start)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
+logging.getLogger(__name__).info("RAG smart retrain routes registered: /api/rag/metrics, /api/rag/smart-targets, /api/rag/check-retrain")
 
 
 # ---------------------------------------------------------------------------
