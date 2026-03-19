@@ -29,7 +29,9 @@ These are not gems — they're the ground the gems stand on. Do not modify witho
 
 **State discipline**: WSL `/opt/hiveai/project/` is canonical for ALL persistent state files (score_ledger.json, weakness_trend.jsonl, future confidence_ledger.json). Windows is for code edits only.
 
-**External validation (2026-03-18)**: 0xSero autoresearch post independently confirms our governance design. Their Experiment 2 drifted overnight due to loose objective + infrequent checkpoints + context pollution — exactly the failure mode `campaign_governance.py` prevents (dirty-tree gate, cold-start admission, one-artifact-per-run, hash pinning). No action required. Design confirmed.
+**External validation (2026-03-18)**: 0xSero autoresearch post independently confirms our system integrity design. Their Experiment 2 drifted overnight due to loose objective + infrequent checkpoints + context pollution — exactly the failure mode `campaign_governance.py` prevents (dirty-tree gate, cold-start admission, one-artifact-per-run, hash pinning). No action required. Design confirmed.
+
+**Trust model**: Anti-cheating measures (Web of Trust, DBC voting, miner reputation) target untrusted marketplace participants — these are HivePoA's domain. System integrity controls (fail-closed gates, hash pinning, dirty-tree checks) protect experiment reproducibility — these are Hive-AI's domain. Trusted validators are trusted by design via Web of Trust; do not build controls to police them.
 
 ---
 
@@ -64,13 +66,14 @@ Build these in order. Each beam enables the ones below it.
 
 These are small, self-contained, and don't block each other:
 
-| Item | Scope | Why |
-|------|-------|-----|
-| Store `execution_language` separately from `contract_format` | ~20 lines in models.py | Conflated metadata causes routing ambiguity |
-| Go verifier (`go test` via WSL subprocess) | ~50 lines in sandbox.py | Cross-language coverage gap |
-| Rust verifier (`cargo test` via WSL subprocess) | ~50 lines in sandbox.py | Cross-language coverage gap |
-| Document CATEGORY_LANGUAGE mapping in CLAUDE.md | ~10 lines | Policy needs central governance |
-| **Query Normalizer** (Layer 1 retrieval gem) | ~100 lines + config flag | *Hypothesis*: tighter BGE-M3 clusters → better Gate 11 reuse recall. Enable only after shadow validation. |
+| Item | Scope | Status | Why |
+|------|-------|--------|-----|
+| ~~execution_language split~~ | ~20 lines | **DONE** (2026-03-18) | DB schema was already clean; removed redundant field from sandbox.py, cleaned fallback chain in app.py |
+| ~~Go verifier~~ | sandbox.py | **DONE** (pre-existing) | `execute_go()` already exists at sandbox.py:766-881 |
+| ~~Rust verifier~~ | sandbox.py | **DONE** (pre-existing) | `execute_rust()` already exists at sandbox.py:655-764 |
+| ~~Go/Rust canonical harnesses~~ | ~180 lines | **DONE** (2026-03-18) | 3 Go + 3 Rust harnesses + multi-language dispatch in canonical_harness.py |
+| ~~CATEGORY_LANGUAGE in CLAUDE.md~~ | ~10 lines | **DONE** (already present) | Policy needs central management |
+| **Query Normalizer** | ~100 lines + flag | Pending | Tighter BGE-M3 clusters for Gate 11. Enable only after shadow validation. |
 
 #### Query Normalizer — Detail
 
@@ -176,12 +179,20 @@ filtering, or acceptance policy instead.
 ### Beam 5: Domain LoRA CLI Flags (MoLoRA Production)
 **Depends on**: v5-think frozen (DONE), domain-isolated architecture design (DONE)
 **Enables**: Production MoLoRA routing with trained per-domain adapters
-**Scope** (5 concrete items from domain_isolated_lora_architecture.md):
-1. Add `--target-layers` and `--target-modules` CLI flags to train_v5.py
-2. Add `layers_to_transform` passthrough to all 3 LoRA application paths
-3. Post-apply assertion (use_rslora, layers_to_transform verification)
-4. Create `loras/domains/` folder structure
-5. Add `--adapter-template` flag (hive/cpp/generic) as shortcut
+**Status**: **IMPLEMENTATION COMPLETE** (commit c0ea6d5). Runtime validations 2/3 closed.
+**Scope** (5 concrete items — all implemented):
+
+1. ~~Add `--target-layers` and `--target-modules` CLI flags to train_v5.py~~ DONE
+2. ~~Add `layers_to_transform` passthrough to all 3 LoRA application paths~~ DONE (incl. PEFT use_rslora fix)
+3. ~~Post-apply assertion (use_rslora, layers_to_transform, target_modules)~~ DONE
+4. ~~Create `loras/domains/` folder structure + domains.json manifest~~ DONE
+5. ~~Add `--adapter-template` flag (hive/cpp/generic) as shortcut~~ DONE
+
+**Runtime validations**:
+
+- ~~Bad input parse (`--target-layers "24-25-26"` → ValueError)~~ PASS (2026-03-18)
+- use_rslora PEFT path — closed by code inspection (line 771), full GPU test deferred
+- Manifest read path — blocked on Bridge A (domains.json exists but no consumer yet)
 
 ---
 
@@ -210,7 +221,7 @@ These only become actionable after the beams are in place.
 **Why it needs gems**: Without critique memory + confidence, synthetic data compounds errors.
 
 ### Bridge C: Layer 3 Periodic Promotion
-**Depends on**: Beam 3 (Go/Rust verifiers), Layer 1 Gate 5 (auto-staging), skill candidate clustering
+**Depends on**: ~~Beam 3 (Go/Rust verifiers)~~ DONE, Layer 1 Gate 5 (auto-staging), skill candidate clustering
 **Scope**: Event-driven training only when ALL 4 conditions met:
 1. Repeated miss in real use
 2. Retrieval too slow (Layer 1 insufficient)
@@ -257,6 +268,7 @@ These are NOT coming back unless explicitly triggered. Do not work on them.
 | REAP Expert Pruning (static compression) | **Hive-AI** (VRAM) / **HivePoA** (miner serving) | Hive-AI: when base model exceeds 14B parameter budget on RTX 4070 Ti SUPER 16GB. HivePoA: when miners need to serve 70B+ models on consumer GPU rigs. | reap-expert-swap (open source). 7.8× BF16 compression (717GB→92GB) via expert pruning + INT4. Key finding: 7.6% of experts per layer carry 50% of routing traffic — independently confirms our layer-selective LoRA targeting (layers 24-39, 16-31) is sound. **Pair with MoE Staging Buffer below** — REAP decides what to keep; staging buffer decides what to load. Together they form the full MoE efficiency stack. |
 | MoE Expert Staging Buffer Inference (dynamic serving) | **HivePoA** (miner economics) / **Hive-AI** (future base model) | HivePoA: when miners want to serve 70B+ MoE models on consumer GPUs without server VRAM. Hive-AI: if base model is ever upgraded to a MoE architecture (Qwen3-MoE, Mixtral, Step-3.5, etc.). | Step-3.5-Flash (197B, 394GB BF16 → 6.29GB active VRAM, ~62× peak reduction). Architecture: non-expert skeleton (~6.1GB) lives permanently on GPU. 8-slot staging buffer (66.8MB) overwritten per layer by router-selected experts via DMA. Expert tensors: 0 on GPU at rest. Memory invariant: GPU after token 1 = GPU after token 100 = 6,286MB, delta 0.0MB. 12,096 unique experts managed entirely off-GPU. Architecture is model-agnostic — any MoE, any size. **Key test pattern**: assert flat VRAM profile at token 1, 10+, 100 + assert expert tensors on GPU = 0. This is the companion to REAP: REAP prunes which experts exist; staging buffer governs which are hot at any moment. Current ceiling on single consumer GPU: ~15 tok/s (short). Performance at scale on 8×RTX 3090: Kimi-k2.5 running (0xSero). |
 | MCP Server Interface for RAG | **Hive-AI** (Claude Desktop / cross-client) / **HivePoA** (knowledge query interface) | When HivePoA miners or Claude Desktop need to query Hive-AI's knowledge base without HTTP/Flask dependency. OR when we want native tool-call access to RAG from Claude Code itself. | TurboVault (github.com/Epistates/turbovault) implements MCP server wrapping a knowledge graph + Tantivy search as 44 typed tools with `StandardResponse<T>` envelope (duration_ms, warnings, next_steps fields). Key insight: MCP is Anthropic's native tool protocol — an MCP wrapper around our BookSection/RAG system would let Claude Code call retrieval as a first-class tool rather than via HTTP. Current blocker: Flask API already works and we have no cross-client requirements yet. Activate when: (a) HivePoA needs to query Hive-AI knowledge programmatically, or (b) Claude Desktop integration becomes a product requirement. Note the `StandardResponse` pattern is worth adopting now — adding `duration_ms` and estimated token counts to our existing API responses costs nothing and improves orchestration decisions. |
+| Progressive Disclosure RAG | **Hive-AI** | When BookSection count exceeds ~1000 AND base model upgrades to stronger instruction-following (Qwen3+). | Inject lightweight index (title + summary + score) instead of full sections; model requests content on demand. Saves tokens, improves precision. **Not justified at current scale** (434 sections, budget_context already filters to 2-3 sections avg). Latency cost: 30-50% (2-3 LLM calls vs 1). 14B model too weak for reliable structured request parsing. Simpler wins first: cross-encoder reranking (already live at chat.py:545), adaptive suppression thresholds, top-3 section cap. Revisit when KB scales 3x+ or base model improves. Audited 2026-03-18. |
 | Tantivy Full-Text Search | **Hive-AI** | If SQLite FTS5 becomes a throughput or ranking-quality bottleneck as BookSection count scales past ~50k. | TurboVault uses Tantivy (Rust, Lucene-inspired, BM25+TF-IDF) achieving sub-100ms full-text search on 10k+ docs with ~80MB in-memory index. Our current SQLite FTS5 is working well at current scale (~434 sections). Tantivy's advantage at scale: better ranking, fuzzy matching (Levenshtein 1), field-specific queries, in-memory index. Cost: adding Rust/Python bindings (tantivy-py exists) to a Python stack. Not worth switching until FTS5 latency or ranking quality is a measured problem. |
 | eBPF Compute Worker Sandboxing | **HivePoA** | When HivePoA runs untrusted training jobs from marketplace miners (i.e., when compute_client.py dispatches jobs to unknown workers). | Kavach (github.com/LucidAkshay/kavach) plans eBPF-based syscall interception for v2.0 Linux. The primitive: intercept file system + process + network syscalls at kernel level before they reach user space, with approve/deny/ghost semantics per call. For HivePoA: miners accept compute jobs from strangers — eBPF sandboxing of the worker process is the correct containment layer (not OS-level chroot, not Docker alone). Pairs with resource throttling (CPU/RAM limits on worker PIDs). Kavach implementation is early-stage and incomplete (no Linux support yet, CSP disabled) — extract the concept, not the dependency. When to activate: before HivePoA opens to untrusted miners. |
 | Behavioral Heuristics for Worker Containment | **HivePoA** | When compute marketplace opens to non-vetted miners and job payloads are externally submitted. | Three patterns from Kavach directly applicable to HivePoA worker monitoring: (1) velocity detection — flag rapid sequential file modifications (runaway training loop or data exfiltration); (2) recursive loop detection — catch infinite child-process spawns from malformed training jobs; (3) dynamic resource throttling — CPU/RAM hard caps on worker PIDs enforced in-flight, not just at launch. These are heuristic guards, not cryptographic proofs — pair with DBC voting and miner reputation score for defense-in-depth. |
@@ -279,10 +291,10 @@ These are NOT coming back unless explicitly triggered. Do not work on them.
 
 ---
 
-## EXECUTION PRIORITY (Next 3 Sessions)
+## EXECUTION PRIORITY (Updated 2026-03-18)
 
-**Session 1**: Beam 1 (GEM 1 — Critique Pattern Memory)
-**Session 2**: Beam 2 (GEM 2 — Bayesian Confidence) + Beam 3 cleanups
-**Session 3**: Validate full loop (all 3 gems operational end-to-end), check telemetry gate
+**Completed**: Beam 1 (structural), Beam 2 (structural), Beam 3 (all items), Beam 5 (implementation)
+**Blocked on data**: Beam 4 (telemetry volume), GEM 1+2 empirical gates (real training cycles)
+**Next actionable**: RAG improvements (shadow reranker live, composite confidence calibration next)
 
-After that: Beam 5 (domain LoRA CLI flags) → Bridge A (HivePoA V1.1 training jobs).
+After RAG: Bridge A (HivePoA V1.1 training jobs) → Bridge B (distributed weakness hunter).
