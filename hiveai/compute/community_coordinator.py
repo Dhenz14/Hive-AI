@@ -148,6 +148,7 @@ class CommunityCoordinator:
         self.hive_publisher = hive_publisher
         self._current_tier = 1
         self._last_manifest: Optional[TierManifest] = None
+        self._settlement_counter = 0  # runs settlement every 4th cycle (~1 hour)
 
     async def run(self) -> None:
         """Main coordinator loop. Blocks, polling at the configured interval."""
@@ -220,6 +221,12 @@ class CommunityCoordinator:
 
             # 7. Configure inference routes
             await self._update_inference_routes(session, active_clusters, manifest)
+
+            # 8. Run reward settlement every ~4 cycles (~1 hour with 15min polling)
+            self._settlement_counter += 1
+            if self._settlement_counter >= 4:
+                self._settlement_counter = 0
+                await self._run_settlement(session, new_tier)
 
     async def _fetch_online_nodes(self, session: aiohttp.ClientSession) -> list[NodeInfo]:
         """Fetch all online compute nodes from HivePoA."""
@@ -460,6 +467,26 @@ class CommunityCoordinator:
                     logger.warning(f"Failed to post route: HTTP {resp.status}: {body[:200]}")
         except Exception as e:
             logger.error(f"Error posting route: {e}")
+
+    async def _run_settlement(self, session: aiohttp.ClientSession, tier: int) -> None:
+        """Run reward settlement cycle for inference contributions."""
+        try:
+            from hiveai.compute.reward_settlement import RewardSettlementService
+            settler = RewardSettlementService(
+                hivepoa_url=self.hivepoa_url,
+                api_key=self.api_key,
+                current_tier=tier,
+            )
+            result = await settler.run_settlement_cycle()
+            if result.payouts_submitted > 0:
+                logger.info(
+                    f"Settlement: {result.payouts_submitted} payouts, "
+                    f"{result.total_hbd:.4f} HBD total"
+                )
+        except ImportError:
+            logger.debug("Reward settlement not available (missing module)")
+        except Exception as e:
+            logger.error(f"Settlement failed: {e}")
 
     def _auth_headers(self) -> dict:
         """Build auth headers for HivePoA API calls.

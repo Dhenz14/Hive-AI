@@ -68,6 +68,10 @@ def main():
                         help="Max concurrent jobs (default 1)")
     parser.add_argument("--price", type=str, default="0.50",
                         help="Price per hour in HBD (default 0.50)")
+    parser.add_argument("--inference", action="store_true",
+                        help="Enable Spirit Bomb inference contribution mode (shares GPU for community inference)")
+    parser.add_argument("--inference-allocation", type=float, default=0.3,
+                        help="Fraction of GPU time for inference (0.0-0.8, default 0.3)")
 
     args = parser.parse_args()
 
@@ -108,6 +112,40 @@ def main():
     logger.info(f"  GPU: {args.gpu_model} ({args.gpu_vram}GB)")
     logger.info(f"  Workloads: {args.workloads}")
     logger.info(f"  Price: {args.price} HBD/hr")
+
+    # Start inference contribution mode in background if --inference flag
+    inference_task = None
+    if args.inference:
+        import asyncio
+        import threading
+        from hiveai.compute.inference_worker import InferenceWorker
+
+        logger.info(f"  Inference mode: ENABLED (allocation={args.inference_allocation:.0%})")
+
+        inference_worker = InferenceWorker(
+            compute_client=client,
+            hivepoa_url=args.hivepoa_url,
+            api_key=args.api_key,
+            node_instance_id=instance_id,
+            gpu_model=args.gpu_model,
+            gpu_vram_gb=args.gpu_vram,
+            allocation=args.inference_allocation,
+        )
+
+        def run_inference():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(inference_worker.run())
+            except Exception as e:
+                logger.error(f"Inference worker crashed: {e}")
+            finally:
+                loop.close()
+
+        inference_thread = threading.Thread(target=run_inference, daemon=True, name="inference-worker")
+        inference_thread.start()
+        logger.info("  Inference worker started in background thread")
+
     worker.run()
 
 

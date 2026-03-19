@@ -281,8 +281,6 @@ class InferenceWorker:
             f"VRAM budget: {vram_for_inference}GB"
         )
 
-        # For now, log the intended configuration — actual engine launch
-        # depends on whether vLLM or llama-server is installed
         engine_config = {
             "model": config.model_name,
             "quantization": config.quantization,
@@ -292,13 +290,83 @@ class InferenceWorker:
         }
         logger.info(f"Inference engine config: {json.dumps(engine_config)}")
 
-        # TODO: Actually launch vLLM/llama-server process
-        # self._inference_process = subprocess.Popen([...])
+        # Try to launch inference engine: vLLM first, then llama-server, then verify Ollama
+        launched = False
+
+        # Option 1: vLLM (if installed)
+        try:
+            vllm_cmd = [
+                "vllm", "serve", config.model_name,
+                "--port", str(config.serve_port),
+                "--gpu-memory-utilization", str(config.allocation),
+                "--max-model-len", str(config.max_context_length),
+            ]
+            if config.quantization and config.quantization != "fp16":
+                vllm_cmd.extend(["--quantization", config.quantization])
+
+            self._inference_process = subprocess.Popen(
+                vllm_cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            logger.info(f"Launched vLLM: PID={self._inference_process.pid}")
+            launched = True
+        except FileNotFoundError:
+            logger.info("vLLM not found, trying llama-server...")
+
+        # Option 2: llama-server (llama.cpp)
+        if not launched:
+            try:
+                llama_cmd = [
+                    "llama-server",
+                    "--port", str(config.serve_port),
+                    "--ctx-size", str(min(config.max_context_length, 8192)),
+                ]
+                self._inference_process = subprocess.Popen(
+                    llama_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                logger.info(f"Launched llama-server: PID={self._inference_process.pid}")
+                launched = True
+            except FileNotFoundError:
+                logger.info("llama-server not found, checking Ollama...")
+
+        # Option 3: Ollama (check if already running)
+        if not launched:
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    if resp.status == 200:
+                        logger.info("Ollama detected — using as inference backend")
+                        launched = True
+            except Exception:
+                logger.warning(
+                    "No inference engine available (vLLM, llama-server, Ollama). "
+                    "Install one to serve inference requests."
+                )
 
     async def _heartbeat(self, session: aiohttp.ClientSession) -> None:
-        """Send heartbeat to coordinator."""
-        # Lightweight: just confirm we're alive
-        pass
+        """Send heartbeat to coordinator — confirms worker is alive and serving."""
+        if not self._node_id and not self.node_instance_id:
+            return
+        headers = self._auth_headers()
+        try:
+            async with session.post(
+                f"{self.hivepoa_url}/api/compute/nodes/heartbeat",
+                headers=headers,
+                json={
+                    "nodeId": self._node_id or self.node_instance_id,
+                    "jobsInProgress": 0,
+                    "inferenceActive": self._inference_process is not None,
+                },
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    logger.debug(f"Heartbeat failed: HTTP {resp.status}")
+        except Exception:
+            pass  # heartbeat failures are non-critical
 
     async def _report_contributions(self, session: aiohttp.ClientSession) -> None:
         """Report inference contribution metrics to HivePoA."""
