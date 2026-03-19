@@ -4505,6 +4505,110 @@ def telemetry_client_event():
         db.close()
 
 
+# ============================================================
+# SPIRIT BOMB: GPU Pool Consumption (Hive-AI is the CONSUMER)
+# HivePoA is the SUPPLIER — we call its API to find available GPUs.
+# ============================================================
+
+HIVEPOA_URL = os.environ.get("HIVEPOA_URL", "http://localhost:5000")
+
+@app.route("/api/gpu/pool")
+def gpu_pool_status():
+    """Get community GPU pool status from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/dashboard")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            return jsonify(data)
+    except Exception as e:
+        return jsonify({
+            "tier": {"tier": 1, "totalGpus": 0, "message": "HivePoA not reachable"},
+            "error": str(e),
+        })
+
+
+@app.route("/api/gpu/clusters")
+def gpu_clusters():
+    """List available GPU clusters from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/clusters")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify({"clusters": [], "count": 0})
+
+
+@app.route("/api/gpu/tier")
+def gpu_tier():
+    """Get current community tier from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/tier")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify({"tier": 1, "totalGpus": 0})
+
+
+@app.route("/api/gpu/modes")
+def gpu_inference_modes():
+    """Get available inference modes — what's the most powerful thing we can run right now?"""
+    import urllib.request
+    from hiveai.llm.client import get_active_backend
+
+    # Check local backend (Hive-AI's own stack)
+    local_backend = get_active_backend()
+    local_available = local_backend in ("ollama", "llama-server")
+
+    # Check cluster availability via HivePoA
+    cluster_available = False
+    cluster_gpus = 0
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/tier")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            tier_data = json.loads(resp.read())
+            cluster_gpus = tier_data.get("totalGpus", 0)
+            cluster_available = cluster_gpus >= 2
+    except Exception:
+        pass
+
+    return jsonify({
+        "local": {
+            "available": local_available,
+            "backend": local_backend,
+            "description": "Hive-AI local — smart routing, RAG, LoRA adapters",
+        },
+        "cluster": {
+            "available": cluster_available,
+            "gpus": cluster_gpus,
+            "description": f"Community GPU pool — {cluster_gpus} GPUs available",
+        },
+        "best_available": "cluster" if cluster_available else ("local" if local_available else "none"),
+    })
+
+
+@app.route("/api/gpu/contribute")
+def gpu_contribute_info():
+    """Info for users who want to contribute their GPU to the pool."""
+    return jsonify({
+        "how_to_contribute": {
+            "step_1": "Install Python 3.10+ and NVIDIA drivers",
+            "step_2": "Clone: git clone https://github.com/Dhenz14/Hive-AI.git",
+            "step_3": "Run: python scripts/start_spiritbomb.py",
+            "requirements": "NVIDIA GPU with 8+ GB VRAM, Hive account for rewards",
+        },
+        "earnings_estimate": {
+            "8gb_gpu_daily": "$0.50",
+            "16gb_gpu_daily": "$1.20",
+            "24gb_gpu_daily": "$2.00",
+            "note": "Earnings depend on demand and tier multiplier",
+        },
+        "hivepoa_url": HIVEPOA_URL,
+    })
+
+
 if __name__ == "__main__":
     from hiveai.models import init_db
     init_db()
