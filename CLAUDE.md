@@ -77,7 +77,7 @@ The golden chain (sequential LoRA merge) hit its architectural ceiling. Going fr
 more SFT/merge cycles is the wrong tool. The product value is in the application layer.
 
 - **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core. Do not touch.
-- **Layer 1: RAG/Retrieval** — Where the system learns every day. 928 BookSections enriched with
+- **Layer 1: RAG/Retrieval** — Where the system learns every day. 10,356 BookSections (928 enriched skill docs + 9,428 promoted solved examples) with
   contextual retrieval prefixes (Anthropic technique, 35-67% fewer retrieval failures). Hybrid search
   (BM25+semantic) with MMR diversity reranking (λ=0.7). Cross-encoder reranker (bge-reranker-v2-m3)
   actively filters low-confidence sections (suppress < 0.02) and boosts high-confidence ones (> 0.20).
@@ -289,9 +289,11 @@ automatically retrieved by the RAG pipeline on similar future queries.
 - `AUTO_PROMOTE_MIN_QUALITY=0.82` — Minimum quality score for promotion
 - `AUTO_PROMOTE_MIN_CODE_LINES=5` — Minimum code lines for promotion
 
-**Gate 11 progress**: Count target PASS (51 promoted examples seeded across 6 languages, 2026-03-19).
-Remaining: prove ≥50% reuse rate on organic follow-ups, measurable verification wins, no noise explosion.
-Seeding scripts: `scripts/seed_promoted_examples.py`, `seed_promoted_batch2.py`, `seed_promoted_batch3.py`.
+**Gate 11 progress**: Count target PASS. **9,428 solved examples** promoted from all training sources
+(42K raw pairs → 9.4K unique code-bearing, 2026-03-19). Languages: python(6870), js(486), go(441),
+cpp(399), ts(365), bash(353), rust(251), sql(236), java(24).
+Consolidation script: `scripts/consolidate_and_promote.py --gpu` (batch BGE-M3 on GPU).
+Remaining: prove reuse rate on organic follow-ups, measurable verification wins, monitor noise.
 
 ## 3 Gems — Layer 3 Intelligence (Phase 0-3) — STRUCTURALLY COMPLETE
 
