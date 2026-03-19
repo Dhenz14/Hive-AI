@@ -36,19 +36,6 @@ logging.getLogger("transformers").setLevel(logging.INFO)
 logging.getLogger("trl").setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def linear_cka(X, Y):
-    """Linear CKA (Centered Kernel Alignment) between [n, d] representation matrices.
-    Returns float in [0,1]. 1.0 = geometrically identical representations.
-    Ref: Kornblith et al., ICML 2019."""
-    X, Y = X - X.mean(0, keepdim=True), Y - Y.mean(0, keepdim=True)
-    XtY = X.T @ Y
-    hsic_xy = (XtY * XtY).sum()
-    hsic_xx = (X.T @ X).pow(2).sum()
-    hsic_yy = (Y.T @ Y).pow(2).sum()
-    return (hsic_xy / (hsic_xx * hsic_yy).sqrt().clamp(min=1e-8)).item()
-
-
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -77,45 +64,24 @@ LORA_CONFIG = {
         "q_proj", "k_proj", "v_proj", "o_proj",   # attention
         "gate_proj", "up_proj", "down_proj",        # MLP layers
     ],
-    "lora_dropout": 0.0,             # Unsloth kernels optimized for 0 dropout (fused Triton paths)
+    "lora_dropout": 0.1,             # Regularization — prevents adapter memorization (was 0.0)
     "bias": "none",
-    "use_dora": True,                 # DoRA: weight-decomposed LoRA (+1-4% over standard LoRA, PEFT 0.18+)
+    "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
     "use_rslora": True,               # Rank-stabilized LoRA — better scaling at any rank
-}
-
-# v6.0: Layer-selective adapter templates for domain-isolated training.
-# Each template targets specific layers and modules based on domain type:
-#   - Syntax/DSL domains (hive): mid-band attention readout (layers 12-27, V+O)
-#   - Semantic/concept domains (cpp): upper-mid MLP (layers 24-39, gate+up+down)
-#   - Balanced fallback (generic): mid attention + MLP (layers 16-31, V+O+down)
-# Research: Qwen2.5 sensitivity study (arXiv 2505.06272), code probing (arXiv 2212.10017)
-ADAPTER_TEMPLATES = {
-    "hive": {
-        "target_modules": ["v_proj", "o_proj"],
-        "layers_to_transform": list(range(12, 28)),   # 16 layers, ~2.1M params at r=8
-    },
-    "cpp": {
-        "target_modules": ["gate_proj", "up_proj", "down_proj"],
-        "layers_to_transform": list(range(24, 40)),   # 16 layers, ~7.3M params at r=8
-    },
-    "generic": {
-        "target_modules": ["v_proj", "o_proj", "down_proj"],
-        "layers_to_transform": list(range(16, 32)),   # 16 layers, ~4.5M params at r=8
-    },
 }
 
 TRAINING_CONFIG = {
     "per_device_train_batch_size": 1,      # batch=1 for 14B on 16GB (fused CE needs VRAM headroom)
     "gradient_accumulation_steps": 16,     # Effective batch = 16
     "num_train_epochs": 2,                 # 2 epochs — v6 overfitted at 3 (loss 0.51 but eval unchanged)
-    "learning_rate": 5e-5,                 # v7 retry: Grok says safe B effective = 4e-4 to 8e-4. 5e-5 × 16x = 8e-4.
+    "learning_rate": 2e-4,                 # Standard for QLoRA fine-tuning
     "warmup_ratio": 0.05,                  # 5% warmup — ensures model sees multiple curriculum phases before full LR
     "lr_scheduler_type": "cosine",
     "bf16": True,
     "logging_steps": 5,
     "save_steps": 100,
     "weight_decay": 0.01,
-    "max_grad_norm": 0.5,                  # v6 post-mortem: 1.0 too loose with LoRA+ 16x. Grok: use 0.5
+    "max_grad_norm": 1.0,
     "seed": 42,
     "neftune_noise_alpha": 5.0,            # NEFTune: +0.5-1% quality, zero cost
 }
@@ -125,17 +91,6 @@ KL_CONFIG = {
     "lambda": 0.3,        # KL weight in loss (30% regularization to prevent catastrophic forgetting)
     "temperature": 1.0,   # Softmax temperature
     "seq_limit": 512,     # Max tokens for KL (safe with cut_cross_entropy on 14B)
-}
-
-# EWC-LoRA — Elastic Weight Consolidation for LoRA parameters (ICLR 2026)
-# Computes Fisher Information Matrix over replay data to identify important parameters,
-# then adds a quadratic penalty preventing those parameters from changing.
-# Result: +8.92% over vanilla LoRA on continual learning benchmarks.
-EWC_CONFIG = {
-    "lambda": 0.05,        # EWC penalty weight — v2: per-param adaptive lambda, raw Fisher,
-                           #   divided by grad_accum_steps. See ewc_debugging_lessons.md.
-    "fisher_samples": 200, # Number of replay samples for Fisher computation
-    "enabled": True,       # Can disable for first cycle (no previous knowledge)
 }
 
 
@@ -200,17 +155,12 @@ def optimize_system_pre_load():
     except Exception:
         pass
 
-    # Force offline HF loading — all models are cached, no need to phone home
-    # Prevents 120s timeout when HuggingFace is slow/down
-    os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-
     # Env vars only — no CUDA context init
     os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF",
-                          "expandable_segments:True,"
-                          "garbage_collection_threshold:0.4")
+                          "expandable_segments:False,"
+                          "garbage_collection_threshold:0.6")
     optimizations.append("CUDA env vars set")
 
     # Check for available VRAM optimizations (import only, no CUDA init)
@@ -250,9 +200,8 @@ def optimize_system_post_load():
         if capability[0] >= 8:
             torch.backends.cuda.matmul.allow_tf32 = True
             torch.backends.cudnn.allow_tf32 = True
-            torch.backends.cudnn.benchmark = True
             torch.set_float32_matmul_precision("high")
-            optimizations.append("TF32 enabled, cuDNN benchmark")
+            optimizations.append("TF32 enabled")
         if hasattr(torch.backends.cuda, "flash_sdp_enabled"):
             torch.backends.cuda.enable_flash_sdp(True)
             torch.backends.cuda.enable_mem_efficient_sdp(True)
@@ -263,75 +212,12 @@ def optimize_system_post_load():
 
 
 # ---------------------------------------------------------------------------
-# Auto GGUF Conversion
-# ---------------------------------------------------------------------------
-def auto_convert_gguf(adapter_dir):
-    """Convert PEFT adapter to GGUF format for llama.cpp"""
-    gguf_path = os.path.join(adapter_dir, "adapter.gguf")
-    if os.path.exists(gguf_path):
-        print(f"[GGUF] adapter.gguf already exists at {gguf_path}")
-        return gguf_path
-
-    # Try to find convert_lora_to_gguf.py
-    search_paths = [
-        "/tmp/llama_cpp_build/convert_lora_to_gguf.py",
-        "/tmp/llama.cpp/convert_lora_to_gguf.py",
-        os.path.expanduser("~/llama.cpp/convert_lora_to_gguf.py"),
-    ]
-    # Also check LLAMA_CPP_DIR env var
-    llama_cpp_dir = os.environ.get("LLAMA_CPP_DIR", "")
-    if llama_cpp_dir:
-        search_paths.insert(0, os.path.join(llama_cpp_dir, "convert_lora_to_gguf.py"))
-
-    convert_script = None
-    for p in search_paths:
-        if os.path.exists(p):
-            convert_script = p
-            break
-
-    if not convert_script:
-        print("[GGUF] convert_lora_to_gguf.py not found — skipping auto-conversion")
-        print("[GGUF] Manually run: python convert_lora_to_gguf.py --outfile adapter.gguf <adapter_dir>")
-        return None
-
-    print(f"[GGUF] Converting adapter to GGUF format...")
-    try:
-        result = subprocess.run(
-            ["python3", convert_script, "--outfile", gguf_path, adapter_dir],
-            capture_output=True, text=True, timeout=300
-        )
-        if result.returncode == 0 and os.path.exists(gguf_path):
-            size_mb = os.path.getsize(gguf_path) / (1024 * 1024)
-            print(f"[GGUF] Successfully created {gguf_path} ({size_mb:.1f} MB)")
-            return gguf_path
-        else:
-            print(f"[GGUF] Conversion failed: {result.stderr[:500]}")
-            return None
-    except subprocess.TimeoutExpired:
-        print("[GGUF] Conversion timed out after 300s")
-        return None
-    except Exception as e:
-        print(f"[GGUF] Conversion error: {e}")
-        return None
-
-
-# ---------------------------------------------------------------------------
 # Training
 # ---------------------------------------------------------------------------
 def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
              skip_unsloth: bool = False, step_timeout: int = 0,
-             seq_length_override: int = 0, warm_start: str = None,
-             epochs_override: int = 0, two_stage: bool = False,
-             lora_plus: bool = False, use_ewc: bool = False,
-             ewc_fisher_path: str = None, prev_lora_path: str = None,
-             probe_guard: bool = False, probe_interval: int = 50,
-             probe_server_url: str = "http://localhost:11435"):
-    """Train LoRA on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth).
-
-    Lossless continual learning features:
-    - EWC-LoRA: Fisher penalty prevents changing important parameters (--ewc-lambda)
-    - Orthogonal init: Initialize new LoRA orthogonal to previous task (--prev-lora)
-    """
+             seq_length_override: int = 0, warm_start: str = None):
+    """Train LoRA v7 on Qwen2.5-Coder-14B-Instruct (QLoRA via Unsloth)."""
     import torch
     import torch.nn.functional as F
 
@@ -340,27 +226,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     # lifetimes, which breaks CUDA graph recording/replay.
     os.environ.setdefault("TORCHINDUCTOR_USE_CUDAGRAPHS", "0")
 
-    # Fix Transformers v5 regression (issue #43032): the new async loader in
-    # core_model_loading.py materializes bf16 tensors to GPU BEFORE quantization,
-    # causing OOM on 16GB GPUs when loading 14B+ models with load_in_4bit=True.
-    # Force sync loading to prevent the VRAM spike during bf16→4bit quantization.
-    os.environ.setdefault("HF_DEACTIVATE_ASYNC_LOAD", "1")
-    os.environ.setdefault("HF_ENABLE_PARALLEL_LOADING", "false")
-
     # Persist Triton compilation cache so Unsloth kernels don't recompile every run
     os.environ.setdefault("TRITON_CACHE_DIR", os.path.join(PROJECT_ROOT, ".triton_cache"))
-
-    # Fix Triton compilation deadlock on small datasets (<500 samples).
-    # Default 20 compile workers deadlock waiting for kernel cache writes.
-    os.environ.setdefault("TRITON_NUM_THREADS", "2")
-    os.environ.setdefault("TORCH_COMPILE_THREADS", "2")
-    # Python-level fix: env vars alone don't control compile_worker's --workers flag.
-    # This directly limits torch._inductor's thread pool, preventing deadlock.
-    try:
-        import torch._inductor.config as inductor_config
-        inductor_config.compile_threads = 2
-    except (ImportError, AttributeError):
-        pass  # older torch versions may not have this
 
     # CRITICAL: Import Unsloth BEFORE transformers/peft/trl!
     # Unsloth patches these libraries for 2x speed + 70% less VRAM.
@@ -405,36 +272,22 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     from hiveai.llm.prompts import CODING_SYSTEM_PROMPT
 
-    # Compute actual training params with overrides
-    actual_epochs = epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"])
-    actual_lr = TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"]
-    eff_batch = (TRAINING_CONFIG["per_device_train_batch_size"]
-                 * TRAINING_CONFIG["gradient_accumulation_steps"])
-
     logger.info("=" * 60)
-    if warm_start:
-        logger.info("  HiveAI WARM-START Training — Building on Previous Adapter")
-    else:
-        logger.info("  HiveAI LoRA Training — Qwen2.5-Coder-14B QLoRA")
+    logger.info("  HiveAI LoRA v7 Training — Qwen2.5-Coder-14B QLoRA")
     logger.info("=" * 60)
     logger.info(f"  Base model:  {model_path}")
-    if warm_start:
-        logger.info(f"  Warm-start:  {warm_start} (preserving learned weights)")
-        logger.info(f"  Strategy:    half LR ({actual_lr}) + {actual_epochs} epoch(s) — gentle integration")
     logger.info(f"  Data:        {TRAINING_JSONL}")
     logger.info(f"  Output:      {OUTPUT_DIR}")
-    layers_info = ""
-    if "layers_to_transform" in LORA_CONFIG:
-        lt = LORA_CONFIG["layers_to_transform"]
-        layers_info = f", layers={lt[0]}-{lt[-1]} ({len(lt)}/48)"
     logger.info(f"  LoRA:        r={LORA_CONFIG['r']}, alpha={LORA_CONFIG['lora_alpha']}, "
                 f"DoRA={LORA_CONFIG.get('use_dora')}, "
-                f"modules={LORA_CONFIG['target_modules']}{layers_info}")
+                f"modules={LORA_CONFIG['target_modules']}")
+    eff_batch = (TRAINING_CONFIG["per_device_train_batch_size"]
+                 * TRAINING_CONFIG["gradient_accumulation_steps"])
     logger.info(f"  Training:    batch={TRAINING_CONFIG['per_device_train_batch_size']}x"
                 f"{TRAINING_CONFIG['gradient_accumulation_steps']}="
                 f"{eff_batch} effective, "
-                f"epochs={actual_epochs}, "
-                f"lr={actual_lr}")
+                f"epochs={TRAINING_CONFIG['num_train_epochs']}, "
+                f"lr={TRAINING_CONFIG['learning_rate']}")
     logger.info(f"  Context:     {seq_length} tokens")
     logger.info(f"  NEFTune:     alpha={TRAINING_CONFIG['neftune_noise_alpha']}")
     logger.info(f"  KL anchor:   {'ON' if use_kl else 'OFF'} "
@@ -449,13 +302,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         pair_count = sum(1 for line in f if line.strip())
     logger.info(f"Training pairs: {pair_count}")
 
-    total_steps = (pair_count * actual_epochs) // eff_batch
+    total_steps = (pair_count * TRAINING_CONFIG["num_train_epochs"]) // eff_batch
     logger.info(f"Expected steps: ~{total_steps}")
-    if warm_start:
-        # Estimate time based on v7 throughput (~1.38 steps/min for 14B on 4070Ti)
-        est_minutes = total_steps / 1.38
-        logger.info(f"Estimated time: ~{est_minutes:.0f} min ({est_minutes/60:.1f}h) "
-                    f"[warm-start: {actual_epochs} epoch × {pair_count} pairs]")
 
     # ── Load model — try Unsloth first (2x faster), fallback to standard ──
     use_unsloth = False
@@ -466,15 +314,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info("Using Unsloth FastLanguageModel for 2x speed + 70% less VRAM")
 
         if warm_start and os.path.isdir(warm_start):
-            # Warm start: load the 4-bit BASE model first (from cache, no 28GB download),
-            # then load the adapter weights on top. Passing the adapter dir directly to
-            # from_pretrained causes Unsloth to resolve the base model to full-precision
-            # Qwen/Qwen2.5-Coder-14B-Instruct and download 28GB.
-            unsloth_model_name = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
-            logger.info(f"  WARM START: loading 4-bit base first, then adapter from {warm_start}")
+            # Warm start: load base + existing adapter from previous training
+            unsloth_model_name = warm_start
+            logger.info(f"  WARM START: loading base + adapter from {warm_start}")
         elif os.path.isdir(model_path) and os.path.exists(os.path.join(model_path, "config.json")):
-            # Continual learning: load merged HF checkpoint as base (quantized on-the-fly)
-            # This path is used when --base-model-hf points to a merged checkpoint
             unsloth_model_name = model_path
             logger.info(f"  Using local weights: {unsloth_model_name}")
         else:
@@ -488,7 +331,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             dtype=None,          # Let Unsloth auto-detect optimal dtype
             load_in_4bit=True,   # QLoRA: 4-bit base + bf16 LoRA = ~10GB on 16GB card
         )
-
         use_unsloth = True
         logger.info(f"Model loaded via Unsloth in {time.time() - load_start:.0f}s")
         return _model, _tokenizer
@@ -496,17 +338,8 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     def _load_standard():
         load_path = model_path
         if not os.path.isdir(model_path) or not os.path.exists(os.path.join(model_path, "config.json")):
-            # Try cached Unsloth pre-quantized model first (already 4-bit, no CPU quantization needed)
-            bnb4_cache = os.path.expanduser("~/.cache/huggingface/hub/models--unsloth--Qwen2.5-Coder-14B-Instruct-bnb-4bit/snapshots")
-            if os.path.isdir(bnb4_cache):
-                snapshots = os.listdir(bnb4_cache)
-                if snapshots:
-                    load_path = os.path.join(bnb4_cache, snapshots[0])
-                    logger.info(f"  Using cached pre-quantized model: {load_path}")
-            if load_path == model_path:
-                # Final fallback: try HF hub name (will download if online)
-                load_path = "Qwen/Qwen2.5-Coder-14B-Instruct"
-                logger.info(f"  Local path not found, using HF model: {load_path}")
+            load_path = "Qwen/Qwen2.5-Coder-14B-Instruct"
+            logger.info(f"  Local path not found, using HF model: {load_path}")
 
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -516,20 +349,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info(f"Loading tokenizer from {load_path}...")
         _tokenizer = AutoTokenizer.from_pretrained(load_path, trust_remote_code=True)
-        # Check if loading local bf16 weights that need on-the-fly 4-bit quantization.
-        # bf16→4bit quantization peaks above 16GB when device_map={"": 0} forces
-        # everything onto GPU. Use device_map="auto" with max_memory to let
-        # transformers quantize layers individually with CPU overflow.
-        is_local_bf16 = (os.path.isdir(load_path) and
-                         not os.path.exists(os.path.join(load_path, "quantization_config.json")))
-        if is_local_bf16:
-            dmap = "auto"
-            max_mem = {0: "12GiB", "cpu": "48GiB"}
-            logger.info(f"Loading local bf16 weights with CPU-offloaded 4-bit quantization...")
-        else:
-            dmap = {"": 0}
-            max_mem = None
-            logger.info(f"Loading pre-quantized 4-bit model (~8-9GB VRAM)...")
+        logger.info(f"Loading Qwen2.5-Coder-14B in 4-bit QLoRA (~8-9GB VRAM)...")
         # Use flash_attention_2 if available (standard attention, no hybrid issues)
         attn_impl = "eager"
         try:
@@ -540,12 +360,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         _model = AutoModelForCausalLM.from_pretrained(
             load_path,
             quantization_config=bnb_config,
-            device_map=dmap,
-            max_memory=max_mem,
+            device_map={"": 0},
             torch_dtype=torch.bfloat16,
             trust_remote_code=True,
             attn_implementation=attn_impl,
-            low_cpu_mem_usage=True,
         )
         logger.info(f"Model loaded via standard transformers in {time.time() - load_start:.0f}s")
         return _model, _tokenizer
@@ -565,43 +383,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # Import TRL — AFTER Unsloth loads (if used) to get patched classes
     from trl import SFTTrainer, SFTConfig  # noqa: E402
-    try:
-        from trl import DataCollatorForCompletionOnlyLM  # TRL <0.24
-    except ImportError:
-        # TRL 0.24+ removed DataCollatorForCompletionOnlyLM — use inline implementation
-        from dataclasses import dataclass
-        from transformers import DataCollatorForLanguageModeling
-
-        @dataclass
-        class DataCollatorForCompletionOnlyLM(DataCollatorForLanguageModeling):
-            """Masks loss on everything before the response_template tokens."""
-            response_template: str = "<|im_start|>assistant\n"
-            mlm: bool = False
-
-            def __init__(self, response_template, tokenizer, **kwargs):
-                super().__init__(tokenizer=tokenizer, mlm=False, **kwargs)
-                self.response_template_ids = tokenizer.encode(
-                    response_template, add_special_tokens=False
-                )
-
-            def torch_call(self, examples):
-                import torch
-                batch = super().torch_call(examples)
-                for i, labels in enumerate(batch["labels"]):
-                    # Find response template position
-                    template_len = len(self.response_template_ids)
-                    found = False
-                    for idx in range(len(labels) - template_len + 1):
-                        if labels[idx:idx + template_len].tolist() == self.response_template_ids:
-                            # Mask everything before the response (set to -100)
-                            batch["labels"][i, :idx + template_len] = -100
-                            found = True
-                            break
-                    if not found:
-                        # If template not found, mask nothing (train on full sequence)
-                        pass
-                return batch
-        logger.info("Using inline DataCollatorForCompletionOnlyLM (TRL 0.24+ compat)")
 
     # Now safe to init CUDA context (model already loaded + quantized)
     optimize_system_post_load()
@@ -619,72 +400,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         sys.exit(1)
     logger.info("All parameters materialized (no meta-device params)")
 
-    # ── Semantic <think> token initialization (§32 LLM4SVG) ──
-    if args.init_think_tokens:
-        _THINK_SEEDS = ["reason", "analyze", "consider", "evaluate", "think", "step"]
-        think_tokens = ["<think>", "</think>"]
-        found_tokens = [t for t in think_tokens if t in tokenizer.get_vocab()]
-        if found_tokens:
-            embed_layer = model.get_input_embeddings()
-            seed_ids = []
-            for word in _THINK_SEEDS:
-                ids = tokenizer.encode(word, add_special_tokens=False)
-                seed_ids.extend(ids)
-            if seed_ids:
-                with torch.no_grad():
-                    seed_embeds = embed_layer.weight[seed_ids].mean(dim=0)
-                    for tok in found_tokens:
-                        tok_id = tokenizer.convert_tokens_to_ids(tok)
-                        if tok_id != tokenizer.unk_token_id:
-                            embed_layer.weight[tok_id] = seed_embeds
-                            logger.info(f"  Initialized '{tok}' (id={tok_id}) with semantic average of {_THINK_SEEDS}")
-            else:
-                logger.warning("Could not encode seed words for <think> token init")
-        else:
-            logger.info("No <think>/</think> tokens found in tokenizer -- skipping init")
-
-    # ── Style token initialization (v3.0 — conditional style routing) ──
-    # Must happen BEFORE LoRA application — resize_token_embeddings breaks PEFT if done after.
-    style_tokens_enabled = getattr(args, "style_tokens", False)
-    style_mode = getattr(args, "style_mode", "direct")
-    if style_tokens_enabled:
-        _STYLE_TOKENS = ["<direct>", "<agentic>"]
-        new_style_toks = [t for t in _STYLE_TOKENS if t not in tokenizer.get_vocab()]
-        if new_style_toks:
-            # Qwen2.5 has padded embeddings: model has 152064 rows but tokenizer has
-            # 151665 tokens. There are 399 unused slots. Adding tokens to the tokenizer
-            # assigns them indices 151665, 151666 which already have embedding rows.
-            # DO NOT call resize_token_embeddings() — it would SHRINK from 152064 to
-            # 151667, allocating ~2GB temp memory and losing 397 padding slots.
-            tok_size_before = len(tokenizer)
-            embed_size = model.get_input_embeddings().weight.shape[0]
-            tokenizer.add_special_tokens({"additional_special_tokens": new_style_toks})
-            new_tok_size = len(tokenizer)
-
-            if new_tok_size <= embed_size:
-                # New token IDs fit within existing embedding — no resize needed
-                # Mean-init the new token embeddings for faster convergence
-                embed_layer = model.get_input_embeddings()
-                with torch.no_grad():
-                    mean_emb = embed_layer.weight[:tok_size_before].mean(dim=0)
-                    for i in range(len(new_style_toks)):
-                        embed_layer.weight[tok_size_before + i] = mean_emb
-                logger.info(f"Style tokens added: {new_style_toks}, mean-initialized "
-                            f"using existing padding slots ({embed_size - new_tok_size} "
-                            f"slots remaining, no resize needed, mode: {style_mode})")
-            else:
-                # Rare: more tokens than embedding rows — must resize
-                model.resize_token_embeddings(new_tok_size)
-                embed_layer = model.get_input_embeddings()
-                with torch.no_grad():
-                    mean_emb = embed_layer.weight[:tok_size_before].mean(dim=0)
-                    for i in range(len(new_style_toks)):
-                        embed_layer.weight[tok_size_before + i] = mean_emb
-                logger.info(f"Style tokens added: {new_style_toks}, mean-initialized "
-                            f"(resized {embed_size} → {new_tok_size}, mode: {style_mode})")
-        else:
-            logger.info(f"Style tokens already in vocab — skipping add (mode: {style_mode})")
-
     # Count quantized modules
     n_quantized = sum(1 for _, m in model.named_modules()
                       if hasattr(m, "weight") and hasattr(m.weight, "quant_state"))
@@ -692,39 +407,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Apply LoRA + Freeze base + gradient checkpointing ──
     if use_unsloth and warm_start:
-        # Warm start: apply fresh LoRA via Unsloth (for optimized training), then
-        # copy v7 adapter weights into the new LoRA layers
-        model = FastLanguageModel.get_peft_model(
-            model,
-            r=LORA_CONFIG["r"],
-            lora_alpha=LORA_CONFIG["lora_alpha"],
-            target_modules=LORA_CONFIG["target_modules"],
-            lora_dropout=LORA_CONFIG["lora_dropout"],
-            bias=LORA_CONFIG["bias"],
-            use_gradient_checkpointing="unsloth",
-            use_rslora=LORA_CONFIG.get("use_rslora", True),
-            use_dora=LORA_CONFIG["use_dora"],
-            layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
-        )
-        # Load v7 weights into the LoRA layers
-        import safetensors.torch
-        adapter_file = os.path.join(warm_start, "adapter_model.safetensors")
-        if not os.path.exists(adapter_file):
-            adapter_file = os.path.join(warm_start, "adapter_model.bin")
-            v7_state = torch.load(adapter_file, map_location="cpu", weights_only=True)
-        else:
-            v7_state = safetensors.torch.load_file(adapter_file)
-        # Load matching keys (ignoring mismatches from different LoRA configs)
-        model_state = model.state_dict()
-        loaded, skipped = 0, 0
-        for key, val in v7_state.items():
-            if key in model_state and model_state[key].shape == val.shape:
-                model_state[key].copy_(val)
-                loaded += 1
-            else:
-                skipped += 1
-        logger.info(f"WARM START: loaded {loaded} adapter weights from {warm_start} "
-                    f"(skipped {skipped} mismatched)")
+        # Warm start: adapter already loaded by from_pretrained, just enable training
+        from unsloth import FastLanguageModel as _FLM
+        _FLM.for_training(model)
+        logger.info("WARM START: adapter already loaded, enabled training mode + gradient checkpointing")
     elif use_unsloth:
         # Unsloth handles LoRA application, freezing, and gradient checkpointing
         model = FastLanguageModel.get_peft_model(
@@ -737,7 +423,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             use_gradient_checkpointing="unsloth",  # Unsloth's optimized version (2x faster)
             use_rslora=LORA_CONFIG.get("use_rslora", True),
             use_dora=LORA_CONFIG["use_dora"],
-            layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
         )
         logger.info("LoRA applied via Unsloth (optimized gradient checkpointing)")
     else:
@@ -760,7 +445,7 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         )
         logger.info("Gradient checkpointing enabled")
 
-        lora_config_kwargs = dict(
+        lora_config = LoraConfig(
             r=LORA_CONFIG["r"],
             lora_alpha=LORA_CONFIG["lora_alpha"],
             target_modules=LORA_CONFIG["target_modules"],
@@ -768,258 +453,10 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             bias=LORA_CONFIG["bias"],
             task_type=TaskType.CAUSAL_LM,
             use_dora=LORA_CONFIG["use_dora"],
-            use_rslora=LORA_CONFIG.get("use_rslora", True),
         )
-        if "layers_to_transform" in LORA_CONFIG:
-            lora_config_kwargs["layers_to_transform"] = LORA_CONFIG["layers_to_transform"]
-            lora_config_kwargs["layers_pattern"] = "layers"  # Qwen2 decoder block pattern
-        lora_config = LoraConfig(**lora_config_kwargs)
         model = get_peft_model(model, lora_config)
 
     model.print_trainable_parameters()
-
-    # v6.0: Verify LoRA config was applied correctly (layers, modules, rslora)
-    pcfg = model.peft_config.get("default", None) if hasattr(model, "peft_config") else None
-    if pcfg:
-        # Layers check (only when layer-selective)
-        if "layers_to_transform" in LORA_CONFIG:
-            expected_layers = LORA_CONFIG["layers_to_transform"]
-            actual_layers = list(pcfg.layers_to_transform) if pcfg.layers_to_transform else None
-            if actual_layers != expected_layers:
-                logger.error(f"LAYER MISMATCH! Expected layers {expected_layers[0]}-{expected_layers[-1]}, "
-                             f"got {actual_layers}")
-                raise ValueError("layers_to_transform was not applied correctly — check Unsloth/PEFT version")
-            logger.info(f"Verified: layers_to_transform={actual_layers[0]}-{actual_layers[-1]} "
-                        f"({len(actual_layers)} of 48 layers)")
-        # use_rslora check
-        expected_rslora = LORA_CONFIG.get("use_rslora", True)
-        actual_rslora = getattr(pcfg, "use_rslora", None)
-        if actual_rslora is not None and actual_rslora != expected_rslora:
-            logger.error(f"RSLORA MISMATCH! Expected use_rslora={expected_rslora}, got {actual_rslora}")
-            raise ValueError("use_rslora was not applied correctly")
-        # target_modules check
-        expected_mods = sorted(LORA_CONFIG["target_modules"])
-        actual_mods = sorted(list(pcfg.target_modules)) if pcfg.target_modules else []
-        if actual_mods and actual_mods != expected_mods:
-            logger.error(f"MODULE MISMATCH! Expected {expected_mods}, got {actual_mods}")
-            raise ValueError("target_modules was not applied correctly")
-        logger.info(f"LoRA config verified: rslora={actual_rslora}, modules={actual_mods}")
-
-    # ── CURLoRA Initialization (v3.0 — data-aware subspace selection) ──
-    # Uses CUR matrix decomposition to initialize LoRA in a non-interfering manifold.
-    # Alternative to orthogonal SVD init — more stable with small data.
-    curlora_init = getattr(args, "curlora_init", False)
-    if curlora_init:
-        try:
-            logger.info("CURLoRA init: initializing adapters via CUR decomposition")
-            cur_count = 0
-            cur_skip = 0
-            for name, param in model.named_parameters():
-                if 'lora_A' not in name or not param.requires_grad:
-                    continue
-
-                # Navigate PEFT to find the LoRA-wrapped linear layer
-                # PEFT layout: base_model.model.model.layers.N.self_attn.q_proj.lora_A.default.weight
-                # We want: base_model.model.model.layers.N.self_attn.q_proj (the Linear4bit wrapper)
-                try:
-                    base_path = name.split('.lora_A')[0]
-                    obj = model
-                    for attr in base_path.split('.'):
-                        obj = getattr(obj, attr)
-                except (AttributeError, RuntimeError):
-                    cur_skip += 1
-                    continue
-
-                # Get the base weight — handle BNB 4-bit quantized layers
-                try:
-                    base_layer = obj.base_layer if hasattr(obj, 'base_layer') else obj
-                    weight = base_layer.weight
-                    # BNB 4-bit: weight has quant_state attribute
-                    if hasattr(weight, 'quant_state'):
-                        import bitsandbytes as bnb
-                        W = bnb.functional.dequantize_4bit(
-                            weight.data, weight.quant_state
-                        ).float()
-                    else:
-                        W = weight.data.float()
-                except Exception:
-                    cur_skip += 1
-                    continue
-
-                # Safety: ensure W is 2D
-                if W.dim() != 2:
-                    cur_skip += 1
-                    continue
-
-                r = param.shape[0]  # LoRA rank
-                # CUR: select rows using leverage scores (row norms as proxy)
-                row_norms = W.norm(dim=1)
-                n_rows = row_norms.shape[0]
-                k = min(r, n_rows)
-                probs = torch.softmax(row_norms, dim=0)
-                if n_rows > (1 << 24):
-                    # torch.multinomial has 2^24 category limit — use topk instead
-                    _, selected_rows = torch.topk(row_norms, k)
-                else:
-                    selected_rows = torch.multinomial(probs, k, replacement=False)
-                # Initialize A from selected rows, scaled by inverse probability
-                scale = (1.0 / (r * probs[selected_rows]).sqrt()).unsqueeze(-1)
-                # Truncate/pad to match lora_A dimensions
-                init_A = W[selected_rows, :param.shape[1]] * scale
-                if init_A.shape == param.shape:
-                    param.data = init_A.to(param.dtype)
-                    cur_count += 1
-                    del W  # Free dequantized weight immediately
-
-            logger.info(f"  CURLoRA init applied to {cur_count} lora_A matrices, "
-                        f"{cur_skip} skipped (data-aware CUR decomposition)")
-        except Exception as e:
-            logger.warning(f"CURLoRA init failed: {e} — using default init (non-fatal)")
-
-    # ── Orthogonal LoRA Initialization ("Merge before Forget") ──
-    # Initialize new LoRA in the null space of previous LoRA's subspace.
-    # This ensures new learning cannot interfere with previous directions.
-    # NOTE: Skipped if CURLoRA init was applied (they're mutually exclusive)
-    if prev_lora_path and os.path.exists(prev_lora_path) and not curlora_init:
-        try:
-            import safetensors.torch as st
-            logger.info(f"Orthogonal LoRA init: loading previous adapter from {prev_lora_path}")
-
-            # Load previous adapter weights
-            prev_adapter_file = os.path.join(prev_lora_path, "adapter_model.safetensors")
-            if not os.path.exists(prev_adapter_file):
-                prev_adapter_file = os.path.join(prev_lora_path, "adapter_model.bin")
-                prev_state = torch.load(prev_adapter_file, map_location="cpu", weights_only=True)
-            else:
-                prev_state = st.load_file(prev_adapter_file)
-
-            # Build lookup of previous A/B matrices by layer
-            prev_lora = {}
-            for k, v in prev_state.items():
-                if 'lora_A' in k or 'lora_B' in k:
-                    prev_lora[k] = v
-
-            ortho_count = 0
-            for name, param in model.named_parameters():
-                if 'lora_A' not in name or not param.requires_grad:
-                    continue
-
-                # Find matching previous A and B matrices
-                # Name pattern: base_model.model.model.layers.N.self_attn.q_proj.lora_A.default.weight
-                b_name = name.replace('lora_A', 'lora_B')
-                prev_a_key = None
-                prev_b_key = None
-                for k in prev_lora:
-                    if 'lora_A' in k and name.split('lora_A')[0] in k:
-                        prev_a_key = k
-                    if 'lora_B' in k and name.split('lora_A')[0].replace('lora_A', 'lora_B') in k:
-                        prev_b_key = k
-
-                # Try exact match first
-                if prev_a_key is None:
-                    # Try matching by the layer path portion
-                    for k in prev_lora:
-                        # Extract just the module path (e.g., layers.0.self_attn.q_proj)
-                        curr_parts = name.replace('base_model.model.', '').split('.lora_A')[0]
-                        prev_parts = k.replace('base_model.model.', '').split('.lora_A')[0]
-                        if curr_parts == prev_parts and 'lora_A' in k:
-                            prev_a_key = k
-                        if curr_parts == prev_parts.replace('lora_B', 'lora_A').replace('lora_A', 'lora_B') and 'lora_B' in k:
-                            prev_b_key = k
-
-                if prev_a_key is None or prev_b_key is None:
-                    continue
-
-                prev_A = prev_lora[prev_a_key].float()  # [r, in]
-                prev_B = prev_lora[prev_b_key].float()  # [out, r]
-
-                # Compute effective delta and its SVD
-                prev_delta = prev_B @ prev_A  # [out, in]
-                try:
-                    _, _, Vh = torch.linalg.svd(prev_delta, full_matrices=False)
-                    # Vh shape: [min(out,in), in] — these are the input directions used
-
-                    # Project current A init to be orthogonal to previous directions
-                    new_A = param.data.float()
-                    # Only use top-r singular vectors (the rank of previous LoRA)
-                    r_prev = min(prev_A.shape[0], Vh.shape[0])
-                    Vh_top = Vh[:r_prev, :]  # [r_prev, in]
-
-                    # Remove previous subspace: A_ortho = A - A @ Vh^T @ Vh
-                    projection = Vh_top.T @ Vh_top  # [in, in]
-                    orthogonal = new_A - new_A @ projection
-
-                    # Re-normalize to maintain initialization scale
-                    orig_norm = new_A.norm()
-                    ortho_norm = orthogonal.norm().clamp(min=1e-8)
-                    param.data = (orthogonal * (orig_norm / ortho_norm)).to(param.dtype)
-                    ortho_count += 1
-                except Exception:
-                    continue  # Skip layers where SVD fails
-
-            logger.info(f"  Orthogonal init applied to {ortho_count} lora_A matrices "
-                        f"(orthogonal to previous LoRA subspace)")
-        except Exception as e:
-            logger.warning(f"Orthogonal init failed: {e} — using default init (non-fatal)")
-    elif prev_lora_path and not os.path.exists(prev_lora_path):
-        logger.warning(f"Previous LoRA path not found: {prev_lora_path} — using default init")
-    elif prev_lora_path and curlora_init:
-        logger.info(f"Orthogonal init skipped (CURLoRA active) — prev LoRA at {prev_lora_path}")
-
-    # ── KeepLoRA: gradient subspace projection (ICLR 2026) ──
-    # Constrains LoRA gradients to be orthogonal to protected subspaces from previous tasks.
-    # Unlike orthogonal init (which only sets starting point), this enforces the constraint
-    # at EVERY gradient step via backward hooks.
-    keeplora_hooks = []  # Track hooks for cleanup
-    keeplora_enabled = getattr(args, "keeplora", False)
-    keeplora_rank = getattr(args, "keeplora_rank", 8)
-
-    if keeplora_enabled:
-        try:
-            # Load cumulative frozen subspace from previous cycle
-            frozen_subspace = {}
-            subspace_path = None
-            if prev_lora_path and os.path.exists(prev_lora_path):
-                subspace_path = os.path.join(prev_lora_path, "frozen_subspace.pt")
-            if subspace_path and os.path.exists(subspace_path):
-                frozen_subspace = torch.load(subspace_path, map_location="cpu", weights_only=True)
-                logger.info(f"KeepLoRA: loaded frozen subspace from {subspace_path} "
-                            f"({len(frozen_subspace)} layers)")
-
-            # Build projection matrices and register gradient hooks
-            def make_keeplora_hook(proj_matrix):
-                """Create a backward hook that projects gradients orthogonal to protected subspace."""
-                def hook(grad):
-                    Q = proj_matrix.to(grad.device, dtype=grad.dtype)
-                    # Remove protected components: grad_ortho = grad - grad @ Q @ Q^T
-                    return grad - grad @ Q @ Q.T
-                return hook
-
-            hook_count = 0
-            for name, param in model.named_parameters():
-                if "lora_A" in name and param.requires_grad:
-                    # Check if we have a frozen subspace for this layer
-                    layer_key = name.replace(".lora_A.default.weight", "").replace(".lora_A.weight", "")
-                    if layer_key in frozen_subspace:
-                        Q = frozen_subspace[layer_key]  # [k, in_dim] orthonormal directions
-                        # Q^T is [in_dim, k], Q is [k, in_dim]
-                        # For lora_A [r, in_dim], gradient projection removes components along Q
-                        h = param.register_hook(make_keeplora_hook(Q))
-                        keeplora_hooks.append(h)
-                        hook_count += 1
-                    elif "lora_B" not in name:
-                        # No previous subspace for this layer — no constraint needed
-                        pass
-
-            if hook_count > 0:
-                logger.info(f"KeepLoRA: registered gradient hooks on {hook_count} lora_A params "
-                            f"(rank-{keeplora_rank} protected subspace per layer)")
-            else:
-                logger.info("KeepLoRA: enabled but no frozen subspace found — "
-                            "first cycle, will save subspace after training")
-        except Exception as e:
-            logger.warning(f"KeepLoRA setup failed: {e} — continuing without gradient projection (non-fatal)")
-            keeplora_hooks = []
 
     # Cast LoRA adapter weights to bf16 (if not already done by Unsloth)
     if not use_unsloth:
@@ -1054,63 +491,41 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     # ── Load and format dataset ──
     dataset = load_dataset("json", data_files=TRAINING_JSONL, split="train")
-    # Strip all columns except instruction/input/output (+ style if enabled) — mixed types break pyarrow/tokenizer
-    keep_cols = {"instruction", "input", "output"}
-    if style_tokens_enabled:
-        keep_cols.add("style")
-    drop_cols = [c for c in dataset.column_names if c not in keep_cols]
-    if drop_cols:
-        dataset = dataset.remove_columns(drop_cols)
-        logger.info(f"Dropped columns: {drop_cols}")
     logger.info(f"EOS token: '{tokenizer.eos_token}' (id={tokenizer.eos_token_id})")
 
-    def format_to_text(examples):
-        """Convert instruction/output pairs to pre-formatted text via chat template.
+    def format_to_messages(examples):
+        """Convert instruction/output pairs to messages format for assistant-only loss.
 
-        Returns a 'text' column with fully formatted strings. This bypasses Unsloth's
-        internal _tokenize which can fail with messages-format datasets due to Arrow
-        serialization issues.
-
-        NOTE: Using 'text' column with DataCollatorForCompletionOnlyLM to mask
-        prompt tokens from the loss. The response_template marks where assistant
-        output begins in the formatted text.
+        Returns a 'messages' column (list of message dicts) instead of pre-formatted text.
+        SFTTrainer applies the chat template and masks non-assistant tokens from loss.
         """
-        all_texts = []
+        all_messages = []
         n_truncated = 0
-        # Style field: present if --style-tokens and data has "style" column
-        styles = examples.get("style", None) if style_tokens_enabled else None
-        for idx, (inst, inp, out) in enumerate(zip(
+        for inst, inp, out in zip(
             examples["instruction"], examples["input"], examples["output"]
-        )):
-            user_content = str(inst)
+        ):
+            user_content = inst
             if inp:
-                user_content += "\n" + str(inp)
-
-            # Build system prompt with optional style prefix
-            sys_content = CODING_SYSTEM_PROMPT
-            if style_tokens_enabled:
-                style_val = styles[idx] if styles and idx < len(styles) and styles[idx] else style_mode
-                sys_content = f"<{style_val}>\n{CODING_SYSTEM_PROMPT}"
+                user_content += "\n" + inp
 
             messages = [
-                {"role": "system", "content": sys_content},
+                {"role": "system", "content": CODING_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
-                {"role": "assistant", "content": str(out)},
+                {"role": "assistant", "content": out},
             ]
 
-            # Apply chat template to get final text
+            # Truncate long responses to fit seq_length
             try:
                 text = tokenizer.apply_chat_template(
                     messages, tokenize=False, add_generation_prompt=False
                 )
             except Exception:
-                text = f"system\n{sys_content}\nuser\n{user_content}\nassistant\n{out}"
+                text = f"system\n{CODING_SYSTEM_PROMPT}\nuser\n{user_content}\nassistant\n{out}"
 
-            # Truncate long responses to fit seq_length
             n_tokens = len(tokenizer.encode(text))
             if n_tokens > seq_length:
                 overhead_messages = [
-                    {"role": "system", "content": sys_content},
+                    {"role": "system", "content": CODING_SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
                     {"role": "assistant", "content": ""},
                 ]
@@ -1120,28 +535,22 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     )
                     overhead_tokens = len(tokenizer.encode(overhead_text))
                 except Exception:
-                    overhead_tokens = n_tokens - len(tokenizer.encode(str(out)))
+                    overhead_tokens = n_tokens - len(tokenizer.encode(out))
 
                 budget = seq_length - overhead_tokens - 1
-                out_tokens = tokenizer.encode(str(out), add_special_tokens=False)[:budget]
+                out_tokens = tokenizer.encode(out, add_special_tokens=False)[:budget]
                 truncated_out = tokenizer.decode(out_tokens, skip_special_tokens=False)
                 messages[-1]["content"] = truncated_out
-                try:
-                    text = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=False
-                    )
-                except Exception:
-                    text = f"system\n{sys_content}\nuser\n{user_content}\nassistant\n{truncated_out}"
                 n_truncated += 1
 
-            all_texts.append(text)
+            all_messages.append(messages)
 
         if n_truncated > 0:
-            logger.info(f"  format_to_text: truncated {n_truncated}/{len(all_texts)} "
+            logger.info(f"  format_to_messages: truncated {n_truncated}/{len(all_messages)} "
                         f"to fit {seq_length} tokens")
-        return {"text": all_texts}
+        return {"messages": all_messages}
 
-    dataset = dataset.map(format_to_text, batched=True,
+    dataset = dataset.map(format_to_messages, batched=True,
                           remove_columns=dataset.column_names)
 
     # Trim dataset for smoke tests — no point tokenizing 2500+ pairs for 3 steps
@@ -1165,415 +574,21 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
     logger.info(f"Dataset ready: {len(dataset)} examples")
 
-    # ── Sequence length audit + optional filtering ──
-    max_seq_filter = getattr(args, "max_seq_len_filter", False)
-    total_before = len(dataset)
-    dataset = dataset.map(
-        lambda ex: {"_tok_len": len(tokenizer.encode(ex["text"], add_special_tokens=False))},
-        desc="Auditing token lengths",
-    )
-    over_limit = sum(1 for ex in dataset if ex["_tok_len"] > seq_length)
-    if over_limit > 0:
-        logger.info(f"Sequence length audit: {over_limit}/{total_before} examples exceed "
-                    f"max_seq_length={seq_length}")
-        if max_seq_filter:
-            dataset = dataset.filter(lambda ex: ex["_tok_len"] <= seq_length)
-            logger.info(f"  Filtered: {total_before} -> {len(dataset)} examples "
-                        f"(dropped {over_limit} truncation-prone examples)")
-    else:
-        logger.info(f"Sequence length audit: all {total_before} examples fit within {seq_length} tokens")
-    if "_tok_len" in dataset.column_names:
-        dataset = dataset.remove_columns(["_tok_len"])
-
-    sample_text = dataset[0]["text"]
+    sample_msgs = dataset[0]["messages"]
+    sample_text = tokenizer.apply_chat_template(sample_msgs, tokenize=False, add_generation_prompt=False)
     sample_len = len(tokenizer.encode(sample_text))
     ends_with_eos = sample_text.rstrip().endswith("<|im_end|>")
-    logger.info(f"Sample: {sample_len} tokens, ends_with_EOS={ends_with_eos}")
-    logger.info(f"  First 200 chars: {sample_text[:200]}...")
-    logger.info(f"  Last 200 chars: ...{sample_text[-200:]}")
-
-    # ── EWC-LoRA Setup ──
-    # Elastic Weight Consolidation: penalizes changes to important LoRA parameters
-    ewc_state = {"fisher": None, "old_params": None, "enabled": False}
-
-    if use_ewc and EWC_CONFIG["enabled"]:
-        fisher_path = ewc_fisher_path
-        if fisher_path and os.path.exists(fisher_path):
-            logger.info(f"Loading EWC Fisher matrix from {fisher_path}")
-            try:
-                fisher_data = torch.load(fisher_path, map_location="cpu", weights_only=True)
-                fisher_dict = fisher_data["fisher"]
-                old_params_dict = fisher_data["old_params"]
-
-                # Validate Fisher rank matches current LoRA config
-                fisher_lora_cfg = fisher_data.get("lora_config", {})
-                fisher_rank = fisher_lora_cfg.get("r", None)
-                current_rank = LORA_CONFIG["r"]
-                if fisher_rank and fisher_rank != current_rank:
-                    logger.warning(f"Fisher rank mismatch: fisher.pt has r={fisher_rank}, "
-                                   f"current training uses r={current_rank}")
-
-                # Shape-check each Fisher param against model LoRA params
-                # Build lookup of current model's LoRA param shapes
-                model_param_shapes = {}
-                for name, param in model.named_parameters():
-                    if 'lora_' in name and param.requires_grad:
-                        model_param_shapes[name] = param.shape
-
-                valid_fisher = {}
-                valid_old_params = {}
-                skipped = 0
-                for name in list(fisher_dict.keys()):
-                    if name in model_param_shapes:
-                        if fisher_dict[name].shape == model_param_shapes[name]:
-                            valid_fisher[name] = fisher_dict[name]
-                            valid_old_params[name] = old_params_dict[name]
-                        else:
-                            logger.warning(f"  EWC shape mismatch for {name}: "
-                                           f"fisher={fisher_dict[name].shape} vs "
-                                           f"model={model_param_shapes[name]} — skipping")
-                            skipped += 1
-                    else:
-                        skipped += 1
-
-                if skipped > 0:
-                    logger.warning(f"  EWC: skipped {skipped}/{len(fisher_dict)} params "
-                                   f"(shape mismatch or missing in model)")
-
-                if valid_fisher:
-                    # EWC v2: Use RAW Fisher (no max→1.0 normalization).
-                    # v1 normalization amplified tiny values by 11.5x, causing penalty domination.
-                    # Per-param adaptive lambda in compute_ewc_loss handles scaling instead.
-                    all_fisher_vals = torch.cat([v.flatten() for v in valid_fisher.values()])
-                    fisher_max = all_fisher_vals.max().item()
-                    fisher_mean = all_fisher_vals.mean().item()
-                    if fisher_max == 0:
-                        logger.warning("  Fisher diagonal is ALL zeros — EWC will have no effect")
-                    else:
-                        logger.info(f"  Fisher stats (raw, no normalization): "
-                                    f"max={fisher_max:.2e}, mean={fisher_mean:.2e}, "
-                                    f"nonzero={(all_fisher_vals > 0).sum().item()}"
-                                    f"/{all_fisher_vals.numel()}")
-
-                    ewc_state["fisher"] = valid_fisher
-                    ewc_state["old_params"] = valid_old_params
-                    ewc_state["enabled"] = True
-                    logger.info(f"  EWC active: {len(valid_fisher)} parameter groups "
-                                f"({skipped} skipped), lambda={EWC_CONFIG['lambda']}")
-                else:
-                    logger.warning("  EWC: no valid parameter groups after shape validation "
-                                   "— EWC disabled. Re-run --compute-fisher-only with "
-                                   f"--rank {current_rank}")
-            except Exception as e:
-                logger.warning(f"Failed to load Fisher matrix: {e} — EWC disabled")
-        else:
-            logger.info("No Fisher matrix found — EWC disabled (first cycle or no --fisher-path)")
-    else:
-        logger.info("EWC disabled" + (" (--no-ewc)" if not use_ewc else ""))
-
-    def compute_ewc_loss(model_arg):
-        """EWC v2: per-param adaptive lambda on raw Fisher, divided by grad_accum_steps.
-        Fixes 3 compounding bugs from v1: normalization amplification, single lambda, stacking."""
-        if not ewc_state["enabled"]:
-            return 0.0
-
-        ewc_loss = torch.tensor(0.0, device=next(model_arg.parameters()).device)
-        fisher = ewc_state["fisher"]
-        old_params = ewc_state["old_params"]
-        grad_accum = TRAINING_CONFIG["gradient_accumulation_steps"]
-
-        for name, param in model_arg.named_parameters():
-            if name in fisher and param.requires_grad:
-                fisher_diag = fisher[name].to(param.device)
-                old_val = old_params[name].to(param.device)
-                param_diff = (param - old_val) ** 2
-                # Per-parameter adaptive lambda: scale by relative importance
-                importance = fisher_diag / (fisher_diag.mean() + 1e-8)
-                lambda_i = EWC_CONFIG["lambda"] * importance
-                ewc_loss = ewc_loss + (lambda_i * param_diff).sum()
-
-        # Divide by gradient_accumulation_steps to match SFT loss scale
-        return ewc_loss / grad_accum
-
-    # ── Probe Reference Caching (v3.0 — probe-aware loss + hidden anchoring) ──
-    probe_aware = getattr(args, "probe_aware", False)
-    hidden_anchor = getattr(args, "hidden_anchor", False)
-    probe_loss_every = getattr(args, "probe_loss_every", 1)
-    probe_weight_base = getattr(args, "probe_weight", 0.1)
-    anchor_weight = getattr(args, "anchor_weight", 0.05)
-    anchor_layer = getattr(args, "anchor_layer", 24)
-
-    # Mutable state for probe loss tracking (accessible in compute_loss closure)
-    probe_state = {
-        "step": 0, "enabled": False, "disabled_reason": None,
-        "last_probe_kl": 0.0, "last_anchor_mse": 0.0,
-    }
-    probe_cache = {"log_probs": {}, "hidden_states": {}, "inputs": {}, "masks": {}, "domains": {}}
-
-    if (probe_aware or hidden_anchor) and not getattr(args, "compute_fisher_only", False):
-        try:
-            from probe_library import ALL_PROBES, DOMAINS
-            import torch.nn.functional as F
-            import random as _cache_rng
-
-            # Pre-select 1 probe per domain (6 total, not 60) — avoids VRAM
-            # fragmentation from 60 forward passes. During loss we sample 1/domain
-            # anyway, so caching all 60 is wasteful.
-            by_domain = {}
-            for p in ALL_PROBES:
-                by_domain.setdefault(p.domain, []).append(p)
-            selected_probes = []
-            for domain, probes_in_domain in by_domain.items():
-                selected_probes.append(_cache_rng.choice(probes_in_domain))
-
-            logger.info(f"Caching probe references: probe_aware={probe_aware}, "
-                        f"hidden_anchor={hidden_anchor} (layer {anchor_layer}), "
-                        f"probes={len(selected_probes)} (1/domain from {len(ALL_PROBES)} total)")
-
-            # Navigate to backbone for hidden state extraction
-            try:
-                causal_lm = model.base_model.model  # Qwen2ForCausalLM
-                backbone = causal_lm.model           # Qwen2Model
-                lm_head = causal_lm.lm_head
-            except AttributeError:
-                backbone = model.model
-                lm_head = model.lm_head
-
-            model.eval()
-            # Disable adapters to cache BASE model behavior (what we want to preserve)
-            try:
-                model.disable_adapter_layers()
-            except Exception:
-                pass
-
-            cached_count = 0
-            for probe in selected_probes:
-                # Build probe prompt in same format as training data
-                probe_sys = CODING_SYSTEM_PROMPT
-                if style_tokens_enabled:
-                    probe_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
-                messages = [
-                    {"role": "system", "content": probe_sys},
-                    {"role": "user", "content": probe.prompt},
-                ]
-                try:
-                    probe_text = tokenizer.apply_chat_template(
-                        messages, tokenize=False, add_generation_prompt=True
-                    )
-                except Exception:
-                    probe_text = f"system\n{probe_sys}\nuser\n{probe.prompt}\nassistant\n"
-
-                # Tokenize (no padding — each probe cached individually)
-                tokens = tokenizer(probe_text, return_tensors="pt",
-                                   max_length=512, truncation=True)
-                tokens = {k: v.to(model.device) for k, v in tokens.items()}
-
-                with torch.no_grad():
-                    if hidden_anchor:
-                        # Full forward with hidden states
-                        hidden_out = backbone(
-                            input_ids=tokens["input_ids"],
-                            attention_mask=tokens["attention_mask"],
-                            output_hidden_states=True, use_cache=False,
-                        )
-                        # Cache hidden states at anchor layer
-                        layer_idx = min(anchor_layer, len(hidden_out.hidden_states) - 1)
-                        probe_cache["hidden_states"][probe.id] = \
-                            hidden_out.hidden_states[layer_idx].cpu()
-                        # Also get log-probs from lm_head if probe_aware
-                        if probe_aware:
-                            try:
-                                logits = lm_head(hidden_out.last_hidden_state)
-                                labels = tokens["input_ids"][:, 1:]
-                                log_probs = F.log_softmax(logits[:, :-1], dim=-1)
-                                selected_lp = torch.gather(
-                                    log_probs, 2, labels.unsqueeze(-1)
-                                ).squeeze(-1)
-                                probe_cache["log_probs"][probe.id] = selected_lp.cpu()
-                                del logits, log_probs
-                            except Exception as lp_err:
-                                logger.warning(f"  Log-prob caching failed for probe {probe.id}: {lp_err}")
-                        del hidden_out
-                    elif probe_aware:
-                        # Just get log-probs (lighter path)
-                        outputs = backbone(
-                            input_ids=tokens["input_ids"],
-                            attention_mask=tokens["attention_mask"],
-                            use_cache=False,
-                        )
-                        logits = lm_head(outputs.last_hidden_state)
-                        labels = tokens["input_ids"][:, 1:]
-                        log_probs = F.log_softmax(logits[:, :-1], dim=-1)
-                        selected_lp = torch.gather(
-                            log_probs, 2, labels.unsqueeze(-1)
-                        ).squeeze(-1)
-                        probe_cache["log_probs"][probe.id] = selected_lp.cpu()
-                        del outputs, logits
-
-                # Cache inputs and masks on CPU
-                probe_cache["inputs"][probe.id] = {
-                    k: v.cpu() for k, v in tokens.items()
-                }
-                probe_cache["masks"][probe.id] = tokens["attention_mask"].cpu()
-                probe_cache["domains"][probe.id] = probe.domain
-                cached_count += 1
-
-                # Free GPU memory between probes
-                torch.cuda.empty_cache()
-
-            # Re-enable adapters
-            try:
-                model.enable_adapter_layers()
-            except Exception:
-                pass
-            model.train()
-
-            # Hard VRAM cleanup — release ALL cached allocator blocks back to CUDA driver.
-            # empty_cache() alone only marks blocks reusable within PyTorch's pool;
-            # we need to actually shrink the pool so Unsloth's fused CE can allocate fresh.
-            import gc
-            gc.collect()
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
-            # Nuclear option: force CUDA memory pool to release back to driver
-            if hasattr(torch.cuda, 'memory') and hasattr(torch.cuda.memory, 'CUDACachingAllocator'):
-                try:
-                    torch.cuda.memory.CUDACachingAllocator.release_all_memory()
-                except Exception:
-                    pass
-            # Alternative: reset peak stats so Unsloth sees true current state
-            torch.cuda.reset_peak_memory_stats()
-            torch.cuda.reset_accumulated_memory_stats()
-
-            # Compute cache sizes
-            lp_size = sum(t.numel() * t.element_size()
-                          for t in probe_cache["log_probs"].values()) / 1e6
-            hs_size = sum(t.numel() * t.element_size()
-                          for t in probe_cache["hidden_states"].values()) / 1e6
-            logger.info(f"  Cached {cached_count} probes: "
-                        f"log_probs={lp_size:.1f}MB, hidden_states={hs_size:.1f}MB")
-            probe_state["enabled"] = True
-
-        except Exception as e:
-            logger.warning(f"Probe caching failed: {e} — probe-aware/anchor disabled")
-            probe_state["enabled"] = False
-            probe_state["disabled_reason"] = str(e)
-
-    # Helper: sample 1 probe per domain for loss computation
-    def _sample_probes_by_domain(cache_dict, n_per_domain=1):
-        """Return list of probe IDs, n_per_domain from each domain."""
-        import random as _rng
-        by_domain = {}
-        for pid, domain in cache_dict["domains"].items():
-            by_domain.setdefault(domain, []).append(pid)
-        selected = []
-        for domain, pids in by_domain.items():
-            selected.extend(_rng.sample(pids, min(n_per_domain, len(pids))))
-        return selected
-
-    # ── CKA Mini-Anchor: cache golden baseline representations ──
-    cka_state = {"enabled": False, "golden_reps": None, "last_cka": 1.0, "warnings": 0, "probes": []}
-    cka_anchor = getattr(args, "cka_anchor", False)
-    cka_interval = getattr(args, "cka_interval", 20)
-    cka_threshold = getattr(args, "cka_threshold", 0.93)
-    cka_halt_val = getattr(args, "cka_halt", 0.88)
-    cka_anchor_layer = getattr(args, "anchor_layer", 24)
-
-    if cka_anchor and not getattr(args, "compute_fisher_only", False):
-        try:
-            from probe_library import ALL_PROBES as CKA_PROBES
-            logger.info(f"CKA anchor: caching golden baseline ({len(CKA_PROBES)} probes, "
-                        f"layer {cka_anchor_layer}, interval={cka_interval})")
-
-            try:
-                _cka_causal = model.base_model.model
-                _cka_backbone = _cka_causal.model
-            except AttributeError:
-                _cka_backbone = model.model
-
-            model.eval()
-            try:
-                model.disable_adapter_layers()
-            except Exception:
-                pass
-
-            golden_reps = []
-            for probe in CKA_PROBES:
-                probe_sys = CODING_SYSTEM_PROMPT
-                if style_tokens_enabled:
-                    probe_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
-                messages = [
-                    {"role": "system", "content": probe_sys},
-                    {"role": "user", "content": probe.prompt},
-                ]
-                try:
-                    text = tokenizer.apply_chat_template(messages, tokenize=False,
-                                                         add_generation_prompt=True)
-                except Exception:
-                    text = f"system\n{probe_sys}\nuser\n{probe.prompt}\nassistant\n"
-                tokens = tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
-                tokens = {k: v.to(model.device) for k, v in tokens.items()}
-
-                with torch.no_grad():
-                    h_out = _cka_backbone(input_ids=tokens["input_ids"],
-                                          attention_mask=tokens["attention_mask"],
-                                          output_hidden_states=True, use_cache=False)
-                    layer_idx = min(cka_anchor_layer, len(h_out.hidden_states) - 1)
-                    mask = tokens["attention_mask"].unsqueeze(-1).float()
-                    hidden = h_out.hidden_states[layer_idx]
-                    pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
-                    golden_reps.append(pooled.squeeze(0).cpu())
-                    del h_out
-                torch.cuda.empty_cache()
-
-            try:
-                model.enable_adapter_layers()
-            except Exception:
-                pass
-            model.train()
-
-            cka_state["golden_reps"] = torch.stack(golden_reps)  # [60, 3584]
-            cka_state["enabled"] = True
-            cka_state["probes"] = CKA_PROBES
-            golden_mb = cka_state["golden_reps"].numel() * 4 / 1e6
-            logger.info(f"  CKA golden baseline cached: {cka_state['golden_reps'].shape}, "
-                        f"{golden_mb:.1f}MB")
-            import gc; gc.collect(); torch.cuda.empty_cache()
-
-        except Exception as e:
-            logger.warning(f"CKA anchor caching failed: {e} — disabled")
-            cka_state["enabled"] = False
+    logger.info(f"Sample: {sample_len} tokens, {len(sample_msgs)} messages, ends_with_EOS={ends_with_eos}")
+    logger.info(f"  System: {sample_msgs[0]['content'][:80]}...")
+    logger.info(f"  User: {sample_msgs[1]['content'][:80]}...")
+    logger.info(f"  Assistant: {sample_msgs[2]['content'][:80]}...")
 
     # ── KL-Anchored Loss Setup ──
     # Chunked approach: backbone(full seq) → lm_head(kl_slice positions only)
     # Peak logit VRAM = kl_slice × 248K × 2 bytes = ~240MB (not 970MB for full seq).
     # Compatible with CCE: we never rely on outputs.logits from the SFT pass.
     # k3 estimator: (r-1) - log(r), same as GRPO. O(seq_len) not O(seq×vocab).
-    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": None, "last_ewc": 0.0}
-
-    # ── STM: Selective Token Masking (NeurIPS 2025, arXiv 2501.14315) ──
-    # High-PPL tokens cause gradient-rank explosion that kills keyword probes.
-    # Mask them in labels (-100) so model sees them in context but doesn't learn to produce them.
-    use_stm = getattr(args, "stm", False)
-    stm_threshold = getattr(args, "stm_threshold", 2.5)
-    stm_state = {"enabled": use_stm, "total_masked": 0, "total_completion": 0,
-                 "disabled": False, "disabled_reason": None}
-    if use_stm:
-        logger.info(f"STM enabled: masking tokens with PPL > {stm_threshold}")
-
-    # ── SDFT: Self-Distillation Fine-Tuning (MIT Jan 2026, arXiv 2601.19897) ──
-    # Replace additive KL penalty with SDFT mixing: (1-alpha)*CE + alpha*KL.
-    # Uses reverse KL (mode-seeking) — student stays near its own distribution.
-    use_sdft = getattr(args, "sdft", False)
-    sdft_alpha = getattr(args, "sdft_alpha", 0.7)
-    sdft_state = {"enabled": use_sdft, "last_sdft_kl": 0.0}
-    if use_sdft:
-        logger.info(f"SDFT enabled: alpha={sdft_alpha} (KL weight), reverse KL mode-seeking")
-        # SDFT implicitly enables KL path (uses same infrastructure)
-        if not use_kl:
-            use_kl = True
-            logger.info("  SDFT auto-enabled KL path")
-
+    kl_state = {"disabled": False, "last_kl": 0.0, "last_sft": 0.0}
     _original_compute_loss = SFTTrainer.compute_loss
 
     def _chunked_log_probs(model_arg, inputs, label_slice, kl_slice, with_grad):
@@ -1601,19 +616,11 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
         ctx = torch.enable_grad() if with_grad else torch.no_grad()
         with ctx:
-            # Packed training: attention_mask is removed by Unsloth; packed_seq_lengths
-            # replaces it. Pass it through so flash-attn varlen kernel handles sequence
-            # boundary isolation. Without this, backbone uses full cross-sequence attention
-            # (all-ones fallback), contaminating log-prob values at packed boundaries.
-            backbone_kwargs = {
-                "input_ids": inputs.get("input_ids"),
-                "use_cache": False,
-            }
-            if inputs.get("attention_mask") is not None:
-                backbone_kwargs["attention_mask"] = inputs["attention_mask"]
-            if inputs.get("packed_seq_lengths") is not None:
-                backbone_kwargs["packed_seq_lengths"] = inputs["packed_seq_lengths"]
-            hidden_out = backbone(**backbone_kwargs)
+            hidden_out = backbone(
+                input_ids=inputs.get("input_ids"),
+                attention_mask=inputs.get("attention_mask"),
+                use_cache=False,
+            )
             # Slice BEFORE lm_head: kl_slice × 4096 → kl_slice × 248K
             hidden_slice = hidden_out.last_hidden_state[:, -kl_slice:, :].contiguous()
             del hidden_out
@@ -1648,10 +655,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             sft_loss = result
             outputs = None
 
-        # Track pure SFT loss before any penalty additions
-        # (used by quality alarm to avoid false positives from EWC/KL/probe penalties)
-        kl_state["last_sft"] = sft_loss.item()
-
         kl_loss_val = 0.0
         if use_kl and KL_CONFIG["lambda"] > 0 and not kl_state["disabled"]:
             labels = inputs.get("labels", inputs.get("input_ids"))
@@ -1683,22 +686,14 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
 
                 # Phase 3: k3 KL estimator — O(seq_len) memory, not O(seq×vocab)
                 log_ratio = tuned_log_prob - ref_log_prob.detach()
-                log_ratio = log_ratio.clamp(-5.0, 5.0)  # PPO-style clamp: prevents exp() explosion
                 ratio = torch.exp(log_ratio)
                 kl_per_token = (ratio - 1) - log_ratio
                 kl_per_token[ignore_mask] = 0.0
                 n_valid = (~ignore_mask).sum().clamp(min=1)
                 kl_loss = kl_per_token.sum() / n_valid
-                kl_loss = torch.clamp(kl_loss, max=1.0)  # Hard cap: with SDFT alpha=0.7, max KL contribution = 0.7
 
                 kl_loss_val = kl_loss.item()
-                if use_sdft:
-                    # SDFT mixing: (1-alpha)*CE + alpha*KL replaces additive penalty.
-                    # This makes KL the PRIMARY signal, not just a penalty.
-                    sft_loss = (1.0 - sdft_alpha) * sft_loss + sdft_alpha * kl_loss
-                    sdft_state["last_sdft_kl"] = kl_loss_val
-                else:
-                    sft_loss = sft_loss + KL_CONFIG["lambda"] * kl_loss
+                sft_loss = sft_loss + KL_CONFIG["lambda"] * kl_loss
 
                 del tuned_log_prob, ref_log_prob, log_ratio, ratio, kl_per_token
                 torch.cuda.empty_cache()
@@ -1716,171 +711,15 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     logger.warning(f"KL chunked error ({type(e).__name__}: {e}) — disabling")
                     kl_state["disabled"] = True
 
-        # Phase 4: EWC penalty (additive, independent of KL)
-        ewc_loss_val = 0.0
-        if ewc_state["enabled"]:
-            try:
-                ewc_penalty = compute_ewc_loss(model_arg)
-                if isinstance(ewc_penalty, torch.Tensor):
-                    ewc_loss_val = ewc_penalty.item()
-                    sft_loss = sft_loss + ewc_penalty
-            except Exception as e:
-                if ewc_state["enabled"]:
-                    logger.warning(f"EWC loss error ({type(e).__name__}: {e}) — disabling")
-                    ewc_state["enabled"] = False
-
-        # ── Phase 5: Probe-Aware KL (v3.0 — representation anchoring) ──
-        probe_kl_val = 0.0
-        if probe_state["enabled"] and probe_aware and \
-                probe_state["step"] % probe_loss_every == 0:
-            try:
-                import torch.nn.functional as _F
-                probe_batch = _sample_probes_by_domain(probe_cache, n_per_domain=1)
-                probe_kl_total = torch.tensor(0.0, device=sft_loss.device)
-                n_probes = 0
-
-                for pid in probe_batch:
-                    if pid not in probe_cache["log_probs"]:
-                        continue
-                    cached_lp = probe_cache["log_probs"][pid].to(sft_loss.device)
-                    p_inputs = {k: v.to(sft_loss.device) for k, v
-                                in probe_cache["inputs"][pid].items()}
-
-                    # Forward through current model (adapters ON, no_grad)
-                    # We use no_grad to avoid building massive computation graphs
-                    # (6 probes × 512 tokens × 151K vocab = ~3.5GB grad tensors).
-                    # The KL is added to sft_loss as a detached scalar penalty.
-                    try:
-                        p_causal = model_arg.base_model.model
-                        p_backbone = p_causal.model
-                        p_lm_head = p_causal.lm_head
-                    except AttributeError:
-                        p_backbone = model_arg.model
-                        p_lm_head = model_arg.lm_head
-
-                    with torch.no_grad():
-                        p_hidden = p_backbone(
-                            input_ids=p_inputs["input_ids"],
-                            attention_mask=p_inputs["attention_mask"],
-                            use_cache=False,
-                        )
-                        p_logits = p_lm_head(p_hidden.last_hidden_state)
-                        p_labels = p_inputs["input_ids"][:, 1:]
-                        curr_lp = _F.log_softmax(p_logits[:, :-1], dim=-1)
-                        curr_selected = torch.gather(
-                            curr_lp, 2, p_labels.unsqueeze(-1)
-                        ).squeeze(-1)
-
-                        # k3 KL estimator
-                        log_ratio = curr_selected - cached_lp
-                        ratio = torch.exp(log_ratio)
-                        kl = ((ratio - 1) - log_ratio).mean()
-
-                    probe_kl_total = probe_kl_total + kl.detach()
-                    n_probes += 1
-
-                    del cached_lp, p_hidden, p_logits, curr_lp, curr_selected
-                    torch.cuda.empty_cache()
-
-                if n_probes > 0:
-                    avg_kl = probe_kl_total / n_probes
-                    # Clamp KL to prevent dominating the SFT loss
-                    # KL > 10 means representations have diverged massively — cap contribution
-                    avg_kl = torch.clamp(avg_kl, max=10.0)
-                    probe_kl_val = avg_kl.item()
-                    # NOTE: probe KL is a MONITORING metric, not a loss term.
-                    # Computed under no_grad so it has zero gradient signal.
-                    # Used by CKA/heartbeat for drift detection, not for training.
-
-            except torch.cuda.OutOfMemoryError:
-                torch.cuda.empty_cache()
-                logger.warning("Probe-aware KL OOM — disabling for rest of run")
-                probe_state["enabled"] = False
-                probe_state["disabled_reason"] = "OOM"
-            except Exception as e:
-                logger.warning(f"Probe-aware KL error ({type(e).__name__}: {e}) — disabling")
-                probe_state["enabled"] = False
-                probe_state["disabled_reason"] = str(e)
-
-        # ── Phase 6: Hidden State Anchoring (v3.0 — mid-layer MSE) ──
-        anchor_mse_val = 0.0
-        if probe_state["enabled"] and hidden_anchor and \
-                probe_state["step"] % probe_loss_every == 0:
-            try:
-                probe_batch = _shared_probe_batch or _sample_probes_by_domain(probe_cache, n_per_domain=1)
-                mse_total = torch.tensor(0.0, device=sft_loss.device)
-                n_probes = 0
-
-                for pid in probe_batch:
-                    if pid not in probe_cache["hidden_states"]:
-                        continue
-                    cached_hs = probe_cache["hidden_states"][pid].to(sft_loss.device)
-                    cached_mask = probe_cache["masks"][pid].to(sft_loss.device)
-                    p_inputs = {k: v.to(sft_loss.device) for k, v
-                                in probe_cache["inputs"][pid].items()}
-
-                    try:
-                        p_causal = model_arg.base_model.model
-                        p_backbone = p_causal.model
-                    except AttributeError:
-                        p_backbone = model_arg.model
-
-                    # no_grad: avoid building gradient graph for 6 × full backbone passes
-                    with torch.no_grad():
-                        h_out = p_backbone(
-                            input_ids=p_inputs["input_ids"],
-                            attention_mask=p_inputs["attention_mask"],
-                            output_hidden_states=True, use_cache=False,
-                        )
-                        layer_idx = min(anchor_layer,
-                                        len(h_out.hidden_states) - 1)
-                        current_hs = h_out.hidden_states[layer_idx]
-
-                        # Masked MSE over non-pad positions (mean over seq AND hidden dim)
-                        mask = cached_mask.unsqueeze(-1).float()  # [1, seq, 1]
-                        n_elements = mask.sum() * current_hs.shape[-1]
-                        mse = ((current_hs - cached_hs) ** 2 * mask).sum() \
-                            / n_elements.clamp(min=1)
-
-                    mse_total = mse_total + mse.detach()
-                    n_probes += 1
-
-                    del cached_hs, current_hs, h_out
-                    torch.cuda.empty_cache()
-
-                if n_probes > 0:
-                    avg_mse = mse_total / n_probes
-                    # Clamp MSE to prevent dominating SFT loss
-                    avg_mse = torch.clamp(avg_mse, max=1.0)
-                    anchor_mse_val = avg_mse.item()
-                    # NOTE: anchor MSE is a MONITORING metric, not a loss term.
-                    # Computed under no_grad — zero gradient signal.
-                    # Used by CKA/heartbeat for drift detection.
-
-            except torch.cuda.OutOfMemoryError:
-                torch.cuda.empty_cache()
-                logger.warning("Hidden anchor MSE OOM — disabling for rest of run")
-                probe_state["enabled"] = False
-                probe_state["disabled_reason"] = "OOM"
-            except Exception as e:
-                logger.warning(f"Hidden anchor error ({type(e).__name__}: {e}) — disabling")
-                probe_state["enabled"] = False
-                probe_state["disabled_reason"] = str(e)
-
-        probe_state["step"] += 1
-        probe_state["last_probe_kl"] = probe_kl_val
-        probe_state["last_anchor_mse"] = anchor_mse_val
-
         kl_state["last_kl"] = kl_loss_val
-        # last_sft is captured at line 1373 BEFORE any penalties are added
-        # (no back-computation needed — eliminates circular dependency)
-        kl_state["last_ewc"] = ewc_loss_val
+        kl_state["last_sft"] = (sft_loss.item() - KL_CONFIG["lambda"] * kl_loss_val
+                                 if kl_loss_val else sft_loss.item())
 
         if return_outputs:
             return sft_loss, outputs
         return sft_loss
 
-    if use_kl or use_ewc or use_sdft or probe_state["enabled"]:
+    if use_kl:
         SFTTrainer.compute_loss = compute_loss_with_kl
 
     # ── Callbacks ──
@@ -1889,8 +728,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             self._start_time = time.time()
             self._step_start = time.time()
             self._step_timeout = step_timeout
-            self._loss_history = []  # Track all losses for regression detection
-            self._diverge_warnings = 0  # Count consecutive divergence signals
 
         def on_log(self, args, state, control, logs=None, **kwargs):
             if logs is None:
@@ -1903,47 +740,12 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             step_time = time.time() - self._step_start
             eta_s = (elapsed / max(step, 1)) * (total - step) if step > 0 else 0
 
-            # Grad norm explosion detector — v6-think had grad_norm=154 at step 5, 580 at step 10
-            grad_norm = logs.get("grad_norm")
-            if grad_norm is not None and step >= 2:
-                if isinstance(grad_norm, str):
-                    try:
-                        grad_norm = float(grad_norm)
-                    except ValueError:
-                        grad_norm = None
-                if grad_norm is not None and grad_norm > 100:
-                    self._diverge_warnings += 1
-                    logger.warning(f"GRAD NORM EXPLOSION: {grad_norm:.1f} > 100 at step {step} "
-                                   f"[warning {self._diverge_warnings}/2]")
-                    if self._diverge_warnings >= 2:
-                        logger.error(f"QUALITY ALARM: grad_norm > 100 for 2 consecutive logs — "
-                                     f"training is diverging, aborting to save GPU time")
-                        control.should_training_stop = True
-
             parts = [f"Step {step}/{total}"]
             if loss is not None:
                 parts.append(f"loss={loss:.4f}")
-                # Track SFT loss (not total) for divergence detection when penalties are active
-                track_loss = kl_state["last_sft"] if kl_state.get("last_sft") is not None else loss
-                self._loss_history.append(track_loss)
-                self._check_loss_health(step, total, loss, control)
-            if probe_state.get("last_probe_kl", 0) > 0 or probe_state.get("last_anchor_mse", 0) > 0:
-                parts.append(f"sft={kl_state['last_sft']:.4f}")
             if use_kl and kl_state["last_kl"] > 0:
+                parts.append(f"sft={kl_state['last_sft']:.4f}")
                 parts.append(f"kl={kl_state['last_kl']:.4f}")
-            if ewc_state["enabled"] and kl_state["last_ewc"] > 0:
-                parts.append(f"ewc={kl_state['last_ewc']:.4f}")
-            if probe_state.get("last_probe_kl", 0) > 0:
-                parts.append(f"p_kl={probe_state['last_probe_kl']:.4f}")
-            if probe_state.get("last_anchor_mse", 0) > 0:
-                parts.append(f"a_mse={probe_state['last_anchor_mse']:.6f}")
-            if cka_state["enabled"] and cka_state["last_cka"] < 1.0:
-                parts.append(f"cka={cka_state['last_cka']:.4f}")
-            if use_sdft and sdft_state["last_sdft_kl"] > 0:
-                parts.append(f"sdft_kl={sdft_state['last_sdft_kl']:.4f}")
-            if use_stm and stm_state["total_completion"] > 0:
-                pct = 100.0 * stm_state["total_masked"] / max(stm_state["total_completion"], 1)
-                parts.append(f"stm={pct:.1f}%")
             if lr is not None:
                 parts.append(f"lr={lr:.2e}")
             parts.append(f"step_time={step_time:.1f}s")
@@ -1951,58 +753,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
             parts.append(f"ETA={eta_s/3600:.1f}h")
             logger.info(" | ".join(parts))
             sys.stderr.flush()
-
-        def _check_loss_health(self, step, total, loss, control):
-            """Auto-abort if training is clearly failing.
-
-            v6-think post-mortem: model exploded at step 5 (grad_norm=154, loss=14.6)
-            but old alarm didn't trigger until step 20. Wasted entire night on dead run.
-            Now checks from step 3 onwards with grad_norm monitoring.
-            """
-            # Use per-sample SFT loss when available, otherwise raw loss
-            check_loss = loss
-            if kl_state.get("last_sft") is not None:
-                check_loss = kl_state["last_sft"]
-
-            # 0. NaN detector — catches corrupted forward pass immediately
-            import math
-            if math.isnan(check_loss) or math.isinf(check_loss):
-                logger.error(f"QUALITY ALARM: Loss is {check_loss} at step {step} — "
-                             f"model producing NaN/Inf, aborting immediately")
-                control.should_training_stop = True
-                return
-
-            # 1. EARLY explosion detector — catches gradient blowup within first 10 steps
-            # v6-think: loss went 0.82 → 0.98 → 14.6 in 10 steps. This catches it at step 5.
-            if step >= 3 and check_loss > 5.0:
-                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 5.0 at step {step} — "
-                             f"training has exploded, aborting immediately")
-                control.should_training_stop = True
-                return
-
-            # 2. Not converging: loss > 3.0 after 25% of training
-            if step > total * 0.25 and check_loss > 3.0:
-                logger.error(f"QUALITY ALARM: Loss {check_loss:.4f} > 3.0 at step {step} "
-                             f"({step/total*100:.0f}% through) — not converging, aborting")
-                control.should_training_stop = True
-                return
-
-            # 3. Diverging: loss trending up over last 10 logged values (was 20 — too slow)
-            if len(self._loss_history) >= 10:
-                recent = self._loss_history[-10:]
-                first_half = sum(recent[:5]) / 5
-                second_half = sum(recent[5:]) / 5
-                if second_half > first_half * 1.10:  # 10% increase
-                    self._diverge_warnings += 1
-                    logger.warning(f"QUALITY WARNING: Loss trending UP "
-                                   f"({first_half:.4f} → {second_half:.4f}) "
-                                   f"[warning {self._diverge_warnings}/3]")
-                    if self._diverge_warnings >= 3:
-                        logger.error(f"QUALITY ALARM: 3 consecutive divergence warnings — "
-                                     f"training is getting worse, aborting")
-                        control.should_training_stop = True
-                else:
-                    self._diverge_warnings = 0  # Reset on recovery
 
         def on_step_begin(self, args, state, control, **kwargs):
             self._step_start = time.time()
@@ -2043,66 +793,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
                     )
             except Exception:
                 pass
-
-            # ── CKA Mini-Anchor: periodic representation drift check ──
-            if (cka_state["enabled"] and state.global_step > 0
-                    and state.global_step % cka_interval == 0):
-                try:
-                    _m = kwargs.get("model", model)
-                    try:
-                        _cka_bb = _m.base_model.model.model
-                    except AttributeError:
-                        _cka_bb = _m.model
-
-                    current_reps = []
-                    _m.eval()
-                    for probe in cka_state["probes"]:
-                        p_sys = CODING_SYSTEM_PROMPT
-                        if style_tokens_enabled:
-                            p_sys = f"<direct>\n{CODING_SYSTEM_PROMPT}"
-                        msgs = [{"role": "system", "content": p_sys},
-                                {"role": "user", "content": probe.prompt}]
-                        try:
-                            txt = tokenizer.apply_chat_template(
-                                msgs, tokenize=False, add_generation_prompt=True)
-                        except Exception:
-                            txt = f"system\n{p_sys}\nuser\n{probe.prompt}\nassistant\n"
-                        toks = tokenizer(txt, return_tensors="pt", max_length=512, truncation=True)
-                        toks = {k: v.to(_m.device) for k, v in toks.items()}
-                        with torch.no_grad():
-                            h = _cka_bb(input_ids=toks["input_ids"],
-                                        attention_mask=toks["attention_mask"],
-                                        output_hidden_states=True, use_cache=False)
-                            li = min(cka_anchor_layer, len(h.hidden_states) - 1)
-                            msk = toks["attention_mask"].unsqueeze(-1).float()
-                            hid = h.hidden_states[li]
-                            pooled = (hid * msk).sum(dim=1) / msk.sum(dim=1).clamp(min=1)
-                            current_reps.append(pooled.squeeze(0).cpu())
-                            del h
-                        torch.cuda.empty_cache()
-                    _m.train()
-
-                    cka_val = linear_cka(cka_state["golden_reps"], torch.stack(current_reps))
-                    cka_state["last_cka"] = cka_val
-
-                    if cka_val < cka_halt_val:
-                        logger.error(f"CKA HALT: {cka_val:.4f} < {cka_halt_val} at step "
-                                     f"{state.global_step} — representations diverged")
-                        control.should_training_stop = True
-                    elif cka_val < cka_threshold:
-                        cka_state["warnings"] += 1
-                        logger.warning(f"CKA WARNING: {cka_val:.4f} < {cka_threshold} "
-                                       f"at step {state.global_step} "
-                                       f"[{cka_state['warnings']} warnings]")
-                    else:
-                        logger.info(f"CKA OK: {cka_val:.4f} at step {state.global_step}")
-                except torch.cuda.OutOfMemoryError:
-                    torch.cuda.empty_cache()
-                    logger.warning("CKA check OOM — disabling")
-                    cka_state["enabled"] = False
-                except Exception as e:
-                    logger.warning(f"CKA check error: {e} — disabling")
-                    cka_state["enabled"] = False
 
         def on_train_begin(self, args, state, control, **kwargs):
             self._start_time = time.time()
@@ -2160,29 +850,6 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
     _hb_thread = threading.Thread(target=_heartbeat, daemon=True)
     _hb_thread.start()
 
-    # ── Two-Stage Training Configuration ──
-    # Based on LLM4SVG paper: Stage 1 aligns output format (low LR, 1 epoch),
-    # Stage 2 trains knowledge (normal LR, 2 epochs). LoRA weights persist across stages.
-    TWO_STAGE_CONFIG = {
-        "stage1": {"learning_rate": 1e-5, "num_train_epochs": 1, "label": "Format Alignment"},
-        "stage2": {"learning_rate": 2e-5, "num_train_epochs": 2, "label": "Knowledge Training"},
-    }
-
-    if two_stage:
-        stages = [
-            ("stage1", TWO_STAGE_CONFIG["stage1"]),
-            ("stage2", TWO_STAGE_CONFIG["stage2"]),
-        ]
-        logger.info("Two-stage training ENABLED (LLM4SVG-inspired)")
-        logger.info(f"  Stage 1: {TWO_STAGE_CONFIG['stage1']['label']} — "
-                     f"lr={TWO_STAGE_CONFIG['stage1']['learning_rate']}, "
-                     f"epochs={TWO_STAGE_CONFIG['stage1']['num_train_epochs']}")
-        logger.info(f"  Stage 2: {TWO_STAGE_CONFIG['stage2']['label']} — "
-                     f"lr={TWO_STAGE_CONFIG['stage2']['learning_rate']}, "
-                     f"epochs={TWO_STAGE_CONFIG['stage2']['num_train_epochs']}")
-    else:
-        stages = [("single", None)]  # Single-stage: use existing config
-
     # ── Build SFTConfig ──
     # Adjust batch size: Unsloth saves ~4GB VRAM, so we can go bigger
     batch_size = TRAINING_CONFIG["per_device_train_batch_size"]
@@ -2193,437 +860,140 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         logger.info(f"Unsloth QLoRA mode: batch_size={batch_size}, grad_accum={grad_accum} "
                      f"(effective={batch_size * grad_accum})")
 
-    # Pre-formatted text column — bypasses Unsloth's _tokenize which crashes on messages format
-    logger.info("Dataset format: pre-formatted text (chat template applied in format_to_text)")
-    logger.info("Sequence packing: OFF")
+    # Packing disabled: incompatible with assistant_only_loss (response-only masking).
+    # assistant_only_loss is critical for preventing catastrophic forgetting — the model
+    # should only learn to predict assistant responses, not system prompts or user questions.
+    logger.info("Sequence packing: OFF (required for assistant_only_loss)")
+    logger.info("Loss masking: assistant_only_loss=True (only train on response tokens)")
+
+    sft_kwargs = dict(
+        output_dir=OUTPUT_DIR,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
+        num_train_epochs=TRAINING_CONFIG["num_train_epochs"],
+        learning_rate=TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"],
+        warmup_ratio=TRAINING_CONFIG["warmup_ratio"],
+        lr_scheduler_type=TRAINING_CONFIG["lr_scheduler_type"],
+        bf16=TRAINING_CONFIG["bf16"],
+        logging_steps=TRAINING_CONFIG["logging_steps"],
+        logging_strategy="steps",
+        save_steps=TRAINING_CONFIG["save_steps"],
+        weight_decay=TRAINING_CONFIG["weight_decay"],
+        max_grad_norm=TRAINING_CONFIG["max_grad_norm"],
+        seed=TRAINING_CONFIG["seed"],
+        report_to="none",
+        disable_tqdm=True,
+        gradient_checkpointing=True,
+        optim="adamw_torch_fused" if not use_unsloth else "adamw_8bit",  # 8-bit Adam with Unsloth
+        dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
+        dataloader_pin_memory=True,
+        dataloader_persistent_workers=True,
+        dataloader_prefetch_factor=2,
+        dataloader_drop_last=True,
+        logging_first_step=True,
+        save_total_limit=3,
+        skip_memory_metrics=True,
+        max_length=seq_length,
+        packing=False,                    # Disabled: incompatible with assistant_only_loss
+        assistant_only_loss=True,         # Only compute loss on assistant response tokens
+        neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
+        torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
+                                          # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
+    )
+    # Early stopping: eval every 50 steps, stop if val_loss stagnates for 150 steps
+    if eval_dataset is not None:
+        sft_kwargs["eval_strategy"] = "steps"
+        sft_kwargs["eval_steps"] = 50
+        sft_kwargs["load_best_model_at_end"] = True
+        sft_kwargs["metric_for_best_model"] = "eval_loss"
+        sft_kwargs["greater_is_better"] = False
+        logger.info("Early stopping enabled: eval every 50 steps, patience ~150 steps")
+
+    if max_steps > 0:
+        sft_kwargs["max_steps"] = max_steps
+        sft_kwargs["save_steps"] = max_steps + 1
+        logger.info(f"Test mode: max_steps={max_steps}")
+
+    sft_config = SFTConfig(**sft_kwargs)
+
+    # Early stopping callback
+    callbacks = [V5LoggingCallback()]
+    if eval_dataset is not None:
+        from transformers import EarlyStoppingCallback
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
+        logger.info("EarlyStoppingCallback added (patience=3 evals)")
+
+    trainer = SFTTrainer(
+        model=model,
+        processing_class=tokenizer,
+        train_dataset=dataset,
+        eval_dataset=eval_dataset,
+        args=sft_config,
+        callbacks=callbacks,
+        formatting_func=lambda example: example["messages"],
+    )
+
+    # Preserve curriculum ordering
+    from torch.utils.data import SequentialSampler
+    trainer._get_train_sampler = lambda ds: SequentialSampler(ds)
+
+    # Monkey-patch training_step to call empty_cache() after every micro-batch.
+    # Without this, PyTorch's caching allocator reserves 16-17GB on our 16GB card
+    # during the 16 gradient accumulation sub-steps, spilling to system RAM (300s+ steps).
+    # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
+    _orig_training_step = trainer.training_step
+    def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
+        result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
+        torch.cuda.empty_cache()
+        return result
+    trainer.training_step = _training_step_with_vram_cleanup
+
+    # Check for existing checkpoints
+    resume_checkpoint = None
+    if os.path.exists(OUTPUT_DIR):
+        checkpoints = sorted(
+            [d for d in os.listdir(OUTPUT_DIR) if d.startswith("checkpoint-")],
+            key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
+        )
+        if checkpoints:
+            resume_checkpoint = os.path.join(OUTPUT_DIR, checkpoints[-1])
+            logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    overall_start_time = time.time()
-    final_loss = "N/A"
 
-    from torch.utils.data import SequentialSampler
+    # Final VRAM cleanup before training — free all cached allocations
+    gc.collect()
+    torch.cuda.empty_cache()
+    pre_train_alloc = torch.cuda.memory_allocated() / 1e9
+    pre_train_reserved = torch.cuda.memory_reserved() / 1e9
+    pre_train_total = torch.cuda.get_device_properties(0).total_memory / 1e9
+    logger.info(f"Pre-train VRAM: {pre_train_alloc:.2f}GB alloc, "
+                f"{pre_train_reserved:.2f}GB reserved, "
+                f"{pre_train_total - pre_train_reserved:.2f}GB truly free")
 
-    for stage_name, stage_cfg in stages:
-        # Determine LR and epochs for this stage
-        if stage_cfg is not None:
-            stage_lr = stage_cfg["learning_rate"]
-            stage_epochs = stage_cfg["num_train_epochs"]
-            stage_label = stage_cfg["label"]
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info(f"  === Stage {stage_name[-1]}: {stage_label} ===")
-            logger.info(f"  lr={stage_lr}, epochs={stage_epochs}")
-            logger.info("=" * 60)
-        else:
-            # Single-stage: use original logic
-            stage_epochs = epochs_override if epochs_override > 0 else (1 if warm_start else TRAINING_CONFIG["num_train_epochs"])
-            stage_lr = TRAINING_CONFIG["learning_rate"] / 2 if warm_start else TRAINING_CONFIG["learning_rate"]
+    logger.info("Starting training...")
+    sys.stderr.flush()
+    start_time = time.time()
 
-        sft_kwargs = dict(
-            output_dir=OUTPUT_DIR,
-            per_device_train_batch_size=batch_size,
-            gradient_accumulation_steps=grad_accum,
-            num_train_epochs=stage_epochs,
-            learning_rate=stage_lr,
-            warmup_ratio=TRAINING_CONFIG["warmup_ratio"],
-            lr_scheduler_type=TRAINING_CONFIG["lr_scheduler_type"],
-            bf16=TRAINING_CONFIG["bf16"],
-            logging_steps=TRAINING_CONFIG["logging_steps"],
-            logging_strategy="steps",
-            save_steps=TRAINING_CONFIG["save_steps"],
-            weight_decay=TRAINING_CONFIG["weight_decay"],
-            max_grad_norm=TRAINING_CONFIG["max_grad_norm"],
-            seed=TRAINING_CONFIG["seed"],
-            report_to="none",
-            disable_tqdm=True,
-            gradient_checkpointing=True,
-            optim=getattr(args, "optim", "") or ("adamw_torch_fused" if not use_unsloth else "adamw_8bit"),
-            dataloader_num_workers=min(4, (os.cpu_count() or 4) // 2),
-            dataloader_pin_memory=True,
-            dataloader_persistent_workers=True,
-            dataloader_prefetch_factor=2,
-            dataloader_drop_last=True,
-            logging_first_step=True,
-            save_total_limit=3,
-            skip_memory_metrics=True,
-            max_length=seq_length,
-            packing=getattr(args, "packing", False),
-            dataset_text_field="text",        # Pre-formatted text (chat template already applied)
-            neftune_noise_alpha=TRAINING_CONFIG["neftune_noise_alpha"],
-            torch_compile=False,              # BnB 4-bit causes 39+ graph breaks with full-model compile;
-                                              # norm layers compiled individually above (non-Unsloth), Unsloth uses own Triton
-        )
-        # Early stopping: eval every 50 steps, stop if val_loss stagnates for 150 steps
-        if eval_dataset is not None:
-            sft_kwargs["eval_strategy"] = "steps"
-            sft_kwargs["eval_steps"] = 50
-            sft_kwargs["load_best_model_at_end"] = True
-            sft_kwargs["metric_for_best_model"] = "eval_loss"
-            sft_kwargs["greater_is_better"] = False
-            if stage_cfg is None:
-                logger.info("Early stopping enabled: eval every 50 steps, patience ~150 steps")
+    try:
+        stats = trainer.train(resume_from_checkpoint=resume_checkpoint)
+    except Exception as e:
+        logger.error(f"Training FAILED: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        _heartbeat_stop.set()
+        raise
+    finally:
+        _heartbeat_stop.set()
 
-        if max_steps > 0:
-            sft_kwargs["max_steps"] = max_steps
-            sft_kwargs["save_steps"] = max_steps + 1
-            if stage_cfg is None:
-                logger.info(f"Test mode: max_steps={max_steps}")
-
-        sft_config = SFTConfig(**sft_kwargs)
-
-        # Early stopping callback
-        callbacks = [V5LoggingCallback()]
-        if eval_dataset is not None:
-            from transformers import EarlyStoppingCallback
-            callbacks.append(EarlyStoppingCallback(early_stopping_patience=3))  # 3 evals = 150 steps
-            if stage_cfg is None:
-                logger.info("EarlyStoppingCallback added (patience=3 evals)")
-
-        # Domain probe callback: mid-training regression detection (--probe-guard)
-        if probe_guard and (max_steps == 0 or max_steps > probe_interval):
-            try:
-                from domain_probe_callback import DomainProbeCallback
-                probe_cb = DomainProbeCallback(
-                    probe_interval=probe_interval,
-                    server_url=probe_server_url,
-                    style_prefix=f"<{style_mode}>" if style_tokens_enabled else "",
-                )
-                # Set baseline from score_ledger if available
-                ledger_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "score_ledger.json")
-                if os.path.exists(ledger_path):
-                    with open(ledger_path, "r") as f:
-                        ledger = json.load(f)
-                    versions = [k for k in ledger if not k.startswith("failed/")]
-                    if versions:
-                        latest = ledger[versions[-1]]
-                        baseline = {d: s for d, s in latest.items()
-                                    if isinstance(s, (int, float)) and d in ('python', 'rust', 'go', 'cpp', 'js', 'hive')}
-                        if baseline:
-                            probe_cb.set_baseline(baseline)
-                            callbacks.append(probe_cb)
-                            logger.info(f"DomainProbeCallback enabled: every {probe_interval} steps, "
-                                        f"baseline from {versions[-1]}")
-                        else:
-                            logger.warning("Probe guard: no numeric domain scores in ledger, skipping")
-                    else:
-                        logger.warning("Probe guard: empty score_ledger, skipping")
-                else:
-                    logger.warning("Probe guard: score_ledger.json not found, skipping")
-            except ImportError as e:
-                logger.warning(f"Probe guard: could not import DomainProbeCallback: {e}")
-
-        # LoRA+ optimizer: B matrix gets 16x higher LR (arXiv 2602.04998)
-        lora_plus_optimizers = None
-        if lora_plus:
-            import torch
-            a_params = [p for n, p in model.named_parameters() if "lora_A" in n and p.requires_grad]
-            b_params = [p for n, p in model.named_parameters() if "lora_B" in n and p.requires_grad]
-            other_params = [p for n, p in model.named_parameters()
-                           if "lora_A" not in n and "lora_B" not in n and p.requires_grad]
-            lora_plus_lr = stage_lr
-            param_groups = [
-                {"params": a_params, "lr": lora_plus_lr},
-                {"params": b_params, "lr": lora_plus_lr * 16},
-            ]
-            if other_params:
-                param_groups.append({"params": other_params, "lr": lora_plus_lr})
-            optim_choice = getattr(args, "optim", "") or ("adamw_8bit" if use_unsloth else "")
-            if optim_choice == "adamw_8bit":
-                try:
-                    import bitsandbytes as bnb
-                    lora_plus_optimizer = bnb.optim.AdamW8bit(param_groups, weight_decay=0.01)
-                    logger.info("LoRA+ using 8-bit AdamW (bitsandbytes)")
-                except ImportError:
-                    lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
-                    logger.warning("bitsandbytes not available, LoRA+ falling back to 32-bit AdamW")
-            else:
-                lora_plus_optimizer = torch.optim.AdamW(param_groups, weight_decay=0.01)
-            lora_plus_optimizers = (lora_plus_optimizer, None)  # (optimizer, scheduler=None → default)
-            logger.info(f"LoRA+ enabled: A_lr={lora_plus_lr:.2e}, B_lr={lora_plus_lr * 16:.2e} (16x)")
-
-        # Response-only loss masking: only compute loss on assistant tokens.
-        # The template marks where the assistant response starts in ChatML format.
-        response_template = "<|im_start|>assistant\n"
-        response_collator = DataCollatorForCompletionOnlyLM(
-            response_template=response_template,
-            tokenizer=tokenizer,
-        )
-
-        trainer = SFTTrainer(
-            model=model,
-            processing_class=tokenizer,
-            train_dataset=dataset,
-            eval_dataset=eval_dataset,
-            args=sft_config,
-            callbacks=callbacks,
-            data_collator=response_collator,
-            optimizers=lora_plus_optimizers if lora_plus else (None, None),
-        )
-
-        # Preserve curriculum ordering
-        trainer._get_train_sampler = lambda ds: SequentialSampler(ds)
-
-        # Monkey-patch training_step to call empty_cache() after every micro-batch.
-        # Without this, PyTorch's caching allocator reserves 16-17GB on our 16GB card
-        # during the 16 gradient accumulation sub-steps, spilling to system RAM (300s+ steps).
-        # Cost: ~1-5ms per call × 16 calls/step = ~16-80ms overhead (negligible vs 70s steps).
-        _orig_training_step = trainer.training_step
-        def _training_step_with_vram_cleanup(model_arg, inputs, num_items_in_batch=None):
-            # ── STM: mask high-PPL completion tokens before loss computation ──
-            # Per-token PPL via base model (adapters disabled) identifies tokens the
-            # model finds surprising. Masking these prevents gradient-rank explosion
-            # that kills fragile keyword probes (NeurIPS 2025, arXiv 2501.14315).
-            if stm_state["enabled"] and not stm_state["disabled"]:
-                try:
-                    labels = inputs.get("labels")
-                    input_ids = inputs.get("input_ids")
-                    if labels is not None and input_ids is not None:
-                        completion_mask = (labels != -100)  # only process completion tokens
-                        if completion_mask.any():
-                            # Packed training: attention_mask removed by Unsloth; pass
-                            # packed_seq_lengths so flash-attn varlen kernel isolates sequences.
-                            # Falls back to explicit mask (non-packed) or all-ones (no packing).
-                            attn = inputs.get("attention_mask")
-                            packed_seq_len = inputs.get("packed_seq_lengths")
-                            with torch.no_grad():
-                                model_arg.disable_adapter_layers()
-                                try:
-                                    base_kwargs = {"input_ids": input_ids, "use_cache": False}
-                                    if attn is not None:
-                                        base_kwargs["attention_mask"] = attn
-                                    elif packed_seq_len is None:
-                                        base_kwargs["attention_mask"] = torch.ones_like(input_ids)
-                                    if packed_seq_len is not None:
-                                        base_kwargs["packed_seq_lengths"] = packed_seq_len
-                                    base_out = model_arg(**base_kwargs)
-                                    logits = base_out.logits
-                                    # Per-token CE: logits[t] predicts input_ids[t+1]
-                                    shift_logits = logits[:, :-1, :].contiguous()
-                                    shift_ids = input_ids[:, 1:].contiguous()
-                                    ce = F.cross_entropy(
-                                        shift_logits.view(-1, shift_logits.size(-1)),
-                                        shift_ids.view(-1),
-                                        reduction='none'
-                                    ).view(shift_ids.shape)
-                                    ppl = torch.exp(ce.float())
-                                    # Build mask: ppl[t] corresponds to labels[t+1]
-                                    high_ppl = torch.zeros_like(labels, dtype=torch.bool)
-                                    high_ppl[:, 1:] = (ppl > stm_threshold)
-                                    # Only mask completion tokens (preserve prompt masking)
-                                    newly_masked = high_ppl & completion_mask
-                                    n_masked = newly_masked.sum().item()
-                                    n_completion = completion_mask.sum().item()
-                                    labels[newly_masked] = -100
-                                    stm_state["total_masked"] += n_masked
-                                    stm_state["total_completion"] += n_completion
-                                    del logits, shift_logits, ce, ppl, base_out
-                                finally:
-                                    model_arg.enable_adapter_layers()
-                            torch.cuda.empty_cache()
-                except torch.cuda.OutOfMemoryError:
-                    model_arg.enable_adapter_layers()
-                    torch.cuda.empty_cache()
-                    stm_state["disabled"] = True
-                    stm_state["disabled_reason"] = "OOM"
-                    logger.warning("STM OOM — disabling for rest of training")
-                except Exception as e:
-                    model_arg.enable_adapter_layers()
-                    torch.cuda.empty_cache()
-                    stm_state["disabled"] = True
-                    stm_state["disabled_reason"] = str(e)
-                    logger.warning(f"STM error ({type(e).__name__}: {e}) — disabling")
-
-            result = _orig_training_step(model_arg, inputs, num_items_in_batch=num_items_in_batch)
-            torch.cuda.empty_cache()
-            return result
-        trainer.training_step = _training_step_with_vram_cleanup
-
-        # Check for existing checkpoints (only for first stage or single-stage)
-        resume_checkpoint = None
-        if stage_name in ("single", "stage1") and os.path.exists(OUTPUT_DIR):
-            checkpoints = sorted(
-                [d for d in os.listdir(OUTPUT_DIR) if d.startswith("checkpoint-")],
-                key=lambda x: int(x.split("-")[-1]) if x.split("-")[-1].isdigit() else 0,
-            )
-            if checkpoints:
-                resume_checkpoint = os.path.join(OUTPUT_DIR, checkpoints[-1])
-                logger.info(f"Resuming from checkpoint: {resume_checkpoint}")
-
-        # Final VRAM cleanup before training — free all cached allocations
-        gc.collect()
-        torch.cuda.empty_cache()
-        pre_train_alloc = torch.cuda.memory_allocated() / 1e9
-        pre_train_reserved = torch.cuda.memory_reserved() / 1e9
-        pre_train_total = torch.cuda.get_device_properties(0).total_memory / 1e9
-        logger.info(f"Pre-train VRAM: {pre_train_alloc:.2f}GB alloc, "
-                    f"{pre_train_reserved:.2f}GB reserved, "
-                    f"{pre_train_total - pre_train_reserved:.2f}GB truly free")
-
-        if stage_cfg is not None:
-            logger.info(f"Starting {stage_label} (Stage {stage_name[-1]})...")
-        else:
-            logger.info("Starting training...")
-        sys.stderr.flush()
-        stage_start_time = time.time()
-
-        try:
-            stats = trainer.train(resume_from_checkpoint=resume_checkpoint)
-        except Exception as e:
-            logger.error(f"Training FAILED: {type(e).__name__}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            _heartbeat_stop.set()
-            raise
-
-        stage_elapsed = time.time() - stage_start_time
-        stage_loss = stats.metrics.get("train_loss", "N/A")
-        if stage_cfg is not None:
-            logger.info(f"Stage {stage_name[-1]} ({stage_label}) complete: "
-                        f"loss={stage_loss}, time={stage_elapsed:.0f}s ({stage_elapsed/3600:.1f}h)")
-        else:
-            logger.info(f"Training complete: loss={stage_loss}, time={stage_elapsed:.0f}s ({stage_elapsed/3600:.1f}h)")
-        final_loss = stage_loss
-
-    _heartbeat_stop.set()
-
-    elapsed = time.time() - overall_start_time
-    loss = final_loss
-    if two_stage:
-        logger.info(f"Two-stage training complete: final_loss={loss}, "
-                    f"total_time={elapsed:.0f}s ({elapsed/3600:.1f}h)")
-
-    # ── Remove KeepLoRA gradient hooks ──
-    if keeplora_hooks:
-        for h in keeplora_hooks:
-            h.remove()
-        logger.info(f"KeepLoRA: removed {len(keeplora_hooks)} gradient hooks")
+    elapsed = time.time() - start_time
+    loss = stats.metrics.get("train_loss", "N/A")
+    logger.info(f"Training complete: loss={loss}, time={elapsed:.0f}s ({elapsed/3600:.1f}h)")
 
     # ── Save adapter ──
     model.save_pretrained(OUTPUT_DIR)
     tokenizer.save_pretrained(OUTPUT_DIR)
     logger.info(f"Adapter saved to {OUTPUT_DIR}")
-
-    # ── KeepLoRA: save task subspace for next cycle ──
-    if keeplora_enabled:
-        try:
-            logger.info("KeepLoRA: computing task subspace from trained LoRA...")
-            new_subspace = {}
-
-            # Collect lora_A and lora_B pairs to compute effective delta per layer
-            lora_params = {}
-            for name, param in model.named_parameters():
-                if "lora_A" in name:
-                    layer_key = name.replace(".lora_A.default.weight", "").replace(".lora_A.weight", "")
-                    lora_params.setdefault(layer_key, {})["A"] = param.data.float().cpu()
-                elif "lora_B" in name:
-                    layer_key = name.replace(".lora_B.default.weight", "").replace(".lora_B.weight", "")
-                    lora_params.setdefault(layer_key, {})["B"] = param.data.float().cpu()
-
-            for layer_key, params in lora_params.items():
-                if "A" not in params or "B" not in params:
-                    continue
-                # Effective delta = B @ A  [out_dim, in_dim]
-                delta = params["B"] @ params["A"]
-                try:
-                    _, _, Vh = torch.linalg.svd(delta, full_matrices=False)
-                    # Keep top-k principal directions (input-space)
-                    k = min(keeplora_rank, Vh.shape[0])
-                    new_dirs = Vh[:k, :]  # [k, in_dim]
-
-                    # Merge with previous frozen subspace (cumulative)
-                    if layer_key in frozen_subspace:
-                        prev_dirs = frozen_subspace[layer_key]  # [prev_k, in_dim]
-                        combined = torch.cat([prev_dirs, new_dirs], dim=0)
-                        # QR re-orthonormalize to remove redundancy
-                        Q, R = torch.linalg.qr(combined.T)  # Q: [in_dim, rank]
-                        # Keep only directions with non-trivial magnitude
-                        norms = R.diag().abs()
-                        keep = norms > 1e-6
-                        new_subspace[layer_key] = Q[:, keep].T  # [kept, in_dim]
-                    else:
-                        new_subspace[layer_key] = new_dirs
-                except Exception:
-                    continue  # Skip layers where SVD fails
-
-            if new_subspace:
-                subspace_save_path = os.path.join(OUTPUT_DIR, "frozen_subspace.pt")
-                torch.save(new_subspace, subspace_save_path)
-                total_dirs = sum(v.shape[0] for v in new_subspace.values())
-                logger.info(f"KeepLoRA: saved frozen subspace to {subspace_save_path} "
-                            f"({len(new_subspace)} layers, {total_dirs} total protected directions)")
-            else:
-                logger.warning("KeepLoRA: no LoRA pairs found — skipping subspace save")
-        except Exception as e:
-            logger.warning(f"KeepLoRA subspace save failed: {e} — non-fatal")
-
-    # ── Normalize adapter config (fix absolute cache paths) ──
-    adapter_config_path = os.path.join(OUTPUT_DIR, "adapter_config.json")
-    if os.path.exists(adapter_config_path):
-        try:
-            with open(adapter_config_path, "r", encoding="utf-8") as f:
-                adapter_cfg = json.load(f)
-            base_path = adapter_cfg.get("base_model_name_or_path", "")
-            if "/snapshots/" in base_path or "/.cache/" in base_path:
-                adapter_cfg["base_model_name_or_path"] = "Qwen/Qwen2.5-Coder-14B-Instruct"
-                with open(adapter_config_path, "w", encoding="utf-8") as f:
-                    json.dump(adapter_cfg, f, indent=2)
-                logger.info("  Normalized adapter_config.json base_model_name_or_path")
-        except Exception as e:
-            logger.warning(f"  Could not normalize adapter config: {e}")
-
-    # ── Compute & save Fisher matrix for next EWC cycle ──
-    if use_ewc:
-        try:
-            logger.info("Computing Fisher Information Matrix for EWC (next cycle)...")
-            fisher = {}
-            old_params = {}
-            model.eval()
-
-            # Collect LoRA parameter names
-            for name, param in model.named_parameters():
-                if 'lora_' in name and param.requires_grad:
-                    fisher[name] = torch.zeros_like(param, device="cpu")
-                    old_params[name] = param.data.clone().cpu()
-
-            if fisher:
-                # Use trainer's TOKENIZED dataset (not raw `dataset` which may have
-                # only a 'text' column — the data_collator expects input_ids/labels).
-                tokenized_ds = trainer.train_dataset
-                fisher_samples = min(EWC_CONFIG["fisher_samples"], len(tokenized_ds))
-                import itertools
-                fisher_loader = torch.utils.data.DataLoader(
-                    tokenized_ds.select(range(fisher_samples)),
-                    batch_size=4,
-                    collate_fn=trainer.data_collator,
-                )
-                for batch in itertools.islice(fisher_loader, fisher_samples):
-                    batch = {k: v.to(model.device) if hasattr(v, 'to') else v
-                             for k, v in batch.items()}
-                    model.zero_grad()
-                    outputs = model(**batch)
-                    outputs.loss.backward()
-                    for name, param in model.named_parameters():
-                        if name in fisher and param.grad is not None:
-                            fisher[name] += (param.grad.data ** 2).cpu() / fisher_samples
-                    model.zero_grad()
-
-                fisher_save_path = os.path.join(OUTPUT_DIR, "fisher.pt")
-                torch.save({
-                    "fisher": fisher,
-                    "old_params": old_params,
-                    "lora_config": {
-                        "r": LORA_CONFIG["r"],
-                        "lora_alpha": LORA_CONFIG["lora_alpha"],
-                        "target_modules": list(LORA_CONFIG["target_modules"]),
-                    },
-                }, fisher_save_path)
-                size_mb = os.path.getsize(fisher_save_path) / (1024 * 1024)
-                logger.info(f"  Fisher matrix saved: {fisher_save_path} ({size_mb:.1f} MB, "
-                            f"{len(fisher)} params, {fisher_samples} samples)")
-            else:
-                logger.warning("  No LoRA parameters found — skipping Fisher computation")
-        except Exception as e:
-            logger.warning(f"  Fisher computation failed: {e} — skipping (non-fatal)")
 
     # Save training metadata
     meta = {
@@ -2639,45 +1009,34 @@ def train_v5(model_path: str, max_steps: int = 0, use_kl: bool = True,
         "training_config": TRAINING_CONFIG,
         "kl_config": KL_CONFIG if use_kl else None,
         "kl_disabled_during_training": kl_state["disabled"],
-        "ewc_config": EWC_CONFIG if use_ewc else None,
-        "ewc_enabled_during_training": ewc_state["enabled"],
         "max_seq_length": seq_length,
         "system_prompt": "CODING_SYSTEM_PROMPT (hiveai.llm.prompts)",
         "format": "ChatML via tokenizer.apply_chat_template",
         "eos_token": tokenizer.eos_token,
         "eos_token_id": tokenizer.eos_token_id,
         "trained_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "two_stage": two_stage,
-        "two_stage_config": TWO_STAGE_CONFIG if two_stage else None,
     }
     with open(os.path.join(OUTPUT_DIR, "training_meta.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
-    # ── Auto-convert LoRA to GGUF ──
-    auto_convert_gguf(OUTPUT_DIR)
-    adapter_gguf_path = os.path.join(OUTPUT_DIR, "adapter.gguf")
-
     # ── Print next steps ──
     print("\n" + "=" * 60)
-    print("  Training Complete — Next Steps")
+    print("  v7 Training Complete — Next Steps")
     print("=" * 60)
-    if os.path.exists(adapter_gguf_path):
-        print(f"""
-  adapter.gguf ready at: {adapter_gguf_path}
-
-  1. Run full cycle (merge + eval + promote):
-     bash scripts/run_full_cycle.sh <domain> <data.jsonl> <version>
-
-  2. Or quick eval:
+    print(f"""
+  1. Quick eval (2 min):
      python scripts/quick_eval.py
-""")
-    else:
-        print(f"""
-  1. Convert LoRA to GGUF:
-     python convert_lora_to_gguf.py {OUTPUT_DIR} --outfile {adapter_gguf_path} --outtype f16
 
-  2. Quick eval:
-     python scripts/quick_eval.py
+  2. Convert LoRA to GGUF:
+     python convert_lora_to_gguf.py loras/v7 --base models/qwen2.5-coder-14b-base \\
+       --outfile models/hiveai-v7-lora-f16.gguf --outtype f16
+
+  3. Deploy to llama-server:
+     llama-server --model models/Qwen2.5-Coder-14B-Instruct-Q5_K_M.gguf \\
+       --lora models/hiveai-v7-lora-f16.gguf --port 11435
+
+  4. Full eval (165 challenges):
+     python scripts/run_eval.py --model hiveai-v7 --base-url http://localhost:11435
 """)
     print("=" * 60)
 
@@ -2710,119 +1069,8 @@ if __name__ == "__main__":
     parser.add_argument("--warm-start", type=str, default=None,
                         help="Continue training from an existing adapter directory "
                              "(e.g., loras/v6). Loads base+adapter, skips new LoRA init.")
-    parser.add_argument("--epochs", type=int, default=0,
-                        help="Override number of training epochs (default: 2, or 1 for warm-start)")
     parser.add_argument("--data", type=str, default=None,
                         help="Override training data JSONL path (default: v7.jsonl)")
-    parser.add_argument("--output-dir", type=str, default=None,
-                        help="Override output directory (default: loras/v7)")
-    parser.add_argument("--two-stage", action="store_true",
-                        help="Enable two-stage training (LLM4SVG-inspired): "
-                             "Stage 1 aligns output format (1 epoch, lr=1e-5), "
-                             "Stage 2 trains knowledge (2 epochs, lr=2e-5)")
-    parser.add_argument("--attn-only", action="store_true",
-                        help="Train attention layers only (freeze MLP). "
-                             "QAD research shows 3.2dB improvement from reduced gradient noise.")
-    parser.add_argument("--init-think-tokens", action="store_true",
-                        help="Initialize <think>/</think> token embeddings semantically "
-                             "(LLM4SVG-inspired). Averages embeddings of related words "
-                             "for faster convergence.")
-    # === Continual Learning Pipeline v1.0 flags ===
-    parser.add_argument("--rank", type=int, default=0,
-                        help="Override LoRA rank (default: 16, use 4-8 for continual learning)")
-    parser.add_argument("--lr", type=float, default=0.0,
-                        help="Override learning rate directly (default: 2e-4, or 1e-4 for warm-start)")
-    parser.add_argument("--lora-plus", action="store_true",
-                        help="LoRA+: B matrix gets 16x higher LR than A matrix "
-                             "(40-60%% faster convergence, arXiv 2602.04998)")
-    parser.add_argument("--replay-dir", type=str, default=None,
-                        help="Path to replay/ directory with per-domain JSONL files")
-    parser.add_argument("--replay-ratio", type=float, default=0.25,
-                        help="Fraction of replay data in training mix (default: 0.25)")
-    parser.add_argument("--consolidation-only", action="store_true",
-                        help="Consolidation mode: 1 epoch, LR/10, 100%% replay data")
-    parser.add_argument("--base-model-hf", type=str, default=None,
-                        help="Path to full-precision HF base model (for training on merged checkpoint)")
-    parser.add_argument("--neftune-alpha", type=float, default=-1.0,
-                        help="Override NEFTune noise alpha (default: 5.0, set 0 to disable)")
-    # === Lossless Continual Learning flags ===
-    parser.add_argument("--ewc-lambda", type=float, default=-1.0,
-                        help="EWC penalty weight (default: 0.5, set 0 to disable)")
-    parser.add_argument("--no-ewc", action="store_true",
-                        help="Disable EWC-LoRA regularization")
-    parser.add_argument("--fisher-path", type=str, default=None,
-                        help="Path to Fisher matrix .pt file from previous cycle")
-    parser.add_argument("--prev-lora", type=str, default=None,
-                        help="Path to previous cycle's LoRA adapter for orthogonal init")
-    parser.add_argument("--probe-guard", action="store_true",
-                        help="Enable mid-training domain probe callback (for runs >50 steps)")
-    parser.add_argument("--probe-interval", type=int, default=50,
-                        help="Steps between domain probe checks (default: 50)")
-    parser.add_argument("--probe-server", type=str, default="http://localhost:11435",
-                        help="llama-server URL for probe checks (default: http://localhost:11435)")
-    parser.add_argument("--compute-fisher-only", action="store_true",
-                        help="Compute Fisher matrix for EWC on base model and exit (no training)")
-    # === Continual Learning v3.0: Style tokens + Probe-aware training ===
-    parser.add_argument("--style-tokens", action="store_true",
-                        help="Enable <direct>/<agentic> style token system for style routing")
-    parser.add_argument("--style-mode", type=str, default="direct",
-                        choices=["direct", "agentic"],
-                        help="Default style for untagged data (default: direct)")
-    parser.add_argument("--probe-aware", action="store_true",
-                        help="Enable probe-anchoring KL-div loss (cached v_prev logits)")
-    parser.add_argument("--hidden-anchor", action="store_true",
-                        help="Enable mid-layer hidden state MSE anchoring")
-    parser.add_argument("--probe-loss-every", type=int, default=1,
-                        help="Steps between probe loss computation (default: 1)")
-    parser.add_argument("--probe-weight", type=float, default=0.1,
-                        help="Base weight for probe KL loss (default: 0.1)")
-    parser.add_argument("--anchor-weight", type=float, default=0.05,
-                        help="Weight for hidden state MSE loss (default: 0.05)")
-    parser.add_argument("--anchor-layer", type=int, default=24,
-                        help="Model layer to anchor hidden states (default: 24, mid-Qwen2.5)")
-    parser.add_argument("--curlora-init", action="store_true",
-                        help="Use CURLoRA initialization (replaces orthogonal SVD init)")
-    # v5.0 Continual Learning: STM + SDFT (NeurIPS 2025 / MIT Jan 2026)
-    parser.add_argument("--packing", action="store_true",
-                        help="Enable Unsloth padding-free sequence packing (3x speed, 30% VRAM). "
-                             "STM and SDFT pass packed_seq_lengths through to base model for correct "
-                             "flash-attn varlen boundary isolation. Validate STM mask density matches "
-                             "non-packed baseline before using in campaign runs.")
-    parser.add_argument("--stm", action="store_true",
-                        help="STM: mask high-PPL tokens in training loss (prevents keyword probe collapse)")
-    parser.add_argument("--stm-threshold", type=float, default=2.5,
-                        help="Per-token PPL threshold for STM masking (default: 2.5)")
-    parser.add_argument("--sdft", action="store_true",
-                        help="SDFT: self-distillation loss mixing (on-policy reverse KL from base model)")
-    parser.add_argument("--sdft-alpha", type=float, default=0.7,
-                        help="SDFT mixing weight: alpha*KL + (1-alpha)*CE (default: 0.7)")
-    # v4.0 Continual Learning: KeepLoRA + CKA + optimizer
-    parser.add_argument("--optim", type=str, default="",
-                        help="Optimizer override (e.g., 'adamw_8bit', 'adamw_torch_fused')")
-    parser.add_argument("--max-seq-len-filter", action="store_true",
-                        help="Drop examples exceeding max_seq_length instead of truncating")
-    parser.add_argument("--keeplora", action="store_true",
-                        help="KeepLoRA: project gradients orthogonal to protected subspaces (ICLR 2026)")
-    parser.add_argument("--keeplora-rank", type=int, default=8,
-                        help="Number of principal directions to protect per layer (default: 8)")
-    parser.add_argument("--cka-anchor", action="store_true",
-                        help="CKA mini-anchor: detect representation drift mid-training")
-    parser.add_argument("--cka-interval", type=int, default=20,
-                        help="Steps between CKA checks (default: 20)")
-    parser.add_argument("--cka-threshold", type=float, default=0.93,
-                        help="CKA warning threshold (default: 0.93)")
-    parser.add_argument("--cka-halt", type=float, default=0.88,
-                        help="CKA halt threshold — stops training (default: 0.88)")
-    # v6.0: Domain-isolated layer-selective adapters
-    parser.add_argument("--adapter-template", type=str, default="",
-                        choices=["", "hive", "cpp", "generic"],
-                        help="Preset layer-selective adapter config (overrides --target-layers/--target-modules)")
-    parser.add_argument("--target-layers", type=str, default="",
-                        help="Layer range to train, e.g., '12-27' (0-indexed, inclusive). Empty=all layers.")
-    parser.add_argument("--target-modules", type=str, default="",
-                        help="Comma-separated modules, e.g., 'v_proj,o_proj'. Empty=use LORA_CONFIG default.")
-    parser.add_argument("--lora-dropout", type=float, default=-1.0,
-                        help="Override LoRA dropout (default: 0.0, Unsloth fast-path requires 0.0)")
     args = parser.parse_args()
 
     # In --test mode, auto-skip Unsloth unless --force-unsloth.
@@ -2834,84 +1082,13 @@ if __name__ == "__main__":
 
     model_path = args.model or BASE_MODEL
 
-    # QAD §4: attention-only training (freeze MLP layers)
-    if args.attn_only:
-        LORA_CONFIG["target_modules"] = ["q_proj", "k_proj", "v_proj", "o_proj"]
-        logger.info("Attention-only mode: training q/k/v/o_proj only (MLP frozen)")
-
-    # Continual Learning: rank override
-    if args.rank > 0:
-        LORA_CONFIG["r"] = args.rank
-        LORA_CONFIG["lora_alpha"] = args.rank * 2  # maintain 2x ratio
-        logger.info(f"LoRA rank override: r={args.rank}, alpha={args.rank * 2}")
-
-    # v6.0: Layer-selective adapter templates (domain-isolated training)
-    if args.adapter_template:
-        tmpl = ADAPTER_TEMPLATES[args.adapter_template]
-        LORA_CONFIG["target_modules"] = tmpl["target_modules"]
-        LORA_CONFIG["layers_to_transform"] = tmpl["layers_to_transform"]
-        logger.info(f"Adapter template '{args.adapter_template}': "
-                    f"modules={tmpl['target_modules']}, "
-                    f"layers={tmpl['layers_to_transform'][0]}-{tmpl['layers_to_transform'][-1]}")
-    else:
-        # Manual layer/module overrides (finer control than templates)
-        if args.target_modules:
-            LORA_CONFIG["target_modules"] = [m.strip() for m in args.target_modules.split(",")]
-            logger.info(f"Target modules override: {LORA_CONFIG['target_modules']}")
-        if args.target_layers:
-            parts = args.target_layers.split("-")
-            if len(parts) == 1:
-                start = end = int(parts[0])
-            elif len(parts) == 2:
-                start, end = int(parts[0]), int(parts[1])
-            else:
-                raise ValueError(f"--target-layers must be 'N' or 'N-M', got: {args.target_layers!r}")
-            LORA_CONFIG["layers_to_transform"] = list(range(start, end + 1))
-            logger.info(f"Target layers override: {start}-{end} ({end - start + 1} layers)")
-
-    # Dropout override (default 0.0 for Unsloth fast-path)
-    if args.lora_dropout >= 0:
-        LORA_CONFIG["lora_dropout"] = args.lora_dropout
-        logger.info(f"LoRA dropout override: {args.lora_dropout}")
-
-    # Consolidation mode: override LR and epochs
-    if args.consolidation_only:
-        base_lr = args.lr if args.lr > 0 else TRAINING_CONFIG["learning_rate"]
-        args.lr = base_lr / 10  # LR/10 for consolidation
-        args.epochs = args.epochs if args.epochs > 0 else 1  # 1 epoch
-        logger.info(f"Consolidation mode: lr={args.lr}, epochs={args.epochs}, 100% replay")
-
-    # NEFTune alpha override
-    if args.neftune_alpha >= 0:
-        TRAINING_CONFIG["neftune_noise_alpha"] = args.neftune_alpha if args.neftune_alpha > 0 else None
-        logger.info(f"NEFTune alpha override: {args.neftune_alpha}" if args.neftune_alpha > 0
-                    else "NEFTune disabled")
-
-    # EWC-LoRA configuration
-    use_ewc = not args.no_ewc
-    if args.ewc_lambda >= 0:
-        EWC_CONFIG["lambda"] = args.ewc_lambda
-        if args.ewc_lambda == 0:
-            use_ewc = False
-        logger.info(f"EWC lambda override: {args.ewc_lambda}")
-    ewc_fisher_path = args.fisher_path
-
     if args.data:
         TRAINING_JSONL = os.path.abspath(args.data)
-
-    if args.output_dir:
-        OUTPUT_DIR = os.path.abspath(args.output_dir)
 
     if not os.path.exists(TRAINING_JSONL):
         logger.error(f"Training data not found: {TRAINING_JSONL}")
         logger.error("Run: python scripts/prepare_v5_data.py")
         sys.exit(1)
-
-    # Base model HF override for continual learning (train on merged checkpoint)
-    # Must be applied BEFORE existence check so --base-model-hf is used for validation
-    if args.base_model_hf:
-        model_path = args.base_model_hf
-        logger.info(f"Base model HF override: {model_path}")
 
     if not os.path.exists(model_path):
         if args.no_unsloth:
@@ -2922,218 +1099,7 @@ if __name__ == "__main__":
         else:
             logger.info(f"Local model not found at {model_path} — Unsloth will download from HuggingFace")
 
-    # LR override (applied after consolidation_only adjustments)
-    if args.lr > 0:
-        TRAINING_CONFIG["learning_rate"] = args.lr
-        logger.info(f"Learning rate override: {args.lr}")
-
-    # Adaptive replay ratio: check score_ledger for domains that dropped last cycle
-    effective_replay_ratio = args.replay_ratio
-    boosted_domains = []
-    ledger_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "score_ledger.json")
-    if os.path.exists(ledger_path) and not args.consolidation_only:
-        try:
-            with open(ledger_path, "r") as f:
-                ledger = json.load(f)
-            versions = [k for k in ledger if not k.startswith("failed/")]
-            if len(versions) >= 2:
-                latest = ledger[versions[-1]]
-                prev = ledger[versions[-2]]
-                for domain in ['python', 'rust', 'go', 'cpp', 'js', 'hive']:
-                    curr_score = latest.get(domain, 0)
-                    prev_score = prev.get(domain, 0)
-                    if isinstance(curr_score, (int, float)) and isinstance(prev_score, (int, float)):
-                        if curr_score < prev_score - 0.01:
-                            boosted_domains.append(domain)
-                if boosted_domains:
-                    effective_replay_ratio = min(0.40, args.replay_ratio + 0.15)
-                    logger.info(f"ADAPTIVE REPLAY: domains {boosted_domains} dropped last cycle — "
-                                f"boosting replay ratio {args.replay_ratio:.0%} -> {effective_replay_ratio:.0%}")
-        except Exception as e:
-            logger.warning(f"Could not read score_ledger for adaptive replay: {e}")
-
-    # Replay data mixing
-    if args.replay_dir and os.path.isdir(args.replay_dir):
-        from pathlib import Path
-        replay_files = list(Path(args.replay_dir).glob("*.jsonl"))
-        if replay_files:
-            import random
-            random.seed(42)
-            replay_samples = []
-            for rf in replay_files:
-                with open(rf, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if line:
-                            replay_samples.append(json.loads(line))
-            if replay_samples and args.data:
-                # Mix replay into training data at the specified ratio
-                with open(args.data, "r", encoding="utf-8") as f:
-                    domain_samples = [json.loads(l) for l in f if l.strip()]
-                # Calculate mix: domain_count / (1 - replay_ratio) = total
-                # replay_count = total * replay_ratio
-                target_replay = int(len(domain_samples) * effective_replay_ratio / (1 - effective_replay_ratio))
-                target_replay = min(target_replay, len(replay_samples))
-                selected_replay = random.sample(replay_samples, target_replay)
-                mixed = domain_samples + selected_replay
-                random.shuffle(mixed)
-                # Write mixed data to temp file
-                mixed_path = os.path.join(os.path.dirname(args.data), f"_mixed_replay_{os.getpid()}.jsonl")
-                with open(mixed_path, "w", encoding="utf-8") as f:
-                    for sample in mixed:
-                        # Strip metadata — mixed types crash pyarrow
-                        clean = {k: v for k, v in sample.items() if k != "metadata"}
-                        f.write(json.dumps(clean, ensure_ascii=False) + "\n")
-                TRAINING_JSONL = mixed_path
-                logger.info(f"Replay mix: {len(domain_samples)} domain + {target_replay} replay "
-                            f"= {len(mixed)} total ({effective_replay_ratio:.0%} replay)")
-            elif args.consolidation_only and replay_samples:
-                # Consolidation mode: 100% replay
-                mixed_path = os.path.join(os.path.dirname(TRAINING_JSONL), f"_consolidation_{os.getpid()}.jsonl")
-                with open(mixed_path, "w", encoding="utf-8") as f:
-                    for sample in replay_samples:
-                        clean = {k: v for k, v in sample.items() if k != "metadata"}
-                        f.write(json.dumps(clean, ensure_ascii=False) + "\n")
-                TRAINING_JSONL = mixed_path
-                logger.info(f"Consolidation: using {len(replay_samples)} replay samples (100%)")
-
-    # ── Compute-Fisher-Only mode: bootstrap Fisher for a base model ──
-    if args.compute_fisher_only:
-        import torch
-        import itertools
-        logger.info("=" * 60)
-        logger.info("COMPUTE-FISHER-ONLY MODE")
-        logger.info("=" * 60)
-        optimize_system_pre_load()
-
-        fisher_save_path = args.fisher_path
-        if not fisher_save_path:
-            fisher_save_path = os.path.join(OUTPUT_DIR, "fisher.pt")
-            os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-        # Load base model in 4-bit with temporary LoRA
-        base_hf = args.base_model_hf or model_path
-        logger.info(f"Loading base model: {base_hf}")
-
-        # Use short sequences (256) for Fisher — importance estimation doesn't need long context
-        # 16GB VRAM is tight for 14B 4-bit + forward/backward, 256 avoids OOM
-        FISHER_SEQ_LEN = 256
-
-        # Use Unsloth for loading (handles 16GB VRAM correctly on RTX 4070 Ti)
-        from unsloth import FastLanguageModel
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            base_hf, max_seq_length=FISHER_SEQ_LEN,
-            dtype=None, load_in_4bit=True,
-        )
-        # Check if a trained adapter already exists at OUTPUT_DIR — load it
-        # instead of a fresh LoRA so Fisher reflects trained weights (B≠0).
-        # With fresh LoRA (B=0), dL/dA = (alpha/r)*B^T@dL/dW = 0, making Fisher useless.
-        existing_adapter = os.path.join(OUTPUT_DIR, "adapter_model.safetensors")
-        if os.path.exists(existing_adapter):
-            logger.info(f"Loading TRAINED adapter from {OUTPUT_DIR} for Fisher computation")
-            from peft import PeftModel
-            model = PeftModel.from_pretrained(model, OUTPUT_DIR)
-            model.train()
-            # PeftModel.from_pretrained loads params frozen — unfreeze LoRA for gradient flow
-            for name, param in model.named_parameters():
-                if 'lora_' in name:
-                    param.requires_grad_(True)
-        else:
-            logger.info("No trained adapter found — applying fresh LoRA for Fisher bootstrap")
-            model = FastLanguageModel.get_peft_model(
-                model,
-                r=LORA_CONFIG["r"],
-                lora_alpha=LORA_CONFIG["lora_alpha"],
-                target_modules=LORA_CONFIG["target_modules"],
-                lora_dropout=LORA_CONFIG["lora_dropout"],
-                layers_to_transform=LORA_CONFIG.get("layers_to_transform", None),
-            )
-        logger.info(f"Model loaded via Unsloth (r={LORA_CONFIG['r']}), "
-                    f"trainable params: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
-
-        # Load replay data for Fisher computation
-        logger.info(f"Loading training data: {TRAINING_JSONL}")
-        from datasets import Dataset
-        with open(TRAINING_JSONL, "r", encoding="utf-8") as f:
-            data = [json.loads(line) for line in f if line.strip()]
-
-        # Format as chat messages for tokenization
-        formatted = []
-        for item in data:
-            text = tokenizer.apply_chat_template(
-                [{"role": "user", "content": item.get("instruction", "") + ("\n" + item["input"] if item.get("input") else "")},
-                 {"role": "assistant", "content": item.get("output", "")}],
-                tokenize=False,
-            )
-            formatted.append({"text": text})
-
-        dataset = Dataset.from_list(formatted)
-        dataset = dataset.map(
-            lambda x: tokenizer(x["text"], truncation=True, max_length=FISHER_SEQ_LEN, padding="max_length"),
-            batched=True, remove_columns=["text"],
-        )
-        # Set labels = input_ids for causal LM loss computation (required for .loss)
-        dataset = dataset.map(lambda x: {"labels": x["input_ids"]})
-        dataset.set_format("torch")
-
-        # Compute Fisher — need train mode for gradient computation through Unsloth patches
-        fisher = {}
-        old_params = {}
-        model.train()
-
-        for name, param in model.named_parameters():
-            if 'lora_' in name and param.requires_grad:
-                fisher[name] = torch.zeros_like(param, device="cpu")
-                old_params[name] = param.data.clone().cpu()
-
-        if not fisher:
-            logger.error("No LoRA parameters found — cannot compute Fisher")
-            sys.exit(1)
-
-        # 50 samples sufficient for diagonal Fisher approximation (saves ~15 min vs 200)
-        fisher_samples = min(50, len(dataset))
-        logger.info(f"Computing Fisher over {fisher_samples} samples ({len(fisher)} LoRA params)...")
-
-        fisher_loader = torch.utils.data.DataLoader(
-            dataset.select(range(fisher_samples)),
-            batch_size=4,
-            shuffle=False,
-        )
-
-        for i, batch in enumerate(itertools.islice(fisher_loader, fisher_samples)):
-            batch = {k: v.to(model.device) if hasattr(v, 'to') else v for k, v in batch.items()}
-            model.zero_grad()
-            outputs = model(**batch)
-            outputs.loss.backward()
-            for name, param in model.named_parameters():
-                if name in fisher and param.grad is not None:
-                    fisher[name] += (param.grad.data ** 2).cpu() / fisher_samples
-            model.zero_grad()
-            if (i + 1) % 10 == 0 or (i + 1) == fisher_samples:
-                logger.info(f"  Fisher progress: {i + 1}/{fisher_samples}")
-
-        os.makedirs(os.path.dirname(fisher_save_path), exist_ok=True)
-        torch.save({
-            "fisher": fisher,
-            "old_params": old_params,
-            "lora_config": {
-                "r": LORA_CONFIG["r"],
-                "lora_alpha": LORA_CONFIG["lora_alpha"],
-                "target_modules": list(LORA_CONFIG["target_modules"]),
-            },
-        }, fisher_save_path)
-        size_mb = os.path.getsize(fisher_save_path) / (1024 * 1024)
-        logger.info(f"Fisher matrix saved: {fisher_save_path} ({size_mb:.1f} MB, "
-                    f"{len(fisher)} params, {fisher_samples} samples)")
-        logger.info("Done — exiting (no training in compute-fisher-only mode)")
-        sys.exit(0)
-
     optimize_system_pre_load()
     train_v5(model_path, max_steps=args.test, use_kl=not args.no_kl,
              skip_unsloth=args.no_unsloth, step_timeout=args.step_timeout,
-             seq_length_override=args.seq_length, warm_start=args.warm_start,
-             epochs_override=args.epochs, two_stage=args.two_stage,
-             lora_plus=args.lora_plus, use_ewc=use_ewc,
-             ewc_fisher_path=ewc_fisher_path, prev_lora_path=args.prev_lora,
-             probe_guard=args.probe_guard, probe_interval=args.probe_interval,
-             probe_server_url=args.probe_server)
+             seq_length_override=args.seq_length, warm_start=args.warm_start)

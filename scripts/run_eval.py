@@ -45,26 +45,6 @@ MAX_RETRIES = 3
 DEFAULT_TIMEOUT = 600  # 10 min per challenge (generous for slow models)
 SANDBOX_TIMEOUT = 30   # 30s for code execution
 
-# Certificate verification for non-Python code (§23)
-_CERT_VERIFY_ENABLED: bool = False  # Set True when --llm-judge + --cert-verify
-_CERT_VERIFY_TIMEOUT: int = 60     # Shorter than judge's 180s
-_cert_verify_stats = {"calls": 0, "successes": 0, "failures": 0}
-
-CERTIFICATE_PROMPT = """Analyze this {language} code for correctness:
-
-```{language}
-{code}
-```
-
-Provide a verification certificate:
-1. CLAIM: What this code is supposed to do
-2. PREMISES: Key facts from the code (P1, P2, P3...)
-3. CODE TRACE: Step through execution, referencing premises
-4. CONCLUSION: VALID or INVALID with specific reasoning
-5. SCORE: 0.0-1.0 confidence in correctness
-
-Respond with JSON: {{"valid": true, "score": 0.8, "reasoning": "..."}}"""
-
 # Scoring weights
 W_CODE_VALIDITY = 0.30
 W_TEST_PASSING = 0.30
@@ -271,77 +251,6 @@ def _score_non_python_block(code: str, language: str) -> float:
     return round(min(score, 1.0), 3)
 
 
-def certificate_verify_code(code: str, language: str,
-                            llm_url: str, model: str) -> tuple[float | None, str | None]:
-    """Verify non-Python code correctness via LLM certificate analysis.
-
-    Calls the LLM judge with a structured certificate prompt that asks it to
-    trace execution paths and verify correctness semi-formally.
-
-    Args:
-        code: The code to verify.
-        language: Programming language (e.g. "rust", "go", "cpp").
-        llm_url: Ollama base URL for the judge (e.g. http://localhost:11434).
-        model: Judge model name (e.g. "qwen3:32b").
-
-    Returns:
-        (score, reasoning) where score is 0.0-1.0, or (None, None) on failure.
-        Fail-open: any error returns (None, None) so code isn't penalized.
-    """
-    import requests
-
-    _cert_verify_stats["calls"] += 1
-
-    prompt = CERTIFICATE_PROMPT.format(language=language, code=code[:3000])
-
-    try:
-        r = requests.post(
-            f"{llm_url}/api/chat",
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": "You are a code correctness verifier. "
-                     "Analyze code using semi-formal reasoning and respond with JSON."},
-                    {"role": "user", "content": prompt},
-                ],
-                "stream": False,
-                "options": {
-                    "temperature": 0.05,
-                    "num_predict": 500,
-                },
-            },
-            timeout=_CERT_VERIFY_TIMEOUT,
-        )
-        r.raise_for_status()
-        content = r.json().get("message", {}).get("content", "")
-
-        # Strip thinking tags if present
-        if "</think>" in content:
-            content = content.split("</think>", 1)[1]
-
-        # Extract JSON from response
-        json_match = re.search(r'\{[^{}]*"valid"[^{}]*\}', content)
-        if not json_match:
-            json_match = re.search(r'\{[^{}]+\}', content)
-        if not json_match:
-            logger.debug("Certificate verify: no JSON found in response")
-            _cert_verify_stats["failures"] += 1
-            return (None, None)
-
-        data = json.loads(json_match.group())
-        cert_score = float(data.get("score", 0.5))
-        cert_score = max(0.0, min(1.0, cert_score))
-        reasoning = data.get("reasoning", "")
-
-        _cert_verify_stats["successes"] += 1
-        return (round(cert_score, 3), reasoning)
-
-    except Exception as e:
-        logger.debug(f"Certificate verify failed: {e}")
-        _cert_verify_stats["failures"] += 1
-        return (None, None)
-
-
 def score_code_validity(response: str) -> float:
     """
     Dimension 1: Code validity (0.0-1.0).
@@ -351,11 +260,7 @@ def score_code_validity(response: str) -> float:
     Non-Python blocks (Rust/Go/C++/JS): structural analysis (0.0-1.0)
     Mixed responses: weighted average across all blocks.
     """
-    from hiveai.sandbox import (
-        extract_code_blocks, validate_syntax, execute_python,
-        execute_cpp, execute_rust, execute_go, execute_javascript,
-        strip_typescript_annotations,
-    )
+    from hiveai.sandbox import extract_code_blocks, validate_syntax, execute_python
 
     blocks = extract_code_blocks(response)
     if not blocks:
@@ -364,31 +269,8 @@ def score_code_validity(response: str) -> float:
         hits = sum(1 for k in code_indicators if k in response)
         return min(hits * 0.1, 0.3)
 
-    # Language → executor mapping for compiled/interpreted languages
-    _compiled_executors = {
-        "go": execute_go,
-        "golang": execute_go,
-        "cpp": execute_cpp,
-        "c++": execute_cpp,
-        "c": execute_cpp,
-        "rust": execute_rust,
-        "rs": execute_rust,
-        "javascript": execute_javascript,
-        "js": execute_javascript,
-        "typescript": execute_javascript,
-        "ts": execute_javascript,
-    }
-
     python_scores = []
     non_python_scores = []
-    # Track (index, code, lang) for structural-only scores eligible for cert verify
-    _structural_entries: list[tuple[int, str, str]] = []
-
-    def _append_structural(code: str, lang: str, score: float):
-        """Append a structural score and track it for potential cert verification."""
-        idx = len(non_python_scores)
-        non_python_scores.append(score)
-        _structural_entries.append((idx, code, lang))
 
     for block in blocks:
         lang = block.get("language", "").lower()
@@ -403,60 +285,12 @@ def score_code_validity(response: str) -> float:
             else:
                 # If untagged block fails Python parse, try structural scoring
                 if lang == "":
-                    _append_structural(block["code"], "unknown",
-                                       _score_non_python_block(block["code"], "unknown"))
+                    non_python_scores.append(_score_non_python_block(block["code"], "unknown"))
                 else:
                     python_scores.append(0.0)
-        elif lang in _compiled_executors:
-            # Compiled/interpreted languages: try execution, fall back to structural
-            executor = _compiled_executors[lang]
-            exec_code = block["code"]
-            # Strip TypeScript annotations before running through Node.js
-            if lang in ("typescript", "ts"):
-                exec_code = strip_typescript_annotations(exec_code)
-            try:
-                result = executor(exec_code, timeout=15)
-                if result["error_type"] == "EnvironmentError":
-                    # Compiler not installed — fall back to structural analysis
-                    _append_structural(block["code"], lang,
-                                       _score_non_python_block(block["code"], lang))
-                elif result["success"]:
-                    # Compiles and runs: full score
-                    non_python_scores.append(1.0)
-                elif result.get("compile_stderr"):
-                    # Compile error: partial credit based on structural analysis
-                    structural = _score_non_python_block(block["code"], lang)
-                    non_python_scores.append(min(structural, 0.3))
-                else:
-                    # Compiled but runtime error: good code, bad logic
-                    non_python_scores.append(0.7)
-            except Exception:
-                # Executor failed — fall back to structural
-                _append_structural(block["code"], lang,
-                                   _score_non_python_block(block["code"], lang))
         else:
-            # Other/unknown languages: structural analysis
-            _append_structural(block["code"], lang,
-                               _score_non_python_block(block["code"], lang))
-
-    # --- Certificate verification for structural-only non-Python scores (§23) ---
-    # Only runs when --llm-judge is configured AND --cert-verify is enabled.
-    # Blends certificate score with structural score for blocks scoring < 0.8.
-    if _CERT_VERIFY_ENABLED and _LLM_JUDGE_URL and _structural_entries:
-        for idx, code, lang in _structural_entries:
-            structural_score = non_python_scores[idx]
-            if structural_score < 0.8:
-                cert_score, cert_reasoning = certificate_verify_code(
-                    code, lang, _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
-                )
-                if cert_score is not None:
-                    # Blend: structural stays primary (60%), certificate supplements (40%)
-                    blended = 0.6 * structural_score + 0.4 * cert_score
-                    non_python_scores[idx] = round(blended, 3)
-                    logger.debug(
-                        f"Certificate verify [{lang}]: structural={structural_score:.3f} "
-                        f"cert={cert_score:.3f} blended={blended:.3f} — {cert_reasoning}"
-                    )
+            # Non-Python: structural analysis
+            non_python_scores.append(_score_non_python_block(block["code"], lang))
 
     all_scores = python_scores + non_python_scores
     if not all_scores:
@@ -532,11 +366,8 @@ def score_concept_coverage(response: str, expected_concepts: list[str]) -> float
 def score_explanation_quality(response: str) -> float:
     """
     Dimension 4: Explanation quality (0.0-1.0).
-    v4 scorer — calibrated against real Qwen2.5-Coder-14B output patterns.
-
-    The model explains via structured prose (headers, numbered lists, bold
-    definitions, inline comments) more than via academic connector phrases.
-    This scorer weights structure heavily and uses relaxed word thresholds.
+    Measures reasoning depth, structure, and teaching signals.
+    Adapted from distiller._score_quality markers.
     """
     if not response:
         return 0.0
@@ -545,115 +376,72 @@ def score_explanation_quality(response: str) -> float:
     word_count = len(response.split())
     score = 0.0
 
-    # --- Content depth (0.20 max, relaxed thresholds) ---
-    if word_count >= 500:
+    # --- Content depth (0.25 max) ---
+    if word_count >= 800:
+        score += 0.25
+    elif word_count >= 500:
         score += 0.20
     elif word_count >= 300:
-        score += 0.16
-    elif word_count >= 200:
-        score += 0.12
-    elif word_count >= 100:
-        score += 0.08
+        score += 0.15
+    elif word_count >= 150:
+        score += 0.10
     elif word_count >= 50:
-        score += 0.04
+        score += 0.05
 
-    # --- Prose ratio bonus (0.10 max) ---
-    # Reward responses that balance code with explanation, not just dump code.
-    code_text = "".join(re.findall(r"```.*?```", response, re.DOTALL))
-    code_words = len(code_text.split())
-    prose_words = max(word_count - code_words, 0)
-    if word_count > 0:
-        prose_ratio = prose_words / word_count
-        if prose_ratio >= 0.40:
-            score += 0.10
-        elif prose_ratio >= 0.25:
-            score += 0.06
-        elif prose_ratio >= 0.10:
-            score += 0.03
-
-    # --- Reasoning markers (0.25 max) ---
-    # Broad list matching how coding LLMs actually explain.
+    # --- Reasoning markers (0.30 max) ---
     causal = ["because", "therefore", "consequently", "as a result",
-              "this means", "which leads to", "the reason", "due to", "hence",
-              "which means", "in other words", "so that", "this ensures",
-              "this allows", "this way", "this makes", "this is why",
-              "the idea is", "the key insight"]
+              "this means", "which leads to", "the reason", "due to", "hence"]
     nuance = ["however", "although", "on the other hand", "trade-off",
-              "alternatively", "edge case", "caveat", "unless",
-              "keep in mind", "be aware", "be careful", "downside",
-              "limitation", "pitfall", "gotcha", "the catch",
-              "in contrast", "compared to", "unlike", "whereas"]
+              "alternatively", "edge case", "caveat", "unless"]
     teaching = ["for example", "common mistake", "best practice",
-                "note that", "important", "consider", "step 1", "first,",
-                "let's", "here's how", "here is", "notice that",
-                "the syntax", "this pattern", "in practice", "typically",
-                "the approach", "works by", "step by step", "to summarize",
-                "in summary", "the key", "remember that", "make sure"]
+                "note that", "important", "consider", "step 1", "first,"]
 
     causal_hits = sum(1 for m in causal if m in response_lower)
     nuance_hits = sum(1 for m in nuance if m in response_lower)
     teaching_hits = sum(1 for m in teaching if m in response_lower)
 
     reasoning = 0.0
-    reasoning += min(causal_hits * 0.04, 0.10)
-    reasoning += min(nuance_hits * 0.035, 0.08)
-    reasoning += min(teaching_hits * 0.035, 0.07)
-    score += min(reasoning, 0.25)
+    reasoning += min(causal_hits * 0.03, 0.12)
+    reasoning += min(nuance_hits * 0.025, 0.08)
+    reasoning += min(teaching_hits * 0.025, 0.10)
+    score += min(reasoning, 0.30)
 
-    # --- Structure (0.30 max — primary signal for coding LLMs) ---
+    # --- Structure (0.20 max) ---
     headers = re.findall(r"^#{1,3}\s+\w", response, re.MULTILINE)
     list_items = re.findall(r"^[\s]*(?:[-*]|\d+\.)\s+", response, re.MULTILINE)
     code_blocks = len(re.findall(r"```", response)) // 2
+    # Inline comments and docstrings — the coding AI's native explanation form
     inline_comments = re.findall(r"#\s+\w{3,}", response)
     docstrings = re.findall(r'""".*?"""', response, re.DOTALL)
 
     structure = 0.0
-    # Headers (max 0.08)
     if len(headers) >= 3:
-        structure += 0.08
-    elif len(headers) >= 2:
         structure += 0.06
     elif len(headers) >= 1:
         structure += 0.03
-    # List items (max 0.06)
-    if len(list_items) >= 5:
-        structure += 0.06
-    elif len(list_items) >= 3:
+    if len(list_items) >= 3:
         structure += 0.05
     elif len(list_items) >= 1:
         structure += 0.02
-    # Code blocks (max 0.05)
     if code_blocks >= 2:
         structure += 0.05
     elif code_blocks >= 1:
         structure += 0.03
-    # Inline comments (max 0.04)
+    # Inline comments reward (up to 0.04)
     structure += min(len(inline_comments) * 0.01, 0.04)
-    # Docstrings (max 0.03)
+    # Docstrings reward (up to 0.03)
     structure += min(len(docstrings) * 0.015, 0.03)
-    # Bold terms (max 0.05)
+    # Bold terms
     bold = re.findall(r"\*\*[^*]{2,30}\*\*", response)
-    if len(bold) >= 4:
-        structure += 0.05
-    elif len(bold) >= 2:
+    if len(bold) >= 2:
         structure += 0.04
-    # Bold-definition patterns: **Term**: description (max 0.04)
-    bold_defs = re.findall(r"\*\*[^*]{2,30}\*\*\s*[:—–-]", response)
-    if len(bold_defs) >= 3:
-        structure += 0.04
-    elif len(bold_defs) >= 1:
-        structure += 0.02
-    # Numbered step patterns (max 0.03)
-    numbered_steps = re.findall(r"(?:^|\n)\s*(?:\d+[\.\)]\s|step\s*\d)", response, re.IGNORECASE)
-    if len(numbered_steps) >= 3:
-        structure += 0.03
-    score += min(structure, 0.30)
+    score += min(structure, 0.20)
 
-    # --- Penalties (up to -0.20) ---
+    # --- Penalties (up to -0.25) ---
     penalties = 0.0
-    if word_count < 30:
+    if word_count < 50:
         penalties += 0.20
-    elif word_count < 50:
+    elif word_count < 100:
         penalties += 0.10
 
     # Repetitive content
@@ -665,323 +453,6 @@ def score_explanation_quality(response: str) -> float:
 
     final = max(0.0, score - penalties)
     return round(min(final, 1.0), 3)
-
-
-# ---------------------------------------------------------------------------
-# LLM-as-Judge scorer (optional, --llm-judge flag)
-# ---------------------------------------------------------------------------
-# Uses a separate LLM (typically a reasoning model like qwen3:32b via Ollama)
-# to score concept_coverage and explanation_quality instead of keyword matching.
-#
-# This produces more meaningful scores because:
-#   1. It understands whether code ACTUALLY implements the asked concept
-#   2. It can evaluate explanation quality semantically, not just by word count
-#   3. It handles non-Python languages equally well (no Python-specific bias)
-#
-# Usage:
-#   python scripts/run_eval.py --model hiveai-v7 --base-url http://localhost:11435 \
-#       --llm-judge http://localhost:11434 --judge-model qwen3:32b
-#
-# The judge model MUST be different from the model being evaluated to avoid
-# circular scoring bias. Ollama on :11434 for judge, llama-server on :11435
-# for the model under test is the recommended setup.
-# ---------------------------------------------------------------------------
-
-_LLM_JUDGE_URL: str | None = None
-_LLM_JUDGE_MODEL: str = "qwen3:32b"
-_LLM_JUDGE_RETRIES: int = 2
-_LLM_JUDGE_TIMEOUT: int = 180  # seconds — reasoning models can be slow
-_llm_judge_stats = {"calls": 0, "successes": 0, "failures": 0, "fallbacks": 0}
-
-_JUDGE_SYSTEM_PROMPT = (
-    "You are a senior software engineer evaluating AI coding assistant responses. "
-    "You score responses objectively on specific dimensions. You MUST explain your "
-    "reasoning before giving scores — analyze the response first, then commit to numbers."
-)
-
-_JUDGE_PROMPT_TEMPLATE = """Evaluate this AI coding assistant response.
-
-## Task given to the assistant
-{instruction}
-
-## Expected concepts
-{concepts}
-
-## Assistant's response (may be truncated)
-{response}
-
----
-
-Score on exactly TWO dimensions (0.0 to 1.0, one decimal place):
-
-**concept_coverage** — Does the response actually cover the expected concepts?
-- 1.0 = all concepts present, code correctly implements the topic
-- 0.8 = most concepts covered, minor omissions
-- 0.6 = core concept present but missing important details
-- 0.4 = partial coverage, significant gaps
-- 0.2 = barely touches the topic
-- 0.0 = wrong topic or empty response
-
-**explanation_quality** — Does it explain WHY, not just WHAT?
-- 1.0 = excellent: explains reasoning, trade-offs, alternatives, edge cases
-- 0.8 = good: clear explanations with some depth
-- 0.6 = adequate: explains the basics but lacks depth
-- 0.4 = minimal: mostly code with brief comments
-- 0.2 = almost no explanation
-- 0.0 = pure code dump with zero explanation
-
-You MUST respond in this EXACT format (reasoning first, then scores):
-
-<reasoning>
-[2-4 sentences: What concepts are covered? What's missing? How good are the explanations?]
-</reasoning>
-<scores>
-{{"concept_coverage": X.X, "explanation_quality": X.X}}
-</scores>"""
-
-
-def _parse_judge_response(content: str) -> dict | None:
-    """Parse the judge's response, extracting JSON scores and optional reasoning.
-
-    Handles (in priority order):
-    1. <reasoning>...</reasoning><scores>{...}</scores> (preferred format)
-    2. Raw JSON, JSON in markdown code blocks, JSON after thinking tags (legacy)
-    Returns validated scores dict (with optional 'reasoning' key) or None.
-    """
-    # Extract reasoning if present (for logging / diagnostics)
-    reasoning = None
-    reasoning_match = re.search(r"<reasoning>(.*?)</reasoning>", content, flags=re.DOTALL)
-    if reasoning_match:
-        reasoning = reasoning_match.group(1).strip()
-
-    # Try structured <scores> tag first
-    scores_match = re.search(r"<scores>\s*(\{.*?\})\s*</scores>", content, flags=re.DOTALL)
-    if scores_match:
-        try:
-            scores = json.loads(scores_match.group(1))
-        except json.JSONDecodeError:
-            scores = None
-    else:
-        scores = None
-
-    # Fallback: strip thinking tags and find JSON anywhere
-    if scores is None:
-        stripped = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-        stripped = re.sub(r"<reasoning>.*?</reasoning>", "", stripped, flags=re.DOTALL).strip()
-        stripped = re.sub(r"```(?:json)?\s*", "", stripped).strip()
-        stripped = stripped.strip("`").strip()
-
-        json_match = re.search(r'\{[^{}]*"concept_coverage"[^{}]*\}', stripped)
-        if not json_match:
-            json_match = re.search(r'\{[^{}]+\}', stripped)
-        if not json_match:
-            return None
-
-        try:
-            scores = json.loads(json_match.group())
-        except json.JSONDecodeError:
-            return None
-
-    if scores is None:
-        return None
-
-    # Validate required keys and value ranges
-    cc = scores.get("concept_coverage")
-    eq = scores.get("explanation_quality")
-    if cc is None or eq is None:
-        return None
-
-    try:
-        cc = float(cc)
-        eq = float(eq)
-    except (ValueError, TypeError):
-        return None
-
-    # Sanity check: scores must be in [0, 1]
-    cc = max(0.0, min(1.0, cc))
-    eq = max(0.0, min(1.0, eq))
-
-    result = {
-        "concept_coverage": round(cc, 2),
-        "explanation_quality": round(eq, 2),
-    }
-    if reasoning:
-        result["reasoning"] = reasoning
-    return result
-
-
-def llm_judge_score(instruction: str, response: str,
-                    expected_concepts: list[str]) -> dict | None:
-    """Score concept coverage and explanation quality using an LLM judge.
-
-    Makes up to _LLM_JUDGE_RETRIES+1 attempts. Returns None on failure,
-    allowing the caller to fall back to keyword-based scoring.
-
-    Args:
-        instruction: The original coding challenge prompt.
-        response: The model's response to score.
-        expected_concepts: List of concept keywords expected in the response.
-
-    Returns:
-        {"concept_coverage": float, "explanation_quality": float} or None.
-    """
-    if not _LLM_JUDGE_URL:
-        return None
-
-    import requests
-
-    _llm_judge_stats["calls"] += 1
-
-    concepts_str = ", ".join(expected_concepts) if expected_concepts else "(none specified — judge by topic relevance)"
-    # Truncate response to fit in judge's context window
-    resp_truncated = response[:3500]
-    if len(response) > 3500:
-        resp_truncated += f"\n\n[... truncated, {len(response)} chars total]"
-
-    prompt = _JUDGE_PROMPT_TEMPLATE.format(
-        instruction=instruction[:600],
-        concepts=concepts_str,
-        response=resp_truncated,
-    )
-
-    last_error = None
-    for attempt in range(_LLM_JUDGE_RETRIES + 1):
-        try:
-            r = requests.post(
-                f"{_LLM_JUDGE_URL}/api/chat",
-                json={
-                    "model": _LLM_JUDGE_MODEL,
-                    "messages": [
-                        {"role": "system", "content": _JUDGE_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.05,  # Near-deterministic for consistent scoring
-                        "num_predict": 400,   # Reasoning + JSON scores
-                    },
-                },
-                timeout=_LLM_JUDGE_TIMEOUT,
-            )
-            r.raise_for_status()
-            content = r.json()["message"]["content"]
-            result = _parse_judge_response(content)
-
-            if result is not None:
-                _llm_judge_stats["successes"] += 1
-                return result
-
-            # Parse failed — retry with a cleaner request
-            last_error = f"Could not parse judge response: {content[:100]}"
-            logger.debug(f"LLM judge parse failure (attempt {attempt + 1}): {last_error}")
-
-        except requests.exceptions.Timeout:
-            last_error = "timeout"
-            logger.debug(f"LLM judge timeout (attempt {attempt + 1})")
-        except requests.exceptions.ConnectionError:
-            last_error = "connection refused"
-            logger.warning(f"LLM judge connection failed — is Ollama running at {_LLM_JUDGE_URL}?")
-            _llm_judge_stats["failures"] += 1
-            return None  # Don't retry connection errors
-        except Exception as e:
-            last_error = str(e)
-            logger.debug(f"LLM judge error (attempt {attempt + 1}): {e}")
-
-    # All retries exhausted
-    _llm_judge_stats["failures"] += 1
-    _llm_judge_stats["fallbacks"] += 1
-    logger.debug(f"LLM judge gave up after {_LLM_JUDGE_RETRIES + 1} attempts: {last_error}")
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Two-stage code review (§31): spec compliance + code quality
-# ---------------------------------------------------------------------------
-_TWO_STAGE_REVIEW_ENABLED: bool = False
-
-_SPEC_COMPLIANCE_PROMPT = """Review this code response for SPEC COMPLIANCE only.
-Does the code match the challenge requirements?
-
-Challenge: {instruction}
-
-Response:
-{response}
-
-Score 0.0-1.0 on spec compliance:
-- 1.0: Fully addresses all requirements
-- 0.7: Addresses main requirements, minor gaps
-- 0.4: Partially addresses requirements
-- 0.0: Does not address the challenge
-
-Respond with JSON: {{"spec_score": 0.8, "gaps": ["list of missing requirements"]}}"""
-
-_CODE_QUALITY_PROMPT = """Review this code for CODE QUALITY only (not correctness).
-Check: style, efficiency, best practices, error handling, readability.
-
-Code:
-```
-{code}
-```
-
-Score 0.0-1.0 on code quality:
-- 1.0: Production-ready, excellent style
-- 0.7: Good quality, minor improvements possible
-- 0.4: Functional but poor style/practices
-- 0.0: Unmaintainable or dangerous patterns
-
-Respond with JSON: {{"quality_score": 0.7, "issues": ["list of quality issues"]}}"""
-
-
-def two_stage_review(instruction: str, response: str,
-                     llm_url: str, model: str) -> dict | None:
-    """Run two-stage code review: spec compliance then code quality.
-
-    Returns {"spec_score": float, "quality_score": float, "combined": float,
-             "gaps": list, "issues": list} or None on failure.
-    """
-    import requests
-
-    results = {}
-    for stage, prompt_tmpl, key in [
-        ("spec", _SPEC_COMPLIANCE_PROMPT, "spec_score"),
-        ("quality", _CODE_QUALITY_PROMPT, "quality_score"),
-    ]:
-        prompt = prompt_tmpl.format(
-            instruction=instruction[:1000],
-            response=response[:2000],
-            code=response[:2000],
-        )
-        try:
-            r = requests.post(
-                f"{llm_url}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": False,
-                    "options": {"temperature": 0.05, "num_predict": 300},
-                },
-                timeout=120,
-            )
-            r.raise_for_status()
-            content = r.json().get("message", {}).get("content", "")
-            if "</think>" in content:
-                content = content.split("</think>", 1)[1]
-            json_match = re.search(r'\{[^{}]+\}', content)
-            if json_match:
-                data = json.loads(json_match.group())
-                results[key] = max(0.0, min(1.0, float(data.get(key, 0.5))))
-                results[f"{stage}_detail"] = data.get("gaps", data.get("issues", []))
-            else:
-                results[key] = 0.5
-                results[f"{stage}_detail"] = []
-        except Exception as e:
-            logger.debug(f"Two-stage review {stage} failed: {e}")
-            return None
-
-    results["combined"] = round(0.6 * results["spec_score"] + 0.4 * results["quality_score"], 3)
-    results["gaps"] = results.pop("spec_detail", [])
-    results["issues"] = results.pop("quality_detail", [])
-    return results
 
 
 def compute_weighted_score(code_validity: float, test_passing: float | None,
@@ -1055,29 +526,9 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
     # Score all 4 dimensions
     d1_code = score_code_validity(response)
     d2_test = score_test_passing(response, test_code)
-
-    # LLM-as-Judge for concept + explanation (if enabled), fallback to keyword scorers
-    judge_result = llm_judge_score(
-        challenge["instruction"], response, challenge.get("expected_concepts", [])
-    )
-    if judge_result:
-        d3_concept = judge_result["concept_coverage"]
-        d4_explain = judge_result["explanation_quality"]
-    else:
-        d3_concept = score_concept_coverage(response, challenge.get("expected_concepts", []))
-        d4_explain = score_explanation_quality(response_for_explain)
-
+    d3_concept = score_concept_coverage(response, challenge.get("expected_concepts", []))
+    d4_explain = score_explanation_quality(response_for_explain)
     overall = compute_weighted_score(d1_code, d2_test, d3_concept, d4_explain)
-
-    # Two-stage code review (§31) — runs after standard scoring
-    review_result = None
-    if _TWO_STAGE_REVIEW_ENABLED and _LLM_JUDGE_URL:
-        review_result = two_stage_review(
-            challenge["instruction"], response, _LLM_JUDGE_URL, _LLM_JUDGE_MODEL
-        )
-        if review_result:
-            # Blend: 80% standard score + 20% two-stage review
-            overall = round(0.8 * overall + 0.2 * review_result["combined"], 3)
 
     status = "PASS" if overall >= 0.6 else "MARGINAL" if overall >= 0.4 else "FAIL"
     test_str = f"{d2_test:.2f}" if d2_test is not None else "N/A"
@@ -1100,8 +551,6 @@ def evaluate_challenge(challenge: dict, model: str) -> dict:
             "overall": overall,
         },
         "has_test_code": test_code is not None,
-        "llm_judge_used": judge_result is not None,
-        "two_stage_review": review_result,
         "duration_ms": result["duration_ms"],
         "tokens_eval": result["tokens_eval"],
         "response_preview": response[:300],
@@ -1170,29 +619,9 @@ def generate_report(results: list[dict], model: str, elapsed_total_s: float) -> 
     total_ms = sum(r["duration_ms"] for r in scored)
     avg_ms = total_ms // max(len(scored), 1)
 
-    # Judge stats (if LLM-as-Judge was used)
-    judge_stats = None
-    if _LLM_JUDGE_URL:
-        judge_used = sum(1 for r in scored if r.get("llm_judge_used"))
-        judge_stats = {
-            "model": _LLM_JUDGE_MODEL,
-            "url": _LLM_JUDGE_URL,
-            "challenges_judged": judge_used,
-            "challenges_fell_back": len(scored) - judge_used,
-            **_llm_judge_stats,
-        }
-
-    # Certificate verification stats (§23)
-    cert_stats = None
-    if _CERT_VERIFY_ENABLED and _cert_verify_stats["calls"] > 0:
-        cert_stats = {**_cert_verify_stats}
-
     return {
         "model": model,
         "timestamp": datetime.now().isoformat(),
-        "scorer": "llm-judge" if _LLM_JUDGE_URL else "keyword-v4",
-        "judge": judge_stats,
-        "certificate_verify": cert_stats,
         "total_challenges": total,
         "errors": errors,
         "scored": len(scored),
@@ -1290,11 +719,6 @@ def print_summary(report: dict):
     print(f"  Overall Score: {report['overall_score']:.3f}")
     print(f"  Time: {report['timing']['total_seconds']:.0f}s ({report['timing']['avg_ms_per_challenge']}ms avg)")
     print(f"  Tokens: {report['timing']['total_tokens']:,}")
-    print(f"  Scorer: {report.get('scorer', 'keyword-v4')}")
-    if report.get("judge"):
-        j = report["judge"]
-        print(f"  Judge:  {j['model']} via {j['url']}  "
-              f"({j['challenges_judged']} judged, {j['challenges_fell_back']} fell back)")
 
     print(f"\n  Dimension Scores:")
     for dim, val in report["dimension_scores"].items():
@@ -1344,19 +768,6 @@ def main():
                         help="Use llama-server instead of Ollama (e.g. http://localhost:11435)")
     parser.add_argument("--workers", type=int, default=1,
                         help="Parallel eval workers (default 1, try 3 for 3x speed)")
-    parser.add_argument("--llm-judge", type=str, default=None,
-                        help="Use LLM-as-Judge for concept/explain scoring via Ollama "
-                             "(e.g. http://localhost:11434). Uses qwen3:32b by default.")
-    parser.add_argument("--judge-model", type=str, default="qwen3:32b",
-                        help="Model for LLM-as-Judge (default: qwen3:32b)")
-    parser.add_argument("--cert-verify", action="store_true", default=None,
-                        help="Enable certificate verification for non-Python code "
-                             "(default: enabled when --llm-judge is set)")
-    parser.add_argument("--no-cert-verify", action="store_true",
-                        help="Disable certificate verification even with --llm-judge")
-    parser.add_argument("--two-stage-review", action="store_true",
-                        help="Enable two-stage code review: Stage 1 checks spec compliance, "
-                             "Stage 2 checks code quality. Requires --llm-judge.")
     args = parser.parse_args()
 
     # --- Wire llama-server URL if given ---
@@ -1364,31 +775,6 @@ def main():
     if args.base_url:
         _LLAMA_SERVER_URL = args.base_url
         logger.info(f"Using llama-server at {_LLAMA_SERVER_URL}")
-
-    # --- Wire LLM-as-Judge if given ---
-    global _LLM_JUDGE_URL, _LLM_JUDGE_MODEL, _CERT_VERIFY_ENABLED
-    if args.llm_judge:
-        _LLM_JUDGE_URL = args.llm_judge
-        _LLM_JUDGE_MODEL = args.judge_model
-        logger.info(f"LLM-as-Judge enabled: {_LLM_JUDGE_URL} ({_LLM_JUDGE_MODEL})")
-
-        # Certificate verification: default ON with --llm-judge, unless --no-cert-verify
-        if args.no_cert_verify:
-            _CERT_VERIFY_ENABLED = False
-        else:
-            _CERT_VERIFY_ENABLED = True
-            logger.info("Certificate verification enabled for non-Python code scoring")
-    elif args.cert_verify:
-        logger.warning("--cert-verify has no effect without --llm-judge")
-
-    # --- Wire two-stage review ---
-    global _TWO_STAGE_REVIEW_ENABLED
-    if args.two_stage_review:
-        if not args.llm_judge:
-            logger.warning("--two-stage-review requires --llm-judge; ignoring")
-        else:
-            _TWO_STAGE_REVIEW_ENABLED = True
-            logger.info("Two-stage code review enabled (spec compliance + code quality)")
 
     # --- Compare mode ---
     if args.compare:
