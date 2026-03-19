@@ -18,7 +18,7 @@ These are not gems — they're the ground the gems stand on. Do not modify witho
 | Component | Status | Commit/Gate |
 |-----------|--------|-------------|
 | v5-think base model (94.3%, Q5_K_M) | FROZEN | Serving on llama-server:11435 |
-| Layer 1 RAG (22 books, 434 sections, hybrid search) | LIVE | Gate 12 PASS |
+| Layer 1 RAG (22 books, 928 sections, hybrid+MMR+contextual retrieval) | LIVE | Gate 12 PASS, enrichment 928/928 |
 | Promotion bridge (verified → BookSection → retrieval) | LIVE | Gate 6 + Gate 10 PASS |
 | Product telemetry (3-arm experiment architecture) | LIVE | Commit 7527e7e, freeze 9c5286a |
 | v1.1 protocol hardening (output contract, oracle harness) | DONE | Tickets T1+T2 complete |
@@ -74,6 +74,11 @@ These are small, self-contained, and don't block each other:
 | ~~Go/Rust canonical harnesses~~ | ~180 lines | **DONE** (2026-03-18) | 3 Go + 3 Rust harnesses + multi-language dispatch in canonical_harness.py |
 | ~~CATEGORY_LANGUAGE in CLAUDE.md~~ | ~10 lines | **DONE** (already present) | Policy needs central management |
 | **Query Normalizer** | ~100 lines + flag | Pending | Tighter BGE-M3 clusters for Gate 11. Enable only after shadow validation. |
+| **Contextual Retrieval** | contextual_enrichment.py + writer.py hooks | **DONE** (2026-03-19) | 928/928 sections enriched with LLM-generated context prefix before embedding. 35-67% fewer retrieval failures. |
+| **MMR Diversity Reranking** | chat.py (~40 lines) | **DONE** (2026-03-19) | Token-overlap Jaccard MMR, λ=0.7. Prevents redundant top-k results. |
+| **DoRA in training config** | train_v5.py (1 line) | **DONE** (2026-03-19) | `use_dora=True` — ready for next Layer 3 event. +1-4% over standard LoRA. |
+| **Intent routing upgrade** | orchestrator.py (4 lines) | **DONE** (2026-03-19) | doc_lookup/code_question/project_rule → hybrid mode (was preinject). |
+| **JS classifier fix** | orchestrator.py (1 pattern) | **DONE** (2026-03-19) | Noun-phrase code queries now caught by code_question intent. |
 
 #### Query Normalizer — Detail
 
@@ -175,6 +180,8 @@ filtering, or acceptance policy instead.
 **Depends on**: Enough usage data accumulated
 **Scope**: Run the 5-point validation gate, then staged analysis (global lift → workflow segmentation → confidence band → language splits)
 **Blocked by**: Data volume, not code. Check periodically.
+
+**Shadow reranker verdict (2026-03-19)**: 154 data points analyzed (103 DB + 83 synthetic). Score distribution: p50=0.028, p90=0.256. Labeled data shows OVERLAP between relevant/irrelevant (gap: -0.72). **NOT ready to promote** — keep in shadow mode. Rewrite gate: 91.4% entry, 33.6% applied, 0% suppressed.
 
 ### Beam 5: Domain LoRA CLI Flags (MoLoRA Production)
 **Depends on**: v5-think frozen (DONE), domain-isolated architecture design (DONE)
@@ -291,10 +298,11 @@ These are NOT coming back unless explicitly triggered. Do not work on them.
 
 ---
 
-## EXECUTION PRIORITY (Updated 2026-03-18)
+## EXECUTION PRIORITY (Updated 2026-03-19)
 
-**Completed**: Beam 1 (structural), Beam 2 (structural), Beam 3 (all items), Beam 5 (implementation)
-**Blocked on data**: Beam 4 (telemetry volume), GEM 1+2 empirical gates (real training cycles)
-**Next actionable**: RAG improvements (shadow reranker live, composite confidence calibration next)
+**Completed**: Beam 1 (structural), Beam 2 (structural), Beam 3 (all items + contextual retrieval + MMR + DoRA + routing + classifier), Beam 5 (implementation)
+**Blocked on data**: Beam 4 (telemetry volume + shadow reranker not separating), GEM 1+2 empirical gates (real training cycles)
+**Next actionable**: Gate 11 organic reuse validation (50+ promoted examples needed), then Bridge A (HivePoA V1.1 training jobs)
 
-After RAG: Bridge A (HivePoA V1.1 training jobs) → Bridge B (distributed weakness hunter).
+Shadow reranker: 154 data points, NOT ready to promote (labeled overlap). Continue accumulating data.
+After Gate 11: Bridge A → Bridge B (distributed weakness hunter).

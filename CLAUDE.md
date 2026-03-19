@@ -77,8 +77,10 @@ The golden chain (sequential LoRA merge) hit its architectural ceiling. Going fr
 more SFT/merge cycles is the wrong tool. The product value is in the application layer.
 
 - **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core. Do not touch.
-- **Layer 1: RAG/Retrieval** — Where the system learns every day. Verified chat responses auto-promote
-  to retrievable BookSections. Skills, golden books, solved examples. No retraining needed.
+- **Layer 1: RAG/Retrieval** — Where the system learns every day. 928 BookSections enriched with
+  contextual retrieval prefixes (Anthropic technique, 35-67% fewer retrieval failures). Hybrid search
+  (BM25+semantic) with MMR diversity reranking (λ=0.7). Verified chat responses auto-promote to
+  retrievable BookSections. Skills, golden books, solved examples. No retraining needed.
 - **Layer 2: Skill Buffer** — Verified training pairs accumulate passively from chat. NOT immediate
   training. Accumulate until repeated miss + verifiable + large headroom.
 - **Layer 3: Rare Promotion** — Event-driven training only. ALL 4 conditions must be met:
@@ -183,6 +185,7 @@ bash scripts/run_full_cycle.sh thinking datasets/thinking_all_batch2.jsonl v3-th
 - `--stm-threshold FLOAT` — PPL threshold for token masking (default 2.5) (v5.0)
 - `--sdft` — Enable SDFT self-distillation loss mixing (ON by default in pipeline) (v5.0)
 - `--sdft-alpha FLOAT` — SDFT mixing weight: alpha*KL + (1-alpha)*CE (default 0.7) (v5.0)
+- `--use-dora` — Enable DoRA (Weight-Decomposed LoRA), +1-4% over standard LoRA. Default: enabled (v6.0)
 
 **Key flags in safe_merge.py**:
 - `--della-drop FLOAT` — DELLA pruning drop rate (default 0.0). **WARNING: DELLA is BROKEN for PEFT merge — 3.33x rescaling corrupts model weights. DO NOT USE until fixed. Use 0.0.**
