@@ -279,20 +279,33 @@ def keyword_search_sections(question, db, history=None):
 
 
 def _extract_key_entities(sections):
+    """Extract key entities from sections for multi-hop retrieval.
+    Catches PascalCase, camelCase, snake_case, backtick-wrapped, and all-caps terms."""
     entities = set()
+    _skip = {"The", "This", "That", "From", "With", "AND", "NOT", "FOR", "USE", "GET", "SET"}
     for section in sections:
         content = section.get("content", "")
+        # PascalCase multi-word: "Delegated Proof", "Golden Book"
         multi_word = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b', content)
         entities.update(multi_word[:5])
-
+        # ALL-CAPS acronyms: "DPoS", "HTTP", "RAII"
         tech_terms = re.findall(r'\b([A-Z]{2,}[a-z]*(?:-[A-Za-z]+)*)\b', content)
-        entities.update(t for t in tech_terms if len(t) > 2 and t not in ("The", "This", "That", "From", "With", "AND", "NOT", "FOR"))
+        entities.update(t for t in tech_terms if len(t) > 2 and t not in _skip)
+        # camelCase: "useState", "asyncio", "goroutine"
+        camel = re.findall(r'\b([a-z]+[A-Z][a-zA-Z]+)\b', content)
+        entities.update(camel[:5])
+        # snake_case identifiers: "async_trait", "event_loop"
+        snake = re.findall(r'\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b', content)
+        entities.update(s for s in snake[:5] if len(s) > 4)
+        # Backtick-wrapped code references: `tokio::spawn`, `request.get()`
+        backtick = re.findall(r'`([^`]{2,40})`', content)
+        entities.update(backtick[:5])
 
         header = section.get("header", "")
         if header and len(header) > 3:
             entities.add(header)
 
-    return list(entities)[:15]
+    return list(entities)[:20]
 
 
 def _expand_short_query(question, history=None):
@@ -429,6 +442,52 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
         )
         _t3 = _time.perf_counter()
 
+        # --- Phase 2: HyDE supplementation when top results are weak ---
+        from hiveai.config import ENABLE_HYDE, ENABLE_QUERY_DECOMPOSITION
+        _hyde_used = False
+        _decompose_used = False
+
+        if ENABLE_HYDE and top_sections:
+            try:
+                from hiveai.rag.hyde import generate_hyde_embedding, should_use_hyde
+                top_dist = top_sections[0].get("distance", 0.5)
+                if should_use_hyde(top_dist):
+                    hyde_emb = generate_hyde_embedding(question)
+                    if hyde_emb:
+                        hyde_results = hybrid_search(
+                            db, query_str, hyde_emb, limit=8,
+                            exclude_book_ids=_exclude_book_ids or None,
+                        )
+                        if hyde_results:
+                            from hiveai.rag.fusion import rrf_merge
+                            top_sections = rrf_merge([top_sections, hyde_results], limit=12)
+                            _hyde_used = True
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"HyDE failed (non-critical): {e}")
+
+        # --- Phase 2: Query decomposition for complex multi-entity queries ---
+        if ENABLE_QUERY_DECOMPOSITION and not _hyde_used:
+            try:
+                from hiveai.rag.decompose import decompose_query, should_decompose
+                if should_decompose(question):
+                    sub_queries = decompose_query(question)
+                    if len(sub_queries) >= 2:
+                        sub_results = [top_sections]  # start with original results
+                        for sq in sub_queries:
+                            sq_emb = embed_text(sq)
+                            sq_sections = hybrid_search(
+                                db, sq, sq_emb, limit=6,
+                                exclude_book_ids=_exclude_book_ids or None,
+                            )
+                            if sq_sections:
+                                sub_results.append(sq_sections)
+                        if len(sub_results) > 1:
+                            from hiveai.rag.fusion import rrf_merge
+                            top_sections = rrf_merge(sub_results, limit=12)
+                            _decompose_used = True
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Query decomposition failed (non-critical): {e}")
+
         # Deep retrieval (multi-hop, book refs, reranking, community) only for hybrid mode
         from hiveai.config import ENABLE_MULTI_HOP_RAG
         use_deep_retrieval = ENABLE_MULTI_HOP_RAG and retrieval_mode == "hybrid"
@@ -519,10 +578,15 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
             # Retrieval subphase timing
             _t4 = _time.perf_counter()
             _deep_tag = f" [deep: hop2={_hop2_added} refs={_ref_added}]" if use_deep_retrieval else " [shallow]"
+            _phase2_tag = ""
+            if _hyde_used:
+                _phase2_tag += " [hyde]"
+            if _decompose_used:
+                _phase2_tag += " [decomposed]"
             logging.getLogger(__name__).info(
                 f"Retrieval breakdown: expand={(_t1-_t0)*1000:.1f}ms embed={(_t2-_t1)*1000:.1f}ms "
                 f"search={(_t3-_t2)*1000:.1f}ms postprocess={(_t4-_t3)*1000:.1f}ms "
-                f"total={(_t4-_t0)*1000:.1f}ms sections={len(top_sections)}{_deep_tag}"
+                f"total={(_t4-_t0)*1000:.1f}ms sections={len(top_sections)}{_deep_tag}{_phase2_tag}"
             )
             return top_sections, source_books, books
 

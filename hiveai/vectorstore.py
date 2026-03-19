@@ -387,7 +387,19 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         for r in vec_results:
             r["bm25_score"] = 0.0
 
-    # Step 4: Fuse scores + solved-example bonus for code queries
+    # Step 4: Reciprocal Rank Fusion (RRF) + solved-example bonus
+    # RRF is rank-based, not score-based — robust to score distribution mismatches.
+    # Formula: RRF(d) = 1/(k + rank_vec) + 1/(k + rank_bm25)
+    # k=60 is the standard constant (used by Elasticsearch).
+    _RRF_K = 60
+
+    # Build rank lists (rank 1 = best)
+    vec_ranked = sorted(range(len(vec_results)), key=lambda i: vec_results[i]["vec_score"], reverse=True)
+    bm25_ranked = sorted(range(len(vec_results)), key=lambda i: bm25_scores[i], reverse=True)
+
+    vec_rank = {idx: rank + 1 for rank, idx in enumerate(vec_ranked)}
+    bm25_rank = {idx: rank + 1 for rank, idx in enumerate(bm25_ranked)}
+
     # Detect if query looks like a code task (code keywords, function names, etc.)
     _code_indicators = {"function", "implement", "write", "code", "class", "method",
                         "algorithm", "error", "bug", "fix", "debug", "refactor",
@@ -399,8 +411,8 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     # Load metadata to identify solved examples
     section_metadata = _load_section_metadata(db, section_ids) if _is_code_query else {}
 
-    for r in vec_results:
-        r["hybrid_score"] = alpha * r["vec_score"] + (1 - alpha) * r["bm25_score"]
+    for i, r in enumerate(vec_results):
+        r["hybrid_score"] = 1.0 / (_RRF_K + vec_rank[i]) + 1.0 / (_RRF_K + bm25_rank[i])
 
         # Solved-example rank bonus: when similarity is close, prefer proven solutions
         # Only for code queries — docs/general chat should prefer golden book content
@@ -429,6 +441,11 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
     # Step 6: Quality filtering — drop weak/duplicate chunks
+    # Normalize RRF scores to 0-1 range for consistent thresholding
+    _max_rrf = max((r["hybrid_score"] for r in vec_results), default=1.0) or 1.0
+    for r in vec_results:
+        r["hybrid_score"] = r["hybrid_score"] / _max_rrf
+
     min_score = RAG_MIN_SCORE
     max_per_book = RAG_MAX_PER_BOOK
     book_counts: dict[int, int] = {}

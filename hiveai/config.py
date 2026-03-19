@@ -128,6 +128,12 @@ RAG_MAX_PER_BOOK = int(os.environ.get("RAG_MAX_PER_BOOK", "3"))
 # RAG result cache
 RAG_CACHE_TTL = int(os.environ.get("RAG_CACHE_TTL", "1800"))
 RAG_CACHE_MAX = int(os.environ.get("RAG_CACHE_MAX", "200"))
+# HyDE: generate hypothetical answer, embed it, search for similar real docs
+ENABLE_HYDE = os.environ.get("ENABLE_HYDE", "true").lower() in ("1", "true", "yes")
+# Query decomposition: break complex queries into sub-queries
+ENABLE_QUERY_DECOMPOSITION = os.environ.get("ENABLE_QUERY_DECOMPOSITION", "true").lower() in ("1", "true", "yes")
+# CRAG: LLM judges retrieval quality before generation (Phase 3)
+ENABLE_CRAG = os.environ.get("ENABLE_CRAG", "false").lower() in ("1", "true", "yes")
 
 # --- MoLoRA (Mixture of LoRA Experts) ---
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
