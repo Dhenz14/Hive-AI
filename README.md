@@ -89,6 +89,49 @@ It operates fully offline with Ollama — no API keys required — while seamles
 - **Per-Job Cancellation** — Cancel individual jobs mid-pipeline with cleanup
 - **Progress Tracking** — Real-time status, stage transitions, and error logging per job
 
+### Spirit Bomb — Community GPU Cloud (21 modules)
+
+A permissionless GPU pooling system where community members share graphics cards to create a collective AI brain. More GPUs = smarter AI. See [How GPU Sharing Works](docs/HOW_GPU_SHARING_WORKS.md).
+
+**One-command launch:** `python scripts/start_spiritbomb.py`
+
+| Module | What it does |
+|--------|-------------|
+| `community_coordinator.py` | Polls HivePoA every 15min, groups GPUs into clusters, publishes tier manifests on Hive blockchain |
+| `cluster_manager.py` | Geo-aware GPU clustering (<50ms latency groups), Helix-style placement scoring |
+| `elastic_moe.py` | Dynamic MoE expert activation — 2/4/8 experts scale with tier |
+| `inference_worker.py` | GPU inference contribution mode with /ping server, latency probing, heartbeat |
+| `distributed_inference.py` | vLLM pipeline/tensor/expert parallel + DualModeRouter (Local vs Cluster) |
+| `tier_autoscaler.py` | Automatic tier transitions with hysteresis, EMA smoothing, drain periods |
+| `helix_placement.py` | Max-flow GPU layer placement optimizer (ASPLOS 2025 Helix-inspired) |
+| `speculative_decoding.py` | EAGLE-3 adaptive draft for 3-6.5x inference speedup |
+| `expert_sharding.py` | IPFS-based MoE expert weight distribution with SHA-256 verification |
+| `vllm_launcher.py` | vLLM process manager with graceful tier-change restart |
+| `distributed_training.py` | Federated LoRA + Hivemind DDP + DisTrO pretraining (1000x bandwidth reduction) |
+| `training_worker.py` | Executes training jobs with TOPLOC proof submission |
+| `training_verification.py` | TOPLOC cryptographic training contribution verification (INTELLECT-2 inspired) |
+| `incentives.py` | HBD reward calculation with tier multipliers, uptime/quality bonuses |
+| `reward_settlement.py` | Hourly settlement cycle bridging contributions to HBD payouts |
+| `model_registry.py` | Task-aware model selection per tier (code/chat/reasoning/creative) |
+| `kv_cache_router.py` | KV-cache affinity routing for multi-turn conversations (llm-d inspired) |
+| `lmcache_config.py` | LMCache hierarchical KV cache config (GPU→CPU→disk→Redis) |
+| `latency_prober.py` | RTT/bandwidth measurement between community nodes |
+| `nccl_benchmark.py` | GPU interconnect benchmark for cluster eligibility + geohash service |
+| `benchmark_speculative.py` | EAGLE-3 speculative decoding benchmark harness |
+
+**Tier System:** <15 GPUs = Tier 1 (local 14B model), 15-39 = Tier 2 (cluster 32B), 40+ = Tier 3 (full 80B MoE brain)
+
+**Multi-Machine Setup:**
+```bash
+# Computer A (head):
+docker compose -f docker-compose.spiritbomb.yml up
+
+# Computer B (worker — joins via Ray):
+RAY_HEAD_ADDRESS=COMPUTER_A_IP:6379 docker compose -f docker-compose.spiritbomb.yml --profile multi-machine up vllm-worker
+```
+
+**Tests:** 51 tests covering autoscaler, clustering, MoE, placement, speculative decoding, KV-cache, latency, training, incentives
+
 ---
 
 ## Quick Start (Windows)
