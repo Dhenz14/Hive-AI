@@ -1,0 +1,582 @@
+{
+  "version": 1,
+  "total_target": 5000,
+  "seed_dir": "loras/training_data",
+  "output_dir": "loras/training_data/deep_reasoning_generated",
+  "categories": [
+    {
+      "id": "python_metaclass", "domain": "python", "tier": 1, "count": 80,
+      "description": "Python metaclasses, descriptors, __init_subclass__, ABCs",
+      "templates": [
+        "Implement a Python metaclass that {action}. Explain when metaclasses are preferable to decorators.",
+        "Create a descriptor protocol in Python that {feature}. Show the __get__, __set__, __set_name__ interaction.",
+        "Build a class hierarchy using __init_subclass__ that {behavior}. Compare with metaclass approach.",
+        "Implement {pattern} using Python's data model methods (__getattr__, __setattr__, __class_getitem__).",
+        "Design a Python ABC that enforces {constraint} at class definition time, not instance creation."
+      ],
+      "focus_areas": ["__new__ vs __init__", "descriptor protocol", "MRO", "abstract methods", "slots vs dict", "weakref", "class decorators vs metaclasses", "type() as metaclass", "__prepare__", "namespace injection"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.5, "hard": 0.3},
+      "seed_batches": ["batch7_python"]
+    },
+    {
+      "id": "python_async", "domain": "python", "tier": 1, "count": 80,
+      "description": "Python asyncio, aiohttp, task groups, structured concurrency",
+      "templates": [
+        "Implement an async {component} in Python using asyncio that handles {scenario}.",
+        "Write a Python async context manager for {resource} with proper cleanup on cancellation.",
+        "Build an async pipeline in Python that {processes} with backpressure between stages.",
+        "Implement {pattern} using asyncio.TaskGroup (Python 3.11+) with proper error handling.",
+        "Create an async rate limiter in Python that {behavior} across concurrent tasks."
+      ],
+      "focus_areas": ["TaskGroup", "asyncio.Queue", "aiohttp client/server", "cancellation scopes", "async generators", "semaphore patterns", "event loops", "custom event loop policies", "async file I/O", "trio vs asyncio"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch7_python", "batch2_concurrency"]
+    },
+    {
+      "id": "python_typing", "domain": "python", "tier": 1, "count": 80,
+      "description": "Python type system: TypeVar, Protocol, ParamSpec, overload, generic classes",
+      "templates": [
+        "Implement a fully typed Python {structure} using generics and TypeVar with proper variance.",
+        "Create a Python Protocol that captures {interface} and works with structural subtyping.",
+        "Use ParamSpec and Concatenate to type a decorator that {modifies} function signatures.",
+        "Build a generic {container} class in Python with proper __class_getitem__ and runtime checks.",
+        "Implement {pattern} with @overload to provide precise return types for different input types."
+      ],
+      "focus_areas": ["TypeVar bound vs constraint", "Protocol", "ParamSpec", "Concatenate", "overload", "Generic classes", "variance (covariant/contravariant)", "TypeGuard", "Self type", "Unpack for kwargs"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch7_python"]
+    },
+    {
+      "id": "python_data", "domain": "python", "tier": 1, "count": 60,
+      "description": "Python data pipelines, itertools, generators, functional patterns",
+      "templates": [
+        "Implement a lazy data pipeline in Python using generators that {processes} without loading all data into memory.",
+        "Use itertools to solve {problem} efficiently. Compare with naive list comprehension approach.",
+        "Build a Python data processing pipeline that {transforms} using functools.reduce and operator module.",
+        "Implement {algorithm} as a Python generator with send() for coroutine-style bidirectional communication.",
+        "Create a Python stream processor that handles {data_type} with windowing and aggregation."
+      ],
+      "focus_areas": ["itertools recipes", "generator.send()", "functools.reduce", "operator module", "collections.Counter/defaultdict", "heapq for streaming", "csv/json streaming", "memory-mapped files", "multiprocessing.Pool", "contextlib patterns"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.4, "hard": 0.3},
+      "seed_batches": ["batch7_python", "batch1_algorithms"]
+    },
+    {
+      "id": "python_testing", "domain": "python", "tier": 1, "count": 50,
+      "description": "Python testing: pytest, mocking, property-based testing, fixtures",
+      "templates": [
+        "Write comprehensive pytest tests for {component} using fixtures, parametrize, and proper mocking.",
+        "Implement property-based tests using hypothesis for {function}. Define the invariants being checked.",
+        "Design a pytest plugin that {feature}. Show the hook implementation and conftest.py setup.",
+        "Write tests for async Python code that {scenario} using pytest-asyncio.",
+        "Implement a test double (mock/stub/spy) for {dependency} and explain when each type is appropriate."
+      ],
+      "focus_areas": ["pytest fixtures (scope, autouse)", "parametrize", "monkeypatch", "hypothesis strategies", "pytest-asyncio", "coverage analysis", "snapshot testing", "mutation testing concepts", "test isolation", "factory patterns for test data"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.5, "hard": 0.2},
+      "seed_batches": ["batch6_debugging"]
+    },
+    {
+      "id": "python_perf", "domain": "python", "tier": 1, "count": 50,
+      "description": "Python performance: profiling, optimization, memory, C extensions",
+      "templates": [
+        "Profile and optimize this Python code that {problem}. Show cProfile output interpretation and the fix.",
+        "Reduce memory usage of a Python program that {scenario} using __slots__, generators, and memoryview.",
+        "Implement {algorithm} in Python with both pure-Python and ctypes/Cython versions. Benchmark both.",
+        "Optimize this Python {operation} from O(n²) to O(n log n) or O(n). Explain the algorithmic insight.",
+        "Use Python's struct module and array module to implement {binary_operation} without numpy."
+      ],
+      "focus_areas": ["cProfile", "line_profiler", "memory_profiler", "tracemalloc", "__slots__", "memoryview", "struct packing", "ctypes", "Cython basics", "numpy vectorization vs loops"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch7_python"]
+    },
+    {
+      "id": "ts_types", "domain": "js_ts", "tier": 1, "count": 100,
+      "description": "TypeScript advanced types: mapped, conditional, template literals, infer",
+      "templates": [
+        "Implement a TypeScript type that {transforms} object types using mapped types and key remapping.",
+        "Create a conditional type in TypeScript that {behavior} based on the shape of the input type.",
+        "Build a type-safe {utility} using template literal types and recursive conditional types.",
+        "Implement TypeScript utility types for {use_case} that provide compile-time guarantees.",
+        "Design a type-level {computation} in TypeScript using infer, extends, and recursive types."
+      ],
+      "focus_areas": ["mapped types", "conditional types", "template literal types", "infer keyword", "recursive types", "distributive conditional", "type narrowing", "discriminated unions", "branded types", "satisfies operator"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.45, "hard": 0.4},
+      "seed_batches": ["batch3_typescript"]
+    },
+    {
+      "id": "ts_async", "domain": "js_ts", "tier": 1, "count": 80,
+      "description": "TypeScript/JavaScript async patterns, event loop, generators",
+      "templates": [
+        "Implement {pattern} in TypeScript using async generators and for-await-of.",
+        "Build a type-safe {component} that handles concurrent async operations with proper error boundaries.",
+        "Create a JavaScript {utility} that manages the microtask queue and explains event loop ordering.",
+        "Implement {algorithm} using Web Workers with type-safe message passing in TypeScript.",
+        "Design an async {data_structure} in TypeScript with proper cancellation via AbortController."
+      ],
+      "focus_areas": ["Promise.allSettled", "async generators", "AbortController", "event loop phases", "microtask vs macrotask", "SharedArrayBuffer", "Atomics", "Web Workers", "ReadableStream", "async iterators"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch3_typescript", "batch2_concurrency"]
+    },
+    {
+      "id": "react_node", "domain": "js_ts", "tier": 1, "count": 80,
+      "description": "React hooks, SSR, Node.js streaming, Express middleware",
+      "templates": [
+        "Implement a custom React hook that {feature} with proper cleanup and dependency tracking.",
+        "Build a Node.js {service} using streams that processes {data} without loading it all into memory.",
+        "Create a type-safe Express middleware chain that {behavior} with proper error propagation.",
+        "Implement server-side rendering for a React component that {renders} with streaming and Suspense.",
+        "Design a React state management solution for {scenario} using useReducer and context."
+      ],
+      "focus_areas": ["useEffect cleanup", "useMemo vs useCallback", "React.lazy + Suspense", "Node.js Transform streams", "Express error middleware", "Next.js patterns", "React Server Components", "SWR/React Query", "zustand/jotai", "testing with React Testing Library"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.45, "hard": 0.3},
+      "seed_batches": ["batch3_typescript"]
+    },
+    {
+      "id": "js_security", "domain": "js_ts", "tier": 1, "count": 40,
+      "description": "JavaScript security: XSS, CSRF, CSP, input validation, safe API design",
+      "templates": [
+        "Implement secure {feature} in a Node.js/Express app that prevents {vulnerability}.",
+        "Build input validation and sanitization for {data_type} that prevents injection attacks.",
+        "Design a Content Security Policy for {scenario} and explain each directive.",
+        "Implement secure authentication for {app_type} using JWT with proper token lifecycle.",
+        "Create a rate limiting + CSRF protection middleware for {api} with proper error responses."
+      ],
+      "focus_areas": ["XSS prevention", "CSRF tokens", "CSP headers", "JWT best practices", "bcrypt/argon2", "SQL injection", "SSRF", "path traversal", "helmet.js", "CORS configuration"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.5, "hard": 0.3},
+      "seed_batches": ["batch5_design_patterns"]
+    },
+    {
+      "id": "cpp_raii", "domain": "cpp", "tier": 1, "count": 100,
+      "description": "C++ RAII, move semantics, rule of five, smart pointers",
+      "templates": [
+        "Implement a C++ {resource_wrapper} using RAII that properly handles {lifecycle}.",
+        "Write a C++ class with correct move semantics for {resource}. Explain the rule of five.",
+        "Implement a {container} in C++ with proper copy/move constructors and strong exception guarantee.",
+        "Design a C++ smart pointer variant that {behavior} with custom deleter support.",
+        "Create a C++ resource pool using RAII that {manages} with thread safety."
+      ],
+      "focus_areas": ["unique_ptr", "shared_ptr", "weak_ptr", "make_unique/shared", "custom deleters", "move constructors", "copy elision (NRVO)", "rule of five", "noexcept", "pimpl idiom"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch10_cpp"]
+    },
+    {
+      "id": "cpp_templates", "domain": "cpp", "tier": 1, "count": 80,
+      "description": "C++ templates, concepts (C++20), SFINAE, constexpr",
+      "templates": [
+        "Implement a C++20 concept that constrains {type_requirement} and use it with a template function.",
+        "Write a C++ variadic template that {processes} a parameter pack with fold expressions.",
+        "Create a compile-time {computation} in C++ using constexpr and template metaprogramming.",
+        "Implement CRTP (Curiously Recurring Template Pattern) for {feature} with static polymorphism.",
+        "Design a C++ type trait that detects {property} and use it for SFINAE-based overload resolution."
+      ],
+      "focus_areas": ["concepts", "requires clauses", "SFINAE", "constexpr if", "fold expressions", "parameter packs", "CRTP", "type traits", "tag dispatch", "template specialization"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.4, "hard": 0.45},
+      "seed_batches": ["batch10_cpp"]
+    },
+    {
+      "id": "cpp_concurrency", "domain": "cpp", "tier": 1, "count": 60,
+      "description": "C++ concurrency: atomics, lock-free, futures, coroutines",
+      "templates": [
+        "Implement a lock-free {data_structure} in C++ using std::atomic and compare_exchange.",
+        "Build a C++ thread pool with {feature} using std::future and std::packaged_task.",
+        "Create a producer-consumer pattern in C++ with {guarantee} using condition variables.",
+        "Implement {synchronization_primitive} from scratch in C++ using atomics and memory ordering.",
+        "Design a C++20 coroutine-based {component} with proper promise_type and awaiter."
+      ],
+      "focus_areas": ["std::atomic", "memory_order", "lock-free algorithms", "std::future/promise", "condition_variable", "std::jthread", "C++20 coroutines", "hazard pointers", "read-copy-update", "std::latch/barrier"],
+      "difficulty_dist": {"easy": 0.1, "medium": 0.4, "hard": 0.5},
+      "seed_batches": ["batch10_cpp", "batch2_concurrency"]
+    },
+    {
+      "id": "cpp_modern", "domain": "cpp", "tier": 1, "count": 60,
+      "description": "Modern C++ (C++17/20/23): variant, optional, ranges, modules",
+      "templates": [
+        "Implement {pattern} using std::variant and std::visit with exhaustive pattern matching.",
+        "Build a {pipeline} using C++20 ranges and views for lazy evaluation.",
+        "Create a {utility} using std::optional with monadic operations (C++23 and_then, transform).",
+        "Implement structured bindings and if-constexpr to write generic code that handles {types}.",
+        "Design a {component} using std::span for non-owning array views with bounds safety."
+      ],
+      "focus_areas": ["std::variant", "std::visit", "std::optional", "ranges/views", "structured bindings", "if constexpr", "std::span", "std::format (C++20)", "std::expected (C++23)", "modules"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.45, "hard": 0.35},
+      "seed_batches": ["batch10_cpp"]
+    },
+    {
+      "id": "database_design", "domain": "database", "tier": 1, "count": 100,
+      "description": "Database schema design, query optimization, indexing, window functions",
+      "templates": [
+        "Design a database schema for {application} with proper normalization, indexes, and constraints.",
+        "Write an optimized SQL query for {business_question} using window functions and CTEs.",
+        "Analyze and optimize this slow query: {query}. Show the EXPLAIN plan interpretation.",
+        "Implement {feature} using PostgreSQL-specific features (JSONB, arrays, full-text search).",
+        "Design an indexing strategy for {table} that handles {query_patterns} efficiently."
+      ],
+      "focus_areas": ["normalization (3NF, BCNF)", "window functions", "CTEs (recursive)", "partial indexes", "composite indexes", "EXPLAIN ANALYZE", "query planner hints", "materialized views", "partitioning", "JSONB operations"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch4_database"]
+    },
+    {
+      "id": "rust_ownership", "domain": "rust", "tier": 2, "count": 80,
+      "description": "Rust ownership, lifetimes, borrowing, zero-cost abstractions",
+      "templates": [
+        "Implement {data_structure} in Rust with proper lifetime annotations that {guarantee}.",
+        "Write a Rust function that {processes} data with zero-copy borrowing. Explain the lifetime constraints.",
+        "Create a {pattern} in Rust that demonstrates the borrow checker preventing {bug_class}.",
+        "Implement a Rust iterator that {behavior} with proper lifetime bounds on the returned references.",
+        "Design a Rust API that uses lifetime elision rules effectively for {use_case}."
+      ],
+      "focus_areas": ["lifetime annotations", "borrow checker", "NLL (non-lexical lifetimes)", "lifetime elision", "self-referential structs", "Pin", "Cow (clone-on-write)", "zero-copy parsing", "arena allocation", "phantom data"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch8_rust"]
+    },
+    {
+      "id": "rust_async", "domain": "rust", "tier": 2, "count": 80,
+      "description": "Rust async/await with tokio: tasks, channels, select, I/O",
+      "templates": [
+        "Implement an async {service} in Rust using tokio that handles {concurrent_scenario}.",
+        "Build a Rust async stream processor using tokio channels that {processes} with backpressure.",
+        "Create a tokio::select! based {component} that handles multiple async event sources.",
+        "Implement graceful shutdown for a Rust async {server} using CancellationToken and JoinSet.",
+        "Design an async Rust {pattern} that properly handles timeouts and retries."
+      ],
+      "focus_areas": ["tokio::spawn", "tokio::select!", "mpsc/broadcast channels", "tokio::sync::Semaphore", "async traits", "Stream trait", "tower middleware", "hyper/axum", "connection pooling", "graceful shutdown"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.4, "hard": 0.45},
+      "seed_batches": ["batch8_rust"]
+    },
+    {
+      "id": "rust_traits", "domain": "rust", "tier": 2, "count": 60,
+      "description": "Rust traits, generics, macros, type-level programming",
+      "templates": [
+        "Implement a Rust trait hierarchy for {domain} with blanket implementations and trait objects.",
+        "Write a Rust procedural macro that {generates} code at compile time.",
+        "Create generic Rust functions constrained by {trait_bounds} with where clauses.",
+        "Implement the {std_trait} trait for a custom type to enable {capability}.",
+        "Design a type-state pattern in Rust using phantom types and sealed traits."
+      ],
+      "focus_areas": ["trait objects vs generics", "blanket impls", "associated types", "GATs", "sealed traits", "derive macros", "proc macros", "declarative macros", "Deref/DerefMut", "From/Into"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch8_rust"]
+    },
+    {
+      "id": "rust_unsafe", "domain": "rust", "tier": 2, "count": 40,
+      "description": "Rust unsafe code, FFI, raw pointers, Pin",
+      "templates": [
+        "Implement {feature} in Rust that requires unsafe code. Explain exactly why each unsafe block is needed.",
+        "Create a safe Rust wrapper around a C library function {function} using FFI.",
+        "Implement a self-referential struct in Rust using Pin and unsafe. Explain the safety invariants.",
+        "Write a Rust allocator that {behavior} using raw pointers with proper safety documentation.",
+        "Design a Rust abstraction that encapsulates unsafe {operation} behind a safe public API."
+      ],
+      "focus_areas": ["unsafe blocks", "raw pointers", "FFI (extern C)", "Pin/Unpin", "ManuallyDrop", "MaybeUninit", "transmute", "inline assembly", "safety invariants", "miri for verification"],
+      "difficulty_dist": {"easy": 0.1, "medium": 0.3, "hard": 0.6},
+      "seed_batches": ["batch8_rust"]
+    },
+    {
+      "id": "rust_patterns", "domain": "rust", "tier": 2, "count": 40,
+      "description": "Rust error handling, design patterns, builder, newtype",
+      "templates": [
+        "Implement the {pattern} pattern in Rust idiomatically. Compare with the same pattern in other languages.",
+        "Design a Rust error handling strategy for {application} using thiserror and anyhow.",
+        "Create a builder pattern in Rust for {struct} with type-state to enforce required fields.",
+        "Implement the newtype pattern in Rust for {use_case} with Deref and From implementations.",
+        "Design a Rust plugin system using trait objects and dynamic dispatch for {extensibility}."
+      ],
+      "focus_areas": ["builder pattern", "newtype pattern", "error enums (thiserror)", "anyhow for applications", "Result combinators", "option methods", "serde derive", "clap CLI", "testing patterns", "workspace organization"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.45, "hard": 0.3},
+      "seed_batches": ["batch8_rust"]
+    },
+    {
+      "id": "go_concurrency", "domain": "go", "tier": 2, "count": 100,
+      "description": "Go concurrency: goroutines, channels, select, sync primitives",
+      "templates": [
+        "Implement a Go {pattern} using goroutines and channels that handles {scenario}.",
+        "Build a worker pool in Go that {processes} with proper shutdown via context cancellation.",
+        "Create a fan-out/fan-in pipeline in Go that {transforms} data through multiple stages.",
+        "Implement {synchronization} in Go using sync.Mutex, sync.WaitGroup, and sync.Once.",
+        "Design a Go rate limiter using channels and time.Ticker for {use_case}."
+      ],
+      "focus_areas": ["goroutine lifecycle", "buffered vs unbuffered channels", "select with default", "context.WithCancel/Timeout", "sync.WaitGroup", "sync.Map", "sync.Pool", "errgroup", "semaphore pattern", "pipeline pattern"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.45, "hard": 0.35},
+      "seed_batches": ["batch9_go"]
+    },
+    {
+      "id": "go_http", "domain": "go", "tier": 2, "count": 60,
+      "description": "Go HTTP servers, middleware, REST APIs, testing",
+      "templates": [
+        "Build a Go HTTP {endpoint} with proper middleware for {cross_cutting_concern}.",
+        "Implement a Go HTTP client with retries, circuit breaking, and connection pooling for {api}.",
+        "Create a type-safe Go REST API handler that {operation} with proper validation and error responses.",
+        "Design Go HTTP middleware for {feature} that composes cleanly with http.Handler.",
+        "Implement request/response logging and metrics middleware in Go for {server}."
+      ],
+      "focus_areas": ["net/http patterns", "http.Handler interface", "middleware chaining", "chi/gin routers", "http.Client configuration", "context in handlers", "graceful shutdown", "HTTP/2", "WebSocket", "testing with httptest"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.45, "hard": 0.3},
+      "seed_batches": ["batch9_go"]
+    },
+    {
+      "id": "go_generics", "domain": "go", "tier": 2, "count": 50,
+      "description": "Go generics (1.18+), interfaces, type assertions",
+      "templates": [
+        "Implement a generic {data_structure} in Go using type parameters and constraints.",
+        "Write a Go function using generics that {operates} on any type satisfying {constraint}.",
+        "Design a generic pipeline in Go where each stage has different input/output types.",
+        "Implement {algorithm} generically in Go with comparable, ordered, and custom constraints.",
+        "Create a type-safe Go result type (like Rust's Result) using generics."
+      ],
+      "focus_areas": ["type parameters", "type constraints", "comparable", "any", "custom type sets", "generic interfaces", "type inference", "generic methods limitations", "slices/maps packages", "cmp.Ordered"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.4, "hard": 0.3},
+      "seed_batches": ["batch9_go"]
+    },
+    {
+      "id": "go_testing", "domain": "go", "tier": 2, "count": 40,
+      "description": "Go testing: table tests, benchmarks, mocking, testify",
+      "templates": [
+        "Write comprehensive Go table-driven tests for {function} covering edge cases.",
+        "Implement Go benchmarks for {operation} and explain how to interpret the results.",
+        "Create Go integration tests for {component} using testcontainers or httptest.",
+        "Design a Go mock/stub for {interface} and show both manual and testify approaches.",
+        "Write fuzz tests (Go 1.18+) for {parser/validator} that discover edge cases."
+      ],
+      "focus_areas": ["table-driven tests", "t.Run subtests", "t.Parallel", "benchmarks", "fuzzing", "testify assertions", "gomock", "httptest", "test fixtures", "golden files"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.45, "hard": 0.25},
+      "seed_batches": ["batch9_go"]
+    },
+    {
+      "id": "hive_api", "domain": "hive", "tier": 2, "count": 100,
+      "description": "Hive blockchain API: condenser, custom_json, operations, key management",
+      "templates": [
+        "Implement a {operation} on the Hive blockchain using the condenser API in {language}.",
+        "Build a Hive {feature} that interacts with custom_json for {use_case}.",
+        "Create a Hive witness {tool} that handles {scenario} with proper error handling.",
+        "Implement Hive key derivation and transaction signing for {operation_type}.",
+        "Design a Hive bot that {automates} using streaming API and custom_json."
+      ],
+      "focus_areas": ["condenser_api", "custom_json operations", "transaction signing", "key hierarchy (owner/active/posting/memo)", "resource credits", "VESTS/HP conversion", "witness operations", "proposal system", "HBD/HIVE operations", "dhive/hive-js SDK"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.4, "hard": 0.3},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "hive_custom", "domain": "hive", "tier": 2, "count": 50,
+      "description": "Hive custom_json, second-layer protocols, HiveEngine, HAF",
+      "templates": [
+        "Implement a Hive second-layer protocol using custom_json that {feature}.",
+        "Build a Hive Engine token interaction in {language} that {operation}.",
+        "Create a HAF (Hive Application Framework) plugin that indexes {data_type}.",
+        "Design a Hive-based {application} using custom_json for state management.",
+        "Implement community features on Hive using the communities API for {use_case}."
+      ],
+      "focus_areas": ["custom_json format", "second-layer protocols", "HiveEngine API", "HAF plugins", "communities API", "account authority", "multi-sig", "dhive streaming", "block processing", "state machines on-chain"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.4, "hard": 0.3},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "algo_dp", "domain": "algorithms", "tier": 3, "count": 100,
+      "description": "Dynamic programming and greedy algorithms with deep reasoning",
+      "templates": [
+        "Solve {problem} using dynamic programming. Show the state transition, recurrence relation, and optimization.",
+        "Implement a greedy algorithm for {problem}. Prove why the greedy choice property holds.",
+        "Convert this recursive solution for {problem} to bottom-up DP with space optimization.",
+        "Solve {problem} with both DP and greedy approaches. Compare time/space complexity and correctness.",
+        "Implement {variant} of the classic {dp_problem} with additional constraints."
+      ],
+      "focus_areas": ["state definition", "recurrence relations", "memoization vs tabulation", "space optimization", "interval scheduling", "knapsack variants", "LCS/LIS", "edit distance", "coin change", "matrix chain multiplication", "bitmask DP", "digit DP", "tree DP"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.4, "hard": 0.45},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "algo_graphs", "domain": "algorithms", "tier": 3, "count": 100,
+      "description": "Graph algorithms with deep reasoning",
+      "templates": [
+        "Implement {algorithm} for {graph_problem}. Trace through an example and prove correctness.",
+        "Solve {problem} on a graph by reducing it to {known_problem}. Explain the reduction.",
+        "Implement {shortest_path_variant} and explain when it's preferred over Dijkstra/Bellman-Ford.",
+        "Build a solution for {graph_problem} that handles {constraint} using {technique}.",
+        "Design an efficient algorithm for {query_type} queries on a tree/graph."
+      ],
+      "focus_areas": ["BFS/DFS variants", "Dijkstra", "Bellman-Ford", "Floyd-Warshall", "MST (Kruskal/Prim)", "topological sort", "SCC (Tarjan/Kosaraju)", "bipartite matching", "network flow", "LCA", "Euler tour", "centroid decomposition"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.35, "hard": 0.5},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "algo_sort_search", "domain": "algorithms", "tier": 3, "count": 60,
+      "description": "Sorting, searching, and binary search variants",
+      "templates": [
+        "Implement {sorting_algorithm} and analyze its time/space complexity in all cases.",
+        "Solve {problem} using binary search on the answer. Explain how to define the search predicate.",
+        "Implement {search_variant} for {data_structure}. Handle edge cases explicitly.",
+        "Design an algorithm for {problem} that uses the {technique} principle for O(n) time.",
+        "Implement external sorting for {scenario} when data doesn't fit in memory."
+      ],
+      "focus_areas": ["quicksort (pivot strategies)", "mergesort (in-place, external)", "heapsort", "counting/radix sort", "binary search variants", "ternary search", "interpolation search", "quickselect", "Dutch national flag", "inversion counting"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.4, "hard": 0.35},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "ds_advanced", "domain": "algorithms", "tier": 3, "count": 80,
+      "description": "Advanced data structures with implementation and reasoning",
+      "templates": [
+        "Implement a {data_structure} from scratch. Explain the time complexity of each operation.",
+        "Design a {data_structure} that supports {operations} in {time_complexity}.",
+        "Implement a persistent version of {data_structure} using path copying.",
+        "Build a {tree_variant} that self-balances on {operation}. Trace through a rebalancing example.",
+        "Create a {data_structure} optimized for {access_pattern} using {technique}."
+      ],
+      "focus_areas": ["segment tree (lazy propagation)", "Fenwick tree (BIT)", "trie (compressed)", "skip list", "B-tree", "red-black tree", "AVL tree", "splay tree", "disjoint set (union-find)", "bloom filter", "LRU/LFU cache", "monotone stack/queue"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.35, "hard": 0.5},
+      "seed_batches": ["batch1_algorithms"]
+    },
+    {
+      "id": "system_design", "domain": "architecture", "tier": 3, "count": 100,
+      "description": "System design and distributed systems architecture",
+      "templates": [
+        "Design {system} that handles {scale}. Cover data model, API, storage, and scaling strategy.",
+        "Implement a {component} of a distributed system that handles {failure_mode}.",
+        "Design the architecture for {application} with focus on {quality_attribute}.",
+        "Implement {distributed_pattern} with proper handling of {consistency_concern}.",
+        "Create a {service} that scales horizontally with {sharding_strategy}."
+      ],
+      "focus_areas": ["load balancing", "caching strategies", "database sharding", "message queues", "event-driven architecture", "CQRS", "saga pattern", "circuit breaker", "rate limiting", "consistent hashing", "leader election", "distributed locks", "CAP theorem trade-offs"],
+      "difficulty_dist": {"easy": 0.1, "medium": 0.4, "hard": 0.5},
+      "seed_batches": ["batch5_design_patterns"]
+    },
+    {
+      "id": "design_patterns", "domain": "architecture", "tier": 3, "count": 80,
+      "description": "Design patterns with implementation in multiple languages",
+      "templates": [
+        "Implement the {pattern} pattern in {language}. Explain when it's appropriate and when it's over-engineering.",
+        "Compare {pattern_a} vs {pattern_b} for {use_case}. Implement both and show the trade-offs.",
+        "Refactor this code using {pattern} to improve {quality}. Show before/after.",
+        "Implement {pattern} with a twist: {additional_requirement}. How does the twist change the design?",
+        "Design a plugin architecture using {pattern} that supports {extensibility}."
+      ],
+      "focus_areas": ["strategy", "observer", "factory method/abstract factory", "builder", "adapter/facade", "proxy", "decorator", "command", "state machine", "mediator", "visitor", "dependency injection"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.45, "hard": 0.35},
+      "seed_batches": ["batch5_design_patterns"]
+    },
+    {
+      "id": "debugging", "domain": "debugging", "tier": 3, "count": 100,
+      "description": "Debugging, root cause analysis, post-mortem reasoning",
+      "templates": [
+        "This {language} code has a subtle bug that causes {symptom}. Find the root cause and fix it.\n\n```{language}\n{buggy_code}\n```",
+        "Debug this {language} program that works in {environment_a} but fails in {environment_b}.",
+        "This function returns wrong results for {edge_case}. Trace through the execution to find the bug.",
+        "This concurrent {language} code has a race condition. Identify it and implement a thread-safe fix.",
+        "This code has a memory leak that crashes the process after {time}. Find and fix it."
+      ],
+      "focus_areas": ["race conditions", "deadlocks", "memory leaks", "off-by-one errors", "integer overflow", "floating point precision", "null pointer dereference", "use-after-free", "stack overflow", "resource leaks", "encoding issues", "timezone bugs"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch6_debugging"]
+    },
+    {
+      "id": "code_review", "domain": "debugging", "tier": 3, "count": 60,
+      "description": "Code review, refactoring, smell identification",
+      "templates": [
+        "Review this code and identify the code smells. Refactor to improve {quality_attribute}.",
+        "This function is {lines} lines long. Decompose it into smaller, testable functions.",
+        "Identify the SOLID principle violations in this code and refactor to fix them.",
+        "This code works but is unmaintainable. Refactor using {technique} while preserving behavior.",
+        "Review this {language} code for security vulnerabilities. List each issue with severity."
+      ],
+      "focus_areas": ["DRY violations", "God class", "feature envy", "long parameter list", "deep nesting", "magic numbers", "dead code", "inappropriate intimacy", "primitive obsession", "refused bequest", "SOLID principles", "safe refactoring steps"],
+      "difficulty_dist": {"easy": 0.3, "medium": 0.45, "hard": 0.25},
+      "seed_batches": ["batch6_debugging"]
+    },
+    {
+      "id": "api_design", "domain": "architecture", "tier": 3, "count": 60,
+      "description": "API design: REST, gRPC, GraphQL, versioning, pagination",
+      "templates": [
+        "Design a REST API for {resource} with proper HTTP methods, status codes, and error format.",
+        "Implement a gRPC service definition for {use_case} with streaming and error handling.",
+        "Design a GraphQL schema for {domain} with proper types, resolvers, and N+1 query prevention.",
+        "Implement API versioning for {api} using {strategy}. Handle breaking changes gracefully.",
+        "Design cursor-based pagination for {endpoint} that handles concurrent modifications."
+      ],
+      "focus_areas": ["RESTful resource naming", "HTTP status codes", "HATEOAS", "gRPC streaming", "Protocol Buffers", "GraphQL schema design", "DataLoader pattern", "API versioning strategies", "rate limiting headers", "cursor vs offset pagination"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.45, "hard": 0.3},
+      "seed_batches": ["batch5_design_patterns"]
+    },
+    {
+      "id": "security", "domain": "cross_cutting", "tier": 3, "count": 60,
+      "description": "Security: authentication, cryptography, OWASP, secure coding",
+      "templates": [
+        "Implement {auth_mechanism} for a {language} application with proper key management.",
+        "Create a secure {feature} that prevents {vulnerability_class}. Show the attack and defense.",
+        "Implement {crypto_operation} correctly in {language}. Explain common pitfalls.",
+        "Design an authorization system using {model} for {application}.",
+        "Audit this code for {vulnerability_type} and implement the fix."
+      ],
+      "focus_areas": ["OWASP Top 10", "bcrypt/argon2/scrypt", "JWT lifecycle", "OAuth2 flows", "RBAC/ABAC", "CSP headers", "prepared statements", "input validation", "secrets management", "TLS configuration"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.45, "hard": 0.35},
+      "seed_batches": ["batch5_design_patterns"]
+    },
+    {
+      "id": "concurrency_general", "domain": "cross_cutting", "tier": 3, "count": 80,
+      "description": "Concurrency patterns across languages",
+      "templates": [
+        "Implement {pattern} in {language} for {use_case}. Compare with the same pattern in {other_language}.",
+        "Solve the {classic_problem} (dining philosophers/producers-consumers/readers-writers) in {language}.",
+        "Design a {concurrent_component} that handles {N} concurrent {operations} safely.",
+        "Implement a barrier synchronization in {language} from basic primitives.",
+        "Create a work-stealing scheduler for {task_type} in {language}."
+      ],
+      "focus_areas": ["mutex/lock", "semaphore", "condition variable", "barrier", "read-write lock", "actor model", "CSP (channels)", "software transactional memory", "lock ordering", "deadlock prevention"],
+      "difficulty_dist": {"easy": 0.15, "medium": 0.4, "hard": 0.45},
+      "seed_batches": ["batch2_concurrency"]
+    },
+    {
+      "id": "testing_strategies", "domain": "cross_cutting", "tier": 3, "count": 60,
+      "description": "Testing: unit, integration, property-based, mutation, contract",
+      "templates": [
+        "Design a testing strategy for {component} that covers unit, integration, and contract tests.",
+        "Implement property-based tests for {function} using {framework}. Define meaningful properties.",
+        "Write mutation tests that verify the test suite for {module} actually catches bugs.",
+        "Create contract tests between {service_a} and {service_b} using {tool}.",
+        "Design a test data generation strategy for {domain} that covers edge cases systematically."
+      ],
+      "focus_areas": ["test pyramid", "property-based testing", "mutation testing", "contract testing", "snapshot testing", "chaos engineering", "load testing", "fuzz testing", "test doubles", "test data builders"],
+      "difficulty_dist": {"easy": 0.25, "medium": 0.45, "hard": 0.3},
+      "seed_batches": ["batch6_debugging"]
+    },
+    {
+      "id": "database_nosql", "domain": "database", "tier": 3, "count": 60,
+      "description": "NoSQL, Redis, consistency models, distributed databases",
+      "templates": [
+        "Implement a {feature} using Redis data structures for {use_case}.",
+        "Design a data model for {application} using {nosql_database}. Explain the trade-offs vs relational.",
+        "Implement {consistency_model} for a distributed key-value store.",
+        "Build a caching strategy for {application} using Redis with proper invalidation.",
+        "Design the data layer for {application} that spans both SQL and NoSQL stores."
+      ],
+      "focus_areas": ["Redis data structures", "Redis pub/sub", "Redis Streams", "MongoDB aggregation", "Cassandra data modeling", "DynamoDB patterns", "eventual consistency", "CRDTs", "vector clocks", "conflict resolution"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.45, "hard": 0.35},
+      "seed_batches": ["batch4_database"]
+    },
+    {
+      "id": "networking", "domain": "systems", "tier": 3, "count": 60,
+      "description": "Networking: TCP, HTTP/2, WebSocket, gRPC, protocol design",
+      "templates": [
+        "Implement a {protocol} server/client in {language} with proper error handling.",
+        "Build a {language} WebSocket {application} with heartbeat, reconnection, and message ordering.",
+        "Design a custom binary protocol for {use_case} with versioning and backward compatibility.",
+        "Implement HTTP/2 server push for {scenario} and explain when it helps vs hurts.",
+        "Create a connection pool for {protocol} in {language} with health checking and reconnection."
+      ],
+      "focus_areas": ["TCP socket programming", "HTTP/2 multiplexing", "WebSocket protocol", "gRPC streaming", "DNS resolution", "TLS handshake", "connection pooling", "keep-alive", "backpressure", "protocol buffers"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch2_concurrency"]
+    },
+    {
+      "id": "performance", "domain": "cross_cutting", "tier": 3, "count": 60,
+      "description": "Performance optimization, profiling, caching, complexity analysis",
+      "templates": [
+        "Optimize this {language} code from {current_complexity} to {target_complexity}. Show the insight.",
+        "Profile and fix the performance bottleneck in this {language} {component}.",
+        "Implement {caching_strategy} for {application} with proper invalidation.",
+        "Analyze the cache performance of {algorithm} and optimize for {cache_level} locality.",
+        "Design a {language} solution for {problem} optimized for {metric} (latency/throughput/memory)."
+      ],
+      "focus_areas": ["Big-O analysis", "amortized analysis", "cache locality", "branch prediction", "SIMD", "memory pools", "lazy evaluation", "memoization", "profiling tools", "flame graphs"],
+      "difficulty_dist": {"easy": 0.2, "medium": 0.4, "hard": 0.4},
+      "seed_batches": ["batch1_algorithms"]
+    }
+  ]
+}
