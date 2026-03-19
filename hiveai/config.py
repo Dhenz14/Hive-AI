@@ -40,6 +40,13 @@ OPENROUTER_API_KEY = os.environ.get("AI_INTEGRATIONS_OPENROUTER_API_KEY", "")
 LLM_BACKEND = os.environ.get("LLM_BACKEND", "auto")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL_REASONING = os.environ.get("OLLAMA_MODEL_REASONING", "qwen3:14b")
+
+# --- Runtime Mode ---
+# Explicit mode label: "chat_rag" or "campaign_probe".
+# Drives ctx-size expectations and operational semantics.
+# Set via RUNTIME_MODE env var or inferred from LLM_CTX_SIZE.
+LLM_CTX_SIZE = int(os.environ.get("LLM_CTX_SIZE", "4096"))
+RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "chat_rag" if LLM_CTX_SIZE >= 8192 else "campaign_probe")
 OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3.5:9b")
 
 # llama-server — serves the merged GGUF model (merge-then-freeze, no LoRA at runtime).
@@ -134,6 +141,25 @@ ENABLE_HYDE = os.environ.get("ENABLE_HYDE", "true").lower() in ("1", "true", "ye
 ENABLE_QUERY_DECOMPOSITION = os.environ.get("ENABLE_QUERY_DECOMPOSITION", "true").lower() in ("1", "true", "yes")
 # CRAG: LLM judges retrieval quality before generation (Phase 3)
 ENABLE_CRAG = os.environ.get("ENABLE_CRAG", "false").lower() in ("1", "true", "yes")
+# Confidence gate: below rewrite threshold, attempt query rewrite + re-retrieve before injecting
+RETRIEVAL_REWRITE_THRESHOLD = float(os.environ.get("RETRIEVAL_REWRITE_THRESHOLD", "0.50"))
+# Suppress threshold: if best score is still below this after rewrite, don't inject context at all
+RETRIEVAL_SUPPRESS_THRESHOLD = float(os.environ.get("RETRIEVAL_SUPPRESS_THRESHOLD", "0.25"))
+
+# --- Shadow Reranker (observation only, no enforcement) ---
+# Runs cross-encoder scoring on all retrieval results, logs to trace for calibration
+RERANKER_SHADOW_ENABLED = os.environ.get("RERANKER_SHADOW_ENABLED", "true").lower() in ("1", "true", "yes")
+RERANKER_SHADOW_MODEL = os.environ.get("RERANKER_SHADOW_MODEL", "BAAI/bge-reranker-v2-m3")
+# Candidate threshold for would_suppress signal (calibration target, NOT enforced)
+RERANKER_SHADOW_CANDIDATE_THRESHOLD = float(os.environ.get("RERANKER_SHADOW_CANDIDATE_THRESHOLD", "0.075"))
+
+# --- Entity Memory Lane (cross-session pattern persistence) ---
+# Extracts reusable procedure/preference/concept entities from verified Q&A pairs
+ENTITY_MEMORY_ENABLED = os.environ.get("ENTITY_MEMORY_ENABLED", "true").lower() in ("1", "true", "yes")
+# Higher quality gate than solved_example (0.82) — entity extraction from marginal responses produces noise
+ENTITY_MEMORY_MIN_QUALITY = float(os.environ.get("ENTITY_MEMORY_MIN_QUALITY", "0.90"))
+# Cap total entities per book to prevent noise explosion
+ENTITY_MEMORY_MAX_PER_BOOK = int(os.environ.get("ENTITY_MEMORY_MAX_PER_BOOK", "50"))
 
 # --- MoLoRA (Mixture of LoRA Experts) ---
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")

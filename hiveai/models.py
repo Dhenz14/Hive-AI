@@ -511,6 +511,9 @@ class TelemetryEvent(Base):
     # Matched pattern details (latent — for holdout analysis)
     matched_pattern_pass_rates_json = Column(Text, nullable=True)
 
+    # Retrieval trace (full JSON snapshot — enables passive monitoring)
+    retrieval_trace_json = Column(Text, nullable=True)
+
     # Traffic hygiene
     is_internal = Column(Boolean, default=False)
 

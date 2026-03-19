@@ -436,6 +436,18 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
                         bonus += min(title_overlap * 0.02, 0.06)  # cap at +0.06
                 r["hybrid_score"] += bonus
                 r["is_solved_example"] = True
+            elif meta.get("source_type") == "entity":
+                # Soft bonus — entities are informational context, not verified solutions
+                bonus = 0.03
+                # Trigger keyword overlap: entity stored triggers overlap with query terms
+                triggers = meta.get("keywords", [])
+                if triggers and query_terms_set:
+                    trigger_set = {t.lower() for t in triggers}
+                    t_overlap = len(query_terms_set & trigger_set)
+                    bonus += min(t_overlap * 0.02, 0.04)
+                r["hybrid_score"] += bonus
+                r["is_entity"] = True
+                r["entity_type"] = meta.get("entity_type", "concept")
 
     # Step 5: Re-sort by fused score and return top results
     vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)

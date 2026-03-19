@@ -339,7 +339,8 @@ def health_check():
     # --- Config summary ---
     from hiveai.config import (
         HARDWARE_PROFILE, DB_BACKEND, LLM_BACKEND,
-        MIN_TRAINING_QUALITY, LORA_EXPORT_QUALITY, CHAT_VERIFY_CODE
+        MIN_TRAINING_QUALITY, LORA_EXPORT_QUALITY, CHAT_VERIFY_CODE,
+        RUNTIME_MODE, LLM_CTX_SIZE, OLLAMA_BASE_URL, LLAMA_SERVER_BASE_URL,
     )
     checks["config"] = {
         "hardware_profile": HARDWARE_PROFILE,
@@ -348,6 +349,21 @@ def health_check():
         "min_training_quality": MIN_TRAINING_QUALITY,
         "lora_export_quality": LORA_EXPORT_QUALITY,
         "chat_verify_code": CHAT_VERIFY_CODE,
+    }
+
+    # --- Runtime mode (what the process is actually doing) ---
+    try:
+        from hiveai.llm.client import get_active_backend
+        _resolved_backend = get_active_backend()
+    except Exception:
+        _resolved_backend = "unknown"
+    checks["runtime"] = {
+        "mode": RUNTIME_MODE,
+        "ctx_size": LLM_CTX_SIZE,
+        "configured_backend": LLM_BACKEND,
+        "resolved_backend": _resolved_backend,
+        "ollama_endpoint": OLLAMA_BASE_URL,
+        "llama_server_endpoint": LLAMA_SERVER_BASE_URL,
     }
 
     code = 200 if checks["status"] == "ok" else 503
@@ -932,6 +948,7 @@ def chat_api():
 
     db = SessionLocal()
     try:
+        from hiveai.llm.client import LLMProviderUnavailable
         books = db.query(GoldenBook).all()
 
         if not books:
@@ -967,23 +984,78 @@ def chat_api():
         top_sections = []
         source_books = []
         knowledge_context = ""
+        _entity_sections = []
+        _retrieval_trace = {}
 
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
-                message, db, history=history, retrieval_mode=classify.retrieval_mode)
+                message, db, history=history, retrieval_mode=classify.retrieval_mode,
+                trace=_retrieval_trace)
 
+            # Shadow reranker: score all retrieved sections (log only, no enforcement)
+            from hiveai.config import RERANKER_SHADOW_ENABLED
+            if RERANKER_SHADOW_ENABLED and top_sections:
+                try:
+                    from hiveai.llm.client import compute_shadow_reranker_scores
+                    import time as _shadow_time
+                    _shadow_t0 = _shadow_time.perf_counter()
+                    _shadow_result = compute_shadow_reranker_scores(message, top_sections)
+                    _shadow_t1 = _shadow_time.perf_counter()
+                    _shadow_result["reranker_shadow_latency_ms"] = round((_shadow_t1 - _shadow_t0) * 1000, 1)
+                    _retrieval_trace.update(_shadow_result)
+                except Exception as _shadow_err:
+                    logging.getLogger(__name__).debug(f"Shadow reranker skipped: {_shadow_err}")
+                    _retrieval_trace["reranker_shadow_applied"] = False
+                    _retrieval_trace["reranker_shadow_reason"] = str(_shadow_err)[:200]
+
+            # Split entity lane before main context budgeting
+            _entity_sections = [s for s in top_sections if s.get("is_entity")]
             # 3-arm experiment: no_injection strips solved examples from context
-            _ctx_sections = top_sections
+            _ctx_sections = [s for s in top_sections if not s.get("is_entity")]
             if not _telem_inject_memory:
-                _ctx_sections = [s for s in top_sections if not s.get("is_solved_example")]
+                _ctx_sections = [s for s in _ctx_sections if not s.get("is_solved_example")]
 
             _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
             knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
-            book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
-            compressed = get_compressed_knowledge(book_ids, db)
-            if compressed:
-                knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+            # Suppression gate: don't inject noise when all retrieved sections are low-confidence
+            _suppression_reason = None
+            if knowledge_context and _ctx_sections:
+                from hiveai.config import RETRIEVAL_SUPPRESS_THRESHOLD
+                _ret_best = max((s.get("relevance_score", 0) for s in _ctx_sections), default=0.0)
+                if _ret_best < RETRIEVAL_SUPPRESS_THRESHOLD:
+                    logging.getLogger(__name__).info(f"Retrieval suppressed (preinject): best_score={_ret_best:.3f} below threshold")
+                    knowledge_context = ""
+                    _suppression_reason = "below_threshold"
+
+            _compressed_used = False
+            if knowledge_context:
+                book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
+                compressed = get_compressed_knowledge(book_ids, db)
+                if compressed:
+                    knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+                    _compressed_used = True
+
+            # Finalize retrieval trace
+            _retrieval_trace.update({
+                "trace_schema_version": 3,
+                "retrieval_suppressed": _suppression_reason is not None,
+                "suppression_reason": _suppression_reason,
+                "final_best_score": round(
+                    max((s.get("relevance_score", 0) for s in _ctx_sections), default=0.0), 4),
+                "hard_section_count": len(_ctx_sections),
+                "hard_context_present": bool(knowledge_context),
+                "top_section_books": list(dict.fromkeys(
+                    s.get("book_title", "") for s in _ctx_sections[:3] if s.get("book_title")))[:3],
+                "hard_section_refs": [
+                    {"id": s.get("id"), "header": (s.get("header") or "")[:80]}
+                    for s in _ctx_sections[:5] if s.get("id")
+                ],
+                "entities_retrieved": len(_entity_sections),
+                "entity_ids": [s.get("id") for s in _entity_sections if s.get("id")],
+                "soft_entity_lane_used": bool(_entity_sections),
+                "compressed_knowledge_used": _compressed_used,
+            })
 
         t_retrieval = _time.perf_counter()
 
@@ -995,6 +1067,16 @@ def chat_api():
         # --- Step 3: Build prompt ---
         skill_context = load_skills_for_query(message)
         skill_block = f"\n\n{skill_context}" if skill_context else ""
+
+        # Build entity context block (soft background, separate from authoritative sections)
+        _entity_context = ""
+        if _entity_sections:
+            _ent_blocks = []
+            for _es in _entity_sections[:3]:
+                _ent_blocks.append(
+                    f"[{_es.get('entity_type', 'concept')}] {_es.get('header', '')}: {_es.get('content', '')}"
+                )
+            _entity_context = "\n".join(_ent_blocks)
 
         if knowledge_context:
             system_prompt = f"""{CHAT_SYSTEM_PROMPT}
@@ -1009,6 +1091,9 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 {skill_block}
 
 Answer the question directly and helpfully."""
+
+        if _entity_context:
+            system_prompt += f"\n\nProject context (background patterns, not authoritative):\n{_entity_context}"
 
         # Inject executable output contract if needed
         if classify.response_contract == "executable_code":
@@ -1061,8 +1146,12 @@ Answer the question directly and helpfully."""
                 from hiveai.sandbox import verify_response_code, extract_code_blocks
                 from hiveai.canonical_harness import match_harness, run_harness
 
-                # Check for canonical harness FIRST
-                _harness_match = match_harness(message)
+                # Check for canonical harness FIRST — try detected language, fall back to python
+                blocks = extract_code_blocks(response)
+                _block_lang = blocks[0].get("language", "python") if blocks else "python"
+                _harness_match = match_harness(message, language=_block_lang)
+                if not _harness_match and _block_lang != "python":
+                    _harness_match = match_harness(message, language="python")
                 if _harness_match:
                     _verifier_mode = _harness_match.mode
                     if _harness_match.mode == "no_verdict":
@@ -1070,8 +1159,6 @@ Answer the question directly and helpfully."""
                         _contract_mode = "none"
                         _harness_result = {"passed": None, "mode": "no_verdict", "harness_id": _harness_match.harness_id, "reason": _harness_match.reason}
                     else:
-                        # Extract just the solution code (prefer code_only from JSON contract)
-                        blocks = extract_code_blocks(response)
                         _contract_mode = blocks[0].get("contract", "fenced") if blocks else "none"
                         if blocks:
                             solution_code = blocks[0].get("code_only", blocks[0]["code"])
@@ -1240,6 +1327,7 @@ Answer the question directly and helpfully."""
             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
             "solved_example_count": len(_solved_sections_retrieved),
             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+            "retrieval_trace": _retrieval_trace,
             "revised": was_revised,
             "response_contract": classify.response_contract,
             "contract_mode": _contract_mode,
@@ -1295,12 +1383,22 @@ Answer the question directly and helpfully."""
                 is_internal=_telem_is_internal,
                 verifier_mode=_verifier_mode,
                 frontend_build=_telem_frontend_build,
+                retrieval_trace=_retrieval_trace or None,
             )
 
         result["trace"]["request_id"] = _telem_request_id
         result["trace"]["answer_id"] = _telem_answer_id
         result["trace"]["experiment_group"] = _telem_group
         return jsonify(result)
+    except LLMProviderUnavailable as e:
+        logging.getLogger(__name__).warning(f"LLM provider unavailable: {e}")
+        return jsonify({
+            "error": "llm_provider_unavailable",
+            "message": f"No LLM provider is currently available ({e.detail}). "
+                       f"Please check that Ollama is running or that your API key has credits.",
+            "provider": e.provider,
+            "detail": e.detail,
+        }), 503
     finally:
         db.close()
 
@@ -1367,6 +1465,7 @@ def chat_stream():
 
     def generate():
         import time as _time
+        from hiveai.llm.client import LLMProviderUnavailable
         t_start = _time.perf_counter()
 
         db = SessionLocal()
@@ -1378,6 +1477,8 @@ def chat_stream():
 
             rich_system_prompt = CHAT_SYSTEM_PROMPT  # default; overridden when books exist
             top_sections = []
+            _entity_sections = []
+            _retrieval_trace = {}
             if not books:
                 # No Golden Books yet — stream direct response without RAG
                 yield f"event: sources\ndata: {json.dumps({'sources': []})}\n\n"
@@ -1388,22 +1489,77 @@ def chat_stream():
                 source_books = []
                 if classify.needs_retrieval:
                     top_sections, source_books, all_books = search_knowledge_sections(
-                        message, db, history=history, retrieval_mode=classify.retrieval_mode)
+                        message, db, history=history, retrieval_mode=classify.retrieval_mode,
+                        trace=_retrieval_trace)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
+                    # Shadow reranker: score all retrieved sections (log only)
+                    from hiveai.config import RERANKER_SHADOW_ENABLED
+                    if RERANKER_SHADOW_ENABLED and top_sections:
+                        try:
+                            from hiveai.llm.client import compute_shadow_reranker_scores
+                            import time as _shadow_time
+                            _shadow_t0 = _shadow_time.perf_counter()
+                            _shadow_result = compute_shadow_reranker_scores(message, top_sections)
+                            _shadow_t1 = _shadow_time.perf_counter()
+                            _shadow_result["reranker_shadow_latency_ms"] = round((_shadow_t1 - _shadow_t0) * 1000, 1)
+                            _retrieval_trace.update(_shadow_result)
+                        except Exception as _shadow_err:
+                            logging.getLogger(__name__).debug(f"Shadow reranker skipped: {_shadow_err}")
+                            _retrieval_trace["reranker_shadow_applied"] = False
+                            _retrieval_trace["reranker_shadow_reason"] = str(_shadow_err)[:200]
+
+                    # Split entity lane before main context budgeting
+                    _entity_sections = [s for s in top_sections if s.get("is_entity")]
                     # 3-arm experiment: no_injection strips solved examples from context
                     # (still retrieves them for latent logging, but withholds from LLM prompt)
-                    _ctx_sections = top_sections
+                    _ctx_sections = [s for s in top_sections if not s.get("is_entity")]
                     if not _telem_inject_memory:
-                        _ctx_sections = [s for s in top_sections if not s.get("is_solved_example")]
+                        _ctx_sections = [s for s in _ctx_sections if not s.get("is_solved_example")]
 
                     _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
                     knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
 
-                    book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
-                    compressed = get_compressed_knowledge(book_ids, db)
-                    if compressed:
-                        knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+                    # Suppression gate: don't inject noise when all retrieved sections are low-confidence
+                    _suppression_reason = None
+                    if knowledge_context and _ctx_sections:
+                        from hiveai.config import RETRIEVAL_SUPPRESS_THRESHOLD
+                        _ret_best = max((s.get("relevance_score", 0) for s in _ctx_sections), default=0.0)
+                        if _ret_best < RETRIEVAL_SUPPRESS_THRESHOLD:
+                            logging.getLogger(__name__).info(f"Retrieval suppressed (retry): best_score={_ret_best:.3f} below threshold")
+                            knowledge_context = ""
+                            _suppression_reason = "below_threshold"
+
+                    _compressed_used = False
+                    if knowledge_context:
+                        book_ids = list(set(s.get("book_id") for s in top_sections if s.get("book_id")))
+                        compressed = get_compressed_knowledge(book_ids, db)
+                        if compressed:
+                            knowledge_context = f"=== Dense Knowledge Map ===\n{compressed}\n\n=== Detailed Sections ===\n{knowledge_context}"
+                            _compressed_used = True
+
+                    # Finalize retrieval trace (freeze here — same object snapshot emitted twice)
+                    _retrieval_trace.update({
+                        "trace_schema_version": 3,
+                        "retrieval_suppressed": _suppression_reason is not None,
+                        "suppression_reason": _suppression_reason,
+                        "final_best_score": round(
+                            max((s.get("relevance_score", 0) for s in _ctx_sections), default=0.0), 4),
+                        "hard_section_count": len(_ctx_sections),
+                        "hard_context_present": bool(knowledge_context),
+                        "top_section_books": list(dict.fromkeys(
+                            s.get("book_title", "") for s in _ctx_sections[:3] if s.get("book_title")))[:3],
+                        "hard_section_refs": [
+                            {"id": s.get("id"), "header": (s.get("header") or "")[:80]}
+                            for s in _ctx_sections[:5] if s.get("id")
+                        ],
+                        "entities_retrieved": len(_entity_sections),
+                        "entity_ids": [s.get("id") for s in _entity_sections if s.get("id")],
+                        "soft_entity_lane_used": bool(_entity_sections),
+                        "compressed_knowledge_used": _compressed_used,
+                    })
+                    # Emit early so retrieval path is observable even if generation later fails
+                    yield f"event: retrieval_trace\ndata: {json.dumps(_retrieval_trace)}\n\n"
 
                     skill_context = load_skills_for_query(message)
                     skill_block = f"\n\n{skill_context}" if skill_context else ""
@@ -1420,6 +1576,15 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     skill_context = load_skills_for_query(message)
                     skill_block = f"\n\n{skill_context}" if skill_context else ""
                     rich_system_prompt = f"{CHAT_SYSTEM_PROMPT}{skill_block}\n\nAnswer the question directly and helpfully."
+
+                # Entity context block (background patterns, softer framing than main sections)
+                if _entity_sections:
+                    _ent_blocks = []
+                    for _es in _entity_sections[:3]:
+                        _ent_blocks.append(
+                            f"[{_es.get('entity_type', 'concept')}] {_es.get('header', '')}: {_es.get('content', '')}"
+                        )
+                    rich_system_prompt += "\n\nProject context (background patterns, not authoritative):\n" + "\n".join(_ent_blocks)
 
                 # Inject executable output contract if needed
                 if classify.response_contract == "executable_code":
@@ -1500,7 +1665,12 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
             # ---- Normal mode: single-shot stream ----
             for chunk in stream_llm_call("", messages=chat_messages, max_tokens=4096):
                 if "error" in chunk:
-                    yield f"event: error\ndata: {json.dumps({'error': chunk['error']})}\n\n"
+                    _err_payload = {"error": chunk["error"]}
+                    if chunk.get("error_type") == "provider_unavailable":
+                        _err_payload["error"] = "llm_provider_unavailable"
+                        _err_payload["message"] = f"No LLM provider is currently available. Please check that Ollama is running or that your API key has credits."
+                        _err_payload["detail"] = chunk["error"]
+                    yield f"event: error\ndata: {json.dumps(_err_payload)}\n\n"
                     return
                 if "token" in chunk:
                     yield f"data: {json.dumps({'token': chunk['token']})}\n\n"
@@ -1539,14 +1709,17 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             from hiveai.sandbox import verify_response_code, extract_code_blocks
                             from hiveai.canonical_harness import match_harness, run_harness
 
-                            _harness_match = match_harness(message)
+                            blocks = extract_code_blocks(full)
+                            _block_lang = blocks[0].get("language", "python") if blocks else "python"
+                            _harness_match = match_harness(message, language=_block_lang)
+                            if not _harness_match and _block_lang != "python":
+                                _harness_match = match_harness(message, language="python")
                             if _harness_match:
                                 _verifier_mode = _harness_match.mode
                                 if _harness_match.mode == "no_verdict":
                                     _contract_mode = "none"
                                     _harness_result = {"passed": None, "mode": "no_verdict", "harness_id": _harness_match.harness_id, "reason": _harness_match.reason}
                                 else:
-                                    blocks = extract_code_blocks(full)
                                     _contract_mode = blocks[0].get("contract", "fenced") if blocks else "none"
                                     if blocks:
                                         solution_code = blocks[0].get("code_only", blocks[0]["code"])
@@ -1698,6 +1871,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             is_internal=_telem_is_internal,
                             verifier_mode=_verifier_mode,
                             frontend_build=_telem_frontend_build,
+                            retrieval_trace=_retrieval_trace or None,
                         )
 
                     done_data = {
@@ -1709,6 +1883,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
                             "solved_example_count": len(_solved_sections_retrieved),
                             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+                            "retrieval_trace": _retrieval_trace,
                             "revised": was_revised,
                             "response_contract": classify.response_contract,
                             "contract_mode": _contract_mode,
@@ -1727,6 +1902,9 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                         },
                     }
                     yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
+        except LLMProviderUnavailable as e:
+            logging.getLogger(__name__).warning(f"LLM provider unavailable (stream): {e}")
+            yield f"event: error\ndata: {json.dumps({'error': 'llm_provider_unavailable', 'message': f'No LLM provider is currently available ({e.detail}). Please check that Ollama is running or that your API key has credits.', 'provider': e.provider, 'detail': e.detail})}\n\n"
         except Exception as e:
             logging.getLogger(__name__).error(f"Stream chat error: {e}")
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -1743,6 +1921,93 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
 
 _SOLVED_EXAMPLES_BOOK_TITLE = "Solved Examples :: Verified Code"
 _SOLVED_EXAMPLES_JOB_ID = -1  # Synthetic book, no real crawl job
+
+
+def _extract_and_store_entities(user_message, ai_response, pair_id, primary_lang, quality, db):
+    """Extract 1-3 reusable entities from a verified Q&A pair, store as source_type='entity'."""
+    import urllib.request
+    import json as _json
+    import re as _re
+    from hiveai.config import (
+        ENTITY_MEMORY_ENABLED, ENTITY_MEMORY_MIN_QUALITY, ENTITY_MEMORY_MAX_PER_BOOK,
+        LLAMA_SERVER_BASE_URL,
+    )
+    logger = logging.getLogger("hiveai.promote")
+
+    if not ENTITY_MEMORY_ENABLED or quality < ENTITY_MEMORY_MIN_QUALITY:
+        return
+
+    try:
+        # Cap total entities per book to prevent noise explosion
+        book = _get_or_create_solved_examples_book(db)
+        entity_count = db.query(BookSection).filter(
+            BookSection.book_id == book.id,
+            BookSection.keywords_json.contains('"source_type": "entity"'),
+        ).count()
+        if entity_count >= ENTITY_MEMORY_MAX_PER_BOOK:
+            logger.debug(f"Entity extraction skipped: cap {ENTITY_MEMORY_MAX_PER_BOOK} reached")
+            return
+
+        prompt = (
+            'Extract 1-3 reusable technical entities from this Q&A. Return JSON array only.\n'
+            'Each entity: {"type": "procedure|preference|concept", "name": "<5-10 word label>", '
+            '"content": "<50-150 word distillation>", "triggers": ["kw1","kw2","kw3"]}\n'
+            'If no clear entities exist, return [].\n\n'
+            f'Q: {user_message[:300]}\n'
+            f'A: {ai_response[:500]}\n'
+            f'Language: {primary_lang}'
+        )
+        body = _json.dumps({
+            "model": "hiveai",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 300,
+            "temperature": 0.1,
+        }).encode()
+        req = urllib.request.Request(
+            f"{LLAMA_SERVER_BASE_URL}/v1/chat/completions",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = _json.loads(resp.read())
+        content_str = raw["choices"][0]["message"]["content"].strip()
+        m = _re.search(r'\[.*\]', content_str, _re.DOTALL)
+        if not m:
+            return
+        entities = _json.loads(m.group())
+    except Exception as e:
+        logger.debug(f"Entity extraction skipped: {e}")
+        return  # Never fail promotion because of entity extraction
+
+    stored = 0
+    for ent in entities[:3]:
+        if not all(k in ent for k in ("type", "name", "content", "triggers")):
+            continue
+        ent_type = ent["type"] if ent["type"] in ("procedure", "preference", "concept") else "concept"
+        try:
+            embedding = embed_text(ent["name"] + " " + ent["content"])
+            section = BookSection(
+                book_id=book.id,
+                header=f"[{ent_type}] {ent['name']}",
+                content=ent["content"],
+                token_count=len(ent["content"].split()),
+                keywords_json=_json.dumps({
+                    "source_type": "entity",
+                    "entity_type": ent_type,
+                    "keywords": ent.get("triggers", []),
+                    "extracted_from_pair_id": pair_id,
+                    "language": primary_lang,
+                }),
+            )
+            section.embedding = embedding
+            db.add(section)
+            stored += 1
+        except Exception as e:
+            logger.debug(f"Entity store skipped: {e}")
+            continue
+    if stored:
+        db.flush()
+        logger.info(f"Stored {stored} entities from pair_id={pair_id} lang={primary_lang}")
 
 
 def _get_or_create_solved_examples_book(db):
@@ -1894,6 +2159,17 @@ Quality: {quality:.2f} | Lines: {code_complexity.get('lines', 0)} | Branches: {c
             f"book='{_SOLVED_EXAMPLES_BOOK_TITLE}' lang={primary_lang} "
             f"quality={quality:.3f} verifier={verifier_type}"
         )
+
+        # Extract and store cross-session entities (never blocks promotion)
+        try:
+            _extract_and_store_entities(user_message, ai_response, pair_id, primary_lang, quality, db)
+            db.commit()
+        except Exception as _ent_err:
+            logger.debug(f"Entity extraction post-commit skipped: {_ent_err}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
         return section.id
 
@@ -2081,9 +2357,9 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
         # Create training pair
         _contract_fmt = verification.get("contract_mode")
         _exec_langs = json.dumps(sorted(set(
-            b.get("execution_language") or b.get("language")
+            b["language"]
             for b in verification.get("results", [])
-            if b.get("execution_language") or b.get("language")
+            if b.get("language")
         )))
 
         pair = TrainingPair(

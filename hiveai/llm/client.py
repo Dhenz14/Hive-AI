@@ -20,6 +20,14 @@ from hiveai.config import (
 logger = logging.getLogger(__name__)
 logging.getLogger("instructor").setLevel(logging.WARNING)
 
+
+class LLMProviderUnavailable(Exception):
+    """Raised when no LLM provider can serve the request (all down, no credits, etc.)."""
+    def __init__(self, provider: str, detail: str):
+        self.provider = provider
+        self.detail = detail
+        super().__init__(f"LLM provider '{provider}' unavailable: {detail}")
+
 # Connection-pooled session for llama-server / local HTTP backends.
 # Reuses TCP connections (Keep-Alive) instead of opening a new socket per request.
 _http_session = requests.Session()
@@ -276,7 +284,34 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
     except Exception as e:
         _record_circuit_failure(model)
         logger.error(f"LLM call failed with model {model}: {e}")
+        # Convert non-retryable provider errors into a typed exception
+        # so callers can distinguish "provider down" from internal bugs.
+        err_msg = str(e)
+        status = getattr(e, "status_code", None)
+        if status == 402 or "insufficient credits" in err_msg.lower():
+            raise LLMProviderUnavailable(get_active_backend(), "API credits exhausted") from e
+        if status == 401 or "invalid api key" in err_msg.lower() or "invalid_api_key" in err_msg.lower():
+            raise LLMProviderUnavailable(get_active_backend(), "invalid or missing API key") from e
+        if "connection" in err_msg.lower():
+            raise LLMProviderUnavailable(get_active_backend(), "connection error — provider not reachable") from e
+        if type(e).__name__ == "APIConnectionError":
+            raise LLMProviderUnavailable(get_active_backend(), "connection error — provider not reachable") from e
         raise
+
+
+def _classify_provider_error(exc, err_msg: str) -> str:
+    """Classify an LLM exception as provider_unavailable or internal_error."""
+    status = getattr(exc, "status_code", None)
+    low = err_msg.lower()
+    if status == 402 or "insufficient credits" in low:
+        return "provider_unavailable"
+    if status == 401 or "invalid api key" in low or "invalid_api_key" in low:
+        return "provider_unavailable"
+    if "connection" in low:
+        return "provider_unavailable"
+    if type(exc).__name__ == "APIConnectionError":
+        return "provider_unavailable"
+    return "internal_error"
 
 
 def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis AI.",
@@ -293,7 +328,11 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
     """
     if not model:
         model = _get_model_for_backend("reasoning")
-    _check_circuit_breaker(model)
+    try:
+        _check_circuit_breaker(model)
+    except RuntimeError as e:
+        yield {"error": str(e), "error_type": "provider_unavailable", "done": True}
+        return
 
     # Build messages payload
     if messages is not None:
@@ -352,7 +391,9 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
         except Exception as e:
             _record_circuit_failure(model)
             logger.error(f"llama-server streaming failed: {e}")
-            yield {"error": str(e), "done": True}
+            err_msg = str(e)
+            err_type = _classify_provider_error(e, err_msg)
+            yield {"error": err_msg, "error_type": err_type, "done": True}
         return
 
     # ---- Ollama native path (/api/chat NDJSON) ----
@@ -398,7 +439,9 @@ def stream_llm_call(prompt, system_prompt="You are a knowledge extraction and sy
     except Exception as e:
         _record_circuit_failure(model)
         logger.error(f"Streaming LLM call failed: {e}")
-        yield {"error": str(e), "done": True}
+        err_msg = str(e)
+        err_type = _classify_provider_error(e, err_msg)
+        yield {"error": err_msg, "error_type": err_type, "done": True}
 
 
 def reason(prompt, max_tokens=8192, system_prompt=None, messages=None):
@@ -563,6 +606,9 @@ _embedding_lock = threading.Lock()
 _cross_encoder_model = None
 _cross_encoder_lock = threading.Lock()
 
+_shadow_reranker_model = None
+_shadow_reranker_lock = threading.Lock()
+
 
 def _get_embedding_model():
     global _embedding_model
@@ -612,6 +658,53 @@ def rerank_sections(query: str, sections: list[dict], top_k: int = 8) -> list[di
     except Exception as e:
         logger.warning(f"Cross-encoder reranking failed, returning original sections: {e}")
         return sections[:top_k]
+
+
+def _get_shadow_reranker():
+    global _shadow_reranker_model
+    if _shadow_reranker_model is None:
+        with _shadow_reranker_lock:
+            if _shadow_reranker_model is None:
+                from sentence_transformers import CrossEncoder
+                from hiveai.config import RERANKER_SHADOW_MODEL
+                logger.info(f"Loading shadow reranker model: {RERANKER_SHADOW_MODEL}")
+                _shadow_reranker_model = CrossEncoder(RERANKER_SHADOW_MODEL)
+                logger.info("Shadow reranker model loaded")
+    return _shadow_reranker_model
+
+
+def compute_shadow_reranker_scores(query: str, sections: list[dict]) -> dict:
+    """Score sections with shadow cross-encoder. Returns trace dict fields only — no reordering."""
+    from hiveai.config import RERANKER_SHADOW_CANDIDATE_THRESHOLD
+    threshold = RERANKER_SHADOW_CANDIDATE_THRESHOLD
+
+    if not sections:
+        return {"reranker_shadow_applied": False, "reranker_shadow_reason": "no_sections"}
+
+    model = _get_shadow_reranker()
+    pairs = [(query, (s.get("content", "") or s.get("header", ""))[:1500]) for s in sections]
+    raw_scores = model.predict(pairs)
+    score_list = [round(float(sc), 6) for sc in raw_scores]
+
+    # Sort by score descending for top-N extraction
+    scored = sorted(
+        [{"section_id": s.get("id"), "score": sc} for s, sc in zip(sections, score_list)],
+        key=lambda x: -x["score"],
+    )
+    sorted_scores = [x["score"] for x in scored]
+
+    return {
+        "reranker_shadow_applied": True,
+        "reranker_best_score": sorted_scores[0],
+        "reranker_score_count": len(sorted_scores),
+        "reranker_top_scores": sorted_scores[:3],
+        "reranker_per_section": scored[:10],
+        "reranker_candidate_threshold": threshold,
+        "would_suppress_reranker": sorted_scores[0] < threshold,
+        "would_filter_sections_reranker": [
+            x["section_id"] for x in scored if x["score"] < threshold
+        ],
+    }
 
 
 _embedding_cache = OrderedDict()

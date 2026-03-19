@@ -915,13 +915,14 @@ def verify_response_code(response: str, timeout: int = 30) -> dict:
 
     for block in blocks:
         lang = block.get("language", "python")
+        # language: which executor ran this block (python/cpp/rust/go/js)
+        # contract_mode: how the response was formatted (json/fenced/fallback) — set at response level
         entry = {
             "index": block["index"],
             "language": lang,
             "code_preview": block["code"][:80].replace("\n", " "),
             "syntax_valid": None,
             "execution": None,
-            "execution_language": lang,
             "verifier_backend": None,
         }
 

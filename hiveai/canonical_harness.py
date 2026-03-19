@@ -276,29 +276,224 @@ assert _c.get(3) == 30, "overwrite should update value"
     },
 ]
 
+# ---------------------------------------------------------------------------
+# Go canonical harnesses — standalone programs with assertion via exit code
+# ---------------------------------------------------------------------------
+
+GO_HARNESSES = [
+    {
+        "id": "go_merge_sorted",
+        "patterns": [r"merge.*sorted.*list", r"merge.*two.*sorted", r"merge.*sorted.*array"],
+        "mode": "canonical_tests",
+        "wrapper": """package main
+
+import (
+\t"fmt"
+\t"os"
+\t"reflect"
+)
+
+// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+func assertEq(name string, got, want interface{{}}) {{
+\tif !reflect.DeepEqual(got, want) {{
+\t\tfmt.Printf("FAIL %s: got %v, want %v\\n", name, got, want)
+\t\tos.Exit(1)
+\t}}
+}}
+
+func main() {{
+\t// Find merge function — model must define mergeSorted, mergeSortedLists, or merge
+\tassertEq("empty+empty", mergeSorted([]int{{}}, []int{{}}), []int{{}})
+\tassertEq("nonempty+empty", mergeSorted([]int{{1, 2, 3}}, []int{{}}), []int{{1, 2, 3}})
+\tassertEq("empty+nonempty", mergeSorted([]int{{}}, []int{{4, 5, 6}}), []int{{4, 5, 6}})
+\tassertEq("interleaved", mergeSorted([]int{{1, 3, 5}}, []int{{2, 4, 6}}), []int{{1, 2, 3, 4, 5, 6}})
+\tassertEq("duplicates", mergeSorted([]int{{1, 1, 2}}, []int{{1, 2, 3}}), []int{{1, 1, 1, 2, 2, 3}})
+\tfmt.Println("PASS: all merge_sorted tests passed")
+}}
+""",
+    },
+    {
+        "id": "go_binary_search",
+        "patterns": [r"binary.?search", r"binary.*search.*index"],
+        "mode": "canonical_tests",
+        "wrapper": """package main
+
+import (
+\t"fmt"
+\t"os"
+)
+
+// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+func assert(name string, got, want int) {{
+\tif got != want {{
+\t\tfmt.Printf("FAIL %s: got %d, want %d\\n", name, got, want)
+\t\tos.Exit(1)
+\t}}
+}}
+
+func main() {{
+\tassert("middle", binarySearch([]int{{1, 2, 3, 4, 5}}, 3), 2)
+\tassert("start", binarySearch([]int{{1, 2, 3, 4, 5}}, 1), 0)
+\tassert("end", binarySearch([]int{{1, 2, 3, 4, 5}}, 5), 4)
+\tassert("not_found_high", binarySearch([]int{{1, 2, 3, 4, 5}}, 6), -1)
+\tassert("not_found_low", binarySearch([]int{{1, 2, 3, 4, 5}}, 0), -1)
+\tassert("empty", binarySearch([]int{{}}, 1), -1)
+\tassert("single_found", binarySearch([]int{{42}}, 42), 0)
+\tassert("single_not_found", binarySearch([]int{{42}}, 99), -1)
+\tfmt.Println("PASS: all binary_search tests passed")
+}}
+""",
+    },
+    {
+        "id": "go_validate_brackets",
+        "patterns": [r"valid.*bracket", r"balanced.*bracket", r"bracket.*balanc", r"parenthes.*match"],
+        "mode": "canonical_tests",
+        "wrapper": """package main
+
+import (
+\t"fmt"
+\t"os"
+)
+
+// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+func assertBool(name string, got, want bool) {{
+\tif got != want {{
+\t\tfmt.Printf("FAIL %s: got %v, want %v\\n", name, got, want)
+\t\tos.Exit(1)
+\t}}
+}}
+
+func main() {{
+\tassertBool("empty", isBalanced(""), true)
+\tassertBool("parens", isBalanced("()"), true)
+\tassertBool("brackets", isBalanced("[]"), true)
+\tassertBool("braces", isBalanced("{{}}"), true)
+\tassertBool("nested_mixed", isBalanced("({{[]}})"), true)
+\tassertBool("unbalanced_open", isBalanced("("), false)
+\tassertBool("unbalanced_close", isBalanced(")"), false)
+\tassertBool("interleaved_wrong", isBalanced("([)]"), false)
+\tassertBool("deeply_nested", isBalanced("((()))"), true)
+\tassertBool("reversed", isBalanced(")("), false)
+\tfmt.Println("PASS: all validate_brackets tests passed")
+}}
+""",
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Rust canonical harnesses — standalone programs with assert_eq! macro
+# ---------------------------------------------------------------------------
+
+RUST_HARNESSES = [
+    {
+        "id": "rust_merge_sorted",
+        "patterns": [r"merge.*sorted.*list", r"merge.*two.*sorted", r"merge.*sorted.*vec"],
+        "mode": "canonical_tests",
+        "wrapper": """// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+fn main() {{
+    assert_eq!(merge_sorted(&[], &[]), vec![] as Vec<i32>, "empty+empty");
+    assert_eq!(merge_sorted(&[1, 2, 3], &[]), vec![1, 2, 3], "nonempty+empty");
+    assert_eq!(merge_sorted(&[], &[4, 5, 6]), vec![4, 5, 6], "empty+nonempty");
+    assert_eq!(merge_sorted(&[1, 3, 5], &[2, 4, 6]), vec![1, 2, 3, 4, 5, 6], "interleaved");
+    assert_eq!(merge_sorted(&[1, 1, 2], &[1, 2, 3]), vec![1, 1, 1, 2, 2, 3], "duplicates");
+    println!("PASS: all merge_sorted tests passed");
+}}
+""",
+    },
+    {
+        "id": "rust_binary_search",
+        "patterns": [r"binary.?search", r"binary.*search.*index"],
+        "mode": "canonical_tests",
+        "wrapper": """// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+fn main() {{
+    assert_eq!(binary_search(&[1, 2, 3, 4, 5], 3), Some(2), "middle");
+    assert_eq!(binary_search(&[1, 2, 3, 4, 5], 1), Some(0), "start");
+    assert_eq!(binary_search(&[1, 2, 3, 4, 5], 5), Some(4), "end");
+    assert_eq!(binary_search(&[1, 2, 3, 4, 5], 6), None, "not_found_high");
+    assert_eq!(binary_search(&[1, 2, 3, 4, 5], 0), None, "not_found_low");
+    assert_eq!(binary_search(&[], 1), None, "empty");
+    assert_eq!(binary_search(&[42], 42), Some(0), "single_found");
+    assert_eq!(binary_search(&[42], 99), None, "single_not_found");
+    println!("PASS: all binary_search tests passed");
+}}
+""",
+    },
+    {
+        "id": "rust_validate_brackets",
+        "patterns": [r"valid.*bracket", r"balanced.*bracket", r"bracket.*balanc", r"parenthes.*match"],
+        "mode": "canonical_tests",
+        "wrapper": """// --- MODEL SOLUTION INSERTED BELOW ---
+{solution}
+// --- END MODEL SOLUTION ---
+
+fn main() {{
+    assert_eq!(is_balanced(""), true, "empty");
+    assert_eq!(is_balanced("()"), true, "parens");
+    assert_eq!(is_balanced("[]"), true, "brackets");
+    assert_eq!(is_balanced("{{}}"), true, "braces");
+    assert_eq!(is_balanced("({{[]}})"), true, "nested_mixed");
+    assert_eq!(is_balanced("("), false, "unbalanced_open");
+    assert_eq!(is_balanced(")"), false, "unbalanced_close");
+    assert_eq!(is_balanced("([)]"), false, "interleaved_wrong");
+    assert_eq!(is_balanced("((()))"), true, "deeply_nested");
+    assert_eq!(is_balanced(")("), false, "reversed");
+    println!("PASS: all validate_brackets tests passed");
+}}
+""",
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Unified harness index — language → harness list
+# ---------------------------------------------------------------------------
+
+_HARNESS_INDEX = {
+    "python": HARNESSES,
+    "go": GO_HARNESSES,
+    "rust": RUST_HARNESSES,
+}
+
 
 @dataclass
 class HarnessMatch:
     harness_id: str
     mode: str           # canonical_tests | property_checks | no_verdict | generated_assertions
     tests: str          # canonical test code to run against model's solution
+    language: str = "python"  # which language this harness targets
     reason: str = ""    # for no_verdict: why
 
 
-def match_harness(user_query: str) -> HarnessMatch | None:
-    """Match a user query to a canonical harness.
+def match_harness(user_query: str, language: str = "python") -> HarnessMatch | None:
+    """Match a user query to a canonical harness for a specific language.
 
     Returns HarnessMatch if a known task pattern is detected, None otherwise.
     When None, the caller should fall back to generated_assertions (model-authored tests).
     """
+    harness_list = _HARNESS_INDEX.get(language, [])
     q_lower = user_query.lower()
-    for h in HARNESSES:
+    for h in harness_list:
         for pattern in h["patterns"]:
             if re.search(pattern, q_lower):
                 return HarnessMatch(
                     harness_id=h["id"],
                     mode=h["mode"],
                     tests=h.get("tests", ""),
+                    language=language,
                     reason=h.get("reason", ""),
                 )
     return None
@@ -307,11 +502,14 @@ def match_harness(user_query: str) -> HarnessMatch | None:
 def run_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) -> dict:
     """Run canonical tests against the model's solution code.
 
+    Dispatches to the appropriate language executor (Python, Go, Rust).
+
     Returns:
         {
             "passed": bool,
             "harness_id": str,
             "mode": str,
+            "language": str,
             "error": str or None,
             "reason": str (for no_verdict)
         }
@@ -321,11 +519,15 @@ def run_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) ->
             "passed": None,
             "harness_id": harness.harness_id,
             "mode": "no_verdict",
+            "language": harness.language,
             "error": None,
             "reason": harness.reason,
         }
 
-    # Combine solution + canonical tests
+    if harness.language in ("go", "rust"):
+        return _run_compiled_harness(solution_code, harness, timeout)
+
+    # Python: combine solution + canonical tests, run as single script
     combined = f"{solution_code}\n\n{harness.tests}"
 
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
@@ -342,6 +544,7 @@ def run_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) ->
                 "passed": True,
                 "harness_id": harness.harness_id,
                 "mode": harness.mode,
+                "language": "python",
                 "error": None,
             }
         else:
@@ -349,6 +552,7 @@ def run_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) ->
                 "passed": False,
                 "harness_id": harness.harness_id,
                 "mode": harness.mode,
+                "language": "python",
                 "error": result.stderr[-1000:] if result.stderr else "unknown error",
             }
     except subprocess.TimeoutExpired:
@@ -356,7 +560,63 @@ def run_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) ->
             "passed": False,
             "harness_id": harness.harness_id,
             "mode": harness.mode,
+            "language": "python",
             "error": f"timeout after {timeout}s",
         }
     finally:
         os.unlink(tmp_path)
+
+
+def _run_compiled_harness(solution_code: str, harness: HarnessMatch, timeout: int = 15) -> dict:
+    """Run a Go or Rust canonical harness by injecting solution into wrapper template."""
+    from hiveai.sandbox import execute_go, execute_rust
+
+    # Go/Rust harnesses use "wrapper" field — full program with {solution} placeholder
+    harness_def = None
+    harness_list = _HARNESS_INDEX.get(harness.language, [])
+    for h in harness_list:
+        if h["id"] == harness.harness_id:
+            harness_def = h
+            break
+
+    if not harness_def or "wrapper" not in harness_def:
+        return {
+            "passed": None,
+            "harness_id": harness.harness_id,
+            "mode": "no_verdict",
+            "language": harness.language,
+            "error": "no wrapper template found",
+            "reason": "missing_wrapper",
+        }
+
+    # Inject solution into wrapper
+    combined = harness_def["wrapper"].format(solution=solution_code)
+
+    executor = execute_go if harness.language == "go" else execute_rust
+    result = executor(combined, timeout)
+
+    if result.get("timed_out"):
+        return {
+            "passed": False,
+            "harness_id": harness.harness_id,
+            "mode": harness.mode,
+            "language": harness.language,
+            "error": f"timeout after {timeout}s",
+        }
+    elif result.get("success"):
+        return {
+            "passed": True,
+            "harness_id": harness.harness_id,
+            "mode": harness.mode,
+            "language": harness.language,
+            "error": None,
+        }
+    else:
+        stderr = result.get("compile_stderr", "") or result.get("stderr", "")
+        return {
+            "passed": False,
+            "harness_id": harness.harness_id,
+            "mode": harness.mode,
+            "language": harness.language,
+            "error": stderr[-1000:] if stderr else "unknown error",
+        }

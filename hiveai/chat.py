@@ -393,7 +393,39 @@ def _expand_short_query(question, history=None):
     return expanded
 
 
-def search_knowledge_sections(question, db, history=None, retrieval_mode="preinject"):
+def _rewrite_query_for_retrieval(query):
+    """Rewrite a query to improve retrieval. Returns rewritten string or None on any failure."""
+    import urllib.request
+    import json as _json
+    try:
+        from hiveai.config import LLAMA_SERVER_BASE_URL
+        prompt = (
+            "Rewrite this technical question to improve retrieval from a programming knowledge base. "
+            "Focus on key technical terms. Be concise. Return only the rewritten query, nothing else.\n"
+            f"Original: {query}\nRewritten:"
+        )
+        body = _json.dumps({
+            "model": "hiveai",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 80,
+            "temperature": 0.1,
+        }).encode()
+        req = urllib.request.Request(
+            f"{LLAMA_SERVER_BASE_URL}/v1/chat/completions",
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = _json.loads(resp.read())
+        rewritten = raw["choices"][0]["message"]["content"].strip()
+        # Strip markdown/quotes if the model wraps its answer
+        rewritten = rewritten.strip('"\'`')
+        return rewritten if rewritten else None
+    except Exception:
+        return None
+
+
+def search_knowledge_sections(question, db, history=None, retrieval_mode="preinject", trace=None):
     # Check RAG cache for repeated questions
     cache_key = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
     with _rag_cache_lock:
@@ -401,6 +433,14 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
             ts, cached_sections, cached_books, cached_all = _rag_cache[cache_key]
             if _time.time() - ts < RAG_CACHE_TTL:
                 logging.getLogger(__name__).debug(f"RAG cache hit for: {question[:50]}")
+                if trace is not None:
+                    trace["cache_hit"] = True
+                    trace["confidence_gate_evaluated"] = False
+                    trace["initial_best_score"] = None
+                    trace["retrieval_mode"] = retrieval_mode
+                    trace["rewrite_gate_entered"] = False
+                    trace["rewrite_produced"] = False
+                    trace["rewrite_applied"] = False
                 return cached_sections, cached_books, cached_all
 
     try:
@@ -488,6 +528,50 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Query decomposition failed (non-critical): {e}")
 
+        # Confidence gate: if best score is weak, attempt query rewrite + re-retrieve
+        try:
+            from hiveai.config import RETRIEVAL_REWRITE_THRESHOLD
+            _initial_best = max((s.get("relevance_score", 0) for s in top_sections), default=0.0)
+            if trace is not None:
+                trace["cache_hit"] = False
+                trace["confidence_gate_evaluated"] = True
+                trace["initial_best_score"] = round(_initial_best, 4)
+                trace["retrieval_mode"] = retrieval_mode
+                trace["rewrite_gate_entered"] = False
+                trace["rewrite_produced"] = False
+                trace["rewrite_applied"] = False
+            if _initial_best < RETRIEVAL_REWRITE_THRESHOLD and top_sections:
+                if trace is not None:
+                    trace["rewrite_gate_entered"] = True
+                _rewritten = _rewrite_query_for_retrieval(question)
+                if _rewritten and _rewritten.strip() != question.strip():
+                    if trace is not None:
+                        trace["rewrite_produced"] = True
+                    _rw_embedding = embed_text(_rewritten)
+                    _rw_sections = hybrid_search(
+                        db, _rewritten, _rw_embedding, limit=12, max_distance=0.8,
+                        exclude_book_ids=_exclude_book_ids or None,
+                    )
+                    _rw_best = max((s.get("relevance_score", 0) for s in _rw_sections), default=0.0)
+                    if trace is not None:
+                        trace["rewrite_best_score"] = round(_rw_best, 4)
+                        trace["rewrite_score_delta"] = round(_rw_best - _initial_best, 4)
+                    if _rw_best > _initial_best:
+                        merged = {s["id"]: s for s in top_sections}
+                        for s in _rw_sections:
+                            sid = s.get("id")
+                            if sid and (sid not in merged or
+                                        s.get("relevance_score", 0) > merged[sid].get("relevance_score", 0)):
+                                merged[sid] = s
+                        top_sections = sorted(merged.values(),
+                                              key=lambda x: -x.get("relevance_score", 0))[:12]
+                        if trace is not None:
+                            trace["rewrite_applied"] = True
+                        logging.getLogger(__name__).info(
+                            f"Query rewrite improved retrieval: {_initial_best:.3f} → {_rw_best:.3f}")
+        except Exception as _e:
+            logging.getLogger(__name__).debug(f"Retrieval rewrite skipped: {_e}")
+
         # Deep retrieval (multi-hop, book refs, reranking, community) only for hybrid mode
         from hiveai.config import ENABLE_MULTI_HOP_RAG
         use_deep_retrieval = ENABLE_MULTI_HOP_RAG and retrieval_mode == "hybrid"
@@ -519,8 +603,17 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
             except Exception as e:
                 logging.getLogger(__name__).warning(f"Multi-hop search failed (non-critical): {e}")
 
+        if len(top_sections) < 3:
+            # Few hybrid results — return directly, skip reranking/deep retrieval
+            source_books = list(set(s.get("book_title", "") for s in top_sections if s.get("book_title")))
+            books = db.query(GoldenBook).all()
+            _rag_cache_store(cache_key, top_sections, source_books, books)
+            logging.getLogger(__name__).info(
+                f"Retrieval: {len(top_sections)} sections (below rerank threshold), returning directly")
+            return top_sections, source_books, books
+
         if len(top_sections) >= 3:
-            book_ids = list(set(section['book_id'] for section in top_sections))
+            book_ids = list(set(section.get('book_id') for section in top_sections if section.get('book_id')))
             logging.getLogger(__name__).info(f"Vector search found sections from {len(book_ids)} books")
 
             if use_deep_retrieval:
