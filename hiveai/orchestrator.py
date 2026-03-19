@@ -120,6 +120,7 @@ _INTENT_RULES = [
             r"how\s*(do|would|can|to)\s*I?\s*(write|implement|create|build|code)",
             r"convert\s*.+\s*to\s*",                   # convert X to Y
             r"add\s*(a|an)?\s*\w*\s*(method|function|endpoint|feature|test)",
+            r"\b(pattern|technique|idiom|approach|implementation|usage)s?\b",  # noun-phrase code queries
         ],
         "priority": 7,
     },

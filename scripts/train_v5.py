@@ -79,7 +79,7 @@ LORA_CONFIG = {
     ],
     "lora_dropout": 0.0,             # Unsloth kernels optimized for 0 dropout (fused Triton paths)
     "bias": "none",
-    "use_dora": False,                # DoRA incompatible with Flash Attention (fp32 intermediates)
+    "use_dora": True,                 # DoRA: weight-decomposed LoRA (+1-4% over standard LoRA, PEFT 0.18+)
     "use_rslora": True,               # Rank-stabilized LoRA — better scaling at any rank
 }
 
