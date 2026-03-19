@@ -831,6 +831,22 @@ def reembed_api():
         db.close()
 
 
+@app.route("/api/contextual-enrich", methods=["POST"])
+def contextual_enrich_api():
+    """Batch-enrich all sections with contextual prefixes and re-embed."""
+    from hiveai.rag.contextual_enrichment import batch_enrich_and_reembed
+    data = request.get_json(silent=True) or {}
+    db = SessionLocal()
+    try:
+        result = batch_enrich_and_reembed(
+            db, force=data.get("force", False), dry_run=data.get("dry_run", False))
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        db.close()
+
+
 @app.route("/api/graph")
 def graph_stats():
     from hiveai.pipeline.communities import get_global_graph_stats
@@ -1109,6 +1125,33 @@ def chat_api():
         _solved_sections_retrieved = [
             s for s in top_sections if s.get("is_solved_example")
         ]
+        # Enrich with reuse stats (parity with streaming endpoint)
+        _telem_se_details = []
+        if _solved_sections_retrieved:
+            for _s in _solved_sections_retrieved:
+                _sid = _s.get("id")
+                if not _sid:
+                    continue
+                _sec = db.query(BookSection).get(_sid)
+                if _sec and _sec.keywords_json:
+                    _meta = json.loads(_sec.keywords_json) if isinstance(_sec.keywords_json, str) else _sec.keywords_json
+                    _reuse = _meta.get("reuse", {})
+                    _vp = _reuse.get("verified_pass", 0)
+                    _vf = _reuse.get("verified_fail", 0)
+                    _total = _vp + _vf
+                    _pass_rate = round(_vp / max(_total, 1) * 100)
+                    _confidence = "high" if _pass_rate >= 85 else "good" if _pass_rate >= 70 else "mixed" if _pass_rate >= 50 else "low"
+                    _header = _sec.header or ""
+                    _label = _header.replace("Solved: ", "").replace("Write a Python function ", "").replace("Write a ", "")[:60]
+                    _telem_se_details.append({
+                        "id": _sid,
+                        "label": _label,
+                        "language": _meta.get("language", "python"),
+                        "times_verified": _total,
+                        "pass_rate": _pass_rate,
+                        "confidence": _confidence,
+                        "times_retrieved": _reuse.get("retrieved", 0),
+                    })
 
         # --- Step 3: Build prompt ---
         skill_context = load_skills_for_query(message)
@@ -1376,6 +1419,7 @@ Answer the question directly and helpfully."""
             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
             "solved_example_count": len(_solved_sections_retrieved),
             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+            "solved_example_details": _telem_se_details if _telem_se_details else None,
             "retrieval_trace": _retrieval_trace,
             "revised": was_revised,
             "response_contract": classify.response_contract,
@@ -1415,6 +1459,7 @@ Answer the question directly and helpfully."""
                 memory_surface_emitted=_has_memory,  # non-streaming always returns inline
                 solved_example_count=len(_solved_sections_retrieved),
                 solved_example_ids=[s.get("id") for s in _solved_sections_retrieved if s.get("id")] or None,
+                confidence_band=best_confidence_band(_telem_se_details) if _telem_se_details else None,
                 workflow_class=classify_workflow(message),
                 language_detected=detect_language(message),
                 retrieval_mode=classify.retrieval_mode,
@@ -1429,6 +1474,7 @@ Answer the question directly and helpfully."""
                 latency_generation_ms=round((t_generation - t_retrieval) * 1000, 1),
                 latency_verification_ms=round((t_verify - t_generation) * 1000, 1),
                 latency_total_ms=round((t_end - t_start) * 1000, 1),
+                matched_pattern_pass_rates=[d.get("pass_rate") for d in _telem_se_details] if _telem_se_details else None,
                 is_internal=_telem_is_internal,
                 verifier_mode=_verifier_mode,
                 frontend_build=_telem_frontend_build,
@@ -2254,9 +2300,19 @@ Quality: {quality:.2f} | Lines: {code_complexity.get('lines', 0)} | Branches: {c
         problem_terms.add(primary_lang.lower())
         keywords = list(problem_terms)[:20]
 
-        # Embed using same model as knowledge base
+        # Contextual enrichment: generate context prefix for better retrieval
+        _context_prefix = None
         try:
-            embedding = embed_text(user_message + " " + header)
+            from hiveai.rag.contextual_enrichment import generate_context_prefix
+            _context_prefix = generate_context_prefix(
+                "Solved Examples :: Verified Code", header, content)
+        except Exception:
+            pass  # non-critical: embedding still works without context
+
+        # Embed using same model as knowledge base (with context prefix if available)
+        try:
+            _embed_text = f"{_context_prefix}\n\n{content}" if _context_prefix else f"{user_message} {header}"
+            embedding = embed_text(_embed_text)
         except Exception:
             logger.warning("Promotion skipped: embedding failed")
             return None
@@ -2278,6 +2334,7 @@ Quality: {quality:.2f} | Lines: {code_complexity.get('lines', 0)} | Branches: {c
                 "verification_status": verifier_type,
                 "language": primary_lang,
                 "quality_score": quality,
+                **({"contextual_prefix": _context_prefix} if _context_prefix else {}),
             }),
         )
         section.embedding = embedding

@@ -278,6 +278,10 @@ def classify_request(
     elif intent in ("debugging",) and history_is_code:
         retrieval_mode = "hybrid"
         signals.append("mode:hybrid:debugging_with_code_history")
+    elif intent in ("doc_lookup", "code_question", "project_rule"):
+        # Conceptual/code queries benefit from multi-hop + book refs
+        retrieval_mode = "hybrid"
+        signals.append(f"mode:hybrid:{intent}_deep_retrieval")
     else:
         retrieval_mode = "preinject"
         signals.append("mode:preinject:default")

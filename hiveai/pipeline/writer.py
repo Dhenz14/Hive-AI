@@ -49,7 +49,20 @@ def embed_book_sections(book, db):
         logger.info(f"No sections to embed for book {book.id}")
         return 0
 
-    texts = [s["content"] for s in sections]
+    # Contextual enrichment: prepend document-context prefix for better retrieval
+    texts = []
+    for s in sections:
+        try:
+            from hiveai.rag.contextual_enrichment import generate_context_prefix
+            prefix = generate_context_prefix(book.title, s["header"], s["content"])
+            if prefix:
+                s["_contextual_prefix"] = prefix
+                texts.append(f"{prefix}\n\n{s['content']}")
+            else:
+                texts.append(s["content"])
+        except Exception:
+            texts.append(s["content"])
+
     logger.info(f"Embedding {len(texts)} sections for book {book.id}")
     embeddings = embed_texts(texts)
 
@@ -59,7 +72,12 @@ def embed_book_sections(book, db):
     for section in sections:
         try:
             kw = _extract_section_keywords(section["header"], section["content"])
-            section_keywords.append(json.dumps(kw) if kw else None)
+            kw_data = kw if isinstance(kw, dict) else {"keywords": kw} if kw else {}
+            # Persist contextual prefix in metadata
+            prefix = section.get("_contextual_prefix")
+            if prefix:
+                kw_data["contextual_prefix"] = prefix
+            section_keywords.append(json.dumps(kw_data) if kw_data else None)
         except Exception as e:
             logger.debug(f"Keyword extraction failed for '{section['header']}': {e}")
             section_keywords.append(None)

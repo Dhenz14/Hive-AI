@@ -40,6 +40,47 @@ STOP_WORDS = {
 }
 
 
+def _mmr_rerank(sections: list[dict], lambda_: float = 0.7, top_k: int = 12) -> list[dict]:
+    """Maximal Marginal Relevance — balance relevance and diversity.
+
+    Uses token-overlap similarity (fast, no embedding calls) to penalize
+    sections that are too similar to already-selected ones.
+    """
+    if len(sections) <= 1:
+        return sections
+
+    # Tokenize each section (header + content) into word sets
+    def _tokens(s):
+        text = ((s.get("header") or "") + " " + (s.get("content") or "")).lower()
+        return set(w for w in re.split(r'\W+', text) if len(w) >= 3 and w not in STOP_WORDS)
+
+    token_sets = [_tokens(s) for s in sections]
+
+    def _jaccard(a: set, b: set) -> float:
+        if not a or not b:
+            return 0.0
+        return len(a & b) / len(a | b)
+
+    selected_idx = [0]  # always pick the top-ranked first
+    remaining = list(range(1, len(sections)))
+
+    while remaining and len(selected_idx) < top_k:
+        best_score = -1.0
+        best_idx = remaining[0]
+        for idx in remaining:
+            relevance = sections[idx].get("relevance_score", 0)
+            # Max similarity to any already-selected section
+            max_sim = max(_jaccard(token_sets[idx], token_sets[sel]) for sel in selected_idx)
+            mmr_score = lambda_ * relevance - (1 - lambda_) * max_sim
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+        selected_idx.append(best_idx)
+        remaining.remove(best_idx)
+
+    return [sections[i] for i in selected_idx]
+
+
 def split_book_into_sections(book):
     from hiveai.pipeline.writer import split_book_content
     sections = split_book_content(book)
@@ -663,6 +704,10 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
                             logging.getLogger(__name__).info(f"Added {min(len(community_summaries), 3)} community summaries for broad question")
                 except Exception as e:
                     logging.getLogger(__name__).warning(f"Community summary lookup failed (non-critical): {e}")
+
+            # MMR diversity pass — reduce redundancy in final results
+            if len(top_sections) > 3:
+                top_sections = _mmr_rerank(top_sections, lambda_=0.7, top_k=12)
 
             source_books = list(set(s["book_title"] for s in top_sections))
             books = db.query(GoldenBook).all()
