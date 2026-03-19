@@ -444,10 +444,14 @@ class CommunityCoordinator:
             logger.error(f"Error posting route: {e}")
 
     def _auth_headers(self) -> dict:
-        """Build auth headers for HivePoA API calls."""
+        """Build auth headers for HivePoA API calls.
+
+        Uses ApiKey scheme for agent authentication (compatible with
+        HivePoA's requireAnyAuth middleware on community routes).
+        """
         headers = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["Authorization"] = f"ApiKey {self.api_key}"
         return headers
 
     @property

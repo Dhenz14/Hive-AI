@@ -14,6 +14,39 @@ def detect_hardware():
         ram_gb = 2.0
     return {"cpus": cpus, "ram_gb": round(ram_gb, 1)}
 
+
+def detect_gpu() -> list[dict]:
+    """Detect NVIDIA GPUs via nvidia-smi.
+
+    Returns a list of dicts with keys: uuid, name, vram_gb, driver_version.
+    Returns empty list if nvidia-smi is not available.
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=gpu_uuid,name,memory.total,driver_version",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return []
+
+        gpus = []
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) >= 4:
+                gpus.append({
+                    "uuid": parts[0],              # e.g., "GPU-e57e219b-d0ad-..."
+                    "name": parts[1],               # e.g., "NVIDIA GeForce RTX 4070 Ti SUPER"
+                    "vram_gb": round(float(parts[2]) / 1024, 1),  # MiB → GB
+                    "driver_version": parts[3],
+                })
+        return gpus
+    except (FileNotFoundError, subprocess.TimeoutExpired, ValueError) as e:
+        logger.debug(f"GPU detection failed: {e}")
+        return []
+
+
 def get_hardware_profile():
     """Get hardware profile: low, medium, high, or custom."""
     profile = os.environ.get("HARDWARE_PROFILE", "auto").lower()

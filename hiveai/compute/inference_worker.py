@@ -40,12 +40,16 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from hiveai.compute.latency_prober import LatencyProber
+
 logger = logging.getLogger(__name__)
 
 try:
     import aiohttp
+    from aiohttp import web
 except ImportError:
     aiohttp = None  # type: ignore
+    web = None  # type: ignore
 
 
 # Inference allocation: what fraction of GPU to reserve for inference
@@ -53,6 +57,8 @@ DEFAULT_INFERENCE_ALLOCATION = 0.3  # 30% of GPU time for community inference
 MAX_INFERENCE_ALLOCATION = 0.8  # never exceed 80% — leave room for compute jobs
 CONTRIBUTION_REPORT_INTERVAL = 300  # report contributions every 5 min
 HEARTBEAT_INTERVAL = 30  # heartbeat to coordinator every 30s
+PROBE_INTERVAL_SECONDS = 300  # re-probe peers every 5 min
+PING_SERVER_PORT = 8101  # default port for /ping endpoint
 
 
 @dataclass
@@ -121,6 +127,9 @@ class InferenceWorker:
         self._inference_process: Optional[subprocess.Popen] = None
         self._cluster_id: Optional[str] = None
         self._node_id: Optional[str] = None
+        self._prober = LatencyProber(my_node_id=node_instance_id)
+        self._ping_server: Optional[web.AppRunner] = None
+        self._ping_port = PING_SERVER_PORT
 
     async def run(self) -> None:
         """Main inference worker loop."""
@@ -134,6 +143,9 @@ class InferenceWorker:
             f"Inference worker starting — {self.gpu_model} ({self.gpu_vram_gb}GB), "
             f"allocation={self.allocation:.0%}"
         )
+
+        # Start /ping server for latency probing by peers
+        await self._start_ping_server()
 
         async with aiohttp.ClientSession() as session:
             # 1. Opt-in to community inference
@@ -151,8 +163,12 @@ class InferenceWorker:
                 # 3. Start local inference shard
                 await self._start_inference_engine(config)
 
-            # 4. Main loop: heartbeat + contribution reporting
+            # 4. Discover peers and run initial latency probes
+            await self._discover_and_probe_peers(session)
+
+            # 5. Main loop: heartbeat + contribution reporting + periodic probing
             last_report = time.time()
+            last_probe = time.time()
             while self._running:
                 try:
                     await self._heartbeat(session)
@@ -161,6 +177,11 @@ class InferenceWorker:
                     if time.time() - last_report > CONTRIBUTION_REPORT_INTERVAL:
                         await self._report_contributions(session)
                         last_report = time.time()
+
+                    # Re-probe peers periodically
+                    if time.time() - last_probe > PROBE_INTERVAL_SECONDS:
+                        await self._discover_and_probe_peers(session)
+                        last_probe = time.time()
 
                 except asyncio.CancelledError:
                     break
@@ -315,9 +336,90 @@ class InferenceWorker:
 
         self._stats.reset()
 
+    async def _start_ping_server(self) -> None:
+        """Start a lightweight /ping HTTP server for latency probing by peers."""
+        if web is None:
+            logger.warning("aiohttp.web not available — /ping server disabled")
+            return
+
+        app = web.Application()
+        app.router.add_post("/ping", self._handle_ping)
+        app.router.add_get("/health", self._handle_health)
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        try:
+            site = web.TCPSite(runner, "0.0.0.0", self._ping_port)
+            await site.start()
+            self._ping_server = runner
+            logger.info(f"Ping server listening on 0.0.0.0:{self._ping_port}")
+        except OSError as e:
+            logger.warning(f"Could not start ping server on port {self._ping_port}: {e}")
+
+    async def _handle_ping(self, request: web.Request) -> web.Response:
+        """Echo back the payload for RTT/bandwidth measurement."""
+        data = await request.read()
+        return web.Response(body=data, status=200)
+
+    async def _handle_health(self, request: web.Request) -> web.Response:
+        """Health check endpoint."""
+        return web.json_response({
+            "healthy": True,
+            "node_id": self.node_instance_id,
+            "gpu_model": self.gpu_model,
+            "gpu_vram_gb": self.gpu_vram_gb,
+        })
+
+    async def _discover_and_probe_peers(self, session: aiohttp.ClientSession) -> None:
+        """Discover peer nodes from HivePoA and probe their latency."""
+        headers = self._auth_headers()
+        try:
+            async with session.get(
+                f"{self.hivepoa_url}/api/compute/nodes",
+                headers=headers,
+                params={"status": "online"},
+            ) as resp:
+                if resp.status != 200:
+                    return
+                data = await resp.json()
+                nodes = data if isinstance(data, list) else data.get("nodes", [])
+        except Exception as e:
+            logger.debug(f"Peer discovery failed: {e}")
+            return
+
+        # Register peers (skip self)
+        for node in nodes:
+            node_id = node.get("id", "")
+            if node_id == self._node_id or node_id == self.node_instance_id:
+                continue
+            # Try to get peer's ping endpoint from metadata
+            metadata = node.get("metadataJson") or "{}"
+            try:
+                meta = json.loads(metadata) if isinstance(metadata, str) else metadata
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+            ping_url = meta.get("ping_url", "")
+            if ping_url:
+                self._prober.add_peer(node_id, ping_url)
+
+        # Probe all registered peers
+        if self._prober._peers:
+            results = await self._prober.probe_all()
+            summary = self._prober.get_network_summary()
+            logger.info(
+                f"Latency probing: {summary['reachable']}/{summary['peers']} peers reachable, "
+                f"avg={summary.get('avg_latency_ms', 0):.1f}ms, "
+                f"TP-capable={summary.get('tp_capable', 0)}, PP-capable={summary.get('pp_capable', 0)}"
+            )
+
     async def _drain(self) -> None:
         """Gracefully drain: stop accepting requests, finish in-flight, report final stats."""
         logger.info("Draining inference worker...")
+
+        # Stop ping server
+        if self._ping_server:
+            await self._ping_server.cleanup()
+            self._ping_server = None
 
         if self._inference_process:
             self._inference_process.terminate()
@@ -340,5 +442,5 @@ class InferenceWorker:
     def _auth_headers(self) -> dict:
         headers = {"Content-Type": "application/json"}
         if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+            headers["Authorization"] = f"ApiKey {self.api_key}"
         return headers
