@@ -125,7 +125,8 @@ def batch_enrich_and_reembed(db, force: bool = False, dry_run: bool = False) -> 
         meta = {}
         if section.keywords_json:
             try:
-                meta = json.loads(section.keywords_json) if isinstance(section.keywords_json, str) else section.keywords_json
+                parsed = json.loads(section.keywords_json) if isinstance(section.keywords_json, str) else section.keywords_json
+                meta = parsed if isinstance(parsed, dict) else {"keywords": parsed}
             except (json.JSONDecodeError, TypeError):
                 meta = {}
 
