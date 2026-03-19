@@ -181,7 +181,7 @@ filtering, or acceptance policy instead.
 **Scope**: Run the 5-point validation gate, then staged analysis (global lift → workflow segmentation → confidence band → language splits)
 **Blocked by**: Data volume, not code. Check periodically.
 
-**Shadow reranker verdict (2026-03-19)**: 154 data points analyzed (103 DB + 83 synthetic). Score distribution: p50=0.028, p90=0.256. Labeled data shows OVERLAP between relevant/irrelevant (gap: -0.72). **NOT ready to promote** — keep in shadow mode. Rewrite gate: 91.4% entry, 33.6% applied, 0% suppressed.
+**Shadow reranker → ACTIVE (2026-03-19)**: Old calibration labels were wrong (CoSQA query relevance ≠ section relevance). Corrected benchmark (64 positive / 72 negative, manually labeled): gap=+0.321, 63/64 controls pass. Two-tier thresholds promoted to active: suppress=0.02 (removes confidently irrelevant sections), boost=0.20 (reorders by cross-encoder score). Config: `RERANKER_ACTIVE_SUPPRESS=true`, `RERANKER_ACTIVE_BOOST=true`. Benchmark script: `scripts/reranker_benchmark.py`.
 
 ### Beam 5: Domain LoRA CLI Flags (MoLoRA Production)
 **Depends on**: v5-think frozen (DONE), domain-isolated architecture design (DONE)
