@@ -395,7 +395,9 @@ def log_telemetry_event(*, request_id, answer_id, attempt_id=None,
                         latency_verification_ms=None, latency_total_ms=None,
                         matched_pattern_pass_rates=None,
                         is_internal=False, verifier_mode=None,
-                        frontend_build=None, retrieval_trace=None):
+                        frontend_build=None, retrieval_trace=None,
+                        crag_verdict=None, retrieval_confidence_band=None,
+                        retrieval_confidence_score=None):
     """Enqueue a telemetry event for async background write.
 
     This function returns immediately. Chat path is never blocked.
@@ -440,6 +442,10 @@ def log_telemetry_event(*, request_id, answer_id, attempt_id=None,
         "is_internal": is_internal,
         "verifier_mode": verifier_mode,
         "retrieval_trace_json": json.dumps(retrieval_trace) if retrieval_trace else None,
+        # RAG Phase 3 metrics
+        "crag_verdict": crag_verdict,
+        "retrieval_confidence_band": retrieval_confidence_band,
+        "retrieval_confidence_score": retrieval_confidence_score,
         # Stack versions
         "workflow_classifier_version": stack["workflow_classifier_version"],
         "language_detector_version": stack["language_detector_version"],

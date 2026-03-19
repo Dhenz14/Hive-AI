@@ -987,6 +987,9 @@ def chat_api():
         _entity_sections = []
         _retrieval_trace = {}
 
+        _crag_verdict = "correct"
+        _retrieval_confidence = {"band": "none", "score": 0.0, "section_count": 0, "crag_verdict": "correct"}
+
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
                 message, db, history=history, retrieval_mode=classify.retrieval_mode,
@@ -1008,6 +1011,33 @@ def chat_api():
                     _retrieval_trace["reranker_shadow_applied"] = False
                     _retrieval_trace["reranker_shadow_reason"] = str(_shadow_err)[:200]
 
+            # --- Phase 3: CRAG retrieval judge ---
+            from hiveai.config import ENABLE_CRAG
+            if ENABLE_CRAG and top_sections:
+                try:
+                    from hiveai.rag.retrieval_judge import judge_retrieval, INCORRECT, AMBIGUOUS
+                    _crag_verdict = judge_retrieval(message, top_sections)
+                    if _crag_verdict == INCORRECT:
+                        top_sections = []
+                        knowledge_context = ""
+                        source_books = []
+                    elif _crag_verdict == AMBIGUOUS:
+                        try:
+                            from hiveai.config import ENABLE_HYDE
+                            if ENABLE_HYDE:
+                                from hiveai.rag.hyde import generate_hyde_embedding
+                                from hiveai.rag.fusion import rrf_merge
+                                from hiveai.vectorstore import hybrid_search as _hs
+                                hyde_emb = generate_hyde_embedding(message)
+                                if hyde_emb:
+                                    hyde_sections = _hs(db, message, hyde_emb, limit=8)
+                                    if hyde_sections:
+                                        top_sections = rrf_merge([top_sections, hyde_sections], limit=12)
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"CRAG judge failed: {e}")
+
             # Split entity lane before main context budgeting
             _entity_sections = [s for s in top_sections if s.get("is_entity")]
             # 3-arm experiment: no_injection strips solved examples from context
@@ -1015,8 +1045,17 @@ def chat_api():
             if not _telem_inject_memory:
                 _ctx_sections = [s for s in _ctx_sections if not s.get("is_solved_example")]
 
-            _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
-            knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
+            # --- Phase 3: Contextual compression for tight-budget mode ---
+            _is_exec = classify.response_contract == "executable_code"
+            if _is_exec and _ctx_sections:
+                try:
+                    from hiveai.rag.compressor import compress_sections
+                    _ctx_sections = compress_sections(message, _ctx_sections, max_compress=3)
+                except Exception:
+                    pass  # compression is best-effort
+
+            _ctx_budget = 1200 if _is_exec else 4000
+            knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=_is_exec)
 
             # Suppression gate: don't inject noise when all retrieved sections are low-confidence
             _suppression_reason = None
@@ -1056,6 +1095,13 @@ def chat_api():
                 "soft_entity_lane_used": bool(_entity_sections),
                 "compressed_knowledge_used": _compressed_used,
             })
+
+            # --- Phase 3: Compute retrieval confidence ---
+            try:
+                from hiveai.rag.confidence import compute_confidence
+                _retrieval_confidence = compute_confidence(top_sections, _crag_verdict)
+            except Exception:
+                pass
 
         t_retrieval = _time.perf_counter()
 
@@ -1321,9 +1367,12 @@ Answer the question directly and helpfully."""
             result["auto_staged"] = auto_staged
 
         # Request trace (for observability — visible in API response)
+        result["retrieval_confidence"] = _retrieval_confidence
         result["trace"] = {
             "classification": classify.to_dict(),
             "chunks_considered": len(top_sections),
+            "crag_verdict": _crag_verdict,
+            "retrieval_confidence": _retrieval_confidence.get("band", "none"),
             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
             "solved_example_count": len(_solved_sections_retrieved),
             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
@@ -1384,6 +1433,9 @@ Answer the question directly and helpfully."""
                 verifier_mode=_verifier_mode,
                 frontend_build=_telem_frontend_build,
                 retrieval_trace=_retrieval_trace or None,
+                crag_verdict=_crag_verdict,
+                retrieval_confidence_band=_retrieval_confidence.get("band"),
+                retrieval_confidence_score=_retrieval_confidence.get("score"),
             )
 
         result["trace"]["request_id"] = _telem_request_id
@@ -1487,6 +1539,9 @@ def chat_stream():
             else:
                 # Retrieval phase (if classifier says we need it)
                 source_books = []
+                _crag_verdict_s = "correct"
+                _retrieval_confidence_s = {"band": "none", "score": 0.0, "section_count": 0, "crag_verdict": "correct"}
+
                 if classify.needs_retrieval:
                     top_sections, source_books, all_books = search_knowledge_sections(
                         message, db, history=history, retrieval_mode=classify.retrieval_mode,
@@ -1509,6 +1564,33 @@ def chat_stream():
                             _retrieval_trace["reranker_shadow_applied"] = False
                             _retrieval_trace["reranker_shadow_reason"] = str(_shadow_err)[:200]
 
+                    # --- Phase 3: CRAG retrieval judge ---
+                    from hiveai.config import ENABLE_CRAG
+                    if ENABLE_CRAG and top_sections:
+                        try:
+                            from hiveai.rag.retrieval_judge import judge_retrieval, INCORRECT, AMBIGUOUS
+                            _crag_verdict_s = judge_retrieval(message, top_sections)
+                            if _crag_verdict_s == INCORRECT:
+                                top_sections = []
+                                knowledge_context = ""
+                                source_books = []
+                            elif _crag_verdict_s == AMBIGUOUS:
+                                try:
+                                    from hiveai.config import ENABLE_HYDE
+                                    if ENABLE_HYDE:
+                                        from hiveai.rag.hyde import generate_hyde_embedding
+                                        from hiveai.rag.fusion import rrf_merge
+                                        from hiveai.vectorstore import hybrid_search as _hs
+                                        hyde_emb = generate_hyde_embedding(message)
+                                        if hyde_emb:
+                                            hyde_sections = _hs(db, message, hyde_emb, limit=8)
+                                            if hyde_sections:
+                                                top_sections = rrf_merge([top_sections, hyde_sections], limit=12)
+                                except Exception:
+                                    pass
+                        except Exception as e:
+                            logging.getLogger(__name__).warning(f"CRAG judge failed (stream): {e}")
+
                     # Split entity lane before main context budgeting
                     _entity_sections = [s for s in top_sections if s.get("is_entity")]
                     # 3-arm experiment: no_injection strips solved examples from context
@@ -1517,8 +1599,17 @@ def chat_stream():
                     if not _telem_inject_memory:
                         _ctx_sections = [s for s in _ctx_sections if not s.get("is_solved_example")]
 
-                    _ctx_budget = 1200 if classify.response_contract == "executable_code" else 4000
-                    knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=(classify.response_contract == "executable_code"))
+                    # --- Phase 3: Contextual compression for tight-budget mode ---
+                    _is_exec_s = classify.response_contract == "executable_code"
+                    if _is_exec_s and _ctx_sections:
+                        try:
+                            from hiveai.rag.compressor import compress_sections
+                            _ctx_sections = compress_sections(message, _ctx_sections, max_compress=3)
+                        except Exception:
+                            pass
+
+                    _ctx_budget = 1200 if _is_exec_s else 4000
+                    knowledge_context = budget_context(_ctx_sections, message, max_tokens=_ctx_budget, executable_mode=_is_exec_s)
 
                     # Suppression gate: don't inject noise when all retrieved sections are low-confidence
                     _suppression_reason = None
@@ -1560,6 +1651,14 @@ def chat_stream():
                     })
                     # Emit early so retrieval path is observable even if generation later fails
                     yield f"event: retrieval_trace\ndata: {json.dumps(_retrieval_trace)}\n\n"
+
+                    # --- Phase 3: Compute retrieval confidence ---
+                    try:
+                        from hiveai.rag.confidence import compute_confidence
+                        _retrieval_confidence_s = compute_confidence(top_sections, _crag_verdict_s)
+                        yield f"event: confidence\ndata: {json.dumps(_retrieval_confidence_s)}\n\n"
+                    except Exception:
+                        pass
 
                     skill_context = load_skills_for_query(message)
                     skill_block = f"\n\n{skill_context}" if skill_context else ""
@@ -1872,14 +1971,20 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             verifier_mode=_verifier_mode,
                             frontend_build=_telem_frontend_build,
                             retrieval_trace=_retrieval_trace or None,
+                            crag_verdict=_crag_verdict_s,
+                            retrieval_confidence_band=_retrieval_confidence_s.get("band"),
+                            retrieval_confidence_score=_retrieval_confidence_s.get("score"),
                         )
 
                     done_data = {
                         "full_response": full,
+                        "retrieval_confidence": _retrieval_confidence_s,
                         "trace": {
                             "classification": classify.to_dict(),
                             "mode": "agent" if use_agent else classify.retrieval_mode,
                             "chunks_considered": len(top_sections),
+                            "crag_verdict": _crag_verdict_s,
+                            "retrieval_confidence": _retrieval_confidence_s.get("band", "none"),
                             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
                             "solved_example_count": len(_solved_sections_retrieved),
                             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
