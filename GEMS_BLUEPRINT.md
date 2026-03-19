@@ -302,6 +302,7 @@ These are NOT coming back unless explicitly triggered. Do not work on them.
 
 **Completed**: Beam 1 (structural), Beam 2 (structural), Beam 3 (all items + contextual retrieval + MMR + DoRA + routing + classifier), Beam 5 (implementation)
 **Blocked on data**: Beam 4 (telemetry volume), GEM 1+2 empirical gates (real training cycles)
-**Shadow reranker CALIBRATED (2026-03-19)**: Old labels were wrong (CoSQA relevance ≠ section relevance). Corrected benchmark (64 pos / 72 neg): gap=+0.321, 63/64 controls pass. Two-tier thresholds: suppress=0.02, boost=0.20. Ready for suppress-tier promotion.
-**Next actionable**: Gate 11 organic reuse validation (50+ promoted examples needed), then Bridge A (HivePoA V1.1 training jobs)
+**Shadow reranker PROMOTED (2026-03-19)**: Two-tier active filtering: suppress=0.02, boost=0.20. Corrected benchmark (64 pos / 72 neg): gap=+0.321, 63/64 controls pass.
+**Gate 11 count PASS (2026-03-19)**: 51 promoted examples seeded across 6 languages (Python 20, C++ 8, Go 8, Rust 7, JS 4, TS 3). Retrieval verified (5/5 correct top-1 match). Remaining: organic reuse rate ≥50% + verification wins.
+**Next actionable**: Gate 11 reuse validation (needs organic usage), then Bridge A (HivePoA V1.1 training jobs).
 After Gate 11: Bridge A → Bridge B (distributed weakness hunter).

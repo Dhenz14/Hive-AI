@@ -264,7 +264,7 @@ This is NOT for daily use. v5-think is frozen. Use only when all 4 Layer 3 crite
 
 ## Memory Reuse System (Promotion Bridge) — LIVE
 
-**Status**: Proven (Gate 6 + Gate 10 PASS). Bridge is FROZEN — do not add features until Gate 11.
+**Status**: Proven (Gate 6 + Gate 10 + Gate 11 count PASS). Bridge is FROZEN — do not add features until Gate 11 reuse validation.
 
 **How it works**: Verified chat responses that pass quality + complexity gates get promoted from
 `TrainingPair` (training sink) → `BookSection` (retrieval-indexed, same BGE-M3 embedding space).
@@ -289,8 +289,9 @@ automatically retrieved by the RAG pipeline on similar future queries.
 - `AUTO_PROMOTE_MIN_QUALITY=0.82` — Minimum quality score for promotion
 - `AUTO_PROMOTE_MIN_CODE_LINES=5` — Minimum code lines for promotion
 
-**Gate 11 (next milestone)**: Collect 5-10 promoted examples organically, prove repeated reuse
-at scale (≥50% retrieved on relevant follow-ups, measurable verification wins, no noise explosion).
+**Gate 11 progress**: Count target PASS (51 promoted examples seeded across 6 languages, 2026-03-19).
+Remaining: prove ≥50% reuse rate on organic follow-ups, measurable verification wins, no noise explosion.
+Seeding scripts: `scripts/seed_promoted_examples.py`, `seed_promoted_batch2.py`, `seed_promoted_batch3.py`.
 
 ## 3 Gems — Layer 3 Intelligence (Phase 0-3) — STRUCTURALLY COMPLETE
 
