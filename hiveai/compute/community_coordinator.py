@@ -372,14 +372,32 @@ class CommunityCoordinator:
                 logger.error(f"Hive publish failed: {e}")
 
     async def _publish_to_hive(self, manifest: TierManifest) -> None:
-        """Publish manifest to Hive blockchain via custom_json operation.
+        """Publish manifest to Hive blockchain via HivePoA's publish-hive endpoint.
 
-        Format: custom_json with id='spiritbomb_manifest', required_posting_auths.
+        Delegates to HivePoA's SpiritBombService.publishManifestToHive() which
+        handles the actual custom_json broadcast + reconciliation.
         """
-        # Placeholder — requires hive-py or beem integration
-        manifest_json = json.dumps(asdict(manifest), separators=(",", ":"))
-        manifest_hash = hashlib.sha256(manifest_json.encode()).hexdigest()[:16]
-        logger.info(f"Would publish to Hive: spiritbomb_manifest #{manifest_hash}")
+        headers = self._auth_headers()
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.post(
+                    f"{self.hivepoa_url}/api/community/tier/publish-hive",
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("published"):
+                            logger.info(f"Published to Hive blockchain: tx={data.get('hiveTxId')}")
+                        else:
+                            logger.debug(f"Hive publish skipped: {data.get('reason')}")
+                    else:
+                        body = await resp.text()
+                        logger.warning(f"Hive publish failed: HTTP {resp.status}: {body[:200]}")
+            except asyncio.TimeoutError:
+                logger.warning("Hive publish timed out")
+            except Exception as e:
+                logger.error(f"Hive publish error: {e}")
 
     async def _update_inference_routes(
         self,

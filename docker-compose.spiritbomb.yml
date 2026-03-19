@@ -1,0 +1,98 @@
+# Spirit Bomb Community Cloud — Docker Compose
+#
+# Extends the base docker-compose with vLLM serving and coordinator services.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.spiritbomb.yml up
+#
+# Requirements:
+#   - NVIDIA Container Toolkit (nvidia-docker2)
+#   - CUDA 12.1+ driver
+#   - HuggingFace model pre-downloaded or HF_TOKEN set
+
+services:
+  # vLLM Inference Engine — serves OpenAI-compatible API
+  vllm:
+    image: vllm/vllm-openai:latest
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    ports:
+      - "8100:8000"  # vLLM default port → host 8100
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=INFO
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+      - ./spiritbomb-config:/config
+    command: >
+      --model ${SPIRITBOMB_MODEL:-Qwen/Qwen3-14B-AWQ}
+      --quantization ${SPIRITBOMB_QUANTIZATION:-awq}
+      --tensor-parallel-size ${SPIRITBOMB_TP_SIZE:-1}
+      --gpu-memory-utilization 0.90
+      --max-model-len ${SPIRITBOMB_MAX_CTX:-32768}
+      --enable-chunked-prefill
+      --enable-prefix-caching
+      --api-key ${SPIRITBOMB_VLLM_API_KEY:-spiritbomb-local}
+      --host 0.0.0.0
+      --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    restart: unless-stopped
+
+  # Spirit Bomb Community Coordinator
+  coordinator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - SPIRITBOMB_API_KEY=${SPIRITBOMB_API_KEY:-}
+      - HIVEPOA_URL=${HIVEPOA_URL:-http://host.docker.internal:5000}
+      - POLL_INTERVAL=${POLL_INTERVAL:-900}
+    command: >
+      python scripts/run_coordinator.py
+      --hivepoa-url ${HIVEPOA_URL:-http://host.docker.internal:5000}
+      --api-key ${SPIRITBOMB_API_KEY:-}
+      --poll-interval ${POLL_INTERVAL:-900}
+    depends_on:
+      vllm:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Ping Server for Latency Probing (lightweight)
+  ping-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8101:8101"
+    command: >
+      python -c "
+      from aiohttp import web
+      import asyncio
+      async def ping(r): return web.Response(body=await r.read())
+      async def health(r): return web.json_response({'healthy': True})
+      app = web.Application()
+      app.router.add_post('/ping', ping)
+      app.router.add_get('/health', health)
+      web.run_app(app, host='0.0.0.0', port=8101)
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8101/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+    driver: local
