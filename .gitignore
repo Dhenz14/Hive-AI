@@ -94,6 +94,29 @@ loras/domains/
 loras/training_data/v[0-9].jsonl
 loras/training_data/v[0-9]_*.jsonl
 
+# Synthetic traffic data (generated locally, not checked in)
+data/
+!data/.gitkeep
+
+# Debug test scripts (one-off, not production)
+test_*.py
+!tests/
+
+# Calibration/validation result artifacts
+*_results.json
+*_pass_results.json
+confirmation_pass_results.json
+organic_validation_results.json
+real_traffic_results.json
+
+# Topic gate analysis artifacts
+scripts/topic_gate_results/
+scripts/topic_gate_labeled_queries.json
+
+# Misc session artifacts
+fizzy-gliding-moore.md
+embedding_cache.db
+
 # Claude Code local settings
 .claude/
 

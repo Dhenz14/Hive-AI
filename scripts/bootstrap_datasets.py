@@ -29,30 +29,40 @@ import sys
 def classify_query(query: str, source: str) -> str:
     """Assign a query_class tag based on content heuristics."""
     q = query.lower().strip()
-    # Error/exception queries
+    # Error/exception queries (highest priority — discriminative surface cues)
     if any(w in q for w in ["error", "exception", "traceback", "segfault", "panic",
                              "typeerror", "valueerror", "nameerror", "keyerror",
-                             "syntaxerror", "importerror", "attributeerror"]):
+                             "syntaxerror", "importerror", "attributeerror",
+                             "failed", "crash", "bug", "broken", "not working"]):
         return "error_text"
-    # Short/ambiguous (< 8 words)
-    if len(q.split()) < 8:
-        return "short_ambiguous"
     # Syntax-heavy (contains code-like tokens)
     if any(tok in q for tok in ["()", "[]", "{}", "->", "::", "=>", "&&", "||",
                                   "def ", "class ", "import ", "fn ", "func ",
-                                  "struct ", "impl "]):
+                                  "struct ", "impl ", "__", ".get(", ".set(",
+                                  "lambda", "async ", "await ", "yield"]):
         return "syntax_heavy"
-    # Direct how-to
-    if q.startswith(("how to", "how do i", "how can i", "what is the way to")):
-        return "direct_how"
     # Conceptual/design
     if any(w in q for w in ["design pattern", "architecture", "best practice",
                               "trade-off", "when should i", "difference between",
-                              "pros and cons", "comparison"]):
+                              "pros and cons", "comparison", "why does", "explain",
+                              "what is the difference", "vs ", "versus"]):
         return "conceptual"
-    # Paraphrase (CoNaLa rewritten intents tend to be cleaner)
+    # Direct how-to (check before short_ambiguous — short how-tos are still how-tos)
+    if q.startswith(("how to", "how do i", "how can i", "what is the way to",
+                     "how would", "what's the best way", "is there a way")):
+        return "direct_how"
+    # Paraphrase (CoNaLa rewritten intents)
     if source == "conala":
         return "paraphrase"
+    # Action-oriented queries (imperative verbs)
+    if q.startswith(("sort ", "filter ", "convert ", "parse ", "find ", "get ",
+                     "create ", "delete ", "remove ", "add ", "check ", "list ",
+                     "read ", "write ", "merge ", "split ", "count ", "replace ")):
+        return "direct_how"
+    # Short/ambiguous — last resort (< 5 words, very short)
+    if len(q.split()) < 5:
+        return "short_ambiguous"
+    # Default: most remaining queries are task-oriented
     return "direct_how"
 
 
