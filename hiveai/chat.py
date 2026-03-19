@@ -3,24 +3,25 @@ import logging
 import hashlib
 import time as _time
 import threading
+from collections import OrderedDict
 from hiveai.models import SessionLocal, Job, GoldenBook, BookSection, Community
 from hiveai.llm.client import embed_text, rerank_sections, fast
 from hiveai.llm.prompts import COMPACTION_PROMPT, COMPACTION_HANDOFF
+from hiveai.config import RAG_CACHE_TTL, RAG_CACHE_MAX, ENABLE_RERANKING
 
-# RAG query result cache — avoids re-embedding + re-searching for repeated questions.
+# RAG query result cache — LRU eviction, avoids re-embedding + re-searching.
 # Key: hash(query), Value: (timestamp, sections, source_books, books)
-_rag_cache = {}
+_rag_cache: OrderedDict = OrderedDict()
 _rag_cache_lock = threading.Lock()
-_RAG_CACHE_TTL = 1800  # 30 minutes
-_RAG_CACHE_MAX = 200
 
 def _rag_cache_store(key, sections, books, all_books):
-    """Store RAG results in cache with eviction."""
+    """Store RAG results in LRU cache with O(1) eviction."""
     with _rag_cache_lock:
-        if len(_rag_cache) >= _RAG_CACHE_MAX:
-            oldest = min(_rag_cache, key=lambda k: _rag_cache[k][0])
-            del _rag_cache[oldest]
+        if key in _rag_cache:
+            _rag_cache.move_to_end(key)
         _rag_cache[key] = (_time.time(), sections, books, all_books)
+        while len(_rag_cache) > RAG_CACHE_MAX:
+            _rag_cache.popitem(last=False)
 
 STOP_WORDS = {
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
@@ -76,7 +77,7 @@ def _llm_extract_keywords(question, history=None):
     cache_key = hashlib.md5(question.encode()).hexdigest()
     with _rag_cache_lock:
         cached = _rag_cache.get(f"kw_{cache_key}")
-        if cached and (_time.time() - cached[0]) < _RAG_CACHE_TTL:
+        if cached and (_time.time() - cached[0]) < RAG_CACHE_TTL:
             return cached[1]
 
     try:
@@ -237,25 +238,42 @@ def keyword_search_sections(question, db, history=None):
     if not query_words:
         query_words = [w for w in question.lower().split() if len(w) > 1]
 
-    all_sections = []
-    for book in books:
-        all_sections.extend(split_book_into_sections(book))
+    # Query BookSection table directly with JOIN — avoids N+1 book splitting
+    rows = db.query(BookSection, GoldenBook.title).join(
+        GoldenBook, BookSection.book_id == GoldenBook.id
+    ).filter(BookSection.content.isnot(None)).all()
 
     scored = []
-    for section in all_sections:
-        s = score_section(section, query_words)
+    for section, book_title in rows:
+        sec_dict = {
+            "id": section.id,
+            "header": section.header or "",
+            "content": section.content or "",
+            "book_title": book_title,
+            "book_id": section.book_id,
+        }
+        s = score_section(sec_dict, query_words)
         if s > 0:
-            scored.append((section, s))
+            scored.append((sec_dict, s))
 
     scored.sort(key=lambda x: x[1], reverse=True)
 
     top_sections = [s[0] for s in scored[:12]]
     source_books = list(set(s["book_title"] for s in top_sections))
 
-    if not top_sections:
-        for book in books[:3]:
-            sections = split_book_into_sections(book)
-            top_sections.extend(sections[:2])
+    if not top_sections and books:
+        # Fallback: return first few sections from first few books
+        fallback_rows = db.query(BookSection, GoldenBook.title).join(
+            GoldenBook, BookSection.book_id == GoldenBook.id
+        ).filter(BookSection.book_id.in_([b.id for b in books[:3]])).limit(6).all()
+        for section, book_title in fallback_rows:
+            top_sections.append({
+                "id": section.id,
+                "header": section.header or "",
+                "content": section.content or "",
+                "book_title": book_title,
+                "book_id": section.book_id,
+            })
 
     return top_sections, source_books, books
 
@@ -368,7 +386,7 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
     with _rag_cache_lock:
         if cache_key in _rag_cache:
             ts, cached_sections, cached_books, cached_all = _rag_cache[cache_key]
-            if _time.time() - ts < _RAG_CACHE_TTL:
+            if _time.time() - ts < RAG_CACHE_TTL:
                 logging.getLogger(__name__).debug(f"RAG cache hit for: {question[:50]}")
                 return cached_sections, cached_books, cached_all
 
@@ -406,7 +424,7 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
             pass  # critique system not yet initialized — no exclusion needed
 
         top_sections = hybrid_search(
-            db, query_str, query_embedding, limit=12, max_distance=0.8,
+            db, query_str, query_embedding, limit=12,
             exclude_book_ids=_exclude_book_ids or None,
         )
         _t3 = _time.perf_counter()
@@ -470,11 +488,12 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
                 except Exception as e:
                     logging.getLogger(__name__).warning(f"Book reference lookup failed (non-critical): {e}")
 
-            try:
-                top_sections = rerank_sections(question, top_sections)
-                logging.getLogger(__name__).info(f"Cross-encoder reranking applied to {len(top_sections)} sections")
-            except Exception as e:
-                logging.getLogger(__name__).warning(f"Reranking failed (non-critical): {e}")
+            if ENABLE_RERANKING:
+                try:
+                    top_sections = rerank_sections(question, top_sections)
+                    logging.getLogger(__name__).info(f"Cross-encoder reranking applied to {len(top_sections)} sections")
+                except Exception as e:
+                    logging.getLogger(__name__).warning(f"Reranking failed (non-critical): {e}")
 
             if use_deep_retrieval:
                 try:

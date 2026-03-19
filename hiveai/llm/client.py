@@ -3,6 +3,7 @@ import os
 import re
 import threading
 import hashlib
+from collections import OrderedDict
 import requests
 from functools import lru_cache
 from openai import OpenAI
@@ -613,7 +614,7 @@ def rerank_sections(query: str, sections: list[dict], top_k: int = 8) -> list[di
         return sections[:top_k]
 
 
-_embedding_cache = {}
+_embedding_cache = OrderedDict()
 _embedding_cache_lock = threading.Lock()
 _CACHE_MAX_SIZE = 10000
 _EMBEDDING_CACHE_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "embedding_cache.db")
@@ -684,6 +685,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         for i, text in enumerate(texts):
             key = _cache_key(text)
             if key in _embedding_cache:
+                _embedding_cache.move_to_end(key)  # LRU: mark as recently used
                 results[i] = _embedding_cache[key]
             else:
                 uncached_indices.append(i)
@@ -704,11 +706,8 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
                 emb_list = emb.tolist()
                 results[idx] = emb_list
                 key = _cache_key(texts[idx])
-                if len(_embedding_cache) >= _CACHE_MAX_SIZE:
-                    # Evict oldest 10% (FIFO via dict insertion order)
-                    evict_count = _CACHE_MAX_SIZE // 10
-                    for k in list(_embedding_cache.keys())[:evict_count]:
-                        del _embedding_cache[k]
+                while len(_embedding_cache) >= _CACHE_MAX_SIZE:
+                    _embedding_cache.popitem(last=False)  # LRU: evict least recently used
                 _embedding_cache[key] = emb_list
                 _embedding_cache_dirty += 1
         # Flush to disk every 100 new embeddings
@@ -722,7 +721,7 @@ def clear_embedding_cache():
     # Flush to disk before clearing
     if _embedding_cache:
         _flush_embedding_cache_to_disk()
-    _embedding_cache = {}
+    _embedding_cache = OrderedDict()
 
 
 def embed_text(text: str) -> list[float]:

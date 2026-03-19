@@ -1,10 +1,61 @@
 import logging
+import math
 import re
+import time
 import numpy as np
+from collections import Counter
 from sqlalchemy import text as sa_text
-from hiveai.config import DB_BACKEND
+from hiveai.config import DB_BACKEND, RAG_MAX_VECTOR_DISTANCE, RAG_HYBRID_ALPHA, RAG_MIN_SCORE, RAG_MAX_PER_BOOK
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# IDF (Inverse Document Frequency) cache for BM25 scoring
+# Computes how many sections contain each term — rare terms get higher weight.
+# ---------------------------------------------------------------------------
+_idf_cache: dict[str, float] = {}
+_idf_total_docs: int = 0
+_idf_last_refresh: float = 0.0
+_IDF_REFRESH_INTERVAL = 1800  # 30 minutes
+
+
+def _refresh_idf_stats(db) -> None:
+    """Recompute IDF stats from all BookSection content. Cached for 30 minutes."""
+    global _idf_cache, _idf_total_docs, _idf_last_refresh
+    now = time.time()
+    if _idf_cache and (now - _idf_last_refresh) < _IDF_REFRESH_INTERVAL:
+        return
+
+    from hiveai.models import BookSection
+    try:
+        rows = db.query(BookSection.id, BookSection.content).filter(
+            BookSection.content.isnot(None)
+        ).all()
+    except Exception as e:
+        logger.warning(f"IDF refresh failed: {e}")
+        return
+
+    doc_freq: Counter = Counter()
+    total = len(rows)
+    for _, content in rows:
+        if not content:
+            continue
+        # Unique terms per document (no double-counting within a section)
+        terms = set(
+            w.lower() for w in re.split(r'\W+', content)
+            if len(w) > 2 and w.lower() not in _BM25_STOP_WORDS
+        )
+        doc_freq.update(terms)
+
+    # BM25 IDF formula: log((N - df + 0.5) / (df + 0.5) + 1)
+    idf = {}
+    for term, df in doc_freq.items():
+        idf[term] = math.log((total - df + 0.5) / (df + 0.5) + 1)
+
+    _idf_cache = idf
+    _idf_total_docs = total
+    _idf_last_refresh = now
+    logger.info(f"[IDF] Refreshed: {total} docs, {len(idf)} unique terms")
 
 # Stop words for BM25 keyword scoring (common English words with no search signal)
 _BM25_STOP_WORDS = {
@@ -23,8 +74,10 @@ _BM25_STOP_WORDS = {
 }
 
 
-def vector_search(db, query_embedding, limit=12, max_distance=0.8, book_id_filter=None,
+def vector_search(db, query_embedding, limit=12, max_distance=None, book_id_filter=None,
                    exclude_book_ids=None):
+    if max_distance is None:
+        max_distance = RAG_MAX_VECTOR_DISTANCE
     if DB_BACKEND == "postgresql":
         return _pg_vector_search(db, query_embedding, limit, max_distance, book_id_filter, exclude_book_ids)
     else:
@@ -172,11 +225,12 @@ def _sqlite_vector_search_grouped(db, query_embedding, max_distance, min_count):
 # for better recall on queries with rare named entities or exact terms.
 # ---------------------------------------------------------------------------
 
-def _bm25_score_section(query_terms: list[str], content: str, header: str = "") -> float:
+def _bm25_score_section(query_terms: list[str], content: str, header: str = "",
+                        idf: dict[str, float] | None = None) -> float:
     """
-    Simple BM25-inspired keyword scoring for a section.
-    Not a full BM25 implementation (no IDF corpus stats) but captures
-    the core signal: term frequency with saturation.
+    BM25 keyword scoring with IDF weighting for a section.
+    When IDF stats are available, rare terms (e.g. 'tokio', 'goroutine') get
+    5-10x higher weight than common terms (e.g. 'code', 'function').
     """
     if not query_terms or not content:
         return 0.0
@@ -202,7 +256,9 @@ def _bm25_score_section(query_terms: list[str], content: str, header: str = "") 
         # Boost exact header matches (headers are more important)
         if term in header.lower():
             norm_tf *= 2.0
-        score += norm_tf
+        # IDF weighting — rare terms score higher
+        term_idf = idf.get(term, 1.0) if idf else 1.0
+        score += norm_tf * term_idf
 
     return score
 
@@ -252,7 +308,7 @@ def _load_section_metadata(db, section_ids: list[int]) -> dict[int, dict]:
 
 
 def hybrid_search(db, query: str, query_embedding, limit: int = 12,
-                  max_distance: float = 0.8, alpha: float = 0.6,
+                  max_distance: float = None, alpha: float = None,
                   book_id_filter=None, exclude_book_ids=None) -> list[dict]:
     """
     Fuse vector similarity and keyword matching for better recall.
@@ -262,15 +318,19 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         query: Raw query text (for keyword matching)
         query_embedding: Pre-computed embedding vector
         limit: Max results to return
-        max_distance: Max cosine distance for vector results
-        alpha: Weight for vector score (1-alpha = keyword weight).
-               Default 0.6 favors semantic but gives keywords meaningful weight.
+        max_distance: Max cosine distance for vector results (default from config)
+        alpha: Weight for vector score (1-alpha = keyword weight, default from config)
         book_id_filter: Optional list of book IDs to restrict search
         exclude_book_ids: Optional set/list of book IDs to exclude (e.g. critique patterns)
 
     Returns:
         List of section dicts sorted by fused score, best first.
     """
+    if max_distance is None:
+        max_distance = RAG_MAX_VECTOR_DISTANCE
+    if alpha is None:
+        alpha = RAG_HYBRID_ALPHA
+
     # Step 1: Get vector results (retrieve more than needed for fusion)
     vec_results = vector_search(db, query_embedding, limit=limit * 2,
                                 max_distance=max_distance, book_id_filter=book_id_filter,
@@ -286,7 +346,10 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         # No useful keywords — fall back to pure vector search
         return vec_results[:limit]
 
-    # Step 3: Score each vector result with BM25
+    # Refresh IDF stats (cached, ~0ms if fresh, ~200ms on first call)
+    _refresh_idf_stats(db)
+
+    # Step 3: Score each vector result with BM25 (now with IDF weighting)
     # Normalize vector distances to 0-1 similarity scores
     if vec_results:
         max_dist = max(r["distance"] for r in vec_results) or 1.0
@@ -303,7 +366,8 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     # BM25 scores + stored keyword bonus
     bm25_scores = []
     for r in vec_results:
-        bm25 = _bm25_score_section(query_terms, r.get("content", ""), r.get("header", ""))
+        bm25 = _bm25_score_section(query_terms, r.get("content", ""), r.get("header", ""),
+                                   idf=_idf_cache or None)
 
         # Bonus from stored keywords: overlap between query terms and section keywords
         sec_kw = stored_keywords.get(r["id"], [])
@@ -342,7 +406,12 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         # Only for code queries — docs/general chat should prefer golden book content
         if _is_code_query:
             meta = section_metadata.get(r["id"], {})
-            if meta.get("source_type") == "solved_example":
+            # Detect solved examples via metadata OR book title fallback
+            _is_solved = (
+                meta.get("source_type") == "solved_example"
+                or "solved example" in (r.get("book_title") or "").lower()
+            )
+            if _is_solved:
                 # Base bonus (0.05) — enough to break ties, not enough to override relevance
                 bonus = 0.05
                 # Lexical title boost: if query terms overlap with the solved example header,
@@ -360,8 +429,8 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
 
     # Step 6: Quality filtering — drop weak/duplicate chunks
-    min_score = 0.15  # below this, chunk is noise
-    max_per_book = 3  # prevent one book from dominating results
+    min_score = RAG_MIN_SCORE
+    max_per_book = RAG_MAX_PER_BOOK
     book_counts: dict[int, int] = {}
     filtered = []
     for r in vec_results:

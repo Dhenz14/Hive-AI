@@ -116,6 +116,18 @@ CHAT_VERIFY_CODE = os.environ.get("CHAT_VERIFY_CODE", "true").lower() in ("1", "
 
 # --- Retrieval tuning ---
 ENABLE_MULTI_HOP_RAG = os.environ.get("ENABLE_MULTI_HOP_RAG", "true").lower() in ("1", "true", "yes")
+ENABLE_RERANKING = os.environ.get("ENABLE_RERANKING", "true").lower() in ("1", "true", "yes")
+# Max cosine distance for vector search (lower = stricter). 0.45 ≈ cosine similarity 0.55.
+RAG_MAX_VECTOR_DISTANCE = float(os.environ.get("RAG_MAX_VECTOR_DISTANCE", "0.45"))
+# Hybrid search fusion weight: higher = more weight on vector, lower = more on BM25
+RAG_HYBRID_ALPHA = float(os.environ.get("RAG_HYBRID_ALPHA", "0.6"))
+# Minimum hybrid score to keep a section (below this = noise)
+RAG_MIN_SCORE = float(os.environ.get("RAG_MIN_SCORE", "0.15"))
+# Max sections per book in results (prevents one book dominating)
+RAG_MAX_PER_BOOK = int(os.environ.get("RAG_MAX_PER_BOOK", "3"))
+# RAG result cache
+RAG_CACHE_TTL = int(os.environ.get("RAG_CACHE_TTL", "1800"))
+RAG_CACHE_MAX = int(os.environ.get("RAG_CACHE_MAX", "200"))
 
 # --- MoLoRA (Mixture of LoRA Experts) ---
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
