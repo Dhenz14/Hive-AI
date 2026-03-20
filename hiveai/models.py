@@ -139,6 +139,7 @@ class GraphTriple(Base):
         Index("ix_triples_subject", "subject"),
         Index("ix_triples_predicate", "predicate"),
         Index("ix_triples_job_id", "job_id"),
+        Index("ix_triples_source_chunk_id", "source_chunk_id"),
     )
 
 
@@ -221,6 +222,7 @@ class HiveKnown(Base):
 
     __table_args__ = (
         Index("ix_hive_known_url", "url"),
+        Index("ix_hive_known_job_id", "job_id"),
     )
 
 
@@ -388,6 +390,7 @@ class ChatFeedback(Base):
     __table_args__ = (
         Index("ix_chat_feedback_rating", "rating"),
         Index("ix_chat_feedback_hash", "message_hash"),
+        Index("ix_chat_feedback_staged_pair_id", "staged_pair_id"),
     )
 
 
