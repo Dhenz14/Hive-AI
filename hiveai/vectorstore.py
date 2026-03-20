@@ -2,6 +2,7 @@ import logging
 import math
 import re
 import time
+import threading
 import numpy as np
 from collections import Counter
 from sqlalchemy import text as sa_text
@@ -17,6 +18,7 @@ _idf_cache: dict[str, float] = {}
 _idf_total_docs: int = 0
 _idf_last_refresh: float = 0.0
 _IDF_REFRESH_INTERVAL = 1800  # 30 minutes
+_idf_lock = threading.Lock()
 
 
 def _refresh_idf_stats(db) -> None:
@@ -25,37 +27,43 @@ def _refresh_idf_stats(db) -> None:
     now = time.time()
     if _idf_cache and (now - _idf_last_refresh) < _IDF_REFRESH_INTERVAL:
         return
+    # Prevent thundering herd: only one thread refreshes at a time
+    if not _idf_lock.acquire(blocking=False):
+        return  # another thread is already refreshing
 
-    from hiveai.models import BookSection
     try:
-        rows = db.query(BookSection.id, BookSection.content).filter(
-            BookSection.content.isnot(None)
-        ).all()
-    except Exception as e:
-        logger.warning(f"IDF refresh failed: {e}")
-        return
+        from hiveai.models import BookSection
+        try:
+            rows = db.query(BookSection.id, BookSection.content).filter(
+                BookSection.content.isnot(None)
+            ).all()
+        except Exception as e:
+            logger.warning(f"IDF refresh failed: {e}")
+            return
 
-    doc_freq: Counter = Counter()
-    total = len(rows)
-    for _, content in rows:
-        if not content:
-            continue
-        # Unique terms per document (no double-counting within a section)
-        terms = set(
-            w.lower() for w in re.split(r'\W+', content)
-            if len(w) > 2 and w.lower() not in _BM25_STOP_WORDS
-        )
-        doc_freq.update(terms)
+        doc_freq: Counter = Counter()
+        total = len(rows)
+        for _, content in rows:
+            if not content:
+                continue
+            # Unique terms per document (no double-counting within a section)
+            terms = set(
+                w.lower() for w in re.split(r'\W+', content)
+                if len(w) > 2 and w.lower() not in _BM25_STOP_WORDS
+            )
+            doc_freq.update(terms)
 
-    # BM25 IDF formula: log((N - df + 0.5) / (df + 0.5) + 1)
-    idf = {}
-    for term, df in doc_freq.items():
-        idf[term] = math.log((total - df + 0.5) / (df + 0.5) + 1)
+        # BM25 IDF formula: log((N - df + 0.5) / (df + 0.5) + 1)
+        idf = {}
+        for term, df in doc_freq.items():
+            idf[term] = math.log((total - df + 0.5) / (df + 0.5) + 1)
 
-    _idf_cache = idf
-    _idf_total_docs = total
-    _idf_last_refresh = now
-    logger.info(f"[IDF] Refreshed: {total} docs, {len(idf)} unique terms")
+        _idf_cache = idf
+        _idf_total_docs = total
+        _idf_last_refresh = now
+        logger.info(f"[IDF] Refreshed: {total} docs, {len(idf)} unique terms")
+    finally:
+        _idf_lock.release()
 
 # Stop words for BM25 keyword scoring (common English words with no search signal)
 _BM25_STOP_WORDS = {
@@ -236,10 +244,14 @@ def _bm25_score_section(query_terms: list[str], content: str, header: str = "",
         return 0.0
 
     text = (header + " " + content).lower()
-    words = text.split()
+    # Split into word tokens for accurate term frequency (not substring matching)
+    words = re.split(r'\W+', text)
     doc_len = len(words)
     if doc_len == 0:
         return 0.0
+
+    # Pre-compute word frequency for O(1) lookups
+    word_freq = Counter(words)
 
     # BM25 parameters (tuned for short knowledge sections)
     k1 = 1.2  # term frequency saturation
@@ -248,7 +260,7 @@ def _bm25_score_section(query_terms: list[str], content: str, header: str = "",
 
     score = 0.0
     for term in query_terms:
-        tf = text.count(term)
+        tf = word_freq.get(term, 0)
         if tf == 0:
             continue
         # BM25 term score with saturation

@@ -13,7 +13,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-_compress_cache: dict[str, str] = {}
+from collections import OrderedDict
+_compress_cache: OrderedDict = OrderedDict()
 _compress_cache_lock = threading.Lock()
 _COMPRESS_CACHE_MAX = 100
 _MIN_WORDS_TO_COMPRESS = 500
@@ -37,7 +38,7 @@ def compress_section(query: str, content: str) -> str:
     if len(words) < _MIN_WORDS_TO_COMPRESS:
         return content
 
-    cache_key = hashlib.md5(f"{query}|{content[:200]}".encode()).hexdigest()
+    cache_key = hashlib.md5(f"{query}|{content}".encode()).hexdigest()
     with _compress_cache_lock:
         if cache_key in _compress_cache:
             return _compress_cache[cache_key]
@@ -56,10 +57,11 @@ def compress_section(query: str, content: str) -> str:
             compressed = result.strip()
 
         with _compress_cache_lock:
-            if len(_compress_cache) >= _COMPRESS_CACHE_MAX:
-                oldest_key = next(iter(_compress_cache))
-                del _compress_cache[oldest_key]
+            if cache_key in _compress_cache:
+                _compress_cache.move_to_end(cache_key)
             _compress_cache[cache_key] = compressed
+            while len(_compress_cache) > _COMPRESS_CACHE_MAX:
+                _compress_cache.popitem(last=False)
 
         ratio = len(compressed) / max(len(content), 1)
         logger.debug(f"Compressed section: {len(content)} → {len(compressed)} chars ({ratio:.0%})")

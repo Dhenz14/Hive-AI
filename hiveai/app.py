@@ -5,9 +5,8 @@ import logging
 import threading
 import uuid
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
-from sqlalchemy import func
 from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, TelemetryEvent, utcnow
-from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
+from hiveai.llm.client import fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION, EXECUTABLE_REPAIR_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
@@ -27,6 +26,10 @@ app = Flask(__name__,
 def add_no_cache_headers(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
+    # Security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return response
 
 
@@ -92,7 +95,6 @@ def _background_warmup():
     except Exception as e:
         _log.warning(f"Cache warmup failed: {e}")
 
-import threading
 _warmup_thread = threading.Thread(target=_background_warmup, daemon=True)
 _warmup_thread.start()
 
@@ -689,6 +691,12 @@ def rewrite_book_api(book_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/gpu")
+def gpu_power_page():
+    """GPU Power — rent/pool community GPUs for more powerful AI."""
+    return render_template("gpu.html")
+
+
 @app.route("/graph")
 def graph_explorer():
     db = SessionLocal()
@@ -939,6 +947,8 @@ def chat_api():
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
+    if len(message) > 100_000:
+        return jsonify({"error": "Message too long (max 100k chars)"}), 400
 
     # --- Step 1: Classify request (zero GPU cost, <1ms) ---
     classify = classify_request(message, history)
@@ -1595,6 +1605,10 @@ def chat_stream():
     _telem_is_internal = is_internal_traffic(_telem_session_id, _telem_user_agent)
     _telem_frontend_build = data.get("frontend_build") or request.headers.get("X-Frontend-Build")
 
+    # Classification happened before generator — record time for latency trace
+    import time as _time_pre
+    _t_classify_done = _time_pre.perf_counter()
+
     def generate():
         import time as _time
         from hiveai.llm.client import LLMProviderUnavailable
@@ -2102,6 +2116,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
                             "solved_example_count": len(_solved_sections_retrieved),
                             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+                            "solved_example_details": _telem_se_details if _telem_se_details else None,
                             "retrieval_trace": _retrieval_trace,
                             "revised": was_revised,
                             "response_contract": classify.response_contract,
@@ -2113,7 +2128,8 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "answer_id": _telem_answer_id,
                             "experiment_group": _telem_group,
                             "latency_ms": {
-                                "retrieval": round((t_retrieval - t_start) * 1000, 1),
+                                "classify": round((_t_classify_done - t_start) * 1000, 1),
+                                "retrieval": round((t_retrieval - _t_classify_done) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),
                                 "verification": round((t_verify - t_generation) * 1000, 1),
                                 "total": round((t_end - t_start) * 1000, 1),
@@ -2898,6 +2914,10 @@ def search_chat_history():
 
     db = SessionLocal()
     try:
+        # Escape FTS5 special operators — quote the entire query as a phrase
+        # This prevents injection of MATCH operators (OR, AND, NOT, NEAR, *)
+        fts_query = '"' + query.replace('"', '""') + '"'
+
         # Try FTS5 search first
         try:
             fts_results = db.execute(
@@ -2909,7 +2929,7 @@ def search_chat_history():
                     ORDER BY rank
                     LIMIT 30
                 """),
-                {"query": query}
+                {"query": fts_query}
             ).fetchall()
         except Exception:
             # FTS table doesn't exist, fall back to LIKE search
@@ -3551,10 +3571,21 @@ def lora_micro_train():
         return jsonify({"error": f"Failed to launch training: {e}"}), 500
 
 
+_training_status_cache = {"data": None, "ts": 0.0}
+_training_status_lock = threading.Lock()
+
 @app.route("/api/lora/training-status")
 def lora_training_status():
-    """Poll training progress from WSL tmux session."""
+    """Poll training progress from WSL tmux session. Rate-limited to 1 call/3s."""
     import subprocess as sp
+    import time as _t
+
+    # Rate limit: return cached result if polled within 3 seconds
+    now = _t.time()
+    with _training_status_lock:
+        if _training_status_cache["data"] and (now - _training_status_cache["ts"]) < 3.0:
+            return jsonify(_training_status_cache["data"])
+
     result = {"active": False, "stage": None, "step": None, "total_steps": None,
               "loss": None, "eta": None, "summary": None, "log_tail": []}
     try:
@@ -3630,6 +3661,11 @@ def lora_training_status():
 
     except Exception as e:
         result["error"] = str(e)
+
+    # Cache result for rate limiting
+    with _training_status_lock:
+        _training_status_cache["data"] = result
+        _training_status_cache["ts"] = now
 
     return jsonify(result)
 
@@ -4503,6 +4539,110 @@ def telemetry_client_event():
         return jsonify({"answer_id": answer_id, "event_type": event_type, **result}), status_code
     finally:
         db.close()
+
+
+# ============================================================
+# SPIRIT BOMB: GPU Pool Consumption (Hive-AI is the CONSUMER)
+# HivePoA is the SUPPLIER — we call its API to find available GPUs.
+# ============================================================
+
+HIVEPOA_URL = os.environ.get("HIVEPOA_URL", "http://localhost:5000")
+
+@app.route("/api/gpu/pool")
+def gpu_pool_status():
+    """Get community GPU pool status from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/dashboard")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            return jsonify(data)
+    except Exception as e:
+        return jsonify({
+            "tier": {"tier": 1, "totalGpus": 0, "message": "HivePoA not reachable"},
+            "error": str(e),
+        })
+
+
+@app.route("/api/gpu/clusters")
+def gpu_clusters():
+    """List available GPU clusters from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/clusters")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify({"clusters": [], "count": 0})
+
+
+@app.route("/api/gpu/tier")
+def gpu_tier():
+    """Get current community tier from HivePoA."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/tier")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return jsonify(json.loads(resp.read()))
+    except Exception:
+        return jsonify({"tier": 1, "totalGpus": 0})
+
+
+@app.route("/api/gpu/modes")
+def gpu_inference_modes():
+    """Get available inference modes — what's the most powerful thing we can run right now?"""
+    import urllib.request
+    from hiveai.llm.client import get_active_backend
+
+    # Check local backend (Hive-AI's own stack)
+    local_backend = get_active_backend()
+    local_available = local_backend in ("ollama", "llama-server")
+
+    # Check cluster availability via HivePoA
+    cluster_available = False
+    cluster_gpus = 0
+    try:
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/tier")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            tier_data = json.loads(resp.read())
+            cluster_gpus = tier_data.get("totalGpus", 0)
+            cluster_available = cluster_gpus >= 2
+    except Exception:
+        pass
+
+    return jsonify({
+        "local": {
+            "available": local_available,
+            "backend": local_backend,
+            "description": "Hive-AI local — smart routing, RAG, LoRA adapters",
+        },
+        "cluster": {
+            "available": cluster_available,
+            "gpus": cluster_gpus,
+            "description": f"Community GPU pool — {cluster_gpus} GPUs available",
+        },
+        "best_available": "cluster" if cluster_available else ("local" if local_available else "none"),
+    })
+
+
+@app.route("/api/gpu/contribute")
+def gpu_contribute_info():
+    """Info for users who want to contribute their GPU to the pool."""
+    return jsonify({
+        "how_to_contribute": {
+            "step_1": "Install Python 3.10+ and NVIDIA drivers",
+            "step_2": "Clone: git clone https://github.com/Dhenz14/Hive-AI.git",
+            "step_3": "Run: python scripts/start_spiritbomb.py",
+            "requirements": "NVIDIA GPU with 8+ GB VRAM, Hive account for rewards",
+        },
+        "earnings_estimate": {
+            "8gb_gpu_daily": "$0.50",
+            "16gb_gpu_daily": "$1.20",
+            "24gb_gpu_daily": "$2.00",
+            "note": "Earnings depend on demand and tier multiplier",
+        },
+        "hivepoa_url": HIVEPOA_URL,
+    })
 
 
 if __name__ == "__main__":

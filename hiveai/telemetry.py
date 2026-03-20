@@ -495,8 +495,12 @@ def record_client_event(db, answer_id: str, event_type: str) -> dict:
     if event_type not in ALL_CLIENT_EVENTS:
         return {"status": "invalid_event_type"}
 
-    # Load outcome sequence history
-    outcome_seq = json.loads(evt.outcome_sequence_json) if evt.outcome_sequence_json else []
+    # Load outcome sequence history (handle corrupted JSON gracefully)
+    try:
+        outcome_seq = json.loads(evt.outcome_sequence_json) if evt.outcome_sequence_json else []
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(f"Corrupted outcome_sequence_json for answer_id={answer_id}, resetting")
+        outcome_seq = []
     ts_now = datetime.now(timezone.utc).isoformat()
 
     # --- Engagement events: first-write-wins (idempotent) ---

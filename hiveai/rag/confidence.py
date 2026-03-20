@@ -41,7 +41,11 @@ def compute_confidence(sections: list[dict], crag_verdict: str = "correct") -> d
     # Weighted confidence: 60% top score, 40% average (rewards one great match)
     raw_confidence = 0.6 * top_score + 0.4 * avg_score
 
-    # CRAG verdict adjustment
+    # CRAG verdict adjustment (validated to catch typos/corruption)
+    _valid_verdicts = {"correct", "ambiguous", "incorrect"}
+    if crag_verdict not in _valid_verdicts:
+        logger.warning(f"Unknown CRAG verdict '{crag_verdict}', treating as ambiguous")
+        crag_verdict = "ambiguous"
     if crag_verdict == "incorrect":
         raw_confidence *= 0.3  # heavy penalty
     elif crag_verdict == "ambiguous":

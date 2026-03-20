@@ -870,11 +870,13 @@
             const val = typeof e[1] === 'string' && e[1].length > 80 ? e[1].slice(0, 80) + '...' : e[1];
             return e[0] + '=' + JSON.stringify(val);
         }).join(', ');
+        var _safeName = _escHtml(name);
+        var _safeArgs = _escHtml(argStr.length > 60 ? argStr.slice(0,60)+'...' : argStr);
         card.innerHTML =
             '<div class="tool-card-header" onclick="this.nextElementSibling.classList.toggle(\'open\')">' +
                 '<span class="tool-icon">&#9881;</span>' +
-                '<span class="tool-name">' + name + '</span>' +
-                '<span style="color:var(--text-muted);font-size:0.75rem;">' + (argStr.length > 60 ? argStr.slice(0,60)+'...' : argStr) + '</span>' +
+                '<span class="tool-name">' + _safeName + '</span>' +
+                '<span style="color:var(--text-muted);font-size:0.75rem;">' + _safeArgs + '</span>' +
                 '<span class="tool-status ' + status + '">' +
                     (status === 'running' ? '<span class="spinner" style="display:inline-block;width:10px;height:10px;border:2px solid rgba(6,182,212,0.3);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.8s linear infinite;"></span>' :
                      status === 'done' ? '&#10003;' : '&#10007;') +
@@ -909,12 +911,15 @@
         }).catch(function() {});
     }
 
+    function _escHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
     function renderMarkdown(text) {
         let html = text;
         html = html.replace(/```([\s\S]*?)```/g, function(m, code) {
             return '<pre><code>' + code.replace(/</g, '&lt;').replace(/>/g, '&gt;').trim() + '</code></pre>';
         });
-        html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+        html = html.replace(/`([^`]+)`/g, function(m, c) { return '<code>' + _escHtml(c) + '</code>'; });
         const lines = html.split('\n');
         const result = [];
         let inList = false;
@@ -931,9 +936,11 @@
                 result.push(block);
                 continue;
             }
-            line = line.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-            line = line.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-            line = line.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            line = line.replace(/\*\*([^*]+)\*\*/g, function(m, c) { return '<strong>' + _escHtml(c) + '</strong>'; });
+            line = line.replace(/\*([^*]+)\*/g, function(m, c) { return '<em>' + _escHtml(c) + '</em>'; });
+            line = line.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(m, text, url) {
+                return '<a href="' + encodeURI(url) + '" target="_blank" rel="noopener">' + _escHtml(text) + '</a>';
+            });
             const h4 = line.match(/^####\s+(.+)/);
             const h3 = line.match(/^###\s+(.+)/);
             const h2 = line.match(/^##\s+(.+)/);
@@ -942,16 +949,16 @@
             const ol = line.match(/^\d+\.\s+(.+)/);
             if (h4) {
                 if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-                result.push('<h4>' + h4[1] + '</h4>');
+                result.push('<h4>' + _escHtml(h4[1]) + '</h4>');
             } else if (h3) {
                 if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-                result.push('<h3>' + h3[1] + '</h3>');
+                result.push('<h3>' + _escHtml(h3[1]) + '</h3>');
             } else if (h2) {
                 if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-                result.push('<h2>' + h2[1] + '</h2>');
+                result.push('<h2>' + _escHtml(h2[1]) + '</h2>');
             } else if (h1) {
                 if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
-                result.push('<h1>' + h1[1] + '</h1>');
+                result.push('<h1>' + _escHtml(h1[1]) + '</h1>');
             } else if (ul) {
                 if (!inList || listType !== 'ul') {
                     if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
@@ -959,7 +966,7 @@
                     inList = true;
                     listType = 'ul';
                 }
-                result.push('<li>' + ul[1] + '</li>');
+                result.push('<li>' + ul[1] + '</li>');  // ul[1] already processed by bold/italic/link regex above
             } else if (ol) {
                 if (!inList || listType !== 'ol') {
                     if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
@@ -967,7 +974,7 @@
                     inList = true;
                     listType = 'ol';
                 }
-                result.push('<li>' + ol[1] + '</li>');
+                result.push('<li>' + ol[1] + '</li>');  // ol[1] already processed above
             } else {
                 if (inList) { result.push(listType === 'ul' ? '</ul>' : '</ol>'); inList = false; }
                 if (line.trim() === '') {
@@ -1299,11 +1306,22 @@
             scrollToBottom();
         }
 
+        // Abort controller for stream timeout (120s with no data = hang)
+        const _abortCtrl = new AbortController();
+        let _lastDataAt = Date.now();
+        const _streamWatchdog = setInterval(function() {
+            if (Date.now() - _lastDataAt > 120000) {
+                clearInterval(_streamWatchdog);
+                _abortCtrl.abort();
+            }
+        }, 5000);
+
         try {
             const resp = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, history: conversationHistory, agent_mode: agentMode })
+                body: JSON.stringify({ message: text, history: conversationHistory, agent_mode: agentMode }),
+                signal: _abortCtrl.signal
             });
 
             if (!resp.ok) {
@@ -1326,6 +1344,7 @@
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
+                _lastDataAt = Date.now();  // Reset stream watchdog
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
                 buffer = lines.pop() || '';
@@ -1633,12 +1652,18 @@
                 }
                 streamEl.msgDiv.appendChild(createFeedbackBar(text, rawText, streamEl.msgDiv));
             }
+            clearInterval(_streamWatchdog);  // Stream completed normally
             scrollToBottom();
             conversationHistory.push({ role: 'assistant', content: rawText });
             persistMessage('assistant', rawText);
 
         } catch (streamErr) {
-            console.warn('Streaming failed, falling back:', streamErr);
+            clearInterval(_streamWatchdog);
+            if (streamErr.name === 'AbortError') {
+                console.warn('Stream timed out (no data for 120s)');
+            } else {
+                console.warn('Streaming failed, falling back:', streamErr);
+            }
             if (streamEl) streamEl.msgDiv.remove();
 
             showTyping();

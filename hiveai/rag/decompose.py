@@ -14,7 +14,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-_decompose_cache: dict[str, list[str]] = {}
+from collections import OrderedDict
+_decompose_cache: OrderedDict = OrderedDict()
 _decompose_cache_lock = threading.Lock()
 _DECOMPOSE_CACHE_MAX = 100
 
@@ -59,10 +60,11 @@ def decompose_query(query: str) -> list[str]:
             return [query]
 
         with _decompose_cache_lock:
-            if len(_decompose_cache) >= _DECOMPOSE_CACHE_MAX:
-                oldest_key = next(iter(_decompose_cache))
-                del _decompose_cache[oldest_key]
+            if cache_key in _decompose_cache:
+                _decompose_cache.move_to_end(cache_key)
             _decompose_cache[cache_key] = sub_queries
+            while len(_decompose_cache) > _DECOMPOSE_CACHE_MAX:
+                _decompose_cache.popitem(last=False)
 
         logger.info(f"Query decomposed: '{query[:50]}' → {len(sub_queries)} sub-queries")
         return sub_queries

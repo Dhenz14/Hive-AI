@@ -21,9 +21,11 @@ import threading
 
 logger = logging.getLogger(__name__)
 
+from collections import OrderedDict
 # Cache to avoid regenerating context for unchanged sections
-_context_cache: dict[str, str] = {}
+_context_cache: OrderedDict = OrderedDict()
 _context_cache_lock = threading.Lock()
+_CONTEXT_CACHE_MAX = 2000
 
 _CONTEXT_PROMPT = """Given the following book and section from a programming knowledge base, write a concise 1-2 sentence context prefix that explains what this section covers and how it relates to the broader document. The prefix should help a search engine match this section to relevant queries.
 
@@ -41,7 +43,7 @@ def generate_context_prefix(book_title: str, header: str, content: str) -> str |
 
     Returns a 1-2 sentence context string, or None on failure.
     """
-    cache_key = hashlib.md5(f"{book_title}|{header}|{content[:200]}".encode()).hexdigest()
+    cache_key = hashlib.md5(f"{book_title}|{header}|{content}".encode()).hexdigest()
     with _context_cache_lock:
         if cache_key in _context_cache:
             return _context_cache[cache_key]
@@ -66,11 +68,11 @@ def generate_context_prefix(book_title: str, header: str, content: str) -> str |
             prefix += '.'
 
         with _context_cache_lock:
-            if len(_context_cache) > 2000:
-                # Evict oldest
-                oldest = next(iter(_context_cache))
-                del _context_cache[oldest]
+            if cache_key in _context_cache:
+                _context_cache.move_to_end(cache_key)
             _context_cache[cache_key] = prefix
+            while len(_context_cache) > _CONTEXT_CACHE_MAX:
+                _context_cache.popitem(last=False)
 
         return prefix
 

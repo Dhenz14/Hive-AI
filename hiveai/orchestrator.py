@@ -356,8 +356,9 @@ def should_retry_verification(verification_result: dict) -> bool:
     results = verification_result.get("results", [])
     fixable_count = 0
     for r in results:
-        if not r.get("success", True):
-            etype = r.get("error_type", "")
+        exe = r.get("execution") or {}
+        if not exe.get("success", True):
+            etype = exe.get("error_type", "")
             if is_fixable_error(etype):
                 fixable_count += 1
 
@@ -368,9 +369,10 @@ def build_revision_prompt(verification_result: dict) -> str:
     """Build a concise error summary for the revision prompt."""
     errors = []
     for r in verification_result.get("results", []):
-        if not r.get("success", True):
-            etype = r.get("error_type", "unknown")
-            stderr = r.get("stderr", "")[:200].strip()
+        exe = r.get("execution") or {}
+        if not exe.get("success", True):
+            etype = exe.get("error_type", "unknown")
+            stderr = exe.get("stderr", "")[:200].strip()
             lang = r.get("language", "")
             if stderr:
                 errors.append(f"- [{lang}] {etype}: {stderr}")
