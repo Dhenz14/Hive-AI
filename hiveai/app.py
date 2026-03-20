@@ -372,6 +372,32 @@ def health_check():
     return jsonify(checks), code
 
 
+@app.route("/ready")
+def ready_check():
+    """Lightweight readiness probe — DB + LLM must be reachable."""
+    import requests as _req
+    from hiveai.config import LLAMA_SERVER_BASE_URL
+    ready = True
+    checks = {}
+    try:
+        db = SessionLocal()
+        db.execute(sa_text("SELECT 1"))
+        db.close()
+        checks["db"] = "ok"
+    except Exception:
+        checks["db"] = "fail"
+        ready = False
+    try:
+        r = _req.get(f"{LLAMA_SERVER_BASE_URL}/health", timeout=3)
+        checks["llm"] = "ok" if r.status_code == 200 else "fail"
+        if r.status_code != 200:
+            ready = False
+    except Exception:
+        checks["llm"] = "fail"
+        ready = False
+    return jsonify({"ready": ready, **checks}), 200 if ready else 503
+
+
 @app.route("/")
 def dashboard():
     db = SessionLocal()
@@ -2180,8 +2206,18 @@ def _extract_and_store_entities(user_message, ai_response, pair_id, primary_lang
             BookSection.keywords_json.contains('"source_type": "entity"'),
         ).count()
         if entity_count >= ENTITY_MEMORY_MAX_PER_BOOK:
-            logger.debug(f"Entity extraction skipped: cap {ENTITY_MEMORY_MAX_PER_BOOK} reached")
-            return
+            # Evict oldest entities to make room (keep 90% of cap)
+            target = int(ENTITY_MEMORY_MAX_PER_BOOK * 0.9)
+            to_evict = entity_count - target
+            if to_evict > 0:
+                oldest = db.query(BookSection).filter(
+                    BookSection.book_id == book.id,
+                    BookSection.keywords_json.contains('"source_type": "entity"'),
+                ).order_by(BookSection.id.asc()).limit(to_evict).all()
+                for old in oldest:
+                    db.delete(old)
+                db.flush()
+                logger.info(f"Entity eviction: removed {len(oldest)} oldest, keeping {target}")
 
         prompt = (
             'Extract 1-3 reusable technical entities from this Q&A. Return JSON array only.\n'
@@ -2304,6 +2340,15 @@ def promote_candidate_to_knowledge(
     if code_complexity.get("lines", 0) < AUTO_PROMOTE_MIN_CODE_LINES:
         logger.debug(f"Promotion skipped: {code_complexity.get('lines', 0)} lines < {AUTO_PROMOTE_MIN_CODE_LINES}")
         return None
+
+    # Dedup: skip if this content_hash already exists as a solved example
+    if content_hash:
+        existing = db.query(BookSection).filter(
+            BookSection.keywords_json.contains(content_hash)
+        ).first()
+        if existing:
+            logger.debug(f"Promotion skipped: duplicate content_hash {content_hash[:16]}")
+            return None
 
     try:
         import re as _re
