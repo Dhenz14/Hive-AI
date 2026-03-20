@@ -541,6 +541,15 @@ class SystemConfig(Base):
 
 
 def init_db():
+    # Verify database connectivity before proceeding
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        logger.info(f"Database connection OK ({DB_BACKEND})")
+    except Exception as e:
+        logger.error(f"Database connection FAILED: {e}")
+        raise RuntimeError(f"Cannot connect to database: {e}") from e
+
     if DB_BACKEND == "postgresql":
         try:
             with engine.connect() as conn:
@@ -597,6 +606,11 @@ def _migrate_add_columns(engine):
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
                 conn.commit()
                 logger.info(f"Migration: added {table}.{column}")
-            except Exception:
-                # Column already exists — expected on subsequent startups
+            except Exception as e:
                 conn.rollback()
+                err_msg = str(e).lower()
+                # Expected: column already exists (SQLite: "duplicate column", PG: "already exists")
+                if "duplicate" in err_msg or "already exists" in err_msg:
+                    pass  # Normal on subsequent startups
+                else:
+                    logger.warning(f"Migration failed for {table}.{column}: {e}")

@@ -26,6 +26,10 @@ app = Flask(__name__,
 def add_no_cache_headers(response):
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
+    # Security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     return response
 
 
@@ -1601,6 +1605,10 @@ def chat_stream():
     _telem_is_internal = is_internal_traffic(_telem_session_id, _telem_user_agent)
     _telem_frontend_build = data.get("frontend_build") or request.headers.get("X-Frontend-Build")
 
+    # Classification happened before generator — record time for latency trace
+    import time as _time_pre
+    _t_classify_done = _time_pre.perf_counter()
+
     def generate():
         import time as _time
         from hiveai.llm.client import LLMProviderUnavailable
@@ -2108,6 +2116,7 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "solved_example_retrieved": len(_solved_sections_retrieved) > 0,
                             "solved_example_count": len(_solved_sections_retrieved),
                             "solved_example_ids": [s.get("id") for s in _solved_sections_retrieved if s.get("id")],
+                            "solved_example_details": _telem_se_details if _telem_se_details else None,
                             "retrieval_trace": _retrieval_trace,
                             "revised": was_revised,
                             "response_contract": classify.response_contract,
@@ -2119,7 +2128,8 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                             "answer_id": _telem_answer_id,
                             "experiment_group": _telem_group,
                             "latency_ms": {
-                                "retrieval": round((t_retrieval - t_start) * 1000, 1),
+                                "classify": round((_t_classify_done - t_start) * 1000, 1),
+                                "retrieval": round((t_retrieval - _t_classify_done) * 1000, 1),
                                 "generation": round((t_generation - t_retrieval) * 1000, 1),
                                 "verification": round((t_verify - t_generation) * 1000, 1),
                                 "total": round((t_end - t_start) * 1000, 1),
