@@ -9,6 +9,8 @@ from hiveai.llm.client import embed_text, rerank_sections, fast
 from hiveai.llm.prompts import COMPACTION_PROMPT, COMPACTION_HANDOFF
 from hiveai.config import RAG_CACHE_TTL, RAG_CACHE_MAX, ENABLE_RERANKING
 
+log = logging.getLogger(__name__)
+
 # RAG query result cache — LRU eviction, avoids re-embedding + re-searching.
 # Key: hash(query), Value: (timestamp, sections, source_books, books)
 _rag_cache: OrderedDict = OrderedDict()
@@ -736,8 +738,9 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
     return result
 
 
-_compaction_cache = {}
+_compaction_cache: OrderedDict = OrderedDict()
 _compaction_cache_lock = threading.Lock()
+_COMPACTION_CACHE_MAX = 50
 COMPACTION_THRESHOLD = 10  # compact when history exceeds this many messages
 RECENT_KEEP = 4  # keep this many recent messages verbatim
 CONTEXT_BUDGET_TOKENS = 6000  # max tokens for prompt (leaves ~2K for response in 8K ctx)
@@ -1064,10 +1067,11 @@ def compact_conversation(history):
             _compaction_metrics["total_turns_compacted"] += len(older)
 
         with _compaction_cache_lock:
-            # Evict if cache gets too large
-            if len(_compaction_cache) > 50:
-                _compaction_cache.clear()
+            if cache_key in _compaction_cache:
+                _compaction_cache.move_to_end(cache_key)
             _compaction_cache[cache_key] = summary.strip()
+            while len(_compaction_cache) > _COMPACTION_CACHE_MAX:
+                _compaction_cache.popitem(last=False)
 
         recent_text = _format_recent_turns(recent)
         return COMPACTION_HANDOFF.format(summary=summary.strip()) + "\n" + recent_text
@@ -1186,7 +1190,7 @@ def build_message_array(system_prompt, history, user_message):
         # Remove the oldest non-system message (index 1)
         removed = messages.pop(1)
         total = _estimate_messages_tokens(messages)
-        logger.debug("Token budget: dropped turn (%s, %d chars), now ~%d tokens",
+        log.debug("Token budget: dropped turn (%s, %d chars), now ~%d tokens",
                       removed["role"], len(removed.get("content", "")), total)
 
     return messages
@@ -1338,7 +1342,8 @@ def budget_context(sections, query, max_tokens=4000, executable_mode=False):
                 # Keep first paragraph for context + all matching paragraphs
                 filtered_paras = paragraphs[:1] + [p for p in relevant_paras if p != paragraphs[0]]
                 content = "\n\n".join(filtered_paras)
-            elif not relevant_paras:
+            else:
+                # No query-relevant paragraphs found — truncate to save tokens
                 content = content[:1500]
 
         # Estimate tokens

@@ -945,6 +945,8 @@ def chat_api():
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
+    if len(message) > 100_000:
+        return jsonify({"error": "Message too long (max 100k chars)"}), 400
 
     # --- Step 1: Classify request (zero GPU cost, <1ms) ---
     classify = classify_request(message, history)
@@ -2904,6 +2906,10 @@ def search_chat_history():
 
     db = SessionLocal()
     try:
+        # Escape FTS5 special operators — quote the entire query as a phrase
+        # This prevents injection of MATCH operators (OR, AND, NOT, NEAR, *)
+        fts_query = '"' + query.replace('"', '""') + '"'
+
         # Try FTS5 search first
         try:
             fts_results = db.execute(
@@ -2915,7 +2921,7 @@ def search_chat_history():
                     ORDER BY rank
                     LIMIT 30
                 """),
-                {"query": query}
+                {"query": fts_query}
             ).fetchall()
         except Exception:
             # FTS table doesn't exist, fall back to LIKE search
@@ -3557,10 +3563,21 @@ def lora_micro_train():
         return jsonify({"error": f"Failed to launch training: {e}"}), 500
 
 
+_training_status_cache = {"data": None, "ts": 0.0}
+_training_status_lock = threading.Lock()
+
 @app.route("/api/lora/training-status")
 def lora_training_status():
-    """Poll training progress from WSL tmux session."""
+    """Poll training progress from WSL tmux session. Rate-limited to 1 call/3s."""
     import subprocess as sp
+    import time as _t
+
+    # Rate limit: return cached result if polled within 3 seconds
+    now = _t.time()
+    with _training_status_lock:
+        if _training_status_cache["data"] and (now - _training_status_cache["ts"]) < 3.0:
+            return jsonify(_training_status_cache["data"])
+
     result = {"active": False, "stage": None, "step": None, "total_steps": None,
               "loss": None, "eta": None, "summary": None, "log_tail": []}
     try:
@@ -3636,6 +3653,11 @@ def lora_training_status():
 
     except Exception as e:
         result["error"] = str(e)
+
+    # Cache result for rate limiting
+    with _training_status_lock:
+        _training_status_cache["data"] = result
+        _training_status_cache["ts"] = now
 
     return jsonify(result)
 

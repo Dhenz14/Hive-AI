@@ -17,7 +17,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-_judge_cache: dict[str, str] = {}
+from collections import OrderedDict
+_judge_cache: OrderedDict = OrderedDict()
 _judge_cache_lock = threading.Lock()
 _JUDGE_CACHE_MAX = 200
 
@@ -73,7 +74,8 @@ def judge_retrieval(query: str, sections: list[dict]) -> str:
             max_tokens=20,
         )
         if not result:
-            return CORRECT  # fail-open: assume correct if judge fails
+            logger.warning("CRAG judge returned empty — defaulting to AMBIGUOUS")
+            return AMBIGUOUS  # fail-safe: empty response → don't assume quality
 
         verdict = result.strip().upper()
         if "INCORRECT" in verdict:
@@ -84,14 +86,15 @@ def judge_retrieval(query: str, sections: list[dict]) -> str:
             out = CORRECT
 
         with _judge_cache_lock:
-            if len(_judge_cache) >= _JUDGE_CACHE_MAX:
-                oldest_key = next(iter(_judge_cache))
-                del _judge_cache[oldest_key]
+            if cache_key in _judge_cache:
+                _judge_cache.move_to_end(cache_key)
             _judge_cache[cache_key] = out
+            while len(_judge_cache) > _JUDGE_CACHE_MAX:
+                _judge_cache.popitem(last=False)
 
         logger.info(f"CRAG judge: {out} for '{query[:50]}' ({len(sections)} sections)")
         return out
 
     except Exception as e:
-        logger.warning(f"CRAG judge failed (defaulting to correct): {e}")
-        return CORRECT  # fail-open
+        logger.warning(f"CRAG judge failed (defaulting to ambiguous): {e}")
+        return AMBIGUOUS  # fail-safe: broken judge → supplemental retrieval, not blind trust

@@ -29,7 +29,13 @@ def rrf_merge(result_lists: list[list[dict]], k: int = _RRF_K,
     if not result_lists:
         return []
     if len(result_lists) == 1:
-        return result_lists[0][:limit]
+        # Still add rrf_score so downstream code has a consistent schema
+        results = []
+        for rank, section in enumerate(result_lists[0][:limit]):
+            section = dict(section)  # shallow copy
+            section["rrf_score"] = round(1.0 / (k + rank + 1), 4)
+            results.append(section)
+        return results
 
     # Build per-section RRF scores across all lists
     scores: dict = {}  # id -> float

@@ -14,8 +14,8 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-# Cache hypothetical embeddings to avoid redundant LLM + embed calls
-_hyde_cache: dict[str, list[float]] = {}
+from collections import OrderedDict
+_hyde_cache: OrderedDict = OrderedDict()
 _hyde_cache_lock = threading.Lock()
 _HYDE_CACHE_MAX = 200
 
@@ -51,11 +51,11 @@ def generate_hyde_embedding(query: str) -> list[float] | None:
             return None
 
         with _hyde_cache_lock:
-            if len(_hyde_cache) >= _HYDE_CACHE_MAX:
-                # Evict oldest (FIFO is fine here — small cache, infrequent eviction)
-                oldest_key = next(iter(_hyde_cache))
-                del _hyde_cache[oldest_key]
+            if cache_key in _hyde_cache:
+                _hyde_cache.move_to_end(cache_key)
             _hyde_cache[cache_key] = embedding
+            while len(_hyde_cache) > _HYDE_CACHE_MAX:
+                _hyde_cache.popitem(last=False)
 
         logger.info(f"HyDE: generated hypothetical ({len(hypothetical)} chars) for: {query[:50]}")
         return embedding
