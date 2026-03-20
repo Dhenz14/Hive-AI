@@ -4699,11 +4699,11 @@ def compute_inference():
     """
     Inference endpoint for HivePoA pool/cluster routing.
 
-    Accepts a prompt, routes through the full Hive-AI pipeline (RAG + LLM),
+    Accepts a prompt, optionally runs RAG, routes through smart_call,
     and returns the response. This is what HivePoA calls when load-balancing
     across multiple Hive-AI nodes in Pool mode.
 
-    Request:  {"prompt": "...", "max_tokens": 2048, "mode": "solo|pool|cluster"}
+    Request:  {"prompt": "...", "max_tokens": 2048, "mode": "solo|pool|cluster", "use_rag": false}
     Response: {"text": "...", "tokens": N, "latency_ms": N, "model": "...", "node_id": "..."}
     """
     import time as _t
@@ -4712,6 +4712,7 @@ def compute_inference():
     prompt = (data.get("prompt") or data.get("message") or "").strip()
     max_tokens = data.get("max_tokens", 2048)
     mode = data.get("mode", "solo")
+    use_rag = data.get("use_rag", False)
 
     if not prompt:
         return jsonify({"error": "prompt is required"}), 400
@@ -4719,16 +4720,37 @@ def compute_inference():
         return jsonify({"error": "prompt too long"}), 400
 
     try:
-        # Route through Hive-AI's full pipeline (RAG + classification + LLM)
-        from hiveai.llm.client import smart_call
+        from hiveai.llm.client import smart_call, get_last_eval_count
         from hiveai.orchestrator import classify_request
 
         classify = classify_request(prompt, [])
-        # Use smart_call which handles model routing, difficulty, etc.
-        response = smart_call(prompt, max_tokens=max_tokens)
+
+        if use_rag:
+            # Full RAG pipeline — same quality as /api/chat
+            db = SessionLocal()
+            try:
+                books = db.query(GoldenBook).all()
+                top_sections, source_books = [], []
+                if books and classify.needs_retrieval:
+                    top_sections, source_books, _ = search_knowledge_sections(
+                        prompt, db, retrieval_mode=classify.retrieval_mode,
+                        language=classify.language)
+                context = build_conversation_context(top_sections, source_books, prompt)
+                messages = build_message_array(context, [], user_message=prompt)
+                response = smart_call("", messages=messages, max_tokens=max_tokens)
+            finally:
+                db.close()
+        else:
+            # Lightweight — smart_call handles model routing, difficulty, etc.
+            response = smart_call(prompt, max_tokens=max_tokens)
 
         elapsed = (_t.perf_counter() - t0) * 1000
-        tokens = len(response.split()) if response else 0  # approx
+
+        # Use actual token count from LLM if available, fall back to word estimate
+        eval_count = get_last_eval_count()
+        tokens = eval_count if eval_count and eval_count > 0 else (
+            int(len(response.split()) * 1.3) if response else 0  # ~1.3 tokens per word
+        )
 
         return jsonify({
             "text": response,
@@ -4736,6 +4758,7 @@ def compute_inference():
             "latency_ms": round(elapsed, 1),
             "model": "hiveai-v5-think",
             "mode": mode,
+            "used_rag": use_rag,
             "node_id": os.environ.get("HIVEAI_NODE_ID", "local"),
             "classification": {
                 "intent": classify.intent,
@@ -4823,20 +4846,35 @@ def compute_status():
     """
     import psutil
 
-    # GPU info (if available)
+    # GPU info — try native nvidia-smi first, WSL as fallback
     gpu_info = {}
     try:
         import subprocess as sp
-        r = sp.run(["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
-                     "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader"],
-                    capture_output=True, text=True, timeout=5)
+        smi_cmd = None
+        # Try native nvidia-smi (works on Windows and Linux)
+        for candidate in ["nvidia-smi", "C:\\Windows\\System32\\nvidia-smi.exe", "/usr/bin/nvidia-smi"]:
+            try:
+                r = sp.run([candidate, "--query-gpu=name,memory.used,memory.total,utilization.gpu",
+                           "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=5)
+                if r.returncode == 0 and r.stdout.strip():
+                    smi_cmd = candidate
+                    break
+            except FileNotFoundError:
+                continue
+
+        # Fallback: WSL nvidia-smi (for when running inside WSL Python but GPU is Windows)
+        if not smi_cmd:
+            r = sp.run(["wsl.exe", "-d", "Ubuntu-24.04", "--", "bash", "-c",
+                        "nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits"],
+                       capture_output=True, text=True, timeout=5)
+
         if r.returncode == 0 and r.stdout.strip():
-            parts = r.stdout.strip().split(", ")
+            parts = [p.strip() for p in r.stdout.strip().split(",")]
             gpu_info = {
                 "name": parts[0] if len(parts) > 0 else "unknown",
-                "vram_used_mb": int(parts[1].replace(" MiB", "")) if len(parts) > 1 else 0,
-                "vram_total_mb": int(parts[2].replace(" MiB", "")) if len(parts) > 2 else 0,
-                "utilization_pct": int(parts[3].replace(" %", "")) if len(parts) > 3 else 0,
+                "vram_used_mb": int(parts[1]) if len(parts) > 1 else 0,
+                "vram_total_mb": int(parts[2]) if len(parts) > 2 else 0,
+                "utilization_pct": int(parts[3]) if len(parts) > 3 else 0,
             }
     except Exception:
         pass
@@ -4851,6 +4889,9 @@ def compute_status():
     except Exception:
         pass
 
+    # Live RAG section count (cached for 60s to avoid DB hammering)
+    rag_sections = _get_rag_section_count()
+
     return jsonify({
         "node_id": os.environ.get("HIVEAI_NODE_ID", "local"),
         "ready": llm_ok,
@@ -4858,9 +4899,28 @@ def compute_status():
         "gpu": gpu_info,
         "cpu_pct": psutil.cpu_percent() if hasattr(psutil, 'cpu_percent') else None,
         "ram_pct": psutil.virtual_memory().percent if hasattr(psutil, 'virtual_memory') else None,
-        "rag_sections": 12062,  # approximate, updated periodically
+        "rag_sections": rag_sections,
         "capabilities": ["inference", "rag", "verification", "eval"],
     })
+
+
+# Cache for RAG section count (avoid querying DB on every status poll)
+_rag_section_cache = {"count": 0, "timestamp": 0}
+
+def _get_rag_section_count() -> int:
+    import time
+    now = time.time()
+    if now - _rag_section_cache["timestamp"] < 60:  # 60s cache
+        return _rag_section_cache["count"]
+    try:
+        db = SessionLocal()
+        count = db.query(BookSection).count()
+        db.close()
+        _rag_section_cache["count"] = count
+        _rag_section_cache["timestamp"] = now
+        return count
+    except Exception:
+        return _rag_section_cache["count"] or 0
 
 
 logging.getLogger(__name__).info("Compute inference routes registered: /api/compute/inference, /api/compute/inference/rag, /api/compute/status")
