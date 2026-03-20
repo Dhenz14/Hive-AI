@@ -1,5 +1,22 @@
 # How GPU Sharing Works — Plain English Guide
 
+## The Expert Plumber
+
+Imagine an expert plumber. He knows HOW to think about plumbing — he can look
+at any new design and understand it because he deeply knows the craft. But he
+doesn't memorize every pipe size, every bracket, every fitting. He carries a
+perfectly organized notebook where he can flip to exactly the right page in seconds.
+
+That's Hive-AI:
+
+- **The Plumber's Brain** = the AI model (v5-think, 14B parameters). Knows how to
+  reason about code, debug problems, design systems. Trained once, frozen.
+- **The Plumber's Notebook** = the RAG knowledge base (12,000+ verified solutions).
+  Always growing — new knowledge flows in like a faucet from every verified
+  chat response and training pair. Perfectly indexed, language-routed, reranked.
+- **GPU Power** = how fast the plumber can think. More GPU = faster answers,
+  longer documents, or an even smarter plumber (bigger model).
+
 ## The Big Idea
 
 Spirit Bomb lets multiple computers pool their graphics cards (GPUs)
@@ -122,10 +139,17 @@ combined GPU power from Computer A's browser at http://localhost:5000/inference.
 
 ## What "Tier" Means
 
-| Tier | GPUs | What you get |
-|------|------|-------------|
-| **Tier 1** | 0-14 | Local AI only (14B model, runs on your GPU alone) |
-| **Tier 2** | 15-39 | Cluster AI available (32B model, community GPUs team up) |
-| **Tier 3** | 40+ | Full brain (80B model, massive community cluster) |
+Using the plumber analogy — the tiers control how smart and fast the plumber is:
+
+| Tier | GPUs | The Plumber | In Practice |
+|------|------|-------------|-------------|
+| **Tier 1** | 0-14 | Expert plumber working solo with his notebook | 14B model on your local GPU. Fast, private, offline-capable. |
+| **Tier 2** | 15-39 | Same plumber but now he has a photographic memory (bigger brain) | 32B model across community GPUs. 10-15% smarter answers. |
+| **Tier 3** | 40+ | Master plumber with encyclopedic knowledge and a team of specialists | 80B MoE model on 40+ GPUs. Near GPT-4 quality, fully decentralized. |
+
+The notebook (RAG) stays the same across all tiers — it's always local, always fast.
+What changes is the brain powering the reasoning. More GPU = bigger brain = better
+at solving problems it's never seen before. The notebook handles everything it HAS
+seen before.
 
 More GPUs = smarter AI. That's the Spirit Bomb.
