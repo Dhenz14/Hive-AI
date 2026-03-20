@@ -36,7 +36,7 @@ def read_standard_jsonl(path):
     if not os.path.exists(path):
         return []
     pairs = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -58,7 +58,7 @@ def read_opus_raw(path):
     if not os.path.exists(path):
         return []
     pairs = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -85,7 +85,7 @@ def read_claude45_raw(path):
     if not os.path.exists(path):
         return []
     pairs = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -116,7 +116,7 @@ def read_qwen35_raw(path):
     if not os.path.exists(path):
         return []
     pairs = []
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
             line = line.strip()
             if not line:
