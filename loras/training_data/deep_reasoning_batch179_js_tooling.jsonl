@@ -1,0 +1,120 @@
+{"instruction": "How do I choose between ESBuild, Webpack, and Vite for a JavaScript project? What are the tradeoffs?", "input": "", "output": "<think>\nThis is one of the most common JS tooling decisions. Each tool has a specific sweet spot:\n\nESBuild: Extremely fast bundler written in Go. 10-100x faster than Webpack. Good for: simple bundling, TypeScript transpilation, library builds, production builds where speed matters. Limitations: no HMR by default, limited plugin ecosystem, no CSS modules out of box.\n\nWebpack: The established standard. Massive plugin ecosystem, handles everything (code splitting, lazy loading, CSS, images, fonts). Good for: complex applications, legacy projects, when you need every possible feature. Limitations: slow (especially for large projects), complex configuration, steep learning curve.\n\nVite: Modern dev server + Rollup for production. Uses native ES modules for instant dev server startup. Good for: new projects, dev experience, SPA frameworks (Vue/React/Svelte). Limitations: ESM-only in dev (some CJS libs need compatibility), Rollup prod builds can be slower than ESBuild.\n\nThe decision framework depends on project type, team experience, and priorities.\n</think>\n\nHere's how to choose the right build tool:\n\n```javascript\n// ============================================================\n// Decision Matrix\n// ============================================================\n\n/*\n┌─────────────────────┬──────────┬──────────┬──────────┐\n│ Factor              │ ESBuild  │ Webpack  │ Vite     │\n├─────────────────────┼──────────┼──────────┼──────────┤\n│ Build speed         │ ★★★★★   │ ★★☆☆☆   │ ★★★★☆   │\n│ Dev server          │ ★★☆☆☆   │ ★★★☆☆   │ ★★★★★   │\n│ HMR quality         │ ★★☆☆☆   │ ★★★★☆   │ ★★★★★   │\n│ Plugin ecosystem    │ ★★☆☆☆   │ ★★★★★   │ ★★★★☆   │\n│ Config complexity   │ ★★★★★   │ ★☆☆☆☆   │ ★★★★☆   │\n│ Code splitting      │ ★★★☆☆   │ ★★★★★   │ ★★★★☆   │\n│ CSS handling        │ ★★☆☆☆   │ ★★★★★   │ ★★★★★   │\n│ Legacy browser      │ ★★★☆☆   │ ★★★★★   │ ★★★★☆   │\n│ Library bundling    │ ★★★★★   │ ★★★☆☆   │ ★★★★☆   │\n│ SSR support         │ ★★☆☆☆   │ ★★★★☆   │ ★★★★★   │\n└─────────────────────┴──────────┴──────────┴──────────┘
+
+Choose ESBuild when:
+  - Building a library/CLI tool
+  - Speed is the top priority
+  - Simple bundling needs (no complex CSS, no HMR)
+  - CI/CD where build time matters
+
+Choose Webpack when:
+  - Existing Webpack project (migration cost)
+  - Need Module Federation (micro-frontends)
+  - Complex asset handling (custom loaders)
+  - Enterprise with existing Webpack expertise
+
+Choose Vite when:
+  - New project (SPA, SSR, or library)
+  - Best dev experience matters (instant HMR)
+  - Using React/Vue/Svelte/SolidJS
+  - Want modern defaults with escape hatches
+*/
+
+// ============================================================
+// ESBuild: minimal config for library build
+// ============================================================
+
+// esbuild.config.mjs
+import { build } from 'esbuild';
+
+await build({
+  entryPoints: ['src/index.ts'],
+  outdir: 'dist',
+  bundle: true,
+  minify: true,
+  sourcemap: true,
+  format: 'esm',
+  target: ['es2020'],
+  external: ['react', 'react-dom'], // Don't bundle peer deps
+  splitting: true,                   // Code splitting (ESM only)
+});
+// Build time: ~50ms for a medium project
+
+// ============================================================
+// Vite: config for React SPA
+// ============================================================
+
+// vite.config.ts
+/*
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    target: 'es2020',
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          router: ['react-router-dom'],
+        },
+      },
+    },
+  },
+  server: {
+    port: 3000,
+    proxy: {
+      '/api': 'http://localhost:8080',
+    },
+  },
+});
+*/
+// Dev server start: ~200ms (vs Webpack ~10-30s)
+
+// ============================================================
+// Webpack: config for complex app
+// ============================================================
+
+// webpack.config.js
+/*
+const path = require('path');
+const HtmlWebpackPlugin = require('html-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+
+module.exports = {
+  entry: './src/index.tsx',
+  output: {
+    path: path.resolve(__dirname, 'dist'),
+    filename: '[name].[contenthash].js',
+    clean: true,
+  },
+  module: {
+    rules: [
+      {
+        test: /\.tsx?$/,
+        use: 'ts-loader',
+        exclude: /node_modules/,
+      },
+      {
+        test: /\.css$/,
+        use: [MiniCssExtractPlugin.loader, 'css-loader', 'postcss-loader'],
+      },
+    ],
+  },
+  plugins: [
+    new HtmlWebpackPlugin({ template: './public/index.html' }),
+    new MiniCssExtractPlugin(),
+  ],
+  optimization: {
+    splitChunks: { chunks: 'all' },
+  },
+};
+*/
+// Build time: ~30-120s for a medium project
+
+console.log('Choose based on your project needs');
+```\n\nFor new projects, default to Vite — best dev experience and good production builds. Use ESBuild for libraries or when build speed is critical. Keep Webpack only for existing projects that depend on its ecosystem (Module Federation, specific loaders). All three can be combined: Vite uses ESBuild for dev and Rollup for production."}
+{"instruction": "How does tree shaking work in JavaScript bundlers, and how do I ensure my code is tree-shakeable?", "input": "", "output": "<think>\nTree shaking is dead code elimination for ES modules. Bundlers analyze import/export statements statically to determine which exports are actually used, and remove unused ones from the final bundle.\n\nKey requirements for tree shaking to work:\n1. ES modules (import/export) — not CommonJS (require/module.exports)\n2. Side-effect-free code — bundlers won't remove code that might have side effects\n3. \"sideEffects\" field in package.json — tells bundlers which files are pure\n4. No barrel re-exports that defeat analysis\n\nCommon reasons tree shaking fails:\n- CommonJS modules (can't be statically analyzed)\n- Side effects in module scope (polyfills, global modifications)\n- Dynamic imports: import(variable) can't be analyzed\n- Barrel files that re-export everything\n- Class declarations (methods can't be individually shaken)\n</think>\n\nHere's how tree shaking works and how to make your code tree-shakeable:\n\n```javascript\n// ============================================================\n// 1. Tree-shakeable vs non-tree-shakeable\n// ============================================================\n\n// GOOD: Named exports — tree-shakeable\n// utils.js\nexport function formatDate(date) { return date.toISOString(); }\nexport function formatCurrency(amount) { return `$${amount.toFixed(2)}`; }\nexport function formatPercent(value) { return `${(value * 100).toFixed(1)}%`; }\n\n// Consumer only uses formatDate:\n// import { formatDate } from './utils';\n// → formatCurrency and formatPercent are REMOVED from bundle\n\n// BAD: Default export of object — NOT tree-shakeable\n// utils.js\nexport default {\n  formatDate(date) { return date.toISOString(); },\n  formatCurrency(amount) { return `$${amount.toFixed(2)}`; },\n  formatPercent(value) { return `${(value * 100).toFixed(1)}%`; },\n};\n// Consumer: import utils from './utils';\n// → ALL methods included even if only formatDate is used\n\n// BAD: CommonJS — NOT tree-shakeable  \n// module.exports = { formatDate, formatCurrency, formatPercent };\n// Bundler can't statically analyze require()\n\n// ============================================================\n// 2. package.json sideEffects field\n// ============================================================\n\n// package.json\n/*\n{\n  \"name\": \"my-lib\",\n  \"sideEffects\": false,  // Entire package is side-effect-free\n  // Or specify which files HAVE side effects:\n  // \"sideEffects\": [\"*.css\", \"./src/polyfills.js\"]\n}\n*/\n\n// Without sideEffects: false, bundlers must assume every module\n// might have side effects and can't remove unused imports.\n\n// What counts as a side effect:\n// - Modifying globals: window.MyLib = ...\n// - Polyfills: Array.prototype.flat = ...\n// - CSS imports: import './styles.css'\n// - Top-level function calls: initializeAnalytics()\n\n// ============================================================\n// 3. Barrel files — the tree shaking killer\n// ============================================================\n\n// BAD: barrel re-export defeats tree shaking in some bundlers\n// index.js (barrel file)\nexport { formatDate } from './date';\nexport { formatCurrency } from './currency';\nexport { Chart } from './chart';       // Large module!\nexport { DataGrid } from './data-grid'; // Huge module!\n\n// Consumer: import { formatDate } from 'my-lib';\n// Some bundlers may include Chart and DataGrid too!\n\n// GOOD: direct imports bypass the barrel\n// import { formatDate } from 'my-lib/date';\n\n// GOOD: package.json exports map (Node 12+)\n/*\n{\n  \"exports\": {\n    \".\": \"./dist/index.js\",\n    \"./date\": \"./dist/date.js\",\n    \"./currency\": \"./dist/currency.js\",\n    \"./chart\": \"./dist/chart.js\"\n  }\n}\n*/\n\n// ============================================================\n// 4. Verifying tree shaking works\n// ============================================================\n\n// Method 1: Check bundle size\n// npx vite build && ls -la dist/assets/\n\n// Method 2: webpack-bundle-analyzer\n// npm install --save-dev webpack-bundle-analyzer\n// npx webpack --profile --json > stats.json\n// npx webpack-bundle-analyzer stats.json\n\n// Method 3: source-map-explorer\n// npx source-map-explorer dist/bundle.js\n\n// Method 4: Mark with PURE comment\n/*@__PURE__*/ createExpensiveThing();\n// Tells bundler this call has no side effects and can be removed\n\nconsole.log('Tree shaking: use ES modules, mark sideEffects, avoid barrels');\n```\n\nTree shaking requires ES modules (import/export), `\"sideEffects\": false` in package.json, and avoiding barrel re-exports for large modules. Prefer named exports over default exports, use direct import paths for large libraries, and verify with bundle analyzer tools."}
+{"instruction": "How do I set up code splitting in a modern JavaScript application? Explain the patterns and tradeoffs.", "input": "", "output": "<think>\nCode splitting divides your bundle into smaller chunks that load on demand, reducing initial page load time. There are several strategies:\n\n1. Route-based splitting: each page/route is a separate chunk\n2. Component-based splitting: heavy components load on demand\n3. Vendor splitting: separate third-party code from app code\n4. Dynamic import: import() returns a promise for on-demand loading\n\nThe key mechanism is dynamic import() — it tells the bundler to create a separate chunk. React.lazy() and Vue's defineAsyncComponent() build on this.\n\nTradeoffs: more chunks = more HTTP requests (mitigated by HTTP/2), potential loading delays for lazy chunks, complexity in error handling for failed loads.\n</think>\n\nHere's how to implement code splitting effectively:\n\n```javascript\n// ============================================================\n// 1. Dynamic import — the foundation\n// ============================================================\n\n// Static import: included in main bundle\nimport { heavyFunction } from './heavy-module';\n\n// Dynamic import: creates a separate chunk, loaded on demand\nasync function handleClick() {\n  const { heavyFunction } = await import('./heavy-module');\n  // heavy-module.js is now a separate chunk\n  // Downloaded only when handleClick is called\n  heavyFunction();\n}\n\n// With loading state:\nasync function loadEditor() {\n  showSpinner();\n  try {\n    const { Editor } = await import('./editor');\n    hideSpinner();\n    return new Editor();\n  } catch (error) {\n    hideSpinner();\n    showError('Failed to load editor');\n  }\n}\n\n// ============================================================\n// 2. React: Route-based code splitting\n// ============================================================\n\n/*\nimport { lazy, Suspense } from 'react';\nimport { BrowserRouter, Routes, Route } from 'react-router-dom';\n\n// Each route is a separate chunk\nconst Home = lazy(() => import('./pages/Home'));\nconst Dashboard = lazy(() => import('./pages/Dashboard'));\nconst Settings = lazy(() => import('./pages/Settings'));\n// Heavy page with chart library — only loaded when user navigates\nconst Analytics = lazy(() => import('./pages/Analytics'));\n\nfunction App() {\n  return (\n    <BrowserRouter>\n      <Suspense fallback={<LoadingSpinner />}>\n        <Routes>\n          <Route path=\"/\" element={<Home />} />\n          <Route path=\"/dashboard\" element={<Dashboard />} />\n          <Route path=\"/settings\" element={<Settings />} />\n          <Route path=\"/analytics\" element={<Analytics />} />\n        </Routes>\n      </Suspense>\n    </BrowserRouter>\n  );\n}\n*/\n\n// ============================================================\n// 3. Prefetching: load chunks before user needs them\n// ============================================================\n\n// Webpack magic comments:\n// import(/* webpackPrefetch: true */ './Analytics');\n// → Adds <link rel=\"prefetch\"> in idle time\n\n// import(/* webpackPreload: true */ './CriticalComponent');\n// → Loads in parallel with parent chunk (higher priority)\n\n// Vite: manual prefetch on hover/focus\nfunction prefetchOnHover(importFn) {\n  let prefetched = false;\n  return {\n    onMouseEnter: () => {\n      if (!prefetched) {\n        importFn(); // Start loading when user hovers\n        prefetched = true;\n      }\n    },\n  };\n}\n\n// Usage:\n// <Link to=\"/analytics\" {...prefetchOnHover(() => import('./pages/Analytics'))}>\n//   Analytics\n// </Link>\n\n// ============================================================\n// 4. Vendor chunk splitting (Vite config)\n// ============================================================\n\n/*\n// vite.config.ts\nexport default defineConfig({\n  build: {\n    rollupOptions: {\n      output: {\n        manualChunks(id) {\n          // Group node_modules into vendor chunk\n          if (id.includes('node_modules')) {\n            // Split large libraries into their own chunks\n            if (id.includes('chart.js')) return 'chart';\n            if (id.includes('lodash')) return 'lodash';\n            if (id.includes('react')) return 'react-vendor';\n            return 'vendor'; // Everything else\n          }\n        },\n      },\n    },\n  },\n});\n*/\n\n// ============================================================\n// 5. Error boundaries for chunk loading failures\n// ============================================================\n\n/*\nimport { Component } from 'react';\n\nclass ChunkErrorBoundary extends Component {\n  state = { hasError: false };\n\n  static getDerivedStateFromError() {\n    return { hasError: true };\n  }\n\n  componentDidCatch(error) {\n    // Chunk load failure — likely a deployment during user session\n    if (error.name === 'ChunkLoadError') {\n      // Reload the page to get new chunks\n      window.location.reload();\n    }\n  }\n\n  render() {\n    if (this.state.hasError) {\n      return <div>Something went wrong. Please refresh.</div>;\n    }\n    return this.props.children;\n  }\n}\n*/\n\nconsole.log('Code splitting: routes, components, vendors');\n```\n\nSplit by routes first (biggest impact), then by heavy components (charts, editors, PDF viewers), then vendors into stable cache groups. Use prefetching on hover/focus for predicted navigation. Always handle chunk load failures with error boundaries — they happen during deployments when old HTML references new chunk hashes."}
+{"instruction": "How do I set up monorepo tooling with Turborepo or Nx? Compare the approaches.", "input": "", "output": "<think>\nMonorepo tooling manages multiple packages/apps in a single repository. The two main tools are Turborepo (Vercel) and Nx (Nrwl). Both solve the same core problems: task orchestration, caching, and dependency graph awareness.\n\nTurborepo: simpler, faster to adopt, focuses on task running and caching. Minimal configuration. Good for: teams that want caching without complexity.\n\nNx: more full-featured, includes code generation, dependency graph visualization, affected command (only test what changed), plugin ecosystem. Good for: large teams, complex monorepos, enterprise.\n\nBoth support: remote caching, parallel task execution, dependency-aware task ordering, incremental builds.\n</think>\n\nHere's how to set up monorepo tooling with Turborepo and Nx:\n\n```json\n// ============================================================\n// Turborepo: turbo.json\n// ============================================================\n{\n  \"$schema\": \"https://turbo.build/schema.json\",\n  \"globalDependencies\": [\".env\"],\n  \"pipeline\": {\n    \"build\": {\n      \"dependsOn\": [\"^build\"],\n      \"outputs\": [\"dist/**\", \".next/**\"]\n    },\n    \"test\": {\n      \"dependsOn\": [\"build\"],\n      \"inputs\": [\"src/**\", \"test/**\"]\n    },\n    \"lint\": {},\n    \"dev\": {\n      \"cache\": false,\n      \"persistent\": true\n    }\n  }\n}\n```\n\n```bash\n# Turborepo setup:\nnpx create-turbo@latest my-monorepo\n\n# Structure:\n# my-monorepo/\n# ├── turbo.json\n# ├── package.json (root)\n# ├── apps/\n# │   ├── web/          (Next.js app)\n# │   └── api/          (Express server)\n# ├── packages/\n# │   ├── ui/           (shared React components)\n# │   ├── config/       (shared ESLint/TS configs)\n# │   └── database/     (shared Prisma client)\n\n# Commands:\nturbo build              # Build all packages in dependency order\nturbo build --filter=web # Build only the web app (+ its deps)\nturbo test --parallel    # Run tests in parallel\nturbo dev --filter=web   # Dev server for web app only\n\n# Cache hit example:\n# $ turbo build\n# packages/ui: cache hit, replaying output\n# packages/database: cache hit, replaying output  \n# apps/web: cache miss, building...\n# → Only rebuilds what changed. Saves 80%+ build time.\n```\n\n```json\n// ============================================================\n// Nx: nx.json\n// ============================================================\n{\n  \"targetDefaults\": {\n    \"build\": {\n      \"dependsOn\": [\"^build\"],\n      \"cache\": true\n    },\n    \"test\": {\n      \"cache\": true\n    },\n    \"lint\": {\n      \"cache\": true\n    }\n  },\n  \"defaultBase\": \"main\"\n}\n```\n\n```bash\n# Nx setup:\nnpx create-nx-workspace my-monorepo\n\n# Key Nx features beyond Turborepo:\nnx affected --target=test    # Only test projects affected by git changes\nnx graph                     # Visual dependency graph in browser\nnx generate @nx/react:lib ui # Code generation\nnx migrate latest            # Auto-update all Nx packages\n\n# Comparison:\n# ┌──────────────────┬────────────┬──────────────┐\n# │ Feature          │ Turborepo  │ Nx           │\n# ├──────────────────┼────────────┼──────────────┤\n# │ Setup complexity │ Simple     │ Moderate     │\n# │ Task caching     │ ✓          │ ✓            │\n# │ Remote caching   │ ✓ (Vercel) │ ✓ (Nx Cloud) │\n# │ Affected command │ --filter   │ nx affected  │\n# │ Code generation  │ ✗          │ ✓            │\n# │ Dep graph UI     │ ✗          │ ✓            │\n# │ Plugin ecosystem │ Basic      │ Rich         │\n# │ Adopt in existing│ Easy       │ Moderate     │\n# └──────────────────┴────────────┴──────────────┘\n\n# Decision:\n# Start with Turborepo: simpler, faster to adopt\n# Migrate to Nx: when you need affected, code gen, or plugins\n```\n\nBoth Turborepo and Nx solve monorepo task orchestration with caching. Turborepo is simpler to adopt and sufficient for most teams. Nx offers more features (affected commands, code generation, dependency graph visualization) for large enterprise monorepos. Both support remote caching for CI speedup."}
