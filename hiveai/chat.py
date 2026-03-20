@@ -468,7 +468,7 @@ def _rewrite_query_for_retrieval(query):
         return None
 
 
-def search_knowledge_sections(question, db, history=None, retrieval_mode="preinject", trace=None):
+def search_knowledge_sections(question, db, history=None, retrieval_mode="preinject", trace=None, language=None):
     # Check RAG cache for repeated questions
     cache_key = hashlib.md5(question.lower().strip().encode()).hexdigest()[:16]
     with _rag_cache_lock:
@@ -522,6 +522,7 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
         top_sections = hybrid_search(
             db, query_str, query_embedding, limit=12,
             exclude_book_ids=_exclude_book_ids or None,
+            language_filter=language,
         )
         _t3 = _time.perf_counter()
 

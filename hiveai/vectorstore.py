@@ -321,7 +321,8 @@ def _load_section_metadata(db, section_ids: list[int]) -> dict[int, dict]:
 
 def hybrid_search(db, query: str, query_embedding, limit: int = 12,
                   max_distance: float = None, alpha: float = None,
-                  book_id_filter=None, exclude_book_ids=None) -> list[dict]:
+                  book_id_filter=None, exclude_book_ids=None,
+                  language_filter: str = None) -> list[dict]:
     """
     Fuse vector similarity and keyword matching for better recall.
 
@@ -334,6 +335,9 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
         alpha: Weight for vector score (1-alpha = keyword weight, default from config)
         book_id_filter: Optional list of book IDs to restrict search
         exclude_book_ids: Optional set/list of book IDs to exclude (e.g. critique patterns)
+        language_filter: Optional language (python, cpp, rust, go, javascript, typescript).
+            Matching-language sections get a ranking boost, ensuring domain-relevant results
+            rank higher without hard-excluding cross-language content.
 
     Returns:
         List of section dicts sorted by fused score, best first.
@@ -420,8 +424,9 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
     _is_code_query = bool(query_terms_set & _code_indicators) or \
                      any(c in _query_lower for c in ['()', '{}', '[]', 'def ', 'fn ', 'func '])
 
-    # Load metadata to identify solved examples
-    section_metadata = _load_section_metadata(db, section_ids) if _is_code_query else {}
+    # Load metadata to identify solved examples + language routing
+    _need_metadata = _is_code_query or language_filter
+    section_metadata = _load_section_metadata(db, section_ids) if _need_metadata else {}
 
     for i, r in enumerate(vec_results):
         r["hybrid_score"] = 1.0 / (_RRF_K + vec_rank[i]) + 1.0 / (_RRF_K + bm25_rank[i])
@@ -460,6 +465,25 @@ def hybrid_search(db, query: str, query_embedding, limit: int = 12,
                 r["hybrid_score"] += bonus
                 r["is_entity"] = True
                 r["entity_type"] = meta.get("entity_type", "concept")
+
+    # Step 4b: Language routing — boost sections matching the detected query language
+    # Soft boost: matching language gets +0.08, enough to reorder ties but not override relevance.
+    # Sections without language metadata (golden book content) are unaffected.
+    if language_filter:
+        _lang_lower = language_filter.lower()
+        # Normalize common aliases
+        _lang_aliases = {"js": "javascript", "ts": "typescript", "c++": "cpp"}
+        _lang_lower = _lang_aliases.get(_lang_lower, _lang_lower)
+        _lang_boosted = 0
+        for r in vec_results:
+            meta = section_metadata.get(r["id"], {})
+            section_lang = (meta.get("language") or "").lower()
+            if section_lang and section_lang == _lang_lower:
+                r["hybrid_score"] += 0.08
+                r["language_match"] = True
+                _lang_boosted += 1
+        if _lang_boosted:
+            logger.debug(f"Language routing: {_lang_boosted}/{len(vec_results)} sections boosted for '{_lang_lower}'")
 
     # Step 5: Re-sort by fused score and return top results
     vec_results.sort(key=lambda x: x["hybrid_score"], reverse=True)
