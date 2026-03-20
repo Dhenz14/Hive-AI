@@ -5,9 +5,8 @@ import logging
 import threading
 import uuid
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
-from sqlalchemy import func
 from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, TelemetryEvent, utcnow
-from hiveai.llm.client import reason, fast, smart_call, embed_text, clean_llm_response, stream_llm_call
+from hiveai.llm.client import fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION, EXECUTABLE_REPAIR_PROMPT
 from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
@@ -92,7 +91,6 @@ def _background_warmup():
     except Exception as e:
         _log.warning(f"Cache warmup failed: {e}")
 
-import threading
 _warmup_thread = threading.Thread(target=_background_warmup, daemon=True)
 _warmup_thread.start()
 
