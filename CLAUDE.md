@@ -76,21 +76,52 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 The golden chain (sequential LoRA merge) hit its architectural ceiling. Going from 94% → 96%+ via
 more SFT/merge cycles is the wrong tool. The product value is in the application layer.
 
+### The Expert Plumber Analogy
+
+Think of the system as an expert plumber:
+
+- **The Plumber's Brain (Layer 0)** = v5-think. He knows HOW to think about code — patterns,
+  logic, debugging instincts, architectural reasoning. You show him a new plumbing design and
+  he understands it because he deeply knows the craft. This is the trained model.
+
+- **The Plumber's Notepad (Layer 1)** = RAG. The plumber doesn't memorize every pipe size, every
+  bracket model number, every API endpoint. He has a perfectly organized reference notebook —
+  12,000+ verified solutions, indexed by topic, with quality ratings. He flips to exactly the
+  right page in seconds. This is the knowledge base.
+
+- **The "I Keep Looking This Up" List (Layer 2)** = Skill Buffer. When the plumber notices he's
+  checking the notepad for the same thing every day, he flags it. Maybe he should just learn
+  this by heart instead of looking it up every time.
+
+- **The Study Session (Layer 3)** = Rare Training. When the "keep looking this up" list gets long
+  enough, the plumber sits down and studies. He internalizes the most-referenced material, then
+  cleans those pages out of the notepad to keep it lean. The notepad shrinks, the brain grows.
+
+**The Faucet/Sink Model**: New knowledge flows in constantly like a faucet — every verified chat
+response, every training pair, every new technique enters the notepad (RAG). The sink drains
+rarely — only when the brain is ready to absorb what the notepad has been carrying. Train too
+early = risk breaking what the plumber already knows. Train too late = notepad gets bloated
+and slow. The 4 conditions below are the valve that controls the sink.
+
+### The 4 Layers
+
 - **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core. Do not touch.
-- **Layer 1: RAG/Retrieval** — Where the system learns every day. 10,356 BookSections (928 enriched skill docs + 9,428 promoted solved examples) with
-  contextual retrieval prefixes (Anthropic technique, 35-67% fewer retrieval failures). Hybrid search
-  (BM25+semantic) with MMR diversity reranking (λ=0.7). Cross-encoder reranker (bge-reranker-v2-m3)
+- **Layer 1: RAG/Retrieval** — Where the system learns every day. 12,000+ BookSections (928 enriched
+  skill docs + 11,136 promoted solved examples) with contextual retrieval prefixes (Anthropic
+  technique, 35-67% fewer retrieval failures). Hybrid search (BM25+semantic) with language-aware
+  routing, MMR diversity reranking (lambda=0.7), and cross-encoder reranker (bge-reranker-v2-m3) that
   actively filters low-confidence sections (suppress < 0.02) and boosts high-confidence ones (> 0.20).
   Verified chat responses auto-promote to retrievable BookSections. Skills, golden books, solved
   examples. No retraining needed.
 - **Layer 2: Skill Buffer** — Verified training pairs accumulate passively from chat. NOT immediate
   training. Accumulate until repeated miss + verifiable + large headroom.
 - **Layer 3: Rare Promotion** — Event-driven training only. ALL 4 conditions must be met:
-  1. Repeated miss in real use (not one-off)
-  2. Retrieval is too slow or insufficient (RAG can't cover it)
+  1. Repeated miss in real use (plumber keeps checking notepad for same thing)
+  2. Retrieval is too slow or insufficient (notepad lookup is the bottleneck)
   3. Executable eval exists (compile/test/type-check, not keyword scoring)
-  4. Big expected gain (>3% domain improvement)
+  4. Big expected gain (>3% domain improvement, worth the risk)
   When Layer 3 fires, it uses community GPUs (HivePoA) for large-batch training, not local micro-cycles.
+  After training, the most-internalized content is pruned from RAG — notepad shrinks, brain grows.
 
 **Training policy**: Do NOT train because the model saw something new once. Train only when all 4
 conditions align. The golden chain stays alive as a precision instrument, not the main roadmap.

@@ -6,15 +6,17 @@ Spirit Bomb Community Coordinator — the brain of the community GPU cloud.
 Responsibilities:
   1. Poll HivePoA for online compute nodes every POLL_INTERVAL seconds
   2. Group nodes into geo-aware clusters (latency-based affinity, <50ms target)
-  3. Derive current community tier from total GPU count
+  3. Derive current community tier from pool state
   4. Publish tier manifests (HivePoA API + optionally Hive custom_json + IPFS)
   5. Manage auto-downgrade/upgrade as pool changes
   6. Configure inference routes based on cluster topology
 
-Tier thresholds:
-  Tier 1: <15 GPUs   → Base 14B model, 2 MoE experts, local-only
-  Tier 2: 15-40 GPUs → Enhanced model, 4 experts, optional cluster inference
-  Tier 3: 40+ GPUs   → Full brain, 8+ experts, geo-clustered inference
+Tier system (additive — more GPUs = more options, never removes what works):
+  Solo (1):    0-1 GPUs — Hive-AI's own stack (v5-think + smart_call) unchanged
+  Pool (2):    2+ GPUs — each serves independent requests (throughput scaling)
+  Cluster (3): 2+ GPUs with <50ms latency + 24GB+ VRAM (combine via vLLM PP)
+
+IMPORTANT: Tier configs must stay in sync with spirit-bomb-service.ts (HivePoA).
 
 Usage:
     coordinator = CommunityCoordinator(hivepoa_url="http://localhost:5000")
@@ -40,35 +42,38 @@ logger = logging.getLogger(__name__)
 
 # ── Tier Configuration ──────────────────────────────────────────
 
-TIER_THRESHOLDS = {
-    1: {"min_gpus": 0, "max_gpus": 14},
-    2: {"min_gpus": 15, "max_gpus": 39},
-    3: {"min_gpus": 40, "max_gpus": float("inf")},
-}
-
 TIER_MODEL_CONFIG = {
     1: {
-        "base_model": "Qwen3-14B",
-        "active_experts": 2,
-        "quantization": "awq",
+        "mode": "solo",
+        "base_model": "hiveai-v5-think",
+        "description": "Local Hive-AI stack (llama-server + smart routing + MoLoRA)",
+        "active_experts": 0,
+        "quantization": "gguf",
         "max_context_length": 32768,
         "speculative_decoding_enabled": False,
     },
     2: {
+        "mode": "pool",
+        "base_model": "hiveai-v5-think",
+        "description": "Independent GPUs serving parallel requests — throughput scaling",
+        "active_experts": 0,
+        "quantization": "gguf",
+        "max_context_length": 32768,
+        "speculative_decoding_enabled": False,
+    },
+    3: {
+        "mode": "cluster",
         "base_model": "Qwen3-32B",
+        "description": "Pipeline-parallel larger model via vLLM + local smart routing",
         "active_experts": 4,
         "quantization": "awq",
         "max_context_length": 65536,
         "speculative_decoding_enabled": True,
     },
-    3: {
-        "base_model": "Qwen3-Coder-80B-MoE",
-        "active_experts": 8,
-        "quantization": "fp16",
-        "max_context_length": 131072,
-        "speculative_decoding_enabled": True,
-    },
 }
+
+# Cluster qualification thresholds
+MIN_CLUSTER_VRAM_GB = 24  # minimum combined VRAM for pipeline parallel
 
 # Clustering constraints
 MAX_CLUSTER_LATENCY_MS = 50  # intra-cluster latency target
@@ -112,6 +117,7 @@ class ClusterCandidate:
 class TierManifest:
     """Published tier state snapshot."""
     tier: int
+    mode: str  # "solo", "pool", "cluster"
     total_gpus: int
     total_vram_gb: int
     active_clusters: int
@@ -189,8 +195,8 @@ class CommunityCoordinator:
             active_clusters = [c for c in clusters if c.total_gpus >= MIN_CLUSTER_SIZE]
             logger.info(f"Formed {len(active_clusters)} active clusters from {len(clusters)} candidates")
 
-            # 3. Derive community tier
-            new_tier = self._derive_tier(total_gpus)
+            # 3. Derive community tier (passes clusters for latency qualification)
+            new_tier = self._derive_tier(total_gpus, active_clusters)
             if new_tier != self._current_tier:
                 logger.info(f"Tier transition: {self._current_tier} → {new_tier} ({total_gpus} GPUs)")
                 self._current_tier = new_tier
@@ -199,6 +205,7 @@ class CommunityCoordinator:
             config = TIER_MODEL_CONFIG[new_tier]
             manifest = TierManifest(
                 tier=new_tier,
+                mode=config["mode"],
                 total_gpus=total_gpus,
                 total_vram_gb=total_vram,
                 active_clusters=len(active_clusters),
@@ -288,32 +295,53 @@ class CommunityCoordinator:
 
         return clusters
 
-    def _derive_tier(self, total_gpus: int) -> int:
-        """Derive community tier from total GPU count."""
-        for tier in (3, 2, 1):
-            thresholds = TIER_THRESHOLDS[tier]
-            if total_gpus >= thresholds["min_gpus"]:
-                return tier
-        return 1
+    def _derive_tier(self, total_gpus: int, clusters: list = None) -> int:
+        """Derive community tier from pool state (not just GPU count).
+
+        Solo (1): 0-1 GPUs
+        Pool (2): 2+ GPUs serving independently
+        Cluster (3): 2+ GPUs with low latency + enough VRAM for pipeline parallel
+        """
+        if total_gpus <= 1:
+            return 1
+
+        # Check if any cluster qualifies for pipeline parallel
+        if clusters:
+            for cluster in clusters:
+                c_gpus = getattr(cluster, "total_gpus", 0)
+                c_vram = getattr(cluster, "total_vram_gb", 0)
+                c_latency = getattr(cluster, "avg_latency_ms", 999) or 999
+                if (c_gpus >= 2
+                        and c_latency < MAX_CLUSTER_LATENCY_MS
+                        and c_vram >= MIN_CLUSTER_VRAM_GB):
+                    return 3
+
+        # 2+ GPUs but no qualified cluster = Pool
+        return 2
 
     def _estimate_tps(self, tier: int, total_gpus: int) -> float:
         """
         Estimate aggregate tokens per second for the community tier.
 
-        Based on vLLM benchmarks for different model sizes:
-        - 14B AWQ: ~80 tok/s per GPU
-        - 32B AWQ: ~40 tok/s per GPU (pipeline parallel)
-        - 80B MoE fp16: ~25 tok/s per GPU (expert parallel)
+        Solo: single GPU serving v5-think (~80 tok/s)
+        Pool: N GPUs each serving independently (~80 × N × 0.95)
+        Cluster: pipeline parallel with bubble overhead (~40 × N × 0.50-0.65)
         """
-        base_tps = {1: 80.0, 2: 40.0, 3: 25.0}
-        per_gpu = base_tps.get(tier, 40.0)
-        # Pipeline parallel efficiency: ~85% for 2-4 GPUs, ~70% for 4+
+        tier_mode = TIER_MODEL_CONFIG[tier]["mode"]
+
+        if tier_mode == "solo":
+            return 80.0  # single v5-think on one GPU
+
+        if tier_mode == "pool":
+            # Each GPU serves independently — near-linear scaling
+            return round(80.0 * total_gpus * 0.95, 1)
+
+        # Cluster: pipeline parallel has bubble overhead
+        per_gpu = 40.0  # 32B model is slower per GPU than 14B
         if total_gpus <= 4:
-            efficiency = 0.85
-        elif total_gpus <= 16:
-            efficiency = 0.70
+            efficiency = 0.65  # PP bubble ~35% for 2-4 stages
         else:
-            efficiency = 0.55  # communication overhead at scale
+            efficiency = 0.50  # higher bubble for more stages
         return round(per_gpu * total_gpus * efficiency, 1)
 
     async def _sync_cluster(
