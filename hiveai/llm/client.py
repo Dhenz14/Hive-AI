@@ -296,6 +296,10 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
         _record_circuit_success(model)
         content = response.choices[0].message.content
 
+        # Track eval_count for accurate token reporting to HivePoA
+        global _last_eval_count
+        _last_eval_count = getattr(response.usage, 'completion_tokens', 0) if response.usage else 0
+
         # Cache the response for future identical queries
         if use_cache and temperature <= 0.3 and content:
             set_cached_response(cache_key_str, content, model)
@@ -530,6 +534,14 @@ def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
     elif simple_signals >= 1 and complex_signals == 0:
         return "simple"
     return "moderate"
+
+
+# Track the last eval_count from LLM responses (for accurate token counting)
+_last_eval_count: int = 0
+
+def get_last_eval_count() -> int:
+    """Return the eval_count from the most recent LLM call, or 0 if unavailable."""
+    return _last_eval_count
 
 
 def smart_call(prompt: str, question: str = "", num_sections: int = 0,
