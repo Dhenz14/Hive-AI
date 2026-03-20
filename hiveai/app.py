@@ -1045,7 +1045,7 @@ def chat_api():
         if classify.needs_retrieval:
             top_sections, source_books, all_books = search_knowledge_sections(
                 message, db, history=history, retrieval_mode=classify.retrieval_mode,
-                trace=_retrieval_trace)
+                trace=_retrieval_trace, language=classify.language)
 
             # Cross-encoder reranker: score sections, optionally filter/boost
             from hiveai.config import RERANKER_SHADOW_ENABLED
@@ -1665,7 +1665,7 @@ def chat_stream():
                 if classify.needs_retrieval:
                     top_sections, source_books, all_books = search_knowledge_sections(
                         message, db, history=history, retrieval_mode=classify.retrieval_mode,
-                        trace=_retrieval_trace)
+                        trace=_retrieval_trace, language=classify.language)
                     yield f"event: sources\ndata: {json.dumps({'sources': source_books})}\n\n"
 
                     # Cross-encoder reranker: score sections, optionally filter/boost
