@@ -389,7 +389,7 @@ def main():
     batch_count = 0
     with open(consolidated_path, "w", encoding="utf-8") as out:
         for bf in batch_files:
-            with open(bf, encoding="utf-8") as inp:
+            with open(bf, encoding="utf-8", errors="replace") as inp:
                 for line in inp:
                     line = line.strip()
                     if line:
