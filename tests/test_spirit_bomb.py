@@ -52,59 +52,60 @@ from datetime import datetime, timezone
 # ── TierAutoscaler Tests ────────────────────────────────────────
 
 class TestTierAutoscaler:
-    def test_initial_tier_is_base(self):
+    def test_initial_tier_is_solo(self):
         scaler = TierAutoscaler()
-        assert scaler.state.current_tier == Tier.BASE
+        assert scaler.state.current_tier == Tier.SOLO
 
-    def test_upgrade_to_tier2(self):
+    def test_upgrade_to_pool(self):
         scaler = TierAutoscaler()
         # Need to bypass min interval
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        result = scaler.evaluate(20)
-        assert result == Tier.ENHANCED
+        result = scaler.evaluate(5)  # 2+ GPUs = Pool
+        assert result == Tier.POOL
 
-    def test_upgrade_to_tier3(self):
+    def test_upgrade_to_cluster(self):
         scaler = TierAutoscaler()
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.evaluate(20)  # → Tier 2
+        scaler.evaluate(5)  # → Pool
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.state.smoothed_gpu_count = 50.0  # reset EMA to avoid lag
-        result = scaler.evaluate(50)
-        assert result == Tier.FULL
+        scaler.state.smoothed_gpu_count = 5.0
+        # Pool → Cluster requires cluster_qualified=True
+        result = scaler.evaluate(5, cluster_qualified=True)
+        assert result == Tier.CLUSTER
 
     def test_hysteresis_prevents_flapping(self):
         scaler = TierAutoscaler()
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.evaluate(20)  # → Tier 2
-        assert scaler.state.current_tier == Tier.ENHANCED
+        scaler.evaluate(5)  # → Pool
+        assert scaler.state.current_tier == Tier.POOL
 
-        # 14 GPUs is below upgrade threshold (15) but above downgrade threshold (12)
+        # 1.5 GPUs (smoothed) is above downgrade threshold (1) — stays Pool
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.state.smoothed_gpu_count = 14.0  # reset EMA
-        result = scaler.evaluate(14)
-        assert result == Tier.ENHANCED  # stays at Tier 2 due to hysteresis
+        scaler.state.smoothed_gpu_count = 1.5
+        result = scaler.evaluate(2)
+        assert result == Tier.POOL  # stays at Pool (smoothed > 1)
 
     def test_downgrade_below_hysteresis(self):
         scaler = TierAutoscaler()
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.evaluate(20)  # → Tier 2
+        scaler.evaluate(5)  # → Pool
         scaler.state.last_transition_time = time.time() - MIN_TRANSITION_INTERVAL_SECONDS - 1
-        scaler.state.smoothed_gpu_count = 10.0
+        scaler.state.smoothed_gpu_count = 0.8  # below 1 = downgrade
         # Downgrade is deferred (drain period)
-        result = scaler.evaluate(10)
-        assert result == Tier.ENHANCED  # still Tier 2 during drain
+        result = scaler.evaluate(0)
+        assert result == Tier.POOL  # still Pool during drain
         assert scaler.state.pending_transition is not None
 
     def test_min_interval_respected(self):
         scaler = TierAutoscaler()
         scaler.state.last_transition_time = time.time()  # just transitioned
         result = scaler.evaluate(50)
-        assert result == Tier.BASE  # no transition due to min interval
+        assert result == Tier.SOLO  # no transition due to min interval
 
     def test_force_tier(self):
         scaler = TierAutoscaler()
         scaler.force_tier(3, "admin override")
-        assert scaler.state.current_tier == Tier.FULL
+        assert scaler.state.current_tier == Tier.CLUSTER
 
     def test_callback_fired(self):
         scaler = TierAutoscaler()

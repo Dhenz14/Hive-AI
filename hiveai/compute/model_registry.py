@@ -6,22 +6,18 @@ and tier-specific model selection for the Spirit Bomb community cloud.
 
 This is the intelligence layer that decides WHICH model to use
 based on:
-  - Current community tier (GPU count)
+  - Current community tier and mode (solo/pool/cluster)
   - Available VRAM across cluster
   - Task type (code, chat, reasoning, creative)
   - User preference (speed vs quality)
   - Quantization support
 
-Model Selection Strategy:
-  Tier 1 (<15 GPUs): Qwen3-14B AWQ — fits on any GPU ≥8GB
-  Tier 2 (15-40):    Qwen3-32B AWQ — needs 16GB or 2x8GB PP
-  Tier 3 (40+):      Qwen3-Coder-80B-MoE — distributed MoE experts
-
-Task-Specific Models:
-  Code:      Qwen3-Coder variants (MoE for scale, dense for local)
-  Chat:      Qwen3 base variants (best general quality)
-  Reasoning: Qwen3-30B-A3B (MoE, excellent reasoning-per-FLOP)
-  Creative:  Qwen3-32B (dense, highest creativity per token)
+Tier-Aware Model Selection:
+  Solo/Pool (tiers 1-2): Use hiveai-v5-think (Hive-AI's own merged model)
+    Hive-AI's smart_call() handles all routing — domain adapters, difficulty
+    classification, language-aware RAG. The registry stays out of the way.
+  Cluster (tier 3): Select a larger model that justifies multi-GPU PP.
+    Qwen3-32B AWQ for 2-4 GPUs, Qwen3-Coder-80B-MoE for larger clusters.
 
 Quantization Selection:
   ≥24GB VRAM: FP16 (best quality)
@@ -94,6 +90,29 @@ class ModelSpec:
 # ── Model Database ──────────────────────────────────────────────
 
 MODELS: dict[str, ModelSpec] = {
+    # ── Hive-AI Native Model ──────────────────────────────
+    "hiveai-v5-think": ModelSpec(
+        model_id="hiveai-v5-think",
+        display_name="HiveAI v5-think (merged GGUF on llama-server)",
+        params_b=14.0,  # based on Qwen3 base
+        architecture="dense",  # merged LoRA, served by llama-server
+        fp16_vram_gb=28.0,
+        awq_vram_gb=9.5,
+        gguf_vram_gb=8.5,
+        max_context_length=32768,
+        supports_tool_use=True,
+        supports_code=True,
+        benchmark_tps_awq=0.0,  # not served as AWQ — runs as merged GGUF
+        benchmark_tps_fp16=0.0,
+        min_tier=1,
+        recommended_tier=1,
+        code_score=8,  # trained on Hive/Python/JS/Rust/C++/Go with domain adapters
+        chat_score=7,
+        reasoning_score=7,
+        creative_score=6,
+        draft_model="",
+        expected_spec_speedup=1.0,
+    ),
     # ── Dense Models ────────────────────────────────────
     "qwen3-14b": ModelSpec(
         model_id="Qwen/Qwen3-14B",
@@ -249,6 +268,7 @@ class ModelRegistry:
     def select_model(
         self,
         tier: int,
+        tier_mode: str = "solo",
         task: TaskType = TaskType.GENERAL,
         max_vram_gb: float = 16.0,
         prefer_speed: bool = False,
@@ -256,27 +276,43 @@ class ModelRegistry:
         """
         Select the best model for given constraints.
 
+        For solo/pool modes: always returns hiveai-v5-think.
+        Hive-AI's smart_call() handles all actual routing (domain adapters,
+        difficulty classification, language-aware RAG). The registry stays
+        out of the way.
+
+        For cluster mode: selects a larger model that justifies multi-GPU PP.
+
         Args:
             tier: Current community tier (1-3)
+            tier_mode: "solo", "pool", or "cluster"
             task: Type of task
             max_vram_gb: Maximum VRAM available (for quantization selection)
             prefer_speed: If True, prefer faster smaller models
         """
-        # Filter eligible models
+        # Solo/Pool: Hive-AI's own model — let smart_call() handle routing
+        if tier_mode in ("solo", "pool"):
+            return self.models.get("hiveai-v5-think")
+
+        # Cluster: select a model that justifies multi-GPU resources
+        # Only consider models that need cluster-level VRAM (>= 30B params)
         eligible = [
             m for m in self.models.values()
-            if m.min_tier <= tier and m.awq_vram_gb <= max_vram_gb * 1.1  # 10% headroom
+            if m.min_tier <= tier
+            and m.awq_vram_gb <= max_vram_gb * 1.1  # 10% headroom
+            and m.params_b >= 30  # only pick models worth clustering for
         ]
 
         if not eligible:
             # Fallback: find anything that fits in GGUF
             eligible = [
                 m for m in self.models.values()
-                if m.gguf_vram_gb <= max_vram_gb
+                if m.gguf_vram_gb <= max_vram_gb and m.params_b >= 30
             ]
 
         if not eligible:
-            return None
+            # Ultimate fallback: return v5-think (cluster not beneficial)
+            return self.models.get("hiveai-v5-think")
 
         # Score based on task
         task_scores = {
@@ -289,10 +325,8 @@ class ModelRegistry:
         score_fn = task_scores.get(task, task_scores[TaskType.GENERAL])
 
         if prefer_speed:
-            # Weight speed heavily
             key = lambda m: score_fn(m) * 0.3 + (m.benchmark_tps_awq / 100) * 0.7
         else:
-            # Weight quality heavily
             key = lambda m: score_fn(m) * 0.7 + (m.benchmark_tps_awq / 100) * 0.3
 
         return max(eligible, key=key)

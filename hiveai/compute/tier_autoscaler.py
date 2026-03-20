@@ -3,23 +3,25 @@ hiveai/compute/tier_autoscaler.py
 
 Tier Autoscaler — automatic tier transitions with graceful degradation.
 
-Handles the dynamic scaling behavior:
-  - Pool grows → upgrade tier (more experts, better model)
-  - Pool shrinks → downgrade tier (fewer experts, lighter model)
-  - Hysteresis: prevents tier flapping on edge of threshold
-  - Drain period: when downgrading, gives in-flight requests time to finish
-  - Model warmup: pre-loads next tier's model before activating
+Tier definitions (additive, never removes what works):
+  Solo (1):    0-1 GPUs — Hive-AI's own stack unchanged
+  Pool (2):    2+ GPUs — each serves independent requests (throughput scaling)
+  Cluster (3): 2+ GPUs with <50ms latency + 24GB+ VRAM (capability scaling via vLLM PP)
 
-The autoscaler is invoked by the CommunityCoordinator after each poll cycle.
-It encapsulates all tier transition logic including:
-  - MoE expert reconfiguration
-  - Inference route updates
-  - Model swap orchestration
-  - Contribution reward adjustment
+Transition logic:
+  Solo → Pool: upgrade when 2+ GPUs come online
+  Pool → Cluster: upgrade when a latency-qualified cluster forms
+  Cluster → Pool: downgrade when cluster disqualifies (latency/VRAM)
+  Pool → Solo: downgrade when only 1 GPU remains
 
-Tier thresholds with hysteresis:
-  Tier 1 → 2: upgrade at 15 GPUs, downgrade at 12 (3-GPU buffer)
-  Tier 2 → 3: upgrade at 40 GPUs, downgrade at 35 (5-GPU buffer)
+Safety features:
+  - Hysteresis: Pool→Solo at 1 GPU (not 2), prevents flapping
+  - EMA smoothing: dampens transient GPU count spikes
+  - Minimum interval: at least 15 min between transitions
+  - Drain period: 60s grace period for in-flight requests on downgrade
+
+IMPORTANT: These thresholds must stay in sync with community_coordinator.py
+and spirit-bomb-service.ts (HivePoA).
 """
 
 import logging
@@ -32,20 +34,21 @@ logger = logging.getLogger(__name__)
 
 
 class Tier(IntEnum):
-    BASE = 1
-    ENHANCED = 2
-    FULL = 3
+    SOLO = 1       # Local only — Hive-AI handles everything
+    POOL = 2       # Multiple GPUs serve independent requests
+    CLUSTER = 3    # GPUs combine via vLLM pipeline parallel
 
 
-# Thresholds with hysteresis to prevent flapping
+# Upgrade thresholds
 UPGRADE_THRESHOLDS = {
-    Tier.BASE: 15,      # upgrade to Tier 2 at 15 GPUs
-    Tier.ENHANCED: 40,  # upgrade to Tier 3 at 40 GPUs
+    Tier.SOLO: 2,  # upgrade to Pool when 2+ GPUs available
+    # Pool → Cluster is NOT count-based — requires cluster_qualified=True
 }
 
+# Downgrade thresholds (with hysteresis)
 DOWNGRADE_THRESHOLDS = {
-    Tier.ENHANCED: 12,  # downgrade to Tier 1 at 12 GPUs
-    Tier.FULL: 35,      # downgrade to Tier 2 at 35 GPUs
+    Tier.POOL: 1,      # downgrade to Solo when only 1 GPU remains
+    # Cluster → Pool when cluster disqualifies (not count-based)
 }
 
 # Minimum time between tier transitions (prevents flapping)
@@ -69,7 +72,7 @@ class TierTransition:
 @dataclass
 class AutoscalerState:
     """Current autoscaler state."""
-    current_tier: Tier = Tier.BASE
+    current_tier: Tier = Tier.SOLO
     last_transition_time: float = 0.0
     pending_transition: Optional[TierTransition] = None
     transition_history: list[TierTransition] = field(default_factory=list)
@@ -82,19 +85,12 @@ class TierAutoscaler:
     """
     Manages automatic tier transitions with safety mechanisms.
 
-    Safety features:
-    - Hysteresis: different thresholds for up/down (prevents flapping)
-    - EMA smoothing: dampens transient GPU count spikes
-    - Minimum interval: at least 15 min between transitions
-    - Drain period: 60s grace period for in-flight requests on downgrade
-    - Callbacks: hooks for MoE reconfiguration, model swap, route updates
-
     Usage:
         scaler = TierAutoscaler()
         scaler.on_tier_change(my_reconfigure_callback)
 
         # Called each poll cycle:
-        new_tier = scaler.evaluate(total_gpus=25)
+        new_tier = scaler.evaluate(total_gpus=5, cluster_qualified=False)
     """
 
     def __init__(self):
@@ -108,9 +104,13 @@ class TierAutoscaler:
         """
         self._callbacks.append(callback)
 
-    def evaluate(self, total_gpus: int) -> Tier:
+    def evaluate(self, total_gpus: int, cluster_qualified: bool = False) -> Tier:
         """
         Evaluate whether a tier transition should occur.
+
+        Args:
+            total_gpus: Current number of online GPUs
+            cluster_qualified: True if any cluster has <50ms latency + 24GB+ VRAM
 
         Returns the current (possibly new) tier.
         """
@@ -149,7 +149,7 @@ class TierAutoscaler:
             return current
 
         # Check for upgrade
-        target = self._check_upgrade(current, smoothed)
+        target = self._check_upgrade(current, smoothed, cluster_qualified)
         if target and target != current:
             # Upgrades are instant (no drain needed)
             transition = TierTransition(
@@ -157,14 +157,15 @@ class TierAutoscaler:
                 to_tier=target,
                 gpu_count=total_gpus,
                 timestamp=now,
-                reason=f"Pool grew to {total_gpus} GPUs (smoothed: {smoothed:.1f})",
+                reason=f"Pool grew to {total_gpus} GPUs (smoothed: {smoothed:.1f})"
+                       + (", cluster qualified" if cluster_qualified else ""),
                 completed=True,
             )
             self._commit_transition(transition)
             return self.state.current_tier
 
         # Check for downgrade
-        target = self._check_downgrade(current, smoothed)
+        target = self._check_downgrade(current, smoothed, cluster_qualified)
         if target and target != current:
             # Downgrades require drain period
             transition = TierTransition(
@@ -172,7 +173,8 @@ class TierAutoscaler:
                 to_tier=target,
                 gpu_count=total_gpus,
                 timestamp=now,
-                reason=f"Pool shrank to {total_gpus} GPUs (smoothed: {smoothed:.1f})",
+                reason=f"Pool at {total_gpus} GPUs (smoothed: {smoothed:.1f})"
+                       + (", cluster disqualified" if not cluster_qualified else ""),
             )
             self.state.pending_transition = transition
             logger.info(
@@ -183,24 +185,32 @@ class TierAutoscaler:
 
         return current
 
-    def _check_upgrade(self, current: Tier, smoothed_gpus: float) -> Optional[Tier]:
+    def _check_upgrade(self, current: Tier, smoothed_gpus: float,
+                       cluster_qualified: bool = False) -> Optional[Tier]:
         """Check if we should upgrade to a higher tier."""
-        if current == Tier.FULL:
+        if current == Tier.CLUSTER:
             return None  # Already at max
 
-        threshold = UPGRADE_THRESHOLDS.get(current)
-        if threshold and smoothed_gpus >= threshold:
-            return Tier(current + 1)
+        if current == Tier.SOLO and smoothed_gpus >= UPGRADE_THRESHOLDS[Tier.SOLO]:
+            return Tier.POOL
+
+        if current == Tier.POOL and cluster_qualified:
+            return Tier.CLUSTER
+
         return None
 
-    def _check_downgrade(self, current: Tier, smoothed_gpus: float) -> Optional[Tier]:
+    def _check_downgrade(self, current: Tier, smoothed_gpus: float,
+                         cluster_qualified: bool = False) -> Optional[Tier]:
         """Check if we should downgrade to a lower tier."""
-        if current == Tier.BASE:
+        if current == Tier.SOLO:
             return None  # Already at min
 
-        threshold = DOWNGRADE_THRESHOLDS.get(current)
-        if threshold and smoothed_gpus < threshold:
-            return Tier(current - 1)
+        if current == Tier.CLUSTER and not cluster_qualified:
+            return Tier.POOL
+
+        if current == Tier.POOL and smoothed_gpus < DOWNGRADE_THRESHOLDS[Tier.POOL]:
+            return Tier.SOLO
+
         return None
 
     def _commit_transition(self, transition: TierTransition) -> None:
@@ -247,6 +257,7 @@ class TierAutoscaler:
         return {
             "current_tier": self.state.current_tier.value,
             "tier_name": self.state.current_tier.name,
+            "tier_mode": {Tier.SOLO: "solo", Tier.POOL: "pool", Tier.CLUSTER: "cluster"}[self.state.current_tier],
             "smoothed_gpu_count": round(self.state.smoothed_gpu_count, 1),
             "last_transition": self.state.last_transition_time,
             "pending_transition": {
@@ -257,9 +268,9 @@ class TierAutoscaler:
             } if pending and not pending.completed else None,
             "transition_count": len(self.state.transition_history),
             "thresholds": {
-                "upgrade_to_tier2": UPGRADE_THRESHOLDS[Tier.BASE],
-                "upgrade_to_tier3": UPGRADE_THRESHOLDS[Tier.ENHANCED],
-                "downgrade_to_tier1": DOWNGRADE_THRESHOLDS[Tier.ENHANCED],
-                "downgrade_to_tier2": DOWNGRADE_THRESHOLDS[Tier.FULL],
+                "upgrade_to_pool": UPGRADE_THRESHOLDS[Tier.SOLO],
+                "upgrade_to_cluster": "latency + VRAM qualified",
+                "downgrade_to_solo": DOWNGRADE_THRESHOLDS[Tier.POOL],
+                "downgrade_to_pool": "cluster disqualified",
             },
         }
