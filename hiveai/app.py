@@ -381,11 +381,11 @@ def ready_check():
     checks = {}
     try:
         db = SessionLocal()
-        db.execute(sa_text("SELECT 1"))
+        db.execute(sa_text("SELECT 1")).fetchone()
         db.close()
         checks["db"] = "ok"
-    except Exception:
-        checks["db"] = "fail"
+    except Exception as e:
+        checks["db"] = f"fail: {e}"
         ready = False
     try:
         r = _req.get(f"{LLAMA_SERVER_BASE_URL}/health", timeout=3)
