@@ -146,6 +146,16 @@ def _detect_ollama():
         return False
 
 
+def _detect_llama_server():
+    """Check if llama-server is running locally."""
+    try:
+        from hiveai.config import LLAMA_SERVER_BASE_URL
+        resp = requests.get(f"{LLAMA_SERVER_BASE_URL}/health", timeout=2)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 def get_active_backend():
     """Determine which LLM backend to use."""
     global _active_backend
@@ -158,8 +168,15 @@ def get_active_backend():
         _active_backend = "ollama"
     elif LLM_BACKEND == "openrouter":
         _active_backend = "openrouter"
+    elif LLM_BACKEND == "llama-server":
+        _active_backend = "llama-server"
+        logger.info("Using llama-server backend (explicit config)")
     else:
-        if _detect_ollama():
+        # Prefer llama-server (always-on, serves v5-think) over Ollama (may compete for GPU)
+        if _detect_llama_server():
+            _active_backend = "llama-server"
+            logger.info("Auto-detected llama-server — using local LLM (v5-think)")
+        elif _detect_ollama():
             _active_backend = "ollama"
             logger.info("Auto-detected Ollama — using local LLM")
         elif OPENROUTER_API_KEY:
@@ -167,7 +184,7 @@ def get_active_backend():
             logger.info("Using OpenRouter API")
         else:
             _active_backend = "ollama"
-            logger.info("No API key and no Ollama — defaulting to Ollama (may fail)")
+            logger.info("No local LLM detected — defaulting to Ollama (may fail)")
 
     return _active_backend
 
@@ -175,7 +192,10 @@ def get_active_backend():
 def _get_model_for_backend(model_type="reasoning"):
     """Get the appropriate model name for the active backend."""
     backend = get_active_backend()
-    if backend == "ollama":
+    if backend == "llama-server":
+        from hiveai.config import LLAMA_SERVER_MODEL
+        return LLAMA_SERVER_MODEL  # llama-server serves one model for all tasks
+    elif backend == "ollama":
         from hiveai.config import OLLAMA_MODEL_REASONING, OLLAMA_MODEL_FAST
         return OLLAMA_MODEL_REASONING if model_type == "reasoning" else OLLAMA_MODEL_FAST
     else:
