@@ -517,6 +517,11 @@ class TelemetryEvent(Base):
     # Retrieval trace (full JSON snapshot — enables passive monitoring)
     retrieval_trace_json = Column(Text, nullable=True)
 
+    # Retrieval quality signals
+    crag_verdict = Column(String(20), nullable=True)            # correct|ambiguous|incorrect
+    retrieval_confidence_band = Column(String(20), nullable=True)  # high|medium|low|none
+    retrieval_confidence_score = Column(Float, nullable=True)
+
     # Traffic hygiene
     is_internal = Column(Boolean, default=False)
 
@@ -597,6 +602,10 @@ def _migrate_add_columns(engine):
         ("training_pairs", "execution_languages", "VARCHAR(100)"),
         # retrieval trace persistence (added with trace schema v3)
         ("telemetry_events", "retrieval_trace_json", "TEXT"),
+        # retrieval quality signals (crag + confidence)
+        ("telemetry_events", "crag_verdict", "VARCHAR(20)"),
+        ("telemetry_events", "retrieval_confidence_band", "VARCHAR(20)"),
+        ("telemetry_events", "retrieval_confidence_score", "FLOAT"),
     ]
     with engine.connect() as conn:
         for table, column, col_type in migrations:
