@@ -253,6 +253,10 @@ class _DropCounter:
         self._by_group = {}
         self._by_window = {}  # 5-minute windows
 
+    def total(self) -> int:
+        with self._lock:
+            return self._total
+
     def record_drop(self, experiment_group: str = "unknown"):
         with self._lock:
             self._total += 1
@@ -332,8 +336,9 @@ def _telemetry_writer_loop():
         except Exception as e:
             logger.warning(f"Telemetry async write failed (dropped): {e}")
             _drop_counter.record_drop(event_kwargs.get("experiment_group", "unknown"))
-            if _drop_counter._total % 10 == 0:
-                logger.warning(f"Telemetry drop count: {_drop_counter._total} total")
+            drop_total = _drop_counter.total()
+            if drop_total % 10 == 0:
+                logger.warning(f"Telemetry drop count: {drop_total} total")
             if db:
                 try:
                     db.rollback()

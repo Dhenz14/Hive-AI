@@ -2,8 +2,10 @@ import os
 import re
 import json
 import logging
+import sys
 import threading
 import uuid
+from pathlib import Path
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, Response
 from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, CrawledPage, Chunk, BookSection, SystemConfig, TrainingPair, LoraVersion, ChatFeedback, Community, HiveKnown, TelemetryEvent, utcnow
 from hiveai.llm.client import fast, smart_call, embed_text, clean_llm_response, stream_llm_call
@@ -2278,11 +2280,17 @@ def _extract_and_store_entities(user_message, ai_response, pair_id, primary_lang
             return
         try:
             entities = _json.loads(content_str)
-        except _json.JSONDecodeError:
+        except _json.JSONDecodeError as e1:
+            logger.debug(f"Entity direct parse failed: {e1}, trying regex extraction")
             m = _re.search(r'\[.*?\]', content_str, _re.DOTALL)
             if not m:
+                logger.debug("Entity regex extraction found no JSON array")
                 return
-            entities = _json.loads(m.group())
+            try:
+                entities = _json.loads(m.group())
+            except _json.JSONDecodeError as e2:
+                logger.debug(f"Entity regex extraction parse failed: {e2}")
+                return
     except Exception as e:
         logger.debug(f"Entity extraction skipped: {e}")
         return  # Never fail promotion because of entity extraction
@@ -2634,8 +2642,8 @@ def _auto_stage_verified_pair(user_message, ai_response, verification, db):
         ).hexdigest()
 
         existing_hash = db.query(TrainingPair).filter(
-            TrainingPair.metadata_json.contains(_content_hash),
-        ).first()
+            sa_text("json_extract(training_pairs.metadata_json, '$.content_hash') = :hash")
+        ).params(hash=_content_hash).first()
         if existing_hash:
             logger.debug(f"Auto-stage skipped: exact content hash duplicate {_content_hash[:12]}")
             return None
