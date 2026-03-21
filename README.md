@@ -134,6 +134,36 @@ RAY_HEAD_ADDRESS=COMPUTER_A_IP:6379 docker compose -f docker-compose.spiritbomb.
 
 ---
 
+## Quick Start (Docker — Recommended)
+
+The fastest way to run HiveAI. Requires Docker with NVIDIA Container Toolkit.
+
+```bash
+git clone https://github.com/Dhenz14/Hive-AI.git
+cd Hive-AI
+
+# First-time setup (checks prerequisites, creates .env)
+bash scripts/setup.sh
+
+# Download the model (~10GB)
+pip install huggingface-hub
+huggingface-cli download Dhenz14/hiveai-v5-think --local-dir ./models
+
+# Launch (Flask + llama-server with GPU)
+docker compose up
+```
+
+Open **http://localhost:5001** — done.
+
+**Configuration** (via `.env` or environment variables):
+- `HIVEAI_MODEL_FILE` — GGUF filename (default: `current_base.gguf`)
+- `LLM_CTX_SIZE` — Context window (default: `8192`)
+- `LLAMA_THREADS` — CPU threads (default: `12`)
+
+**Optional Ollama fallback**: `docker compose --profile with-ollama up`
+
+---
+
 ## Quick Start (Windows)
 
 ### 1. Install Prerequisites
@@ -435,18 +465,39 @@ python -m bench.run_bench --model qwen3.5:9b --category single_shot debug
 
 Results are saved as timestamped JSON in `bench/results/` for tracking improvements across training cycles.
 
+### Current Model: v5-think (Frozen)
+
+**Base**: Qwen2.5-Coder-14B-Instruct → v1-hive → v2-think → v3-think → v4-recovery → v5-think (Q5_K_M, 9.9GB)
+
+**Overall score: 94.65%** across 60 probes / 6 domains.
+
+| Domain | Score |
+|--------|-------|
+| C++ | 91.65% |
+| Go | 96.20% |
+| Hive | 98.25% |
+| JS/TS | 95.40% |
+| Python | 93.42% |
+| Rust | 93.00% |
+
+v5-think is **frozen** — the golden chain (sequential LoRA merge) hit its architectural ceiling. Knowledge growth now happens via RAG (Layer 1), not weight updates. See the 4-layer architecture below.
+
+### 4-Layer Daily Learning Architecture
+
+- **Layer 0: Core Brain** — Frozen v5-think. Stable reasoning/coding core.
+- **Layer 1: RAG/Retrieval** — Where the system learns every day. 12,000+ BookSections with hybrid search (BM25+semantic), cross-encoder reranking, and contextual retrieval prefixes. Verified chat responses auto-promote to retrievable knowledge.
+- **Layer 2: Skill Buffer** — Verified training pairs accumulate passively from chat. Not immediate training.
+- **Layer 3: Rare Promotion** — Event-driven training only when 4 conditions align: repeated miss, retrieval insufficient, executable eval exists, big expected gain (>3%).
+
 ### LoRA Version History
 
-| Version | Base Model | Status | Pairs | Eval Score | Notes |
-|---------|-----------|--------|-------|------------|-------|
-| v1 | Qwen3-14B | Ready | 1,104 | 0.853 (+15%) | First successful training, proven |
-| v1.5 | Qwen3-14B | Cancelled | — | — | Superseded by v2 |
-| v2 | Qwen3.5-35B-A3B | Killed | — | — | Superseded by v3 |
-| v3 | Qwen3.5-35B-A3B (pruned) | Failed | 2,385 | — | Gate-expert alignment bug |
-| v4 | Qwen3.5-35B-A3B (pruned) | Blocked | 2,414 | — | MoE-aware ESFT + KL-anchored SFT |
-| v5 | Qwen3.5-9B / Qwen3.5-4B | Failed | — | — | VLM architecture incompatible with QLoRA (loss diverged) |
-| v6 | Qwen2.5-Coder-14B | Training | 5,585 | — | QLoRA r=32, seq=4096, loss 0.34-0.57 at step 585/621, 5% val split + early stopping |
-| v7 | Qwen2.5-Coder-14B | Prep | 6,698 | — | v6 data + 995 new pairs, ready for next cycle |
+| Version | Base Model | Status | Score | Notes |
+|---------|-----------|--------|-------|-------|
+| v1-hive | Qwen2.5-Coder-14B | Merged | 93.5% | Hive blockchain specialization |
+| v4-recovery | Qwen2.5-Coder-14B | Merged | 93.3% | Recovery from v3 regression |
+| **v5-think** | **Qwen2.5-Coder-14B** | **FROZEN** | **94.65%** | **Current production model** |
+| v6-think | Qwen2.5-Coder-14B | Failed | — | LR explosion (LoRA+ 16x = 3.2e-3 effective) |
+| v7-think | Qwen2.5-Coder-14B | Failed | 93.3% | CKA 0.978 but keyword knowledge erased |
 
 #### Claude Opus Distillation Corpus
 
