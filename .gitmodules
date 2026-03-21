@@ -1,0 +1,3 @@
+[submodule "skills/hive-master"]
+	path = skills/hive-master
+	url = https://github.com/Mantequilla-Soft/hive-master-skill.git
