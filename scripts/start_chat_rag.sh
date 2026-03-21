@@ -77,6 +77,9 @@ WIN_GATEWAY=$(ip route | grep default | awk '{print $3}')
 HIVEPOA_URL_RESOLVED="${HIVEPOA_URL:-http://${WIN_GATEWAY}:5000}"
 echo "[hivepoa] Auto-detected gateway: $WIN_GATEWAY → $HIVEPOA_URL_RESOLVED"
 
+# HivePoA API key (for compute job creation + pool access)
+HIVEPOA_KEY="${HIVEPOA_API_KEY:-a7590e22d0ca9fb47e9f80bd2603e0bb19cd1d985492c92715a901b8ba8a7969}"
+
 echo "[flask] Starting in tmux session '$FLASK_SESSION'..."
 tmux new-session -d -s "$FLASK_SESSION" \
     "cd /opt/hiveai/project && \
@@ -85,6 +88,7 @@ tmux new-session -d -s "$FLASK_SESSION" \
      LLM_CTX_SIZE=$CTX_SIZE \
      RUNTIME_MODE=chat_rag \
      HIVEPOA_URL=$HIVEPOA_URL_RESOLVED \
+     HIVEPOA_API_KEY=$HIVEPOA_KEY \
      python3 -m flask --app hiveai.app run --host 0.0.0.0 --port 5001 2>&1 | tee /opt/hiveai/project/logs/flask_chat.log"
 
 # Wait for Flask health
@@ -102,12 +106,22 @@ for i in $(seq 1 30); do
     fi
 done
 
+# --- Step 4: Check HivePoA pool ---
+POOL_GPUS=0
+if curl -sf "$HIVEPOA_URL_RESOLVED/api/compute/pool/stats" > /dev/null 2>&1; then
+    POOL_GPUS=$(curl -s "$HIVEPOA_URL_RESOLVED/api/compute/pool/stats" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('pool',{}).get('healthyCount',0))" 2>/dev/null || echo 0)
+    echo "[pool] Spirit Bomb connected: $POOL_GPUS GPUs online"
+else
+    echo "[pool] HivePoA not reachable — pool features offline (local inference only)"
+fi
+
 # --- Status ---
 echo ""
 echo "════════════════════════════════════════════════════════"
 echo "  HiveAI running ENTIRELY in WSL"
 echo "  Chat:     http://localhost:5001"
 echo "  LLM:      http://localhost:$PORT (ctx-size $CTX_SIZE)"
+echo "  Pool:     $HIVEPOA_URL_RESOLVED ($POOL_GPUS GPUs)"
 echo "  Database: /opt/hiveai/project/hiveai.db (ONE database)"
 echo ""
 echo "  tmux sessions: $TMUX_SESSION, $FLASK_SESSION"
