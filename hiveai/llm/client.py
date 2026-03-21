@@ -547,6 +547,35 @@ def get_last_eval_count() -> int:
         return _last_eval_count
 
 
+def _try_pool_inference(prompt: str, max_tokens: int = 4096) -> str | None:
+    """Try HivePoA GPU pool for inference. Returns response text or None if unavailable."""
+    hivepoa_url = os.environ.get("HIVEPOA_URL", "http://localhost:5000")
+    pool_enabled = os.environ.get("POOL_INFERENCE_ENABLED", "true").lower() in ("1", "true", "yes")
+    if not pool_enabled:
+        return None
+    try:
+        # Quick health check (2s timeout)
+        stats = requests.get(f"{hivepoa_url}/api/compute/pool/stats", timeout=2).json()
+        healthy = stats.get("pool", {}).get("healthyCount", 0)
+        if healthy < 1:
+            return None
+        # Route through pool
+        resp = requests.post(
+            f"{hivepoa_url}/api/compute/inference",
+            json={"prompt": prompt, "mode": "pool", "max_tokens": max_tokens},
+            timeout=120,
+        )
+        if resp.ok:
+            data = resp.json()
+            text = data.get("text", "")
+            if text:
+                logger.info(f"Pool inference OK: {healthy} GPUs, routed to {data.get('routed_to', '?')}, {data.get('latency_ms', '?')}ms")
+                return text
+    except Exception as e:
+        logger.debug(f"Pool inference unavailable: {e}")
+    return None
+
+
 def smart_call(prompt: str, question: str = "", num_sections: int = 0,
                max_tokens: int = 4096, system_prompt: str = None,
                messages: list = None) -> str:
@@ -559,9 +588,15 @@ def smart_call(prompt: str, question: str = "", num_sections: int = 0,
 
     When MoLoRA is enabled, domain-specialized models are tried first.
 
-    This saves significant VRAM and latency for 60-70% of typical queries
-    while preserving quality for the hard ones.
+    Pool routing: if HivePoA GPU pool is online, simple queries route there
+    first for lower latency. Falls back to local on failure.
     """
+    # Pool routing for simple queries (skip for RAG-heavy requests with many sections)
+    if messages is None and num_sections < 3:
+        pool_result = _try_pool_inference(prompt, max_tokens)
+        if pool_result is not None:
+            return pool_result
+
     # MoLoRA domain routing (if enabled and initialized)
     if _molora_router is not None:
         try:

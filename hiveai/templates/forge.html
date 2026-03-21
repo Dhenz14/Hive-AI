@@ -1515,7 +1515,7 @@ async function checkPoolStatus() {
     try {
         const r = await fetch('/api/gpu/pool');
         const data = await r.json();
-        const gpus = data.tier?.totalGpus || data.totalGpus || 0;
+        const gpus = data.pool?.healthyCount || data.tier?.totalGpus || 0;
         if (gpus > 0) {
             badge.textContent = `${gpus} GPU${gpus > 1 ? 's' : ''} online`;
             badge.style.background = 'var(--success)';

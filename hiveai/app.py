@@ -4323,16 +4323,19 @@ HIVEPOA_URL = os.environ.get("HIVEPOA_URL", "http://localhost:5000")
 def gpu_pool_status():
     """Get community GPU pool status from HivePoA."""
     import urllib.request
-    try:
-        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/dashboard")
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read())
-            return jsonify(data)
-    except Exception as e:
-        return jsonify({
-            "tier": {"tier": 1, "totalGpus": 0, "message": "HivePoA not reachable"},
-            "error": str(e),
-        })
+    # Try the live pool/stats endpoint first (Spirit Bomb), fall back to community/dashboard
+    for path in ["/api/compute/pool/stats", "/api/community/dashboard"]:
+        try:
+            req = urllib.request.Request(f"{HIVEPOA_URL}{path}")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                return jsonify(data)
+        except Exception:
+            continue
+    return jsonify({
+        "pool": {"healthyCount": 0, "totalVramGb": 0, "nodes": []},
+        "error": "HivePoA not reachable",
+    })
 
 
 @app.route("/api/gpu/clusters")
@@ -4369,15 +4372,19 @@ def gpu_inference_modes():
     local_backend = get_active_backend()
     local_available = local_backend in ("ollama", "llama-server")
 
-    # Check cluster availability via HivePoA
+    # Check pool availability via HivePoA (Spirit Bomb)
     cluster_available = False
     cluster_gpus = 0
+    pool_latency = None
     try:
-        req = urllib.request.Request(f"{HIVEPOA_URL}/api/community/tier")
+        req = urllib.request.Request(f"{HIVEPOA_URL}/api/compute/pool/stats")
         with urllib.request.urlopen(req, timeout=3) as resp:
-            tier_data = json.loads(resp.read())
-            cluster_gpus = tier_data.get("totalGpus", 0)
-            cluster_available = cluster_gpus >= 2
+            pool_data = json.loads(resp.read())
+            pool_info = pool_data.get("pool", {})
+            cluster_gpus = pool_info.get("healthyCount", 0)
+            cluster_available = cluster_gpus > 0
+            routing = pool_data.get("routing24h", {})
+            pool_latency = routing.get("avgLatencyMs")
     except Exception:
         pass
 
@@ -4387,12 +4394,13 @@ def gpu_inference_modes():
             "backend": local_backend,
             "description": "Hive-AI local — smart routing, RAG, LoRA adapters",
         },
-        "cluster": {
+        "pool": {
             "available": cluster_available,
             "gpus": cluster_gpus,
-            "description": f"Community GPU pool — {cluster_gpus} GPUs available",
+            "avg_latency_ms": pool_latency,
+            "description": f"Spirit Bomb GPU pool — {cluster_gpus} GPUs online",
         },
-        "best_available": "cluster" if cluster_available else ("local" if local_available else "none"),
+        "best_available": "pool" if cluster_available else ("local" if local_available else "none"),
     })
 
 
