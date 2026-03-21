@@ -4417,6 +4417,112 @@ def gpu_contribute_info():
 
 
 # ---------------------------------------------------------------------------
+# Community GPU Pool — Submit training jobs to HivePoA
+# ---------------------------------------------------------------------------
+
+@app.route("/api/pool/submit-job", methods=["POST"])
+def pool_submit_job():
+    """
+    Submit a training/eval job to the HivePoA community GPU pool.
+
+    Body (JSON):
+      workload_type  str   -- "eval_sweep", "adapter_training", "benchmark_run"
+      manifest       dict  -- workload-specific config (dataset, domain, params)
+      budget_hbd     str   -- max budget in HBD (e.g. "1.000")
+      min_vram_gb    int   -- minimum VRAM required (default 16)
+      priority       int   -- 0=normal, higher=faster scheduling
+    """
+    data = request.get_json() or {}
+    workload_type = data.get("workload_type", "")
+    manifest = data.get("manifest", {})
+    budget_hbd = data.get("budget_hbd", "0.500")
+    min_vram_gb = data.get("min_vram_gb", 16)
+    priority = data.get("priority", 0)
+
+    if not workload_type:
+        return jsonify({"error": "workload_type is required"}), 400
+    if workload_type not in ("eval_sweep", "adapter_training", "benchmark_run", "data_generation"):
+        return jsonify({"error": f"Unknown workload_type: {workload_type}"}), 400
+    if not manifest:
+        return jsonify({"error": "manifest is required"}), 400
+
+    try:
+        from hiveai.dbc.compute_client import HivePoAComputeClient
+        client = HivePoAComputeClient(
+            base_url=HIVEPOA_URL,
+            api_key=os.environ.get("HIVEPOA_API_KEY"),
+            auth_token=os.environ.get("HIVEPOA_AUTH_TOKEN"),
+        )
+        result = client.create_job(
+            workload_type=workload_type,
+            manifest=manifest,
+            budget_hbd=str(budget_hbd),
+            priority=priority,
+            min_vram_gb=min_vram_gb,
+        )
+        logging.getLogger(__name__).info(
+            f"Pool job submitted: {result.get('id', '?')} type={workload_type}"
+        )
+        return jsonify({"ok": True, "job": result})
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Pool job submission failed: {e}")
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/pool/jobs")
+def pool_list_jobs():
+    """List jobs submitted to the HivePoA pool."""
+    try:
+        from hiveai.dbc.compute_client import HivePoAComputeClient
+        client = HivePoAComputeClient(
+            base_url=HIVEPOA_URL,
+            api_key=os.environ.get("HIVEPOA_API_KEY"),
+            auth_token=os.environ.get("HIVEPOA_AUTH_TOKEN"),
+        )
+        limit = request.args.get("limit", 50, type=int)
+        jobs = client.get_my_jobs(limit=limit)
+        return jsonify({"jobs": jobs, "count": len(jobs)})
+    except Exception as e:
+        return jsonify({"jobs": [], "count": 0, "error": str(e)})
+
+
+@app.route("/api/pool/jobs/<job_id>")
+def pool_job_status(job_id):
+    """Get status of a specific pool job."""
+    try:
+        from hiveai.dbc.compute_client import HivePoAComputeClient
+        client = HivePoAComputeClient(
+            base_url=HIVEPOA_URL,
+            api_key=os.environ.get("HIVEPOA_API_KEY"),
+            auth_token=os.environ.get("HIVEPOA_AUTH_TOKEN"),
+        )
+        job = client.get_job(job_id)
+        return jsonify(job)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/pool/estimate", methods=["POST"])
+def pool_estimate_cost():
+    """Estimate cost for a pool job before submitting."""
+    data = request.get_json() or {}
+    workload_type = data.get("workload_type", "eval_sweep")
+    min_vram_gb = data.get("min_vram_gb", 16)
+
+    try:
+        from hiveai.dbc.compute_client import HivePoAComputeClient
+        client = HivePoAComputeClient(
+            base_url=HIVEPOA_URL,
+            api_key=os.environ.get("HIVEPOA_API_KEY"),
+            auth_token=os.environ.get("HIVEPOA_AUTH_TOKEN"),
+        )
+        estimate = client.estimate_cost(workload_type, min_vram_gb)
+        return jsonify(estimate)
+    except Exception as e:
+        return jsonify({"error": str(e), "estimated_hbd": "unknown"})
+
+
+# ---------------------------------------------------------------------------
 # Compute / Inference API — Pool & Cluster mode endpoints for HivePoA
 # ---------------------------------------------------------------------------
 

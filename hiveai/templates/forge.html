@@ -269,6 +269,51 @@
     <div id="qmt-feedback" class="feedback-box" style="margin-top: 0.6rem;"></div>
 </div>
 
+<!-- Submit to Community GPU Pool -->
+<div class="forge-card" id="pool-submit-card">
+    <h2 style="display: flex; align-items: center; gap: 0.5rem;">
+        Submit to GPU Pool
+        <span id="pool-status-badge" style="font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: 12px; background: var(--bg-deep); color: var(--text-muted); border: 1px solid var(--border);">checking...</span>
+    </h2>
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.8rem;">
+        Send training or eval jobs to the HivePoA community GPU pool. More GPUs = faster results.
+    </p>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="font-size: 0.85rem; color: var(--amber); display: block; margin-bottom: 0.3rem;">Workload Type</label>
+        <select id="pool-workload-type" style="width: 100%; padding: 0.5rem 0.7rem; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.9rem;">
+            <option value="eval_sweep">Eval Sweep (60-probe regression)</option>
+            <option value="benchmark_run">Benchmark Run</option>
+            <option value="adapter_training">Adapter Training (LoRA)</option>
+            <option value="data_generation">Data Generation</option>
+        </select>
+    </div>
+    <div style="margin-bottom: 0.8rem;">
+        <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Dataset / Config (JSON manifest)</label>
+        <textarea id="pool-manifest" rows="3" placeholder='{"domain": "python", "probes": 60, "model_path": "/models/current_base.gguf"}'
+                  style="width: 100%; padding: 0.5rem 0.7rem; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; resize: vertical; box-sizing: border-box;"></textarea>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.8rem;">
+        <div style="flex: 1;">
+            <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Budget (HBD)</label>
+            <input type="text" id="pool-budget" value="0.500" style="width: 100%; padding: 0.5rem 0.7rem; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.9rem; box-sizing: border-box;">
+        </div>
+        <div style="flex: 1;">
+            <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Min VRAM (GB)</label>
+            <input type="number" id="pool-min-vram" value="16" min="4" max="80" style="width: 100%; padding: 0.5rem 0.7rem; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.9rem; box-sizing: border-box;">
+        </div>
+    </div>
+    <button class="btn-forge" onclick="submitToPool()" id="pool-submit-btn" style="width: 100%; padding: 0.6rem;">
+        Submit to Pool
+    </button>
+    <div id="pool-feedback" class="feedback-box" style="margin-top: 0.6rem;"></div>
+
+    <!-- Active Pool Jobs -->
+    <div id="pool-jobs-list" style="margin-top: 1rem; display: none;">
+        <h3 style="font-size: 0.9rem; color: var(--amber); margin-bottom: 0.5rem;">Active Jobs</h3>
+        <div id="pool-jobs-container"></div>
+    </div>
+</div>
+
 <!-- Batch Queue -->
 <div class="forge-card" id="batch-queue-card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
@@ -1462,6 +1507,103 @@ function stopTmPoll() {
         clearInterval(_tmPollTimer);
         _tmPollTimer = null;
     }
+}
+
+// ── GPU Pool Integration ──────────────────────────────────────
+async function checkPoolStatus() {
+    const badge = document.getElementById('pool-status-badge');
+    try {
+        const r = await fetch('/api/gpu/pool');
+        const data = await r.json();
+        const gpus = data.tier?.totalGpus || data.totalGpus || 0;
+        if (gpus > 0) {
+            badge.textContent = `${gpus} GPU${gpus > 1 ? 's' : ''} online`;
+            badge.style.background = 'var(--success)';
+            badge.style.color = '#000';
+            badge.style.borderColor = 'var(--success)';
+        } else {
+            badge.textContent = 'offline';
+            badge.style.background = 'var(--bg-deep)';
+            badge.style.color = 'var(--text-muted)';
+        }
+    } catch {
+        badge.textContent = 'unreachable';
+        badge.style.color = 'var(--error)';
+    }
+}
+
+async function submitToPool() {
+    const workloadType = document.getElementById('pool-workload-type').value;
+    const manifestText = document.getElementById('pool-manifest').value.trim();
+    const budget = document.getElementById('pool-budget').value.trim();
+    const minVram = parseInt(document.getElementById('pool-min-vram').value) || 16;
+    const feedback = document.getElementById('pool-feedback');
+    const btn = document.getElementById('pool-submit-btn');
+
+    let manifest;
+    try {
+        manifest = manifestText ? JSON.parse(manifestText) : {};
+    } catch (e) {
+        showFeedback(feedback, 'error', 'Invalid JSON in manifest field.');
+        return;
+    }
+
+    btn.disabled = true;
+    showFeedback(feedback, 'info', 'Submitting to community GPU pool...');
+
+    try {
+        const r = await fetch('/api/pool/submit-job', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                workload_type: workloadType,
+                manifest: manifest,
+                budget_hbd: budget,
+                min_vram_gb: minVram,
+            }),
+        });
+        const data = await r.json();
+        if (r.ok && data.ok) {
+            showFeedback(feedback, 'success',
+                `Job submitted! ID: ${data.job?.id || '?'}. Workload: ${workloadType}`);
+            loadPoolJobs();
+        } else {
+            showFeedback(feedback, 'error', data.error || 'Submission failed');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', `Network error: ${e.message}`);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function loadPoolJobs() {
+    const container = document.getElementById('pool-jobs-container');
+    const wrapper = document.getElementById('pool-jobs-list');
+    try {
+        const r = await fetch('/api/pool/jobs?limit=10');
+        const data = await r.json();
+        if (data.jobs && data.jobs.length > 0) {
+            wrapper.style.display = 'block';
+            container.innerHTML = data.jobs.map(j => `
+                <div style="padding: 0.5rem; margin-bottom: 0.4rem; background: var(--bg-deep); border-radius: 6px; border: 1px solid var(--border); font-size: 0.82rem;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span style="color: var(--amber);">${j.workload_type || '?'}</span>
+                        <span style="color: ${j.status === 'completed' ? 'var(--success)' : j.status === 'failed' ? 'var(--error)' : 'var(--cyan)'};">${j.status || '?'}</span>
+                    </div>
+                    <div style="color: var(--text-muted); margin-top: 0.2rem;">ID: ${(j.id || '').slice(0, 12)}... | Budget: ${j.budget_hbd || '?'} HBD</div>
+                </div>
+            `).join('');
+        } else {
+            wrapper.style.display = 'none';
+        }
+    } catch { wrapper.style.display = 'none'; }
+}
+
+// Check pool status on page load
+if (document.getElementById('pool-status-badge')) {
+    checkPoolStatus();
+    setInterval(checkPoolStatus, 30000);
 }
 
 async function quickMicroTrain() {
