@@ -79,7 +79,7 @@ MIN_CLUSTER_VRAM_GB = 24  # minimum combined VRAM for pipeline parallel
 MAX_CLUSTER_LATENCY_MS = 50  # intra-cluster latency target
 TP_LATENCY_THRESHOLD_MS = 10  # tensor parallel requires <10ms
 MIN_CLUSTER_SIZE = 2  # minimum nodes for a cluster
-POLL_INTERVAL_SECONDS = 900  # 15 minutes
+POLL_INTERVAL_SECONDS = 90  # 90 seconds — fast enough for real-time tier changes
 
 
 @dataclass
