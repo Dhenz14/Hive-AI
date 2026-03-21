@@ -1,0 +1,19 @@
+{
+  "name": "hiveai_system",
+  "title": "HiveAI System Architecture & Operations",
+  "description": "Expert knowledge on the HiveAI Knowledge Refinery — RAG pipeline, training system, GPU scaling, operational patterns, and debugging",
+  "test_cases": [
+    {
+      "input": "How does the RAG pipeline work in HiveAI?",
+      "expected_keywords": ["hybrid_search", "BM25", "reranker", "BookSection", "vectorstore"]
+    },
+    {
+      "input": "How do I run a training cycle on HiveAI?",
+      "expected_keywords": ["run_full_cycle", "train_v5", "safe_merge", "regression_eval", "Layer 3"]
+    },
+    {
+      "input": "Why is cpp-variadic dropping in my eval?",
+      "expected_keywords": ["flash-attn", "universal fragility", "0.925", "0.725"]
+    }
+  ]
+}
