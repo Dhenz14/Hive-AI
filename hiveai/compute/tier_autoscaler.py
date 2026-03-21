@@ -52,7 +52,8 @@ DOWNGRADE_THRESHOLDS = {
 }
 
 # Minimum time between tier transitions (prevents flapping)
-MIN_TRANSITION_INTERVAL_SECONDS = 900  # 15 min
+# Upgrades can happen faster (low risk), downgrades need more caution
+MIN_TRANSITION_INTERVAL_SECONDS = 300  # 5 min
 
 # Drain period before completing downgrade
 DRAIN_PERIOD_SECONDS = 60  # give in-flight requests 60s to finish
@@ -78,7 +79,7 @@ class AutoscalerState:
     transition_history: list[TierTransition] = field(default_factory=list)
     # Smoothed GPU count (exponential moving average to dampen spikes)
     smoothed_gpu_count: float = 0.0
-    ema_alpha: float = 0.3  # weight for new observation
+    ema_alpha: float = 0.15  # weight for new observation (lower = more stable)
 
 
 class TierAutoscaler:
