@@ -9,7 +9,7 @@ from hiveai.models import init_db, SessionLocal, Job, GoldenBook, GraphTriple, C
 from hiveai.llm.client import fast, smart_call, embed_text, clean_llm_response, stream_llm_call
 from sqlalchemy import text as sa_text
 from hiveai.llm.prompts import CHAT_SYSTEM_PROMPT, KNOWLEDGE_GAP_PROMPT, ANSWER_CHECK_PROMPT, EXECUTABLE_CODE_INSTRUCTION, EXECUTABLE_REPAIR_PROMPT
-from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context
+from hiveai.chat import search_knowledge_sections, build_conversation_context, build_message_array, clean_topic, trigger_auto_learn, get_compressed_knowledge, budget_context, safe_extract_content
 from skills.skill_loader import load_skills_for_query
 from hiveai.orchestrator import classify_request, should_retry_verification, build_revision_prompt
 
@@ -30,6 +30,13 @@ if os.name == 'nt' and not os.environ.get('HIVEAI_ALLOW_WINDOWS'):
     raise SystemExit(1)
 
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _error_payload(error_type: str, message: str, **kwargs) -> dict:
+    """Consistent error payload for both JSON and SSE responses."""
+    payload = {"error": error_type, "message": message}
+    payload.update(kwargs)
+    return payload
+
 
 app = Flask(__name__,
             template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -816,7 +823,9 @@ def compaction_quality_api():
         ?threshold=0.5      — flag books below this quality
         ?with_embeddings=1  — include semantic similarity (slower)
     """
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    _project_root = str(Path(__file__).resolve().parent.parent)
+    if _project_root not in sys.path:
+        sys.path.insert(0, _project_root)
     from scripts.compaction_quality import measure_quality
     db = SessionLocal()
     try:
@@ -984,6 +993,17 @@ def chat_api():
     data = request.get_json()
     message = (data.get("message") or "").strip()
     history = data.get("history", [])
+    # Validate history: must be list of {role, content} dicts, max 50
+    if not isinstance(history, list):
+        history = []
+    history = history[-50:] if len(history) > 50 else history
+    history = [
+        msg for msg in history
+        if isinstance(msg, dict)
+        and isinstance(msg.get("role"), str)
+        and isinstance(msg.get("content"), str)
+        and msg["role"] in ("user", "assistant", "system")
+    ]
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
@@ -1574,13 +1594,11 @@ Answer the question directly and helpfully."""
         return jsonify(result)
     except LLMProviderUnavailable as e:
         logging.getLogger(__name__).warning(f"LLM provider unavailable: {e}")
-        return jsonify({
-            "error": "llm_provider_unavailable",
-            "message": f"No LLM provider is currently available ({e.detail}). "
-                       f"Please check that Ollama is running or that your API key has credits.",
-            "provider": e.provider,
-            "detail": e.detail,
-        }), 503
+        return jsonify(_error_payload(
+            "llm_provider_unavailable",
+            f"No LLM provider is currently available ({e.detail}). Please check that Ollama is running or that your API key has credits.",
+            provider=e.provider, detail=e.detail,
+        )), 503
     finally:
         db.close()
 
@@ -2179,10 +2197,10 @@ Answer using ONLY the knowledge sections above. If you lack knowledge, respond w
                     yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
         except LLMProviderUnavailable as e:
             logging.getLogger(__name__).warning(f"LLM provider unavailable (stream): {e}")
-            yield f"event: error\ndata: {json.dumps({'error': 'llm_provider_unavailable', 'message': f'No LLM provider is currently available ({e.detail}). Please check that Ollama is running or that your API key has credits.', 'provider': e.provider, 'detail': e.detail})}\n\n"
+            yield f"event: error\ndata: {json.dumps(_error_payload('llm_provider_unavailable', f'No LLM provider is currently available ({e.detail}).', provider=e.provider, detail=e.detail))}\n\n"
         except Exception as e:
             logging.getLogger(__name__).error(f"Stream chat error: {e}")
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+            yield f"event: error\ndata: {json.dumps(_error_payload('internal_error', str(e)))}\n\n"
         finally:
             db.close()
 
@@ -2255,11 +2273,16 @@ def _extract_and_store_entities(user_message, ai_response, pair_id, primary_lang
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             raw = _json.loads(resp.read())
-        content_str = raw["choices"][0]["message"]["content"].strip()
-        m = _re.search(r'\[.*\]', content_str, _re.DOTALL)
-        if not m:
+        content_str = safe_extract_content(raw)
+        if content_str is None:
             return
-        entities = _json.loads(m.group())
+        try:
+            entities = _json.loads(content_str)
+        except _json.JSONDecodeError:
+            m = _re.search(r'\[.*?\]', content_str, _re.DOTALL)
+            if not m:
+                return
+            entities = _json.loads(m.group())
     except Exception as e:
         logger.debug(f"Entity extraction skipped: {e}")
         return  # Never fail promotion because of entity extraction
@@ -2358,8 +2381,8 @@ def promote_candidate_to_knowledge(
     # Dedup: skip if this content_hash already exists as a solved example
     if content_hash:
         existing = db.query(BookSection).filter(
-            BookSection.keywords_json.contains(content_hash)
-        ).first()
+            sa_text("json_extract(book_sections.keywords_json, '$.content_hash') = :hash")
+        ).params(hash=content_hash).first()
         if existing:
             logger.debug(f"Promotion skipped: duplicate content_hash {content_hash[:16]}")
             return None

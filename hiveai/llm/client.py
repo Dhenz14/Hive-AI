@@ -298,7 +298,8 @@ def llm_call(prompt, system_prompt="You are a knowledge extraction and synthesis
 
         # Track eval_count for accurate token reporting to HivePoA
         global _last_eval_count
-        _last_eval_count = getattr(response.usage, 'completion_tokens', 0) if response.usage else 0
+        with _eval_count_lock:
+            _last_eval_count = getattr(response.usage, 'completion_tokens', 0) if response.usage else 0
 
         # Cache the response for future identical queries
         if use_cache and temperature <= 0.3 and content:
@@ -538,10 +539,12 @@ def estimate_query_difficulty(question: str, num_sections: int = 0) -> str:
 
 # Track the last eval_count from LLM responses (for accurate token counting)
 _last_eval_count: int = 0
+_eval_count_lock = threading.Lock()
 
 def get_last_eval_count() -> int:
     """Return the eval_count from the most recent LLM call, or 0 if unavailable."""
-    return _last_eval_count
+    with _eval_count_lock:
+        return _last_eval_count
 
 
 def smart_call(prompt: str, question: str = "", num_sections: int = 0,

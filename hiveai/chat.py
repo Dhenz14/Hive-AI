@@ -11,6 +11,22 @@ from hiveai.config import RAG_CACHE_TTL, RAG_CACHE_MAX, ENABLE_RERANKING
 
 log = logging.getLogger(__name__)
 
+
+def safe_extract_content(data: dict) -> str | None:
+    """Extract content from OpenAI-compatible response, or None if malformed."""
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not choices or not isinstance(choices, list):
+        return None
+    first = choices[0] if len(choices) > 0 else None
+    if not isinstance(first, dict):
+        return None
+    msg = first.get("message")
+    if not isinstance(msg, dict):
+        return None
+    content = msg.get("content")
+    return content.strip() if isinstance(content, str) and content.strip() else None
+
+
 # RAG query result cache — LRU eviction, avoids re-embedding + re-searching.
 # Key: hash(query), Value: (timestamp, sections, source_books, books)
 _rag_cache: OrderedDict = OrderedDict()
@@ -156,7 +172,9 @@ def _llm_extract_keywords(question, history=None):
                 )
                 resp = urllib.request.urlopen(req, timeout=5)
                 data = _json.loads(resp.read().decode())
-                content = data["choices"][0]["message"]["content"].strip()
+                content = safe_extract_content(data)
+                if content is None:
+                    continue
 
                 # Parse JSON array from response
                 # Handle markdown fences
@@ -219,7 +237,9 @@ def _extract_section_keywords(header, content):
                 )
                 resp = urllib.request.urlopen(req, timeout=10)
                 data = _json.loads(resp.read().decode())
-                raw = data["choices"][0]["message"]["content"].strip()
+                raw = safe_extract_content(data)
+                if raw is None:
+                    continue
 
                 # Handle markdown fences
                 if "```" in raw:
@@ -460,11 +480,14 @@ def _rewrite_query_for_retrieval(query):
         )
         with urllib.request.urlopen(req, timeout=8) as resp:
             raw = _json.loads(resp.read())
-        rewritten = raw["choices"][0]["message"]["content"].strip()
+        rewritten = safe_extract_content(raw)
+        if rewritten is None:
+            return None
         # Strip markdown/quotes if the model wraps its answer
         rewritten = rewritten.strip('"\'`')
         return rewritten if rewritten else None
-    except Exception:
+    except Exception as e:
+        log.debug(f"Query rewrite failed: {e}")
         return None
 
 
@@ -516,8 +539,8 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
                 _crit_bid = get_critique_book_id(db)
                 if _crit_bid and _crit_bid > 0:
                     _exclude_book_ids.add(_crit_bid)
-        except Exception:
-            pass  # critique system not yet initialized — no exclusion needed
+        except Exception as e:
+            log.debug(f"Critique exclusion setup skipped: {e}")
 
         top_sections = hybrid_search(
             db, query_str, query_embedding, limit=12,
@@ -734,9 +757,13 @@ def search_knowledge_sections(question, db, history=None, retrieval_mode="preinj
     except Exception as e:
         logging.getLogger(__name__).warning(f"Vector search failed, falling back to keyword search: {e}")
 
-    result = keyword_search_sections(question, db, history=history)
-    _rag_cache_store(cache_key, *result)
-    return result
+    try:
+        result = keyword_search_sections(question, db, history=history)
+        _rag_cache_store(cache_key, *result)
+        return result
+    except Exception as e2:
+        logging.getLogger(__name__).error(f"Keyword search fallback also failed: {e2}")
+        return [], [], []
 
 
 _compaction_cache: OrderedDict = OrderedDict()

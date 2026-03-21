@@ -40,6 +40,9 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# TODO(elastic-brain): Replace with real latency probing. See docs/elastic_brain_design.md
+_PLACEHOLDER_LATENCY_MS = 25.0
+
 # ── Tier Configuration ──────────────────────────────────────────
 
 TIER_MODEL_CONFIG = {
@@ -289,7 +292,7 @@ class CommunityCoordinator:
                     region=region,
                     nodes=group_nodes,
                     total_vram_gb=sum(n.gpu_vram_gb for n in group_nodes),
-                    avg_latency_ms=25.0,  # placeholder until latency probing
+                    avg_latency_ms=_PLACEHOLDER_LATENCY_MS,
                 )
                 clusters.append(cluster)
 

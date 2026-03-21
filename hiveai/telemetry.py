@@ -332,17 +332,19 @@ def _telemetry_writer_loop():
         except Exception as e:
             logger.warning(f"Telemetry async write failed (dropped): {e}")
             _drop_counter.record_drop(event_kwargs.get("experiment_group", "unknown"))
+            if _drop_counter._total % 10 == 0:
+                logger.warning(f"Telemetry drop count: {_drop_counter._total} total")
             if db:
                 try:
                     db.rollback()
-                except Exception:
-                    pass
+                except Exception as e_rb:
+                    logger.debug(f"Telemetry rollback failed: {e_rb}")
         finally:
             if db:
                 try:
                     db.close()
-                except Exception:
-                    pass
+                except Exception as e_cl:
+                    logger.debug(f"Telemetry session close failed: {e_cl}")
 
 
 def _ensure_writer_started():
