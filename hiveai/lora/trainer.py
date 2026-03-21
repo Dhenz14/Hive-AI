@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Model mapping: Ollama names → HuggingFace names for Unsloth
 # ---------------------------------------------------------------------------
 OLLAMA_TO_HF = {
+    # Qwen2.5 (our actual model family)
+    "qwen2.5-coder:14b": "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit",
+    # Qwen3 series (future reference)
     "qwen3:14b": "unsloth/Qwen3-14B-bnb-4bit",
     "qwen3:32b": "unsloth/Qwen3-32B-bnb-4bit",
     "qwen3:8b": "unsloth/Qwen3-8B-bnb-4bit",
@@ -37,8 +40,9 @@ OLLAMA_TO_HF = {
     "qwen3.5:9b": "unsloth/Qwen3.5-9B",
 }
 
-# Default: Qwen3.5-9B Dense (9B ALL active, fits 16GB VRAM with 4-bit, targets all MLP layers)
-DEFAULT_BASE_MODEL = "unsloth/Qwen3.5-9B"
+# Default: Qwen2.5-Coder-14B — our actual frozen base (v5-think lineage)
+# WARNING: Do NOT change without updating CLAUDE.md and score_ledger.json
+DEFAULT_BASE_MODEL = "unsloth/Qwen2.5-Coder-14B-Instruct-bnb-4bit"
 
 # ---------------------------------------------------------------------------
 # LoRA configuration

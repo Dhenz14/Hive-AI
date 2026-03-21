@@ -85,20 +85,22 @@ fi
 echo "[4/5] Model..."
 mkdir -p models
 
-if [ -f models/current_base.gguf ]; then
-    MODEL_SIZE=$(du -h models/current_base.gguf | cut -f1)
-    ok "Model found: models/current_base.gguf ($MODEL_SIZE)"
+MODEL_FILE="${HIVEAI_MODEL_FILE:-current_base.gguf}"
+if [ -f "models/$MODEL_FILE" ]; then
+    MODEL_SIZE=$(du -h "models/$MODEL_FILE" | cut -f1)
+    ok "Model found: models/$MODEL_FILE ($MODEL_SIZE)"
 else
-    warn "Model not found at models/current_base.gguf"
+    warn "Model not found at models/$MODEL_FILE"
     echo ""
     echo "    Download it (pick one):"
     echo ""
     echo "    Option A — HuggingFace CLI:"
     echo "      pip install huggingface-hub"
-    echo "      huggingface-cli download Dhenz14/hiveai-v5-think --local-dir ./models"
+    echo "      HF_TOKEN=hf_xxx huggingface-cli download Dhenz14/hiveai-v5-think --local-dir ./models"
+    echo "      (Set HF_TOKEN in .env or export it if the repo is gated)"
     echo ""
     echo "    Option B — Direct download:"
-    echo "      Copy your GGUF file to ./models/current_base.gguf"
+    echo "      Copy your GGUF file to ./models/$MODEL_FILE"
     echo ""
 fi
 
@@ -106,7 +108,7 @@ fi
 echo "[5/5] Summary..."
 echo ""
 
-if [ $ERRORS -eq 0 ] && [ -f models/current_base.gguf ]; then
+if [ $ERRORS -eq 0 ] && [ -f "models/$MODEL_FILE" ]; then
     echo -e "${GREEN}════════════════════════════════════════════════════════${NC}"
     echo -e "${GREEN}  Ready! Run: docker compose up${NC}"
     echo -e "${GREEN}  Then open: http://localhost:5001${NC}"

@@ -175,8 +175,11 @@ ENTITY_MEMORY_MAX_PER_BOOK = int(os.environ.get("ENTITY_MEMORY_MAX_PER_BOOK", "5
 MOLORA_ENABLED = os.environ.get("MOLORA_ENABLED", "false").lower() in ("1", "true", "yes")
 MOLORA_DEFAULT_DOMAIN = os.environ.get("MOLORA_DEFAULT_DOMAIN", "general")
 
-# --- Auto-Improvement (self-learning from verified chat responses) ---
-AUTO_IMPROVE_ENABLED = os.environ.get("AUTO_IMPROVE_ENABLED", "true").lower() in ("1", "true", "yes")
+# --- Auto-Improvement — DEPRECATED 2026-03-21 ---
+# Old micro-training daemon: trained wrong model, adapters never loaded, consumed
+# GPU without consent. Superseded by 4-layer architecture (RAG promotion bridge).
+# Daemon removed from app.py. Config kept for backward compat but always off.
+AUTO_IMPROVE_ENABLED = False  # Hard-disabled, env var no longer honored
 AUTO_IMPROVE_MIN_BLOCKS = int(os.environ.get("AUTO_IMPROVE_MIN_BLOCKS", "1"))
 AUTO_IMPROVE_QUALITY_BONUS = float(os.environ.get("AUTO_IMPROVE_QUALITY_BONUS", "0.05"))
 AUTO_IMPROVE_CHECK_INTERVAL = int(os.environ.get("AUTO_IMPROVE_CHECK_INTERVAL", "300"))

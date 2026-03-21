@@ -10,7 +10,7 @@
 #
 # Prerequisites:
 #   1. Docker with NVIDIA Container Toolkit
-#   2. GGUF model in ./models/current_base.gguf
+#   2. GGUF model in ./models/ (default: current_base.gguf, override with HIVEAI_MODEL_FILE)
 #   3. Run: bash scripts/setup.sh (first time only)
 #
 # Usage:
@@ -35,7 +35,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=sqlite:///data/hiveai.db
       - RUNTIME_MODE=chat_rag
-      - LLM_CTX_SIZE=8192
+      - LLM_CTX_SIZE=${LLM_CTX_SIZE:-8192}
     volumes:
       - hiveai-data:/app/data
       - hf-cache:/root/.cache/huggingface
@@ -51,6 +51,9 @@ services:
       retries: 3
 
   # ── llama-server (primary LLM — GPU) ─────────────────────
+  # Image uses :server-cuda (latest). llama.cpp doesn't publish semver tags.
+  # Pin to a specific hash if you need reproducibility:
+  #   image: ghcr.io/ggerganov/llama.cpp:server-cuda-fff0e0e
   llama-server:
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
     ports:
@@ -58,12 +61,12 @@ services:
     volumes:
       - ${HIVEAI_MODELS_DIR:-./models}:/models:ro
     command: >
-      --model /models/current_base.gguf
+      --model /models/${HIVEAI_MODEL_FILE:-current_base.gguf}
       --port 11435
       --host 0.0.0.0
-      --ctx-size 8192
+      --ctx-size ${LLM_CTX_SIZE:-8192}
       --flash-attn auto
-      -t 12
+      -t ${LLAMA_THREADS:-12}
       --n-gpu-layers 99
     deploy:
       resources:
@@ -77,8 +80,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
       interval: 15s
       timeout: 5s
-      start_period: 30s
-      retries: 3
+      start_period: 120s
+      retries: 5
 
   # ── Ollama (optional fallback) ────────────────────────────
   ollama:

@@ -189,90 +189,22 @@ _backfill_thread = threading.Thread(target=_background_backfill, daemon=True)
 _backfill_thread.start()
 
 
-def _auto_improve_worker():
-    """Background worker: periodically check for accumulated auto-verified pairs
-    and trigger micro-training when enough are available."""
-    import time as _time
-    _time.sleep(30)  # Wait for app startup
-
-    _logger = logging.getLogger("hiveai.auto_improve")
-
-    while True:
-        try:
-            from hiveai.config import AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_CHECK_INTERVAL, AUTO_IMPROVE_MIN_PAIRS
-            if not AUTO_IMPROVE_ENABLED:
-                _time.sleep(AUTO_IMPROVE_CHECK_INTERVAL)
-                continue
-
-            _db = SessionLocal()
-            try:
-                auto_count = _db.query(TrainingPair).filter(
-                    TrainingPair.source == "auto_verified",
-                    TrainingPair.is_eligible == True,
-                    TrainingPair.lora_version == None,
-                ).count()
-
-                if auto_count >= AUTO_IMPROVE_MIN_PAIRS:
-                    _logger.info(f"Auto-improve: {auto_count} verified pairs ready, triggering micro-training")
-
-                    from hiveai.lora.trainer import train_lora, MIN_PAIRS_MICRO
-
-                    output_dir = os.path.join(WORKSPACE, "loras", "training_data")
-                    os.makedirs(output_dir, exist_ok=True)
-                    ts = int(_time.time())
-                    micro_path = os.path.join(output_dir, f"auto_improve_{ts}.jsonl")
-
-                    # Export eligible unused pairs as Alpaca-format JSONL
-                    pairs = _db.query(TrainingPair).filter(
-                        TrainingPair.is_eligible == True,
-                        TrainingPair.quality >= 0.70,
-                        TrainingPair.lora_version == None,
-                    ).order_by(TrainingPair.quality.desc()).all()
-
-                    if len(pairs) >= MIN_PAIRS_MICRO:
-                        with open(micro_path, "w", encoding="utf-8") as f:
-                            for p in pairs:
-                                f.write(json.dumps({
-                                    "instruction": p.instruction,
-                                    "output": p.response,
-                                }, ensure_ascii=False) + "\n")
-
-                        adapter_dir = os.path.join(WORKSPACE, "loras", f"auto_improve_{ts}")
-
-                        def _run_micro():
-                            tdb = SessionLocal()
-                            try:
-                                train_lora(micro_path, adapter_dir, f"auto-{ts}",
-                                           db=tdb, force_micro=True)
-                            except Exception as exc:
-                                logging.getLogger("hiveai.auto_improve").error(f"Auto micro-training failed: {exc}")
-                            finally:
-                                tdb.close()
-
-                        threading.Thread(target=_run_micro, daemon=True).start()
-                        _logger.info(f"Auto-improve: micro-training started ({len(pairs)} pairs)")
-                    else:
-                        _logger.debug(f"Auto-improve: only {len(pairs)} eligible pairs, need {MIN_PAIRS_MICRO}")
-                else:
-                    _logger.debug(f"Auto-improve: {auto_count} auto-verified pairs, need {AUTO_IMPROVE_MIN_PAIRS}")
-
-            finally:
-                _db.close()
-
-        except Exception as exc:
-            logging.getLogger("hiveai.auto_improve").error(f"Auto-improve worker error: {exc}")
-
-        _time.sleep(AUTO_IMPROVE_CHECK_INTERVAL)
-
-
-try:
-    from hiveai.config import AUTO_IMPROVE_ENABLED as _ai_enabled
-    if _ai_enabled:
-        _auto_improve_thread = threading.Thread(target=_auto_improve_worker, daemon=True)
-        _auto_improve_thread.start()
-        logging.getLogger(__name__).info("Auto-improve background worker started")
-except Exception:
-    pass
+# ---------------------------------------------------------------------------
+# DEPRECATED: Auto-improve micro-training worker (2026-03-21)
+# ---------------------------------------------------------------------------
+# This daemon auto-trained LoRA adapters on verified chat responses every 5 min.
+# PROBLEMS:
+#   1. Trained wrong model (Qwen3.5-9B instead of v5-think/Qwen2.5-Coder-14B)
+#   2. Generated adapters were never loaded by inference — pure waste
+#   3. Consumed GPU without user consent, crashed Flask via OOM
+#   4. Superseded by 4-layer architecture: v5-think is FROZEN, knowledge grows
+#      via RAG (Layer 1 promotion bridge), not micro-training
+# The promotion bridge (promote_candidate_to_knowledge) is the correct path
+# for verified chat responses — it creates BookSections for RAG retrieval.
+# This daemon is DISABLED and will not start regardless of config.
+# ---------------------------------------------------------------------------
+# def _auto_improve_worker(): ...  # removed — see git history pre-2026-03-21
+# _auto_improve_thread startup block removed
 
 # --- Multi-Source Miner Background Worker ---
 try:
@@ -2524,11 +2456,17 @@ Quality: {quality:.2f} | Lines: {code_complexity.get('lines', 0)} | Branches: {c
 
 def _auto_stage_verified_pair(user_message, ai_response, verification, db):
     """
-    Auto-stage a chat response as a training pair if ALL code blocks pass verification.
+    DEPRECATED (2026-03-21): Auto-staging for micro-training is disabled.
+    The old micro-training pipeline trained the wrong model and produced
+    adapters that were never loaded. Knowledge growth now happens via
+    RAG promotion bridge (promote_candidate_to_knowledge), not training.
 
-    Returns dict with pair_id and quality, or None if not staged.
+    This function is kept for reference but always returns None.
     """
-    import hashlib
+    # Hard block — this system is deprecated regardless of config
+    return None
+
+    import hashlib  # noqa: E702 — unreachable, kept for git history
     from hiveai.config import (
         AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_MIN_BLOCKS,
         AUTO_IMPROVE_QUALITY_BONUS, MIN_TRAINING_QUALITY,
@@ -3063,7 +3001,8 @@ def search_chat_history():
 
 @app.route("/api/auto-improve/status", methods=["GET"])
 def auto_improve_status():
-    """Return auto-improvement pipeline status."""
+    """DEPRECATED (2026-03-21): Auto-improve pipeline is disabled.
+    Kept for backward compat — always returns enabled=false."""
     from hiveai.config import AUTO_IMPROVE_ENABLED, AUTO_IMPROVE_MIN_PAIRS
 
     db = SessionLocal()
