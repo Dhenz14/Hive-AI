@@ -93,6 +93,8 @@ loras/domains/
 # ...except large training exports (too big for GitHub, regenerate locally)
 loras/training_data/v[0-9].jsonl
 loras/training_data/v[0-9]_*.jsonl
+# Auto-improve outputs (deprecated system, never commit)
+loras/training_data/auto_improve_*.jsonl
 
 # Synthetic traffic data (generated locally, not checked in)
 data/

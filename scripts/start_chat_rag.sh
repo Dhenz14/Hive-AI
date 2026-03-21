@@ -49,12 +49,19 @@ done
 echo "[llama-server] Healthy on port $PORT, ctx-size $CTX_SIZE"
 
 # --- Step 2: Sync code from Windows git repo ---
-echo "[sync] Syncing latest code from Windows git repo..."
-cp -ru /mnt/c/Users/theyc/HiveAi/Hive-AI/hiveai/ /opt/hiveai/project/hiveai/ 2>/dev/null || true
-cp -ru /mnt/c/Users/theyc/HiveAi/Hive-AI/scripts/*.py /opt/hiveai/project/scripts/ 2>/dev/null || true
-cp -ru /mnt/c/Users/theyc/HiveAi/Hive-AI/skills/ /opt/hiveai/project/skills/ 2>/dev/null || true
+# Force-copy (not -u) to guarantee WSL always matches Windows git repo.
+# The -u flag caused stale code to persist when WSL timestamps were newer.
+echo "[sync] Force-syncing latest code from Windows git repo..."
+cp -rf /mnt/c/Users/theyc/HiveAi/Hive-AI/hiveai/ /opt/hiveai/project/hiveai/ 2>/dev/null || true
+cp -f /mnt/c/Users/theyc/HiveAi/Hive-AI/scripts/*.py /opt/hiveai/project/scripts/ 2>/dev/null || true
+cp -f /mnt/c/Users/theyc/HiveAi/Hive-AI/scripts/*.sh /opt/hiveai/project/scripts/ 2>/dev/null || true
+cp -rf /mnt/c/Users/theyc/HiveAi/Hive-AI/skills/ /opt/hiveai/project/skills/ 2>/dev/null || true
+# Remove nested duplicates caused by cp -r into existing dirs
+rm -rf /opt/hiveai/project/hiveai/hiveai/ 2>/dev/null
+rm -rf /opt/hiveai/project/skills/skills/ 2>/dev/null
 find /opt/hiveai/project/hiveai -name '*.py' -exec sed -i 's/\r$//' {} + 2>/dev/null
 find /opt/hiveai/project/scripts -name '*.py' -exec sed -i 's/\r$//' {} + 2>/dev/null
+find /opt/hiveai/project/scripts -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null
 echo "[sync] Done"
 
 # --- Step 3: Start Flask in tmux (IN WSL — not Windows) ---
