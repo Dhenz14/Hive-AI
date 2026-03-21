@@ -4,14 +4,23 @@
 # One-command deployment: docker compose up
 #
 # Services:
-#   hiveai  — Flask web app (port 5001)
-#   ollama  — Local LLM server (port 11434)
+#   hiveai        — Flask web app + RAG pipeline (port 5001)
+#   llama-server  — GPU-accelerated LLM inference (port 11435)
+#   ollama        — Optional fallback LLM server (port 11434)
 #
-# For GPU-accelerated Ollama, ensure NVIDIA Container Toolkit is installed:
-#   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+# Prerequisites:
+#   1. Docker with NVIDIA Container Toolkit
+#   2. GGUF model in ./models/current_base.gguf
+#   3. Run: bash scripts/setup.sh (first time only)
+#
+# Usage:
+#   docker compose up                              # standard (llama-server + Flask)
+#   docker compose --profile with-ollama up        # include Ollama fallback
+#   docker compose up --build                      # rebuild after code changes
 # =============================================================================
 
 services:
+  # ── HiveAI Flask App ──────────────────────────────────────
   hiveai:
     build: .
     ports:
@@ -21,22 +30,57 @@ services:
     environment:
       - PORT=5001
       - PRODUCTION=1
+      - LLM_BACKEND=llama-server
+      - LLAMA_SERVER_BASE_URL=http://llama-server:11435
       - OLLAMA_BASE_URL=http://ollama:11434
       - DATABASE_URL=sqlite:///data/hiveai.db
+      - RUNTIME_MODE=chat_rag
+      - LLM_CTX_SIZE=8192
     volumes:
       - hiveai-data:/app/data
-      - ./loras:/app/loras
+      - hf-cache:/root/.cache/huggingface
     depends_on:
-      ollama:
-        condition: service_started
+      llama-server:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:5001/ready"]
       interval: 30s
       timeout: 5s
-      start_period: 60s
+      start_period: 120s
       retries: 3
 
+  # ── llama-server (primary LLM — GPU) ─────────────────────
+  llama-server:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    ports:
+      - "11435:11435"
+    volumes:
+      - ${HIVEAI_MODELS_DIR:-./models}:/models:ro
+    command: >
+      --model /models/current_base.gguf
+      --port 11435
+      --host 0.0.0.0
+      --ctx-size 8192
+      --flash-attn auto
+      -t 12
+      --n-gpu-layers 99
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  # ── Ollama (optional fallback) ────────────────────────────
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -51,7 +95,10 @@ services:
               count: all
               capabilities: [gpu]
     restart: unless-stopped
+    profiles:
+      - with-ollama
 
 volumes:
   hiveai-data:
+  hf-cache:
   ollama-models:
