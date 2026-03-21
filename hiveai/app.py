@@ -4527,7 +4527,7 @@ def pool_submit_eval():
     threshold = data.get("threshold", 0.03)
 
     manifest = {
-        "schema_version": 2,
+        "schema_version": 1,
         "workload_type": "eval_sweep",
         "job_nonce": str(uuid.uuid4()).replace("-", ""),
         "model_name": model_version,
@@ -4547,7 +4547,7 @@ def pool_submit_eval():
         result = client.create_job(
             workload_type="eval_sweep",
             manifest=manifest,
-            budget_hbd="0.500",
+            budget_hbd="0.000",  # Free tier for now — fund account for paid jobs
             priority=10,
             min_vram_gb=12,
             lease_seconds=1800,
