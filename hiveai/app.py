@@ -4547,7 +4547,7 @@ def pool_submit_eval():
         result = client.create_job(
             workload_type="eval_sweep",
             manifest=manifest,
-            budget_hbd="0.000",  # Free tier for now — fund account for paid jobs
+            budget_hbd="0.500",
             priority=10,
             min_vram_gb=12,
             lease_seconds=1800,
