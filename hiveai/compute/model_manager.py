@@ -98,13 +98,13 @@ QUALIFIED_MODELS: list[QualifiedModel] = [
     ),
     QualifiedModel(
         name="qwen3.5:9b",
-        display_name="Qwen3.5 9B (fast, good for simple tasks)",
+        display_name="Qwen3.5 9B (deprecated — slower than v5-think, burns context on <think>)",
         tier=1,
         size_gb=6.6,
         vram_required_gb=6.0,
         vram_recommended_gb=8.0,
         eval_score=65.0,
-        qualified=True,
+        qualified=False,  # Deprecated 2026-03-21: 6x slower, timeouts, not competitive
         priority=5,
     ),
 

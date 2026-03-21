@@ -47,7 +47,7 @@ OLLAMA_MODEL_REASONING = os.environ.get("OLLAMA_MODEL_REASONING", "qwen3:14b")
 # Set via RUNTIME_MODE env var or inferred from LLM_CTX_SIZE.
 LLM_CTX_SIZE = int(os.environ.get("LLM_CTX_SIZE", "4096"))
 RUNTIME_MODE = os.environ.get("RUNTIME_MODE", "chat_rag" if LLM_CTX_SIZE >= 8192 else "campaign_probe")
-OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3.5:9b")
+OLLAMA_MODEL_FAST = os.environ.get("OLLAMA_MODEL_FAST", "qwen3:8b")
 
 # llama-server — serves the merged GGUF model (merge-then-freeze, no LoRA at runtime).
 # Any model name in LLAMA_SERVER_MODELS routes to llama-server instead of Ollama.
@@ -297,10 +297,6 @@ def validate_config():
             f"OLLAMA_MODEL_FAST='{OLLAMA_MODEL_FAST}' is a llama-server model. "
             "Ollama can't serve LoRA models — fast model calls will fail."
         )
-
-    # Auto-improve config checks
-    if AUTO_IMPROVE_ENABLED and not CHAT_VERIFY_CODE:
-        warnings.append("AUTO_IMPROVE_ENABLED=true but CHAT_VERIFY_CODE=false — auto-improve requires code verification")
 
     # Multi-miner config checks
     if MULTI_MINER_ENABLED:

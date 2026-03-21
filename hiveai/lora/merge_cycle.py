@@ -456,9 +456,9 @@ def export_gguf(
 
     convert_script = None
     for candidate in [
-        r"C:\Users\theyc\llama.cpp\convert_hf_to_gguf.py",
         os.path.expanduser("~/llama.cpp/convert_hf_to_gguf.py"),
         "/opt/llama.cpp/convert_hf_to_gguf.py",
+        "/opt/hiveai/llama-cpp-build/convert_hf_to_gguf.py",
     ]:
         if os.path.exists(candidate):
             convert_script = candidate

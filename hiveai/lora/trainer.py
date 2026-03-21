@@ -427,11 +427,13 @@ def _run_unsloth_training(jsonl_path: str, output_dir: str, hf_model: str,
 
 
 def _count_jsonl_lines(path: str) -> int:
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return sum(1 for line in f if line.strip())
-    except FileNotFoundError:
-        return 0
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Training data not found: {path}")
+    with open(path, "r", encoding="utf-8") as f:
+        count = sum(1 for line in f if line.strip())
+    if count == 0:
+        raise ValueError(f"Training data is empty: {path}")
+    return count
 
 
 def _create_lora_version_record(db, version: str, base_model: str, pair_count: int) -> int:
