@@ -72,14 +72,19 @@ if tmux has-session -t "$FLASK_SESSION" 2>/dev/null; then
     sleep 1
 fi
 
+# Auto-detect Windows host IP for HivePoA (WSL2 can't use localhost to reach Windows)
+WIN_GATEWAY=$(ip route | grep default | awk '{print $3}')
+HIVEPOA_URL_RESOLVED="${HIVEPOA_URL:-http://${WIN_GATEWAY}:5000}"
+echo "[hivepoa] Auto-detected gateway: $WIN_GATEWAY → $HIVEPOA_URL_RESOLVED"
+
 echo "[flask] Starting in tmux session '$FLASK_SESSION'..."
 tmux new-session -d -s "$FLASK_SESSION" \
     "cd /opt/hiveai/project && \
-     HIVEAI_ALLOW_WINDOWS=1 \
      LLM_BACKEND=llama-server \
      OLLAMA_BASE_URL=http://localhost:$PORT \
      LLM_CTX_SIZE=$CTX_SIZE \
      RUNTIME_MODE=chat_rag \
+     HIVEPOA_URL=$HIVEPOA_URL_RESOLVED \
      python3 -m flask --app hiveai.app run --host 0.0.0.0 --port 5001 2>&1 | tee /opt/hiveai/project/logs/flask_chat.log"
 
 # Wait for Flask health
