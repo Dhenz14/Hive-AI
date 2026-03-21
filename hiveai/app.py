@@ -15,6 +15,20 @@ from hiveai.orchestrator import classify_request, should_retry_verification, bui
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(name)s] %(levelname)s: %(message)s')
 
+# ── IRON WALL: Flask MUST run in WSL/Linux, NEVER on Windows ──
+if os.name == 'nt' and not os.environ.get('HIVEAI_ALLOW_WINDOWS'):
+    print("\n" + "="*60)
+    print("  BLOCKED: Flask must run in WSL, not Windows.")
+    print("  Windows is for backups only — not live operations.")
+    print("")
+    print("  Start correctly:")
+    print("    wsl -d Ubuntu-24.04 -- bash scripts/start_chat_rag.sh")
+    print("")
+    print("  Or from inside WSL:")
+    print("    cd /opt/hiveai/project && bash scripts/start_chat_rag.sh")
+    print("="*60 + "\n")
+    raise SystemExit(1)
+
 WORKSPACE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 app = Flask(__name__,

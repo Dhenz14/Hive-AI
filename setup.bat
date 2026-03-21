@@ -88,10 +88,10 @@ echo   Setup Complete!
 echo ======================================
 echo.
 echo Next steps:
-echo   1. Make sure Ollama is running (it starts automatically on Windows)
-echo   2. Pull AI models: ollama pull qwen3:14b ^&^& ollama pull qwen3:8b
-echo   3. Run the app: run.bat
-echo   4. Open http://localhost:5000 in your browser
+echo   1. Start HiveAI from WSL:
+echo      wsl -d Ubuntu-24.04 -- bash /opt/hiveai/project/scripts/start_chat_rag.sh
+echo   2. Open http://localhost:5001 in your browser
+echo   3. Windows is for code editing only. Everything runs in WSL.
 echo.
 echo No API keys needed - everything runs locally on your PC!
 echo.

@@ -36,7 +36,10 @@ Context is your most important resource. Proactively use subagents (Agent tool) 
 - **NEVER** run model operations, training, or llama-server on Windows
 - **NEVER** copy GGUFs to Windows — serve directly from WSL via `wsl.exe` or WSL llama-server
 - **llama-server runs in WSL**: `/opt/hiveai/llama-cpp-build/build/bin/llama-server` (CUDA, native Linux)
-- Flask app runs on Windows only because it serves the web UI — it calls llama-server via HTTP (localhost:11435)
+- **Flask runs in WSL** — same environment as llama-server, same DB, zero sync needed
+- **Windows is BACKUP ONLY** — git repo for code edits, one-way backup of important files. NEVER part of the live flow.
+- **ONE database**: `/opt/hiveai/project/hiveai.db` in WSL. No Windows DB. No sync. No risk.
+- `scripts/sync_db.py` exists for emergency recovery only — not for daily use
 - Source of truth for ALL files: `/opt/hiveai/project/` in WSL
 - Windows `c:\Users\theyc\HiveAi\Hive-AI\` is the git repo for code edits only — sync scripts to WSL before running
 

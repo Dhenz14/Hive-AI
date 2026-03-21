@@ -17,12 +17,52 @@ Usage:
 import argparse
 import sqlite3
 import os
+import shutil
 import sys
 import time
+from datetime import datetime
 
 WINDOWS_DB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hiveai.db")
 WSL_DB_VIA_MNT = "/mnt/c/Users/theyc/HiveAi/Hive-AI/hiveai.db"
 WSL_DB_NATIVE = "/opt/hiveai/project/hiveai.db"
+BACKUP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "db_backups")
+
+
+def backup_db(db_path, label):
+    """Create a timestamped backup before any sync. NEVER lose data."""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_name = f"hiveai_{label}_{ts}.db"
+    backup_path = os.path.join(BACKUP_DIR, backup_name)
+    shutil.copy2(db_path, backup_path)
+    # Verify backup has data
+    conn = sqlite3.connect(backup_path)
+    sections = count_rows(conn, "book_sections")
+    telemetry = count_rows(conn, "telemetry_events")
+    conn.close()
+    print(f"  BACKUP: {backup_name} ({sections} sections, {telemetry} telemetry)")
+    # Keep only last 5 backups per label to avoid bloat
+    all_backups = sorted(
+        [f for f in os.listdir(BACKUP_DIR) if f.startswith(f"hiveai_{label}_")],
+        reverse=True,
+    )
+    for old in all_backups[5:]:
+        os.remove(os.path.join(BACKUP_DIR, old))
+    return backup_path
+
+
+def verify_no_data_loss(db_path, pre_counts, label):
+    """Post-sync check: no table has FEWER rows than before. HARD FAIL if violated."""
+    conn = sqlite3.connect(db_path)
+    for table, pre_count in pre_counts.items():
+        post_count = count_rows(conn, table)
+        if post_count < pre_count:
+            conn.close()
+            print(f"\n  *** DATA LOSS DETECTED in {label}.{table}: {pre_count} -> {post_count} ***")
+            print(f"  *** RESTORE FROM BACKUP IMMEDIATELY ***")
+            sys.exit(1)
+    conn.close()
+    print(f"  VERIFIED: {label} — no data loss (all tables same or larger)")
 
 
 def count_rows(conn, table):
@@ -34,8 +74,9 @@ def count_rows(conn, table):
 
 def sync_book_sections(source, target):
     """Sync book_sections from source to target (insert new, skip existing)."""
-    src = sqlite3.connect(source)
-    tgt = sqlite3.connect(target)
+    src = sqlite3.connect(source, timeout=30)
+    tgt = sqlite3.connect(target, timeout=30)
+    tgt.execute("PRAGMA journal_mode=WAL")
 
     src_count = count_rows(src, "book_sections")
     tgt_count = count_rows(tgt, "book_sections")
@@ -79,8 +120,9 @@ def sync_book_sections(source, target):
 
 def sync_telemetry(source, target):
     """Sync telemetry_events from source to target."""
-    src = sqlite3.connect(source)
-    tgt = sqlite3.connect(target)
+    src = sqlite3.connect(source, timeout=30)
+    tgt = sqlite3.connect(target, timeout=30)
+    tgt.execute("PRAGMA journal_mode=WAL")
 
     # Ensure table exists in target
     try:
@@ -166,6 +208,31 @@ def main():
     print(f"WSL DB: {wsl_db}")
     print(f"Direction: {args.direction}\n")
 
+    # STEP 1: Backup BOTH databases BEFORE touching anything
+    print("=== PRE-SYNC BACKUPS ===")
+    backup_db(windows_db, "windows")
+    backup_db(wsl_db, "wsl")
+
+    # STEP 2: Record pre-sync counts for verification
+    w_conn = sqlite3.connect(windows_db)
+    wsl_conn = sqlite3.connect(wsl_db)
+    win_pre = {
+        "book_sections": count_rows(w_conn, "book_sections"),
+        "telemetry_events": count_rows(w_conn, "telemetry_events"),
+        "training_pairs": count_rows(w_conn, "training_pairs"),
+        "golden_books": count_rows(w_conn, "golden_books"),
+    }
+    wsl_pre = {
+        "book_sections": count_rows(wsl_conn, "book_sections"),
+        "telemetry_events": count_rows(wsl_conn, "telemetry_events"),
+        "training_pairs": count_rows(wsl_conn, "training_pairs"),
+        "golden_books": count_rows(wsl_conn, "golden_books"),
+    }
+    w_conn.close()
+    wsl_conn.close()
+    print(f"\nPre-sync: Windows={win_pre} | WSL={wsl_pre}\n")
+
+    # STEP 3: Sync (additive only — never deletes)
     if args.direction in ("wsl-to-windows", "both"):
         print("[WSL -> Windows] Syncing book_sections (promoted examples)...")
         sync_book_sections(wsl_db, windows_db)
@@ -174,12 +241,20 @@ def main():
         print("[Windows -> WSL] Syncing telemetry_events...")
         sync_telemetry(windows_db, wsl_db)
 
+    # STEP 4: VERIFY no data loss — HARD FAIL if any table shrunk
+    print("\n=== POST-SYNC VERIFICATION ===")
+    verify_no_data_loss(windows_db, win_pre, "Windows")
+    verify_no_data_loss(wsl_db, wsl_pre, "WSL")
+
     # Final counts
     w = sqlite3.connect(windows_db)
+    wsl = sqlite3.connect(wsl_db)
     print(f"\nWindows DB: {count_rows(w, 'book_sections')} sections, {count_rows(w, 'telemetry_events')} telemetry")
+    print(f"WSL DB:     {count_rows(wsl, 'book_sections')} sections, {count_rows(wsl, 'telemetry_events')} telemetry")
     w.close()
+    wsl.close()
 
-    print("Done. No data was overwritten.")
+    print("\nDone. No data was overwritten. Backups in db_backups/")
 
 
 if __name__ == "__main__":
