@@ -307,6 +307,33 @@
     </button>
     <div id="pool-feedback" class="feedback-box" style="margin-top: 0.6rem;"></div>
 
+    <!-- Quick Eval via Pool -->
+    <div style="margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--border);">
+        <h3 style="font-size: 0.9rem; color: var(--cyan); margin-bottom: 0.5rem;">Run Distributed Eval</h3>
+        <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.5rem;">
+            Run 60-probe regression eval via pool or locally. Results go to score ledger.
+        </p>
+        <div style="display: flex; gap: 0.5rem; align-items: flex-end;">
+            <div style="flex: 1;">
+                <label style="font-size: 0.8rem; color: var(--text-muted);">Model Version</label>
+                <input type="text" id="eval-model-version" value="v5-think"
+                       style="width: 100%; padding: 0.4rem; background: var(--bg-deep); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 0.85rem; box-sizing: border-box;">
+            </div>
+            <label style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem;">
+                <input type="checkbox" id="eval-quick"> Quick (18 probes)
+            </label>
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <button class="btn-forge" onclick="runPoolEval('pool')" style="flex: 1; padding: 0.5rem; font-size: 0.82rem;">
+                Eval via Pool
+            </button>
+            <button class="btn-forge" onclick="runPoolEval('local')" style="flex: 1; padding: 0.5rem; font-size: 0.82rem; opacity: 0.7;">
+                Eval Local
+            </button>
+        </div>
+        <div id="eval-feedback" class="feedback-box" style="margin-top: 0.5rem;"></div>
+    </div>
+
     <!-- Active Pool Jobs -->
     <div id="pool-jobs-list" style="margin-top: 1rem; display: none;">
         <h3 style="font-size: 0.9rem; color: var(--amber); margin-bottom: 0.5rem;">Active Jobs</h3>
@@ -1506,6 +1533,40 @@ function stopTmPoll() {
     if (_tmPollTimer) {
         clearInterval(_tmPollTimer);
         _tmPollTimer = null;
+    }
+}
+
+// ── Distributed Eval ──────────────────────────────────────────
+async function runPoolEval(mode) {
+    const modelVersion = document.getElementById('eval-model-version').value.trim() || 'v5-think';
+    const quick = document.getElementById('eval-quick').checked;
+    const feedback = document.getElementById('eval-feedback');
+
+    const endpoint = mode === 'pool' ? '/api/pool/eval' : '/api/pool/eval/local';
+    showFeedback(feedback, 'info', mode === 'pool' ? 'Submitting eval to GPU pool...' : 'Running eval locally (this takes ~20 min)...');
+
+    try {
+        const r = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_version: modelVersion, quick: quick }),
+        });
+        const data = await r.json();
+        if (r.ok && (data.ok || data.job_id)) {
+            if (mode === 'pool') {
+                showFeedback(feedback, 'success', `Eval submitted to pool! Job ID: ${data.job_id}. ${data.probes} probes.`);
+                loadPoolJobs();
+            } else {
+                const scores = data.scores || {};
+                const overall = scores.overall ? (scores.overall * 100).toFixed(1) + '%' : '?';
+                showFeedback(feedback, data.ok ? 'success' : 'error',
+                    `Local eval ${data.ok ? 'PASSED' : 'FAILED'}: ${overall} overall`);
+            }
+        } else {
+            showFeedback(feedback, 'error', data.error || 'Eval failed');
+        }
+    } catch (e) {
+        showFeedback(feedback, 'error', `Network error: ${e.message}`);
     }
 }
 

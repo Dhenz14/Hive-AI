@@ -4510,6 +4510,111 @@ def pool_job_status(job_id):
         return jsonify({"error": str(e)}), 502
 
 
+@app.route("/api/pool/eval", methods=["POST"])
+def pool_submit_eval():
+    """
+    Submit a 60-probe regression eval to the HivePoA GPU pool.
+    This is the #1 use case: distributed eval across community GPUs.
+
+    Body (JSON):
+      model_version  str  -- version label (default: "v5-think")
+      quick          bool -- use 18 probes instead of 60 (default: false)
+      threshold      float -- max regression per domain (default: 0.03)
+    """
+    data = request.get_json() or {}
+    model_version = data.get("model_version", "v5-think")
+    quick = data.get("quick", False)
+    threshold = data.get("threshold", 0.03)
+
+    manifest = {
+        "schema_version": 2,
+        "workload_type": "eval_sweep",
+        "job_nonce": str(uuid.uuid4()).replace("-", ""),
+        "model_name": model_version,
+        "server_url": f"http://localhost:11435",
+        "quick": quick,
+        "threshold": threshold,
+        "max_wall_clock_seconds": 1800 if not quick else 600,
+    }
+
+    try:
+        from hiveai.dbc.compute_client import HivePoAComputeClient
+        client = HivePoAComputeClient(
+            base_url=HIVEPOA_URL,
+            api_key=os.environ.get("HIVEPOA_API_KEY"),
+            auth_token=os.environ.get("HIVEPOA_AUTH_TOKEN"),
+        )
+        result = client.create_job(
+            workload_type="eval_sweep",
+            manifest=manifest,
+            budget_hbd="0.500",
+            priority=10,
+            min_vram_gb=12,
+            lease_seconds=1800,
+        )
+        job_id = result.get("id", "?")
+        logging.getLogger(__name__).info(f"Pool eval submitted: {job_id} model={model_version} quick={quick}")
+        return jsonify({
+            "ok": True,
+            "job_id": job_id,
+            "model_version": model_version,
+            "probes": 18 if quick else 60,
+            "job": result,
+        })
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Pool eval submission failed: {e}")
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/pool/eval/local", methods=["POST"])
+def pool_eval_local():
+    """
+    Run eval locally but report results in pool-compatible format.
+    Use this when pool is offline or for comparison.
+    """
+    import subprocess
+    data = request.get_json() or {}
+    model_version = data.get("model_version", "v5-think")
+    quick = data.get("quick", False)
+
+    cmd = [
+        "python3", "scripts/regression_eval.py",
+        "--model-version", model_version,
+        "--server-url", "http://localhost:11435",
+    ]
+    if quick:
+        cmd.append("--quick")
+
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=1800,
+            cwd="/opt/hiveai/project",
+        )
+        # Parse scores from ledger
+        import json as _json
+        ledger_path = "/opt/hiveai/project/score_ledger.json"
+        scores = {}
+        try:
+            with open(ledger_path) as f:
+                ledger = _json.load(f)
+                scores = ledger.get(model_version, {})
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": result.returncode == 0,
+            "model_version": model_version,
+            "scores": scores,
+            "exit_code": result.returncode,
+            "stdout_tail": result.stdout[-2000:] if result.stdout else "",
+            "mode": "local",
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Eval timed out (30 min limit)"}), 504
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/pool/estimate", methods=["POST"])
 def pool_estimate_cost():
     """Estimate cost for a pool job before submitting."""
